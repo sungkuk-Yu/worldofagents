@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>World of Agents — AgentTalk</title>
+<meta name="description" content="World of Agents. 나만의 에이전트를 만들고, 함께 키워가는 서비스 — AgentTalk." />
+<style>
+  :root {
+    --ink: #1c2a20;
+    --ink-soft: #5c6b60;
+    --bg: #EAF4EE;
+    --green: #18995F;
+    --green-deep: #0f6b42;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  .wrap {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    text-align: center;
+  }
+  .mark {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: var(--green);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    box-shadow: 0 8px 24px rgba(24,153,95,0.25);
+  }
+  .mark span {
+    color: #fff;
+    font-size: 26px;
+    font-weight: 800;
+  }
+  .eyebrow {
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--green-deep);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: clamp(2.2rem, 6vw, 3.4rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+  }
+  .tagline {
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+    margin: 0 0 36px;
+    max-width: 460px;
+    line-height: 1.65;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 20px;
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--green-deep);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 2px 8px rgba(24,153,95,0.12);
+  }
+  .badge::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+  }
+  footer {
+    position: absolute;
+    bottom: 28px;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+    opacity: 0.75;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="mark"><span>W</span></div>
+    <div class="eyebrow">World of Agents</div>
+    <h1>AgentTalk</h1>
+    <p class="tagline">
+      나만의 에이전트를 만들고, 함께 키워가는 서비스.<br />
+      Build your own agent, and grow together with it.
+    </p>
+    <div class="badge">Coming soon</div>
+  </div>
+  <footer>&copy; 2026 World of Agents</footer>
+</body>
+</html>
