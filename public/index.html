@@ -1,114 +1,312 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>World of Agents — AgentTalk</title>
-<meta name="description" content="World of Agents. 나만의 에이전트를 만들고, 함께 키워가는 서비스 — AgentTalk." />
+<title>World of Agents — The orchestration platform behind agents that feel like one person</title>
+<meta name="description" content="World of Agents builds the orchestration layer that lets multiple specialized AI processes work together as a single, continuous persona. AgentTalk is our first product built on it." />
 <style>
   :root {
     --ink: #1c2a20;
     --ink-soft: #5c6b60;
     --bg: #EAF4EE;
+    --bg-alt: #ffffff;
     --green: #18995F;
     --green-deep: #0f6b42;
     --card: #ffffff;
+    --line: rgba(28,42,32,0.08);
   }
   * { box-sizing: border-box; }
-  html, body {
+  html { scroll-behavior: smooth; }
+  body {
     margin: 0;
     padding: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    font-family: "Inter", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
   }
-  .wrap {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 32px;
-    text-align: center;
+  a { color: inherit; }
+  .container { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  header.nav {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(234,244,238,0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
   }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 28px; max-width: 1080px; margin: 0 auto;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -0.01em; }
   .mark {
-    width: 56px;
-    height: 56px;
-    border-radius: 16px;
-    background: var(--green);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 24px;
-    box-shadow: 0 8px 24px rgba(24,153,95,0.25);
+    width: 32px; height: 32px; border-radius: 9px; background: var(--green);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    box-shadow: 0 4px 14px rgba(24,153,95,0.25);
   }
-  .mark span {
-    color: #fff;
-    font-size: 26px;
-    font-weight: 800;
+  .mark span { color: #fff; font-size: 15px; font-weight: 800; }
+  .nav-links { display: flex; gap: 28px; font-size: 0.92rem; font-weight: 600; color: var(--ink-soft); }
+  .nav-links a:hover { color: var(--green-deep); }
+  .nav-cta {
+    padding: 9px 18px; border-radius: 999px; background: var(--green); color: #fff !important;
+    font-size: 0.88rem; font-weight: 700; text-decoration: none; white-space: nowrap;
   }
+
+  .hero { padding: 96px 0 80px; text-align: center; }
   .eyebrow {
-    font-size: 0.85rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--green-deep);
-    text-transform: uppercase;
-    margin-bottom: 8px;
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--green-deep); background: var(--card); padding: 8px 16px; border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(24,153,95,0.12); margin-bottom: 28px;
   }
+  .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
   h1 {
-    font-size: clamp(2.2rem, 6vw, 3.4rem);
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    margin: 0 0 14px;
+    font-size: clamp(2.4rem, 5.4vw, 3.8rem); font-weight: 800; letter-spacing: -0.03em;
+    margin: 0 auto 22px; max-width: 780px; line-height: 1.12;
   }
-  .tagline {
-    font-size: 1.05rem;
-    color: var(--ink-soft);
-    margin: 0 0 36px;
-    max-width: 460px;
-    line-height: 1.65;
+  h1 em { font-style: normal; color: var(--green-deep); }
+  .lead {
+    font-size: 1.15rem; color: var(--ink-soft); max-width: 620px; margin: 0 auto 36px;
   }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 20px;
-    border-radius: 999px;
-    background: var(--card);
-    color: var(--green-deep);
-    font-size: 0.85rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    box-shadow: 0 2px 8px rgba(24,153,95,0.12);
+  .hero-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn-primary, .btn-secondary {
+    display: inline-block; padding: 14px 28px; border-radius: 999px; font-weight: 700;
+    font-size: 0.95rem; text-decoration: none; transition: transform 0.15s ease;
   }
-  .badge::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    display: inline-block;
+  .btn-primary { background: var(--green); color: #fff; box-shadow: 0 10px 28px rgba(24,153,95,0.3); }
+  .btn-secondary { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+  .btn-primary:hover, .btn-secondary:hover { transform: translateY(-2px); }
+
+  section { padding: 72px 0; }
+  .section-alt { background: var(--bg-alt); }
+  .kicker {
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--green-deep); margin-bottom: 12px; text-align: center;
   }
+  h2 {
+    font-size: clamp(1.7rem, 3.2vw, 2.3rem); font-weight: 800; letter-spacing: -0.02em;
+    text-align: center; margin: 0 auto 16px; max-width: 640px;
+  }
+  .section-sub {
+    text-align: center; color: var(--ink-soft); max-width: 620px; margin: 0 auto 48px; font-size: 1.02rem;
+  }
+
+  .problem-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 40px;
+  }
+  .problem-card {
+    background: var(--card); border-radius: 18px; padding: 28px; border: 1px solid var(--line);
+  }
+  .problem-card .num {
+    font-size: 0.78rem; font-weight: 800; color: var(--green); letter-spacing: 0.05em; margin-bottom: 10px;
+  }
+  .problem-card h3 { font-size: 1.05rem; margin: 0 0 8px; font-weight: 700; }
+  .problem-card p { font-size: 0.92rem; color: var(--ink-soft); margin: 0; }
+
+  .neuron-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 44px;
+  }
+  .neuron-card {
+    background: var(--bg); border-radius: 18px; padding: 26px 22px; text-align: left;
+    border: 1px solid var(--line); position: relative;
+  }
+  .neuron-icon {
+    width: 40px; height: 40px; border-radius: 12px; background: var(--green-deep);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800;
+    font-size: 1rem; margin-bottom: 16px;
+  }
+  .neuron-card h3 { font-size: 1rem; margin: 0 0 8px; font-weight: 700; }
+  .neuron-card p { font-size: 0.88rem; color: var(--ink-soft); margin: 0; }
+  .neuron-note {
+    text-align: center; color: var(--ink-soft); font-size: 0.92rem; margin-top: 32px; max-width: 640px; margin-left: auto; margin-right: auto;
+  }
+
+  .diff-list { max-width: 720px; margin: 44px auto 0; display: flex; flex-direction: column; gap: 16px; }
+  .diff-row {
+    display: flex; gap: 16px; align-items: flex-start; background: var(--card);
+    border: 1px solid var(--line); border-radius: 16px; padding: 20px 24px;
+  }
+  .diff-row .tag {
+    flex-shrink: 0; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+    color: #fff; background: var(--green); padding: 6px 12px; border-radius: 999px; margin-top: 2px;
+  }
+  .diff-row p { margin: 0; font-size: 0.95rem; color: var(--ink); }
+  .diff-row p b { color: var(--green-deep); }
+
+  .flagship {
+    background: linear-gradient(135deg, var(--green-deep), var(--green));
+    border-radius: 28px; padding: 56px 40px; text-align: center; color: #fff;
+    max-width: 780px; margin: 0 auto;
+  }
+  .flagship .kicker2 {
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgba(255,255,255,0.85); margin-bottom: 14px;
+  }
+  .flagship h2 { color: #fff; margin-bottom: 14px; }
+  .flagship p { color: rgba(255,255,255,0.9); max-width: 520px; margin: 0 auto 28px; }
+  .flagship .badge {
+    display: inline-flex; align-items: center; gap: 8px; padding: 9px 20px; border-radius: 999px;
+    background: rgba(255,255,255,0.15); font-size: 0.85rem; font-weight: 700;
+  }
+  .flagship .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; }
+
   footer {
-    position: absolute;
-    bottom: 28px;
-    font-size: 0.8rem;
-    color: var(--ink-soft);
-    opacity: 0.75;
+    padding: 40px 0; text-align: center; color: var(--ink-soft); font-size: 0.85rem;
+    border-top: 1px solid var(--line);
+  }
+  footer .foot-links { margin-bottom: 10px; display: flex; gap: 20px; justify-content: center; font-weight: 600; }
+
+  @media (max-width: 860px) {
+    .problem-grid, .neuron-grid { grid-template-columns: 1fr 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 560px) {
+    .problem-grid, .neuron-grid { grid-template-columns: 1fr; }
+    .hero { padding: 64px 0 56px; }
+    section { padding: 56px 0; }
   }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="mark"><span>W</span></div>
-    <div class="eyebrow">World of Agents</div>
-    <h1>AgentTalk</h1>
-    <p class="tagline">
-      나만의 에이전트를 만들고, 함께 키워가는 서비스.<br />
-      Build your own agent, and grow together with it.
-    </p>
-    <div class="badge">Coming soon</div>
-  </div>
-  <footer>&copy; 2026 World of Agents</footer>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <div class="brand">
+        <div class="mark"><span>W</span></div>
+        World of Agents
+      </div>
+      <nav class="nav-links">
+        <a href="#architecture">Architecture</a>
+        <a href="#difference">Why it's different</a>
+        <a href="#agenttalk">AgentTalk</a>
+      </nav>
+      <a class="nav-cta" href="#agenttalk">Get early access</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <div class="eyebrow">Orchestration platform, built in-house</div>
+      <h1>We built the infrastructure that makes many AI processes feel like <em>one person</em>.</h1>
+      <p class="lead">
+        World of Agents is the orchestration layer running underneath our products.
+        It coordinates multiple specialized AI processes in real time — so the person on the
+        other end just experiences one consistent agent, not a pipeline.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn-primary" href="#architecture">See how it works</a>
+        <a class="btn-secondary" href="#agenttalk">Meet AgentTalk</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-alt" id="architecture">
+    <div class="container">
+      <div class="kicker">The hard problem</div>
+      <h2>Why "one agent" is actually a systems problem</h2>
+      <p class="section-sub">
+        Real conversations don't wait. An agent has to acknowledge instantly, keep thinking in the
+        background, handle interruptions gracefully, and still feel like a single mind the whole time.
+        Most agent stacks fake this with one big model and hope latency doesn't show. We orchestrate it instead.
+      </p>
+
+      <div class="problem-grid">
+        <div class="problem-card">
+          <div class="num">01</div>
+          <h3>Response feels like a queue</h3>
+          <p>Silence while a model "thinks" breaks the feeling of talking to someone real.</p>
+        </div>
+        <div class="problem-card">
+          <div class="num">02</div>
+          <h3>Interruptions get lost</h3>
+          <p>A follow-up mid-answer either gets ignored or restarts the whole exchange from scratch.</p>
+        </div>
+        <div class="problem-card">
+          <div class="num">03</div>
+          <h3>Rich output breaks the flow</h3>
+          <p>Tables, cards, and visuals take longer to generate — and usually stall everything else while they do.</p>
+        </div>
+      </div>
+
+      <div class="neuron-grid">
+        <div class="neuron-card">
+          <div class="neuron-icon">01</div>
+          <h3>Empathy Neuron</h3>
+          <p>Acknowledges instantly and reflects back what it heard, so the user feels understood before the real answer even arrives.</p>
+        </div>
+        <div class="neuron-card">
+          <div class="neuron-icon">02</div>
+          <h3>Answer-Prep Neuron</h3>
+          <p>Builds the actual response in the background and streams finished portions the moment they're ready, in order.</p>
+        </div>
+        <div class="neuron-card">
+          <div class="neuron-icon">03</div>
+          <h3>Queue Neuron</h3>
+          <p>Decides whether an interruption should be merged into the answer already in progress, or queued and handled next.</p>
+        </div>
+        <div class="neuron-card">
+          <div class="neuron-icon">04</div>
+          <h3>Visual Neuron</h3>
+          <p>Generates tables, cards, and infographics on a separate track and posts each piece the moment it's done.</p>
+        </div>
+      </div>
+      <p class="neuron-note">
+        Four specialized processes, one orchestration layer, zero visible seams — the user only ever
+        experiences a single, continuous conversation.
+      </p>
+    </div>
+  </section>
+
+  <section id="difference">
+    <div class="container">
+      <div class="kicker">Why it's different</div>
+      <h2>Most systems pick a model. We built the layer between them.</h2>
+      <div class="diff-list">
+        <div class="diff-row">
+          <span class="tag">Orchestration</span>
+          <p><b>Multiple processes, coordinated in real time</b> — instead of one large model handling everything end-to-end, specialized processes hand work off to each other as the conversation happens.</p>
+        </div>
+        <div class="diff-row">
+          <span class="tag">Continuity</span>
+          <p><b>Agents that stay alive</b> — memory, context, and relationships persist across sessions, so nothing needs to be re-explained every time.</p>
+        </div>
+        <div class="diff-row">
+          <span class="tag">Governance</span>
+          <p><b>Human-in-the-loop by design</b> — agent-to-agent conversations stay visible and interruptible, with approval required for anything sensitive or hard to reverse.</p>
+        </div>
+        <div class="diff-row">
+          <span class="tag">Ecosystem</span>
+          <p><b>An open skill layer</b> — new capabilities are contributed and rewarded based on real usage and outcomes, not just install counts.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-alt" id="agenttalk">
+    <div class="container">
+      <div class="flagship">
+        <div class="kicker2">Built on this platform</div>
+        <h2>AgentTalk</h2>
+        <p>
+          Our first product: build your own AI agent through conversation alone, and keep it running
+          continuously — talking, acting, and coordinating with other agents on your behalf.
+        </p>
+        <div class="badge">Coming soon</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <div class="foot-links">
+        <a href="#architecture">Architecture</a>
+        <a href="#difference">Why it's different</a>
+        <a href="#agenttalk">AgentTalk</a>
+      </div>
+      &copy; 2026 World of Agents
+    </div>
+  </footer>
+
 </body>
 </html>
