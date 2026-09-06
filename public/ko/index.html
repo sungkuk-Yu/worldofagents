@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>World of Agents — The orchestration platform behind agents that feel like one person</title>
-<meta name="description" content="World of Agents builds the orchestration layer that lets multiple specialized AI processes work together as a single, continuous persona. AgentTalk is our first product built on it." />
+<title>월드오브에이전트 — 여러 에이전트를 한 사람처럼 만드는 오케스트레이션 플랫폼</title>
+<meta name="description" content="월드오브에이전트는 여러 전문화된 AI 프로세스를 하나의 지속적인 인격으로 조율하는 오케스트레이션 레이어를 만듭니다. 에이전트톡은 이 위에서 나온 첫 제품입니다." />
 <style>
   :root {
     --ink: #1c2a20;
@@ -23,8 +23,9 @@
     padding: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: "Inter", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
     line-height: 1.6;
+    word-break: keep-all;
   }
   a { color: inherit; }
   .container { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
@@ -60,18 +61,18 @@
   .hero { padding: 96px 0 80px; text-align: center; }
   .eyebrow {
     display: inline-flex; align-items: center; gap: 8px;
-    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
     color: var(--green-deep); background: var(--card); padding: 8px 16px; border-radius: 999px;
     box-shadow: 0 2px 8px rgba(24,153,95,0.12); margin-bottom: 28px;
   }
   .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
   h1 {
-    font-size: clamp(2.4rem, 5.4vw, 3.8rem); font-weight: 800; letter-spacing: -0.03em;
-    margin: 0 auto 22px; max-width: 780px; line-height: 1.12;
+    font-size: clamp(2.2rem, 5.2vw, 3.4rem); font-weight: 800; letter-spacing: -0.02em;
+    margin: 0 auto 22px; max-width: 780px; line-height: 1.28;
   }
   h1 em { font-style: normal; color: var(--green-deep); }
   .lead {
-    font-size: 1.15rem; color: var(--ink-soft); max-width: 620px; margin: 0 auto 36px;
+    font-size: 1.1rem; color: var(--ink-soft); max-width: 620px; margin: 0 auto 36px;
   }
   .hero-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
   .btn-primary, .btn-secondary {
@@ -85,12 +86,12 @@
   section { padding: 72px 0; }
   .section-alt { background: var(--bg-alt); }
   .kicker {
-    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
     color: var(--green-deep); margin-bottom: 12px; text-align: center;
   }
   h2 {
-    font-size: clamp(1.7rem, 3.2vw, 2.3rem); font-weight: 800; letter-spacing: -0.02em;
-    text-align: center; margin: 0 auto 16px; max-width: 640px;
+    font-size: clamp(1.6rem, 3vw, 2.15rem); font-weight: 800; letter-spacing: -0.01em;
+    text-align: center; margin: 0 auto 16px; max-width: 660px; line-height: 1.35;
   }
   .section-sub {
     text-align: center; color: var(--ink-soft); max-width: 620px; margin: 0 auto 48px; font-size: 1.02rem;
@@ -132,8 +133,8 @@
     border: 1px solid var(--line); border-radius: 16px; padding: 20px 24px;
   }
   .diff-row .tag {
-    flex-shrink: 0; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
-    color: #fff; background: var(--green); padding: 6px 12px; border-radius: 999px; margin-top: 2px;
+    flex-shrink: 0; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.02em;
+    color: #fff; background: var(--green); padding: 6px 12px; border-radius: 999px; margin-top: 2px; white-space: nowrap;
   }
   .diff-row p { margin: 0; font-size: 0.95rem; color: var(--ink); }
   .diff-row p b { color: var(--green-deep); }
@@ -144,7 +145,7 @@
     max-width: 780px; margin: 0 auto;
   }
   .flagship .kicker2 {
-    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
     color: rgba(255,255,255,0.85); margin-bottom: 14px;
   }
   .flagship h2 { color: #fff; margin-bottom: 14px; }
@@ -178,116 +179,117 @@
     <div class="nav-inner">
       <div class="brand">
         <div class="mark"><span>W</span></div>
-        World of Agents
+        월드오브에이전트
       </div>
       <nav class="nav-links">
-        <a href="#architecture">Architecture</a>
-        <a href="#difference">Why it's different</a>
-        <a href="#agenttalk">AgentTalk</a>
+        <a href="#architecture">아키텍처</a>
+        <a href="#difference">차별점</a>
+        <a href="#agenttalk">에이전트톡</a>
       </nav>
       <div class="nav-right">
         <div class="lang-switch">
-          <a href="/" class="active">EN</a>
-          <a href="/ko/">KO</a>
+          <a href="/">EN</a>
+          <a href="/ko/" class="active">KO</a>
         </div>
-        <a class="nav-cta" href="#agenttalk">Get early access</a>
+        <a class="nav-cta" href="#agenttalk">얼리 액세스 신청</a>
       </div>
     </div>
   </header>
 
   <section class="hero">
     <div class="container">
-      <div class="eyebrow">Orchestration platform, built in-house</div>
-      <h1>We built the infrastructure that makes many AI processes feel like <em>one person</em>.</h1>
+      <div class="eyebrow">자체 개발 오케스트레이션 플랫폼</div>
+      <h1>여러 AI 프로세스를 <em>한 사람처럼</em> 느끼게 만드는 인프라, 우리가 직접 만들었습니다.</h1>
       <p class="lead">
-        World of Agents is the orchestration layer running underneath our products.
-        It coordinates multiple specialized AI processes in real time — so the person on the
-        other end just experiences one consistent agent, not a pipeline.
+        월드오브에이전트는 우리 제품들 밑에서 돌아가는 오케스트레이션 레이어입니다.
+        여러 전문화된 AI 프로세스를 실시간으로 조율해서, 상대방은 파이프라인이 아니라
+        하나의 일관된 에이전트를 경험합니다.
       </p>
       <div class="hero-ctas">
-        <a class="btn-primary" href="#architecture">See how it works</a>
-        <a class="btn-secondary" href="#agenttalk">Meet AgentTalk</a>
+        <a class="btn-primary" href="#architecture">작동 원리 보기</a>
+        <a class="btn-secondary" href="#agenttalk">에이전트톡 만나보기</a>
       </div>
     </div>
   </section>
 
   <section class="section-alt" id="architecture">
     <div class="container">
-      <div class="kicker">The hard problem</div>
-      <h2>Why "one agent" is actually a systems problem</h2>
+      <div class="kicker">핵심 과제</div>
+      <h2>"하나의 에이전트"가 사실은 시스템 문제인 이유</h2>
       <p class="section-sub">
-        Real conversations don't wait. An agent has to acknowledge instantly, keep thinking in the
-        background, handle interruptions gracefully, and still feel like a single mind the whole time.
-        Most agent stacks fake this with one big model and hope latency doesn't show. We orchestrate it instead.
+        진짜 대화는 기다려주지 않습니다. 에이전트는 즉시 반응하면서 동시에 백그라운드에서
+        계속 생각하고, 끼어드는 말도 매끄럽게 처리하면서, 그 와중에도 하나의 마음처럼
+        느껴져야 합니다. 대부분의 에이전트 스택은 큰 모델 하나로 이걸 흉내내고 지연시간이
+        티 안 나길 바랍니다. 우리는 대신 오케스트레이션으로 풉니다.
       </p>
 
       <div class="problem-grid">
         <div class="problem-card">
           <div class="num">01</div>
-          <h3>Response feels like a queue</h3>
-          <p>Silence while a model "thinks" breaks the feeling of talking to someone real.</p>
+          <h3>응답이 줄서기처럼 느껴짐</h3>
+          <p>모델이 "생각"하는 동안의 침묵은 진짜 사람과 대화하는 느낌을 깨뜨립니다.</p>
         </div>
         <div class="problem-card">
           <div class="num">02</div>
-          <h3>Interruptions get lost</h3>
-          <p>A follow-up mid-answer either gets ignored or restarts the whole exchange from scratch.</p>
+          <h3>끼어든 말이 사라짐</h3>
+          <p>답변 도중 들어온 후속 질문은 무시되거나, 전체 대화를 처음부터 다시 시작하게 만듭니다.</p>
         </div>
         <div class="problem-card">
           <div class="num">03</div>
-          <h3>Rich output breaks the flow</h3>
-          <p>Tables, cards, and visuals take longer to generate — and usually stall everything else while they do.</p>
+          <h3>풍부한 결과물이 흐름을 끊음</h3>
+          <p>표, 카드, 시각자료는 생성에 시간이 더 걸리고, 그동안 보통 다른 모든 걸 멈춰 세웁니다.</p>
         </div>
       </div>
 
       <div class="neuron-grid">
         <div class="neuron-card">
           <div class="neuron-icon">01</div>
-          <h3>Empathy Neuron</h3>
-          <p>Acknowledges instantly and reflects back what it heard, so the user feels understood before the real answer even arrives.</p>
+          <h3>공감 에이뉴런</h3>
+          <p>즉시 반응하고 들은 내용을 되짚어줘서, 진짜 답변이 오기도 전에 사용자가 "이해받고 있다"고 느끼게 합니다.</p>
         </div>
         <div class="neuron-card">
           <div class="neuron-icon">02</div>
-          <h3>Answer-Prep Neuron</h3>
-          <p>Builds the actual response in the background and streams finished portions the moment they're ready, in order.</p>
+          <h3>답변생성 에이뉴런</h3>
+          <p>백그라운드에서 실제 답변을 만들고, 완성된 부분부터 순서대로 바로바로 스트리밍합니다.</p>
         </div>
         <div class="neuron-card">
           <div class="neuron-icon">03</div>
-          <h3>Queue Neuron</h3>
-          <p>Decides whether an interruption should be merged into the answer already in progress, or queued and handled next.</p>
+          <h3>큐 에이뉴런</h3>
+          <p>끼어든 말을 지금 진행 중인 답변에 바로 합칠지, 큐에 넣고 다음에 처리할지 판단합니다.</p>
         </div>
         <div class="neuron-card">
           <div class="neuron-icon">04</div>
-          <h3>Visual Neuron</h3>
-          <p>Generates tables, cards, and infographics on a separate track and posts each piece the moment it's done.</p>
+          <h3>비주얼 에이뉴런</h3>
+          <p>표, 카드, 인포그래픽을 별도 트랙에서 생성해서 완성되는 즉시 게시합니다.</p>
         </div>
       </div>
       <p class="neuron-note">
-        Four specialized processes, one orchestration layer, zero visible seams — the user only ever
-        experiences a single, continuous conversation.
+        네 개의 전문화된 프로세스, 하나의 오케스트레이션 레이어, 이음매는 전혀 보이지 않습니다 —
+        사용자는 언제나 하나의 끊김 없는 대화만 경험합니다.
       </p>
     </div>
   </section>
 
   <section id="difference">
     <div class="container">
-      <div class="kicker">Why it's different</div>
-      <h2>Most systems pick a model. We built the layer between them.</h2>
+      <div class="kicker">차별점</div>
+      <h2>대부분은 모델을 고릅니다. 우리는 그 사이의 레이어를 만들었습니다.</h2>
       <div class="diff-list">
         <div class="diff-row">
-          <span class="tag">Orchestration</span>
-          <p><b>Multiple processes, coordinated in real time</b> — instead of one large model handling everything end-to-end, specialized processes hand work off to each other as the conversation happens.</p>
+          <span class="tag">오케스트레이션</span>
+          <p><b>실시간으로 조율되는 여러 프로세스</b> — 하나의 거대한 모델이 처음부터 끝까지 다 처리하는 대신, 전문화된 프로세스들이 대화가 진행되는 동안 서로 작업을 주고받습니다.</p>
         </div>
         <div class="diff-row">
-          <span class="tag">Continuity</span>
-          <p><b>Agents that stay alive</b> — memory, context, and relationships persist across sessions, so nothing needs to be re-explained every time.</p>
+          <span class="tag">연속성</span>
+          <p><b>계속 살아있는 에이전트</b> — 기억, 맥락, 관계가 세션을 넘어 지속돼서, 매번 다시 설명할 필요가 없습니다.</p>
         </div>
         <div class="diff-row">
-          <span class="tag">Governance</span>
-          <p><b>Human-in-the-loop by design</b> — agent-to-agent conversations stay visible and interruptible, with approval required for anything sensitive or hard to reverse.</p>
+          <span class="tag">거버넌스</span>
+          <p><b>설계 단계부터 반영된 사람의 개입</b> — 에이전트끼리의 대화도 항상 보이고 개입 가능하게 유지되고, 민감하거나 되돌리기 어려운 일은 반드시 승인을 거칩니다.</p>
         </div>
         <div class="diff-row">
-          <span class="tag">Open orchestration</span>
-          <p><b>Anyone can join and improve the orchestration itself</b> — not just plug in a skill, but contribute to how the processes coordinate. New capabilities are rewarded based on real usage and outcomes, not just install counts.</p>
+          <span class="tag">오픈 오케스트레이션</span>
+          <p><b>오케스트레이션 자체를 함께 만들고 개선할 수 있습니다</b> — 그냥 스킬 하나를 꽂는 게 아니라, 프로세스들이 어떻게 조율되는지 그 방식 자체에 기여할 수 있습니다. 새로운 기능은 설치 수가 아니라 실제 사용량과 결과를 기준으로 보상됩니다.</p>
         </div>
       </div>
     </div>
@@ -296,13 +298,13 @@
   <section class="section-alt" id="agenttalk">
     <div class="container">
       <div class="flagship">
-        <div class="kicker2">Built on this platform</div>
-        <h2>AgentTalk</h2>
+        <div class="kicker2">이 플랫폼 위에서</div>
+        <h2>에이전트톡</h2>
         <p>
-          Our first product: build your own AI agent through conversation alone, and keep it running
-          continuously — talking, acting, and coordinating with other agents on your behalf.
+          우리의 첫 제품: 대화만으로 나만의 AI 에이전트를 만들고, 계속 운영되게 하세요 —
+          사용자를 대신해 말하고, 행동하고, 다른 에이전트와 조율합니다.
         </p>
-        <div class="badge">Coming soon</div>
+        <div class="badge">출시 예정</div>
       </div>
     </div>
   </section>
@@ -310,11 +312,11 @@
   <footer>
     <div class="container">
       <div class="foot-links">
-        <a href="#architecture">Architecture</a>
-        <a href="#difference">Why it's different</a>
-        <a href="#agenttalk">AgentTalk</a>
+        <a href="#architecture">아키텍처</a>
+        <a href="#difference">차별점</a>
+        <a href="#agenttalk">에이전트톡</a>
       </div>
-      &copy; 2026 World of Agents
+      &copy; 2026 월드오브에이전트
     </div>
   </footer>
 
