@@ -1,1 +1,7 @@
 .netlify/
+
+# vitest cache
+**/node_modules/.vite/
+
+# supabase CLI temp artifacts
+apps/backend/supabase/.temp/

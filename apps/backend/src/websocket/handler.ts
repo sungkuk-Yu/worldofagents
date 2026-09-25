@@ -117,11 +117,11 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     if (terminate) socket.terminate?.();
   }
 
-  socket.on('message', async (raw: Buffer | string) => {
+  socket.on('message', async (raw: Buffer | string, isBinary?: boolean) => {
     state.lastActivity = Date.now();
 
-    // 바이너리 프레임 = 오디오 청크
-    if (Buffer.isBuffer(raw) || ArrayBuffer.isView(raw)) {
+    // 바이너리 프레임 = 오디오 청크 (텍스트 JSON 프레임도 Buffer로 내려오므로 isBinary로 구분)
+    if (isBinary === true && (Buffer.isBuffer(raw) || ArrayBuffer.isView(raw))) {
       handleAudioChunk(socket, state, Buffer.isBuffer(raw) ? raw : Buffer.from(raw as unknown as ArrayBuffer));
       return;
     }

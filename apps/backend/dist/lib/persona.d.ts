@@ -32,7 +32,7 @@ export interface GuardCheck {
 export declare class PersonaGuard {
     private config;
     constructor(config: PersonaConfig);
-    validate(response: string, neuronType?: string, recentResponses?: string[]): Promise<GuardResult>;
+    validate(response: string, _neuronType?: string, _recentResponses?: string[]): Promise<GuardResult>;
 }
 /** 시스템 프롬프트에 주입할 대화 히스토리 구성 */
 export declare function buildConversationHistory(history: {

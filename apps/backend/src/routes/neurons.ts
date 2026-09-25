@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
-import { ok, ApiError, ERROR_CODES, badRequest, forbidden } from '../lib/errors';
+import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 import { ensureDefaultNeurons } from '../neurons/registry';
 
 /**

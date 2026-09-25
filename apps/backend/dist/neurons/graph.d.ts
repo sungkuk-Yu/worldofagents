@@ -46,7 +46,12 @@ export interface TurnResult {
     empathyResponse: string | null;
     answerResponse: string | null;
     dialogueType: DialogueType;
-    activationPlan: string[];
+    /** 뉴런 활성화 계획 — 설계 문서와 동일한 객체 형태 (activate/reason) */
+    activationPlan: {
+        activate: string[];
+        reason: string;
+        dialogueType: DialogueType;
+    };
     events: NeuronStatusEvent[];
     guardPassed: boolean;
     engine: 'langgraph' | 'simple';

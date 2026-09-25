@@ -1,9 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
-import { ensureSession, getOwnedSession, nextTurnIndex } from '../lib/helpers';
+import { ensureSession, getOwnedSession } from '../lib/helpers';
 import { processTurn } from '../neurons/graph';
-import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances, recordConnectionEvent } from '../neurons/registry';
+import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
 import { listTasksBySession, createTaskInSession } from './tasks';
 

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config';
-import { createDevClient, DevClient, getStore } from './devstore';
+import { createDevClient, getStore } from './devstore';
 
 /**
  * 라우트에서 사용하는 DB 클라이언트 인터페이스.

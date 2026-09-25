@@ -38,19 +38,27 @@ interface SelectOp {
     maybeSingle: boolean;
     columns: string;
 }
-type PendingOperation = SelectOp | {
+/**
+ * Mutation op — insert/upsert/update/delete.
+ * - `filters`: update/delete의 대상 행 필터 (supabase-js처럼 `.eq()` 체이닝으로 누적)
+ * - `then`: Mutation 뒤의 `.select()/.single()` 체이닝 (Postgres RETURNING 개념).
+ *   select 계열 메서드는 mutation을 소멸시키지 않고 then에 반영한다.
+ */
+interface MutationOp {
+    kind: 'insert' | 'upsert' | 'update' | 'delete';
+    filters: Filter[];
+    then: SelectOp | null;
+}
+type PendingOperation = SelectOp | (MutationOp & {
     kind: 'insert' | 'upsert';
     rows: DevRow[];
     conflictKey: string | null;
-    then: SelectOp | null;
-} | {
+}) | (MutationOp & {
     kind: 'update';
     values: DevRow;
-    then: SelectOp | null;
-} | {
+}) | (MutationOp & {
     kind: 'delete';
-    then: SelectOp | null;
-};
+});
 export declare class DevQueryBuilder implements PromiseLike<QueryResult> {
     private store;
     private table;

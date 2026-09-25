@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
-import { ok, ApiError, ERROR_CODES, badRequest, forbidden } from '../lib/errors';
+import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 import { SkillsRow, SkillInstallationsRow } from '../types/db';
 import { DbClient } from '../lib/supabase';
 
@@ -40,6 +40,16 @@ function rankingRows(rows: SkillsRow[], sort: string): SkillsRow[] {
   return list;
 }
 
+type ScoredSkill = SkillsRow & { composite_score: number };
+
+/** 다신호 종합 점수 — api-design.md §3.7 (skill_rankings 뷰와 동일 계산) */
+function withCompositeScore(s: SkillsRow): ScoredSkill {
+  const satisfaction = s.satisfaction_count ? s.satisfaction_sum / s.satisfaction_count / 5 : 0;
+  const installScore = Math.min(s.install_count / 1000, 1);
+  const usageScore = Math.min(s.usage_count / 5000, 1);
+  return { ...s, composite_score: satisfaction * 0.4 + installScore * 0.3 + usageScore * 0.3 };
+}
+
 export async function skillRoutes(app: FastifyInstance) {
   // GET /api/skills — 스킬 목록 (검색/필터/정렬)
   app.get('/', { preHandler: requireAuth }, async (request) => {
@@ -56,7 +66,14 @@ export async function skillRoutes(app: FastifyInstance) {
     if (price === 'free') rows = rows.filter((s) => s.price === 0);
     if (price === 'paid') rows = rows.filter((s) => s.price > 0);
 
-    rows = rankingRows(rows, sort).slice(0, Math.min(parseInt(limit, 10) || 50, 100));
+    // ranking/popular: 다신호 종합 점수(composite_score) 기준 내림차순
+    const n = Math.min(parseInt(limit, 10) || 50, 100);
+    if (sort === 'ranking' || sort === 'popular') {
+      const scored = rows.map(withCompositeScore).sort((a, b) => b.composite_score - a.composite_score).slice(0, n);
+      return ok(scored, { total: scored.length });
+    }
+
+    rows = rankingRows(rows, sort).slice(0, n);
     return ok(rows, { total: rows.length });
   });
 
@@ -68,12 +85,7 @@ export async function skillRoutes(app: FastifyInstance) {
     if (category && (SKILL_CATEGORIES as readonly string[]).includes(category)) rows = rows.filter((s) => s.category === category);
 
     const ranked = rows
-      .map((s) => {
-        const satisfaction = s.satisfaction_count ? s.satisfaction_sum / s.satisfaction_count / 5 : 0;
-        const installScore = Math.min(s.install_count / 1000, 1);
-        const usageScore = Math.min(s.usage_count / 5000, 1);
-        return { ...s, composite_score: satisfaction * 0.4 + installScore * 0.3 + usageScore * 0.3 };
-      })
+      .map(withCompositeScore)
       .sort((a, b) => b.composite_score - a.composite_score)
       .slice(0, Math.min(parseInt(limit, 10) || 20, 100));
     return ok(ranked);

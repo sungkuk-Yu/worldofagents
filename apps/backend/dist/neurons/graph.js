@@ -118,7 +118,7 @@ function checkLangGraph() {
 }
 async function langGraphPipeline(initial) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { StateGraph, Annotation } = require('@langchain/langgraph');
+    const { StateGraph, Annotation, START, END } = require('@langchain/langgraph');
     const StateAnnotation = Annotation.Root({
         sessionId: Annotation,
         userId: Annotation,
@@ -144,10 +144,12 @@ async function langGraphPipeline(initial) {
         .addNode('answer', answerNode)
         .addNode('visual', visualNode)
         .addNode('compose', composeNode)
+        .addEdge(START, 'router')
         .addEdge('router', 'empathy')
         .addEdge('empathy', 'answer')
         .addEdge('answer', 'visual')
         .addEdge('visual', 'compose')
+        .addEdge('compose', END)
         .compile();
     const result = await graph.invoke({ ...initial });
     return { ...initial, ...result, engine: 'langgraph' };
@@ -189,7 +191,6 @@ async function processTurn(db, sessionId, userId, agentId, persona, userMessage,
     for (const e of final.events)
         emit(e);
     // ── 영속화 ──
-    const now = new Date().toISOString();
     // 다음 turn_index
     const { data: lastMsg } = await db
         .from('messages')
@@ -317,7 +318,11 @@ async function processTurn(db, sessionId, userId, agentId, persona, userMessage,
         empathyResponse: final.empathyResponse,
         answerResponse: final.answerResponse,
         dialogueType: final.dialogueType,
-        activationPlan: final.activationPlan,
+        activationPlan: {
+            activate: final.activationPlan,
+            reason: final.reason,
+            dialogueType: final.dialogueType,
+        },
         events,
         guardPassed,
         engine,

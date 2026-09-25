@@ -63,7 +63,8 @@ export interface TurnResult {
   empathyResponse: string | null;
   answerResponse: string | null;
   dialogueType: DialogueType;
-  activationPlan: string[];
+  /** 뉴런 활성화 계획 — 설계 문서와 동일한 객체 형태 (activate/reason) */
+  activationPlan: { activate: string[]; reason: string; dialogueType: DialogueType };
   events: NeuronStatusEvent[];
   guardPassed: boolean;
   engine: 'langgraph' | 'simple';
@@ -184,7 +185,7 @@ function checkLangGraph(): boolean {
 
 async function langGraphPipeline(initial: NeuronState): Promise<NeuronState> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { StateGraph, Annotation } = require('@langchain/langgraph');
+  const { StateGraph, Annotation, START, END } = require('@langchain/langgraph');
 
   const StateAnnotation = Annotation.Root({
     sessionId: Annotation,
@@ -212,10 +213,12 @@ async function langGraphPipeline(initial: NeuronState): Promise<NeuronState> {
     .addNode('answer', answerNode)
     .addNode('visual', visualNode)
     .addNode('compose', composeNode)
+    .addEdge(START, 'router')
     .addEdge('router', 'empathy')
     .addEdge('empathy', 'answer')
     .addEdge('answer', 'visual')
     .addEdge('visual', 'compose')
+    .addEdge('compose', END)
     .compile();
 
   const result = await graph.invoke({ ...initial });
@@ -274,7 +277,6 @@ export async function processTurn(
   for (const e of final.events) emit(e);
 
   // ── 영속화 ──
-  const now = new Date().toISOString();
 
   // 다음 turn_index
   const { data: lastMsg } = await db
@@ -408,7 +410,11 @@ export async function processTurn(
     empathyResponse: final.empathyResponse,
     answerResponse: final.answerResponse,
     dialogueType: final.dialogueType,
-    activationPlan: final.activationPlan,
+    activationPlan: {
+      activate: final.activationPlan,
+      reason: final.reason,
+      dialogueType: final.dialogueType,
+    },
     events,
     guardPassed,
     engine,

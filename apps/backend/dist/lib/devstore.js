@@ -81,8 +81,11 @@ function resetStore() {
 function freshSelect() {
     return { kind: 'select', filters: [], orderBy: null, limit: null, single: false, maybeSingle: false, columns: '*' };
 }
-function toSelectOp(op) {
-    return op.kind === 'select' ? op : freshSelect();
+function cloneSelect(op) {
+    return op ? { ...op, filters: [...op.filters] } : null;
+}
+function mutationWith(op, patch) {
+    return { ...op, ...patch, filters: patch.filters ? [...patch.filters] : [...op.filters] };
 }
 class DevQueryBuilder {
     store;
@@ -94,8 +97,14 @@ class DevQueryBuilder {
         this.op = op;
     }
     select(columns = '*') {
-        const base = toSelectOp(this.op);
-        return new DevQueryBuilder(this.store, this.table, { ...base, kind: 'select', columns });
+        const op = this.op;
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', columns });
+        }
+        // Mutation 뒤의 RETURNING select — mutation은 유지하고 then만 갱신
+        const then = cloneSelect(op.then) ?? freshSelect();
+        then.columns = columns;
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     eq(field, value) {
         return this.addFilter(field, (v) => v === value);
@@ -119,46 +128,73 @@ class DevQueryBuilder {
         return this.addFilter(field, (v) => values.includes(v));
     }
     addFilter(field, predicate) {
-        const base = toSelectOp(this.op);
-        return new DevQueryBuilder(this.store, this.table, {
-            ...base,
-            kind: 'select',
-            filters: [...base.filters, { field, predicate }],
-        });
+        const op = this.op;
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, {
+                ...op,
+                kind: 'select',
+                filters: [...op.filters, { field, predicate }],
+            });
+        }
+        // update/delete의 대상 행 필터로 누적 (select 체이닝과 혼동 금지)
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { filters: [...op.filters, { field, predicate }] }));
     }
     order(field, opts) {
-        const base = toSelectOp(this.op);
-        return new DevQueryBuilder(this.store, this.table, { ...base, kind: 'select', orderBy: { field, ascending: opts?.ascending ?? true } });
+        const op = this.op;
+        const orderBy = { field, ascending: opts?.ascending ?? true };
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', orderBy });
+        }
+        const then = cloneSelect(op.then) ?? freshSelect();
+        then.orderBy = orderBy;
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     limit(n) {
-        const base = toSelectOp(this.op);
-        return new DevQueryBuilder(this.store, this.table, { ...base, kind: 'select', limit: n });
+        const op = this.op;
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', limit: n });
+        }
+        const then = cloneSelect(op.then) ?? freshSelect();
+        then.limit = n;
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     single() {
-        const base = toSelectOp(this.op);
-        return new DevQueryBuilder(this.store, this.table, { ...base, kind: 'select', single: true, maybeSingle: false });
+        const op = this.op;
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', single: true, maybeSingle: false });
+        }
+        const then = cloneSelect(op.then) ?? freshSelect();
+        then.single = true;
+        then.maybeSingle = false;
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     maybeSingle() {
-        const base = toSelectOp(this.op);
-        return new DevQueryBuilder(this.store, this.table, { ...base, kind: 'select', single: false, maybeSingle: true });
+        const op = this.op;
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', single: false, maybeSingle: true });
+        }
+        const then = cloneSelect(op.then) ?? freshSelect();
+        then.single = false;
+        then.maybeSingle = true;
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     insert(values) {
         const rows = Array.isArray(values) ? values : [values];
         const now = new Date().toISOString();
         const normalized = rows.map((r) => ({ ...r, id: r.id ?? randomUUID(), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
-        return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, then: toSelectOp(this.op) });
+        return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
     }
     upsert(values, opts) {
         const rows = Array.isArray(values) ? values : [values];
         const now = new Date().toISOString();
         const normalized = rows.map((r) => ({ ...r, id: r.id ?? randomUUID(), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
-        return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', then: toSelectOp(this.op) });
+        return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
     }
     update(values) {
-        return new DevQueryBuilder(this.store, this.table, { kind: 'update', values, then: toSelectOp(this.op) });
+        return new DevQueryBuilder(this.store, this.table, { kind: 'update', values, filters: [], then: null });
     }
     delete() {
-        return new DevQueryBuilder(this.store, this.table, { kind: 'delete', then: toSelectOp(this.op) });
+        return new DevQueryBuilder(this.store, this.table, { kind: 'delete', filters: [], then: null });
     }
     then(onfulfilled, onrejected) {
         return Promise.resolve(this.execute()).then(onfulfilled, onrejected);
@@ -166,26 +202,36 @@ class DevQueryBuilder {
     async execute() {
         if (this.op.kind === 'insert') {
             const table = this.store.tables[this.table] || (this.store.tables[this.table] = []);
+            const result = [];
             for (const row of this.op.rows) {
                 const existing = table.find((r) => r.id === row.id);
-                if (existing)
+                if (existing) {
                     Object.assign(existing, row);
-                else
+                    result.push(existing);
+                }
+                else {
                     table.push(row);
+                    result.push(row);
+                }
             }
-            return this.applyThen(this.op.then, this.op.rows);
+            return this.applyThen(this.op.then, result);
         }
         if (this.op.kind === 'upsert') {
             const table = this.store.tables[this.table] || (this.store.tables[this.table] = []);
             const conflictKey = this.op.conflictKey || 'id';
+            const result = [];
             for (const row of this.op.rows) {
                 const existing = table.find((r) => r[conflictKey] === row[conflictKey]);
-                if (existing)
+                if (existing) {
                     Object.assign(existing, row);
-                else
+                    result.push(existing);
+                }
+                else {
                     table.push(row);
+                    result.push(row);
+                }
             }
-            return this.applyThen(this.op.then, this.op.rows);
+            return this.applyThen(this.op.then, result);
         }
         if (this.op.kind === 'update') {
             const rows = this.selectRows();
@@ -205,7 +251,7 @@ class DevQueryBuilder {
                 if (idx >= 0)
                     table.splice(idx, 1);
             }
-            return { data: rows, error: null };
+            return this.applyThen(this.op.then, rows);
         }
         // select
         if (this.op.kind !== 'select') {
@@ -225,8 +271,11 @@ class DevQueryBuilder {
         return { data: rows, error: null };
     }
     selectRows() {
-        const op = toSelectOp(this.op);
-        return this.execSelect(op);
+        const op = this.op;
+        if (op.kind === 'select')
+            return this.execSelect(op);
+        // update/delete: mutation에 누적된 filters로 대상 행 선택
+        return this.execSelect({ ...freshSelect(), filters: [...op.filters] });
     }
     async applyThen(then, rows) {
         if (!then)
@@ -301,7 +350,7 @@ function createDevClient(store) {
         },
         auth: {
             admin: {
-                createUser: async ({ email, password, user_metadata, email_confirm }) => {
+                createUser: async ({ email, password, user_metadata, email_confirm: _email_confirm }) => {
                     if (store.usersByEmail.has(email)) {
                         return { data: null, error: { message: 'User already registered' } };
                     }

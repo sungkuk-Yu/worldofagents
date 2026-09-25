@@ -116,7 +116,7 @@ class PersonaGuard {
     constructor(config) {
         this.config = config;
     }
-    async validate(response, neuronType = 'answer', recentResponses = []) {
+    async validate(response, _neuronType = 'answer', _recentResponses = []) {
         const checks = [];
         let fixed = response;
         // 1. 금지 표현 검사 (규칙 기반, 빠름)

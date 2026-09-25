@@ -19,7 +19,7 @@ export const app = Fastify({
   bodyLimit: 5 * 1024 * 1024, // 5MB (STT 메타/첨부 대비)
 });
 
-async function build() {
+export async function build() {
   // 공통 에러 핸들러
   app.setErrorHandler(errorHandler);
 

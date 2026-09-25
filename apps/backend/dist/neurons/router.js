@@ -4,9 +4,11 @@ exports.classifyDialogue = exports.NeuronRouter = void 0;
 exports.classifyDialogueType = classifyDialogueType;
 /** 대화 유형 분류 — 기존 classifyDialogueType 확장 (MVP 패턴 매칭) */
 function classifyDialogueType(text) {
+    // 주의: 배열 순서 = 우선순위. 구체적인 명사 키워드(file)를 일반 동사 키워드(data)보다 먼저 검사한다.
+    // 예) 'PDF 파일 정리해줘' → file (data의 '정리해줘'에 먼저 걸리면 안 됨)
     const patterns = [
-        { type: 'data', keywords: ['스프레드시트', '표로', '표를', '데이터', '차트', '그래프', '계산', '분석해', '정리해줘'] },
         { type: 'file', keywords: ['파일', 'pdf', '이미지', '문서', '다운로드', '업로드', '첨부'] },
+        { type: 'data', keywords: ['스프레드시트', '표로', '표를', '데이터', '차트', '그래프', '계산', '분석해', '정리해줘'] },
         { type: 'task', keywords: ['작업', '실행', '예약', '알림', '설정', '삭제', '추가', '보고서', '작성해', '보내줘', '만들어줘'] },
         { type: 'multi', keywords: ['여러', '함께', '협업', '다른 에이전트', '비교'] },
     ];

@@ -125,7 +125,7 @@ export interface GuardCheck {
 export class PersonaGuard {
   constructor(private config: PersonaConfig) {}
 
-  async validate(response: string, neuronType = 'answer', recentResponses: string[] = []): Promise<GuardResult> {
+  async validate(response: string, _neuronType = 'answer', _recentResponses: string[] = []): Promise<GuardResult> {
     const checks: GuardCheck[] = [];
     let fixed = response;
 

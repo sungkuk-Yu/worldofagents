@@ -376,11 +376,32 @@ POST /sessions/:session_id/messages
   "attachments": []
 }
 ```
-**동작:**
-1. messages 테이블 INSERT
-2. Stream Chat 채널에 전송
-3. Temporal 워크플로우에 `user_message` 신호 전송
-4. 응답(202 Accepted) — 실제 답변은 Stream Chat 이벤트로 수신
+**동작 (Phase 1 동기 응답):**
+1. messages 테이블 INSERT (user 메시지 + 공감 응답 + 답변 응답)
+2. 뉴런 파이프라인 실행 (LangGraph 또는 simple 폴백) — 라우팅 → 공감 → 답변 → 비주얼 판정
+3. 뉴런 인스턴스 활성화 + 연결 이벤트(`neuron_connections`) 기록
+4. 응답(201 Created) — 전체 턴 결과를 동기 반환. 실시간 이벤트는 WebSocket(`neuron.status`, `transcript.*`)으로 수신
+
+**응답 (201):**
+```json
+{
+  "ok": true,
+  "data": {
+    "user_message_id": "uuid",
+    "empathy_message_id": "uuid",
+    "answer_message_id": "uuid",
+    "empathy_response": "…공감 응답…",
+    "answer_response": "…답변 응답…",
+    "dialogue_type": "task",
+    "activation_plan": { "activate": ["empathy", "answer"], "reason": "empathy=always, answer=request_detected", "dialogue_type": "task" },
+    "neuron_events": [
+      { "neuron": "router", "status": "processing", "stage": "organizing", "quip": "어떻게 처리할지 정리 중이에요" }
+    ],
+    "persona_guard_passed": true,
+    "engine": "langgraph"
+  }
+}
+```
 
 #### 메시지 피드백 (좋아요/싫어요)
 ```

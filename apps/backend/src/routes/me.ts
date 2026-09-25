@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
-import { ok } from '../lib/errors';
+import { ok, ApiError, ERROR_CODES } from '../lib/errors';
 import { meSkillRoutes } from './skills';
 
 /**
@@ -8,6 +8,29 @@ import { meSkillRoutes } from './skills';
  * 프로필 자체는 auth 라우트의 /me와 중복되지 않게 여기서는 확장 리소스만.
  */
 export async function meRoutes(app: FastifyInstance) {
+  // 내 프로필 (api-design.md §3.1 — GET /me)
+  app.get('/', { preHandler: requireAuth }, async (request) => {
+    const { data, error } = await request.db.from('users').select('*').eq('id', request.userId).maybeSingle();
+    if (error || !data) throw new ApiError(ERROR_CODES.AUTH_REQUIRED, '프로필을 찾을 수 없습니다.');
+    return ok(data);
+  });
+
+  // PATCH /me — 프로필 수정
+  app.patch('/', { preHandler: requireAuth }, async (request) => {
+    const body = request.body as { display_name?: string; avatar_url?: string; phone?: string; timezone?: string; language?: string; preferences?: Record<string, unknown>; profile?: Record<string, unknown> };
+    const patch: Record<string, unknown> = {};
+    for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'preferences', 'profile'] as const) {
+      if (body[key] !== undefined) patch[key] = body[key];
+    }
+    if (!Object.keys(patch).length) {
+      const { data } = await request.db.from('users').select('*').eq('id', request.userId).maybeSingle();
+      return ok(data);
+    }
+    const { data, error } = await request.db.from('users').update(patch).eq('id', request.userId).select().single();
+    if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '프로필 수정에 실패했습니다.', { detail: error.message });
+    return ok(data);
+  });
+
   // 내 에이전트 목록 (빠른 접근용)
   app.get('/agents', { preHandler: requireAuth }, async (request) => {
     const { data } = await request.db.from('agents').select('*').eq('owner_id', request.userId).eq('is_active', true).order('created_at', { ascending: false });
