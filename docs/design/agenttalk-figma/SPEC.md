@@ -16,6 +16,7 @@
 | `frames/icons/*.svg` | 아이콘 43종 **벡터 SVG** — Figma에 드래그하면 편집 가능 |
 | `tokens.json` | 디자인 토큰 (W3C DTCG 포맷) — Figma 변수로 import 가능 |
 | `export-frames.cjs` | 프레임 재추출 스크립트 (Node + playwright-core) |
+| `verify-dom.cjs` | DOM 메트릭 자동 검증 스크립트 (프레임 크기/오버플로우/깨진 아이콘/JS 에러) |
 
 > **Figma 연동 참고:** 이 세션에서는 Figma MCP(OAuth) 연결이 없어 클라우드 파일을 직접 생성하지 못했습니다.
 > 연결을 원하시면 `hermes mcp add figma --url https://mcp.figma.com/mcp` → OAuth 승인 후 세션 재시작을 요청해 주세요.
@@ -122,6 +123,7 @@
 - DOM 계측: 깨진 아이콘/이미지 0건, 가로 오버플로우 0건, 콘솔/JS 에러 0건
 - 토큰 색상 렌더 일치: bg rgb(10,12,16)=#0A0C10, seg-info #4CC9F0
 - 14장 PNG / 43종 아이콘 SVG 추출 완료
+- 재검증 (run 3, 2026-09-25): `cat build/01..09_*.html` 재어셈블 → 마스터와 md5 일치(`bfab9a13…`), `node export-frames.cjs` 재추출 성공(14프레임/43아이콘), `node verify-dom.cjs` 통과(이슈 0건, JS 에러 0건)
 - ※ 시각 모델(vision) 미지원 환경이라 픽셀 단위 눈 검증은 제한 — 프레임 PNG를 김비서/대표님께서 직접 확인해 주시면 좋습니다.
 
 ---
