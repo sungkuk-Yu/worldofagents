@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
+    "outDir": "dist-test-unit",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "tests/unit/**/*.ts",
+    "src/lib/gesture.ts",
+    "src/neurons/DialogTypeClassifier.ts",
+    "src/neurons/NeuronOrchestrator.ts",
+    "src/store/index.ts",
+    "src/types/index.ts"
+  ]
+}

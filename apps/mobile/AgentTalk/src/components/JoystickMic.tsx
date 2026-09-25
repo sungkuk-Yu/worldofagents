@@ -1,6 +1,8 @@
 // 조이스틱 마이크 버튼 (JoystickMic)
 // 화면 7 중앙에 위치, 8방향 + 탭/롱프레스 제스처 인식
 // 설계서: ui-interaction-spec.md §1
+//   §1.4 상태별 시각 피드백: 방향 드래그 중 반투명 화살표+라벨 → 확정 시 아이콘 변경+햅틱
+//   §1.5 롱프레스: 500ms 확정 → 레드 코어 + 파형 애니메이션 + 실시간 트랜스크립트
 import React, { useRef, useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -9,13 +11,21 @@ import {
   Animated,
   Text,
   Dimensions,
-  GestureResponderEvent,
-  PanResponderGestureState,
+  type GestureResponderEvent,
+  type PanResponderGestureState,
   type GestureResponderHandlers,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { JoystickGesture } from '../types';
 import { colors } from '../theme';
+import {
+  getDirection,
+  isOutsideDeadzone,
+  isTap,
+  DIRECTION_ARROWS,
+  DEFAULT_DIRECTION_LABELS,
+} from '../lib/gesture';
+import Waveform from './Waveform';
 
 // 조이스틱 설정 (설계서 §1.3)
 const CONFIG = {
@@ -32,52 +42,20 @@ interface Props {
   onGesture: (gesture: JoystickGesture) => void;
   onRelease: () => void;
   isRecording: boolean;
+  /** 드래그 중 라벨 오버라이드 (기본: 예/아니오/취소 등) */
+  directionLabels?: Partial<Record<JoystickGesture, string>>;
 }
 
 // 버튼 크기는 화면 너비의 22% (최소 80px, 최대 140px)
 const screenWidth = Dimensions.get('window').width;
 const BUTTON_SIZE = Math.min(Math.max(screenWidth * 0.22, 80), 140);
 
-function getDirection(dx: number, dy: number): JoystickGesture | null {
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  if (distance < CONFIG.directionThreshold) return null;
-
-  // 각도 계산 (0° = 위, 시계방향)
-  let angle = Math.atan2(dx, -dy) * (180 / Math.PI);
-  if (angle < 0) angle += 360;
-
-  // 8방향 스냅
-  const directions: { angle: number; gesture: JoystickGesture }[] = [
-    { angle: 0, gesture: 'DIR_UP' },
-    { angle: 45, gesture: 'DIR_UPRIGHT' },
-    { angle: 90, gesture: 'DIR_RIGHT' },
-    { angle: 135, gesture: 'DIR_DOWNRIGHT' },
-    { angle: 180, gesture: 'DIR_DOWN' },
-    { angle: 225, gesture: 'DIR_DOWNLEFT' },
-    { angle: 270, gesture: 'DIR_LEFT' },
-    { angle: 315, gesture: 'DIR_UPLEFT' },
-  ];
-
-  let closest = directions[0];
-  let minDiff = 360;
-  for (const dir of directions) {
-    const diff = Math.abs(angle - dir.angle);
-    const wrapped = Math.min(diff, 360 - diff);
-    if (wrapped < minDiff) {
-      minDiff = wrapped;
-      closest = dir;
-    }
-  }
-
-  return closest.gesture;
-}
-
-export default function JoystickMic({ onGesture, onRelease, isRecording }: Props) {
-  // React Native Animated API 표준 패턴 - useRef().current는 렌더에서 안전
-  /* eslint-disable react-hooks/refs */
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const pulseAnim = useRef(new Animated.Value(0.5)).current;
-  /* eslint-enable react-hooks/refs */
+export default function JoystickMic({ onGesture, onRelease, isRecording, directionLabels }: Props) {
+  // RN Animated 표준 패턴 — Animated.Value 는 렌더 간 안정적인 identity 가 필요 → useState 초기화
+  // (React 19 react-hooks/refs 규칙: 렌더 중 ref 접근 금지 대응)
+  const [scaleAnim] = React.useState(() => new Animated.Value(1));
+  const [pulseAnim] = React.useState(() => new Animated.Value(0.5));
+  const [knobAnim] = React.useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
   const touchStartTime = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentDirection = useRef<JoystickGesture | null>(null);
@@ -89,6 +67,14 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
     onGestureRef.current = onGesture;
     onReleaseRef.current = onRelease;
   }, [onGesture, onRelease]);
+
+  // 드래그 중 방향 (라이브 피드백용 상태)
+  const [activeDirection, setActiveDirection] = useState<JoystickGesture | null>(null);
+  const activeDirectionRef = useRef<JoystickGesture | null>(null);
+  const setActive = (d: JoystickGesture | null) => {
+    activeDirectionRef.current = d;
+    setActiveDirection(d);
+  };
 
   // panHandlers를 state로 관리 (렌더 중 ref 접근 방지)
   const [panHandlers, setPanHandlers] = useState<GestureResponderHandlers>({});
@@ -104,6 +90,10 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
           toValue: 1.05,
           useNativeDriver: true,
         }).start();
+        Animated.spring(knobAnim, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+        }).start();
 
         longPressTimer.current = setTimeout(() => {
           onGestureRef.current('LONG_CENTER');
@@ -117,8 +107,17 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
         const { dx, dy } = gs;
         const direction = getDirection(dx, dy);
 
+        // 썸 이동 (데드존 내 최대 18px)
+        if (isOutsideDeadzone(dx, dy)) {
+          knobAnim.setValue({
+            x: Math.max(-22, Math.min(22, dx * 0.32)),
+            y: Math.max(-22, Math.min(22, dy * 0.32)),
+          });
+        }
+
         if (direction && direction !== currentDirection.current) {
           currentDirection.current = direction;
+          setActive(direction);
           if (longPressTimer.current) {
             clearTimeout(longPressTimer.current);
             longPressTimer.current = null;
@@ -135,13 +134,17 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
           toValue: 1,
           useNativeDriver: true,
         }).start();
+        Animated.spring(knobAnim, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+        }).start();
 
         if (currentDirection.current) {
           onGestureRef.current(currentDirection.current);
           if (CONFIG.hapticOnRelease) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           }
-        } else if (duration <= CONFIG.tapMaxDuration) {
+        } else if (isTap(duration)) {
           onGestureRef.current('TAP_CENTER');
           if (CONFIG.hapticOnRelease) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -153,12 +156,13 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
           longPressTimer.current = null;
         }
         currentDirection.current = null;
+        setActive(null);
         onReleaseRef.current();
       },
     });
 
     setPanHandlers(responder.panHandlers);
-  }, [scaleAnim]);
+  }, [scaleAnim, knobAnim]);
 
   // 아이들 상태 펄스 애니메이션
   useEffect(() => {
@@ -182,11 +186,21 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
     }
   }, [isRecording, pulseAnim]);
 
+  // 드래그 중 방향 화살표/라벨 (렌더는 상태 기반 — currentDirection ref 는 핸들러 전용)
+  const labels = { ...DEFAULT_DIRECTION_LABELS, ...directionLabels };
+  const selectedGesture = activeDirection;
+
   return (
     <View style={styles.container}>
+      {/* 파형 애니메이션 (녹음 중, 버튼 바로 아래) */}
+      <View style={styles.waveformWrap} pointerEvents="none">
+        <Waveform active={isRecording} color={colors.statusErr} barCount={15} height={26} />
+      </View>
+
       {/* 펄스 링 (아이들 상태) */}
       {!isRecording && (
         <Animated.View
+          pointerEvents="none"
           style={[
             styles.pulseRing,
             { opacity: pulseAnim },
@@ -195,29 +209,52 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
       )}
 
       {/* 녹음 중 링 */}
-      {isRecording && <View style={styles.recordingRing} />}
+      {isRecording && <View pointerEvents="none" style={styles.recordingRing} />}
+
+      {/* 드래그 방향 피드백 (반투명 화살표, §1.4) */}
+      {selectedGesture && selectedGesture !== 'TAP_CENTER' && selectedGesture !== 'LONG_CENTER' && (
+        <Animated.View pointerEvents="none" style={styles.directionFeedback}>
+          <Text style={styles.dtoDirectionArrow}>{DIRECTION_ARROWS[selectedGesture]}</Text>
+          <Text style={styles.directionLabel}>
+            {labels[selectedGesture] ?? DEFAULT_DIRECTION_LABELS[selectedGesture]}
+          </Text>
+        </Animated.View>
+      )}
 
       {/* 메인 버튼 */}
       <Animated.View
         style={[
           styles.button,
-          { transform: [{ scale: scaleAnim }] },
+          {
+            transform: [
+              { scale: scaleAnim },
+              ...knobAnim.getTranslateTransform(),
+            ],
+          },
           isRecording && styles.buttonRecording,
         ]}
         {...panHandlers}
       >
-        <Text style={styles.buttonIcon}>
-          {isRecording ? '⏹' : '🎤'}
-        </Text>
+        {selectedGesture && selectedGesture !== 'TAP_CENTER' && selectedGesture !== 'LONG_CENTER' ? (
+          <Text style={[styles.buttonIcon, { color: colors.onPrimary }]}>
+            {DIRECTION_ARROWS[selectedGesture]}
+          </Text>
+        ) : (
+          <Text style={styles.buttonIcon}>
+            {isRecording ? '🔴' : '🎤'}
+          </Text>
+        )}
       </Animated.View>
 
       {/* 방향 인디케이터 (간소화) */}
-      <View style={styles.directionLabels}>
-        <Text style={[styles.dirLabel, styles.dirUp]}>↑</Text>
-        <Text style={[styles.dirLabel, styles.dirLeft]}>←</Text>
-        <Text style={[styles.dirLabel, styles.dirRight]}>→</Text>
-        <Text style={[styles.dirLabel, styles.dirDown]}>↓</Text>
-      </View>
+      {!isRecording && !selectedGesture && (
+        <View pointerEvents="none" style={styles.directionLabels}>
+          <Text style={[styles.dirLabel, styles.dirUp]}>↑</Text>
+          <Text style={[styles.dirLabel, styles.dirLeft]}>←</Text>
+          <Text style={[styles.dirLabel, styles.dirRight]}>→</Text>
+          <Text style={[styles.dirLabel, styles.dirDown]}>↓</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -228,6 +265,11 @@ const styles = StyleSheet.create({
     height: BUTTON_SIZE * 2.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  waveformWrap: {
+    position: 'absolute',
+    top: -6,
+    width: BUTTON_SIZE * 1.2,
   },
   pulseRing: {
     position: 'absolute',
@@ -264,6 +306,26 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     fontSize: BUTTON_SIZE * 0.35,
+  },
+  directionFeedback: {
+    position: 'absolute',
+    top: BUTTON_SIZE * 0.5,
+    alignItems: 'center',
+    backgroundColor: 'rgba(17,24,39,0.72)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    zIndex: 10,
+  },
+  dtoDirectionArrow: {
+    fontSize: 18,
+    color: '#fff',
+    fontWeight: '700',
+  },
+  directionLabel: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
   },
   directionLabels: {
     position: 'absolute',

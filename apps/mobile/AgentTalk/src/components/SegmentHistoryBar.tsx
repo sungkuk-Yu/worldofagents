@@ -13,15 +13,10 @@ import {
   GestureResponderEvent,
   PanResponderGestureState,
 } from 'react-native';
-import { colors, radii, spacing, SegmentType, segmentMeta } from '../theme';
+import { colors, radii, spacing, segmentMeta } from '../theme';
+import type { SegmentHistoryEntry } from '../types';
 
-export interface SegmentHistoryEntry {
-  id: string;
-  type: SegmentType;
-  label?: string;         // 기본값: 세그먼트 표준 라벨
-  isNew?: boolean;        // 뉴 닷 표시 (신규 세그먼트)
-  summary?: string;       // 접힘/도움말용 요약
-}
+export type { SegmentHistoryEntry };
 
 interface Props {
   history: SegmentHistoryEntry[];
@@ -140,7 +135,7 @@ export default function SegmentHistoryBar({
                       { color: isCurrent ? colors.onPrimary : meta.color },
                     ]}
                   >
-                    {entry.label ? meta.icon : meta.icon}
+                    {meta.icon}
                   </Text>
                 </View>
 

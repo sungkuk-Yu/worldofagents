@@ -112,3 +112,16 @@ export interface NeuronConnectionEvent {
   timestamp: Date;
   reason?: string;
 }
+
+// 세그먼트 히스토리 항목 (결과 캔버스 · 하단 레일)
+export type SegmentHistoryEntry = {
+  id: string;
+  /** 다이얼로그 유형과 동일 — 정보/데이터/파일/작업/멀티 */
+  type: DialogType;
+  /** 레일 라벨 (기본값: 세그먼트 표준 라벨) */
+  label?: string;
+  /** 뉴 닷 표시 (신규 세그먼트) */
+  isNew?: boolean;
+  /** 접힘/도움말용 요약 */
+  summary?: string;
+};
