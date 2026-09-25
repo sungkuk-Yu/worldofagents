@@ -1,7 +1,7 @@
 // 조이스틱 마이크 버튼 (JoystickMic)
 // 화면 7 중앙에 위치, 8방향 + 탭/롱프레스 제스처 인식
 // 설계서: ui-interaction-spec.md §1
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
   Dimensions,
   GestureResponderEvent,
   PanResponderGestureState,
+  type GestureResponderHandlers,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { JoystickGesture } from '../types';
@@ -72,14 +73,95 @@ function getDirection(dx: number, dy: number): JoystickGesture | null {
 }
 
 export default function JoystickMic({ onGesture, onRelease, isRecording }: Props) {
+  // React Native Animated API 표준 패턴 - useRef().current는 렌더에서 안전
+  /* eslint-disable react-hooks/refs */
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(0.5)).current;
+  /* eslint-enable react-hooks/refs */
   const touchStartTime = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentDirection = useRef<JoystickGesture | null>(null);
 
+  // 최신 콜백을 ref에 유지 (useEffect 재생성 방지)
+  const onGestureRef = useRef(onGesture);
+  const onReleaseRef = useRef(onRelease);
+  useEffect(() => {
+    onGestureRef.current = onGesture;
+    onReleaseRef.current = onRelease;
+  }, [onGesture, onRelease]);
+
+  // panHandlers를 state로 관리 (렌더 중 ref 접근 방지)
+  const [panHandlers, setPanHandlers] = useState<GestureResponderHandlers>({});
+
+  useEffect(() => {
+    const responder = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+
+      onPanResponderGrant: () => {
+        touchStartTime.current = Date.now();
+        Animated.spring(scaleAnim, {
+          toValue: 1.05,
+          useNativeDriver: true,
+        }).start();
+
+        longPressTimer.current = setTimeout(() => {
+          onGestureRef.current('LONG_CENTER');
+          if (CONFIG.hapticOnDirection) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+        }, CONFIG.longPressDuration);
+      },
+
+      onPanResponderMove: (_evt: GestureResponderEvent, gs: PanResponderGestureState) => {
+        const { dx, dy } = gs;
+        const direction = getDirection(dx, dy);
+
+        if (direction && direction !== currentDirection.current) {
+          currentDirection.current = direction;
+          if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
+          if (CONFIG.hapticOnDirection) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+        }
+      },
+
+      onPanResponderRelease: () => {
+        const duration = Date.now() - touchStartTime.current;
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+        }).start();
+
+        if (currentDirection.current) {
+          onGestureRef.current(currentDirection.current);
+          if (CONFIG.hapticOnRelease) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+        } else if (duration <= CONFIG.tapMaxDuration) {
+          onGestureRef.current('TAP_CENTER');
+          if (CONFIG.hapticOnRelease) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+        }
+
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        currentDirection.current = null;
+        onReleaseRef.current();
+      },
+    });
+
+    setPanHandlers(responder.panHandlers);
+  }, [scaleAnim]);
+
   // 아이들 상태 펄스 애니메이션
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isRecording) {
       const pulse = Animated.loop(
         Animated.sequence([
@@ -99,76 +181,6 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
       return () => pulse.stop();
     }
   }, [isRecording, pulseAnim]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-
-      onPanResponderGrant: () => {
-        touchStartTime.current = Date.now();
-        Animated.spring(scaleAnim, {
-          toValue: 1.05,
-          useNativeDriver: true,
-        }).start();
-
-        // 롱프레스 감지 타이머
-        longPressTimer.current = setTimeout(() => {
-          onGesture('LONG_CENTER');
-          if (CONFIG.hapticOnDirection) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          }
-        }, CONFIG.longPressDuration);
-      },
-
-      onPanResponderMove: (_evt: GestureResponderEvent, gs: PanResponderGestureState) => {
-        const { dx, dy } = gs;
-        const direction = getDirection(dx, dy);
-
-        if (direction && direction !== currentDirection.current) {
-          currentDirection.current = direction;
-          // 롱프레스 타이머 취소 (드래그 중이므로)
-          if (longPressTimer.current) {
-            clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-          }
-          if (CONFIG.hapticOnDirection) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-        }
-      },
-
-      onPanResponderRelease: () => {
-        const duration = Date.now() - touchStartTime.current;
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          useNativeDriver: true,
-        }).start();
-
-        if (currentDirection.current) {
-          // 방향 드래그 확정
-          onGesture(currentDirection.current);
-          if (CONFIG.hapticOnRelease) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          }
-        } else if (duration <= CONFIG.tapMaxDuration) {
-          // 탭
-          onGesture('TAP_CENTER');
-          if (CONFIG.hapticOnRelease) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-        }
-
-        // 롱프레스 타이머 정리
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-        currentDirection.current = null;
-        onRelease();
-      },
-    })
-  ).current;
 
   return (
     <View style={styles.container}>
@@ -192,7 +204,7 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
           { transform: [{ scale: scaleAnim }] },
           isRecording && styles.buttonRecording,
         ]}
-        {...panResponder.panHandlers}
+        {...panHandlers}
       >
         <Text style={styles.buttonIcon}>
           {isRecording ? '⏹' : '🎤'}
@@ -201,10 +213,10 @@ export default function JoystickMic({ onGesture, onRelease, isRecording }: Props
 
       {/* 방향 인디케이터 (간소화) */}
       <View style={styles.directionLabels}>
-        <Text style={styles.dirLabel}>↑</Text>
-        <Text style={styles.dirLabel}>←</Text>
-        <Text style={styles.dirLabel}>→</Text>
-        <Text style={styles.dirLabel}>↓</Text>
+        <Text style={[styles.dirLabel, styles.dirUp]}>↑</Text>
+        <Text style={[styles.dirLabel, styles.dirLeft]}>←</Text>
+        <Text style={[styles.dirLabel, styles.dirRight]}>→</Text>
+        <Text style={[styles.dirLabel, styles.dirDown]}>↓</Text>
       </View>
     </View>
   );
@@ -265,4 +277,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.text3,
   },
+  dirUp: { top: 0 },
+  dirLeft: { left: 0 },
+  dirRight: { right: 0 },
+  dirDown: { bottom: 0 },
 });

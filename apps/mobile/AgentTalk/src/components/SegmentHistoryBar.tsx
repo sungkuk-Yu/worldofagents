@@ -2,7 +2,7 @@
 // 설계: agenttalk-figma/SPEC.md §5 · dialogue-functionality-spec.md §4.4
 // 결과 캔버스 하단 고정 레일 — 대화 세그먼트(컴포넌트 스택)를 연결 레일로 시각화
 //  탭=복원 / 롱프레스=삭제 / 좌우 스와이프=페이징 / 10개 초과 시 +N 접기
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -63,16 +63,17 @@ export default function SegmentHistoryBar({
   };
 
   // 좌/우 스와이프 페이징
-  const panResponder = useRef(
-    PanResponder.create({
+  const panResponder = useMemo(
+    () => PanResponder.create({
       onMoveShouldSetPanResponder: (_e: GestureResponderEvent, gs: PanResponderGestureState) =>
         Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5 && Math.abs(gs.dx) > 12,
       onPanResponderRelease: (_e, gs) => {
         if (gs.dx <= -SWIPE_THRESHOLD) onSwipe('next');
         else if (gs.dx >= SWIPE_THRESHOLD) onSwipe('prev');
       },
-    })
-  ).current;
+    }),
+    [onSwipe]
+  );
 
   if (history.length === 0) {
     return (

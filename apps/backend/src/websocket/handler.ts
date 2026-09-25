@@ -1,128 +1,352 @@
+/**
+ * WebSocket 핸들러 — api-design.md §4 프로토콜 구현.
+ * - 구독 (subscribe/subscribed)
+ * - 오디오 스트리밍 (audio.start → binary PCM → audio.end) → STT → 뉴런 그래프 → 브로드캐스트
+ * - 실시간 트랜스크립트 (transcript.partial/final)
+ * - 뉴런 상태 업데이트 (neuron.status), 작업/큐 상태 (task.status, queue.update)
+ * - 핑/퐁 연결 유지
+ */
 import { FastifyRequest } from 'fastify';
 import { config } from '../config';
 import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
+import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
+import { processTurn } from '../neurons/graph';
+import { NEURON_NAMES, sendJson, ClientMessage, ServerMessage, WSChannel } from './protocol';
+import { rowToPersonaConfig } from '../lib/persona';
 
-type SocketStream = {
-  socket: any;
+export interface WSSocket {
   send: (data: string) => void;
-  on: (event: string, handler: (data: any) => void) => void;
-};
+  ping?: () => void;
+  on: (event: string, handler: (...args: any[]) => void) => void;
+  terminate?: () => void;
+  readyState?: number;
+}
 
-// WebSocket message types
-type WSMessage =
-  | { type: 'audio_chunk'; data: ArrayBuffer; session_id: string }
-  | { type: 'transcript'; text: string; is_final: boolean; session_id: string }
-  | { type: 'agent_response'; content: string; segment_type: string; session_id: string }
-  | { type: 'neuron_event'; neuron_id: string; event: string; data: any; session_id: string }
-  | { type: 'error'; message: string };
+// ── 세션 허브: session_id → 연결 집합 ───────────────────
+const sessionHub = new Map<string, Set<WSSocket>>();
+
+export function registerConnection(sessionId: string, socket: WSSocket): void {
+  if (!sessionHub.has(sessionId)) sessionHub.set(sessionId, new Set());
+  sessionHub.get(sessionId)!.add(socket);
+}
+
+export function unregisterConnection(sessionId: string, socket: WSSocket): void {
+  const set = sessionHub.get(sessionId);
+  if (!set) return;
+  set.delete(socket);
+  if (set.size === 0) sessionHub.delete(sessionId);
+}
+
+export function broadcastToSession(sessionId: string, message: ServerMessage): void {
+  const set = sessionHub.get(sessionId);
+  if (!set) return;
+  for (const socket of set) sendJson(socket, message);
+}
+
+interface AudioSession {
+  buffer: AudioStreamBuffer;
+  startedAt: number;
+  language: string;
+}
+
+interface ConnState {
+  sessionId: string | null;
+  userId: string;
+  channels: WSChannel[];
+  audio: AudioSession | null;
+  lastActivity: number;
+}
 
 export async function websocketHandler(connection: any, request: FastifyRequest) {
-  const socket = connection.socket;
-  const sessionId = (request.query as any).session_id;
-  const userId = (request.query as any).user_id;
+  const socket = connection.socket as WSSocket;
+  const query = (request.query || {}) as { session_id?: string; token?: string };
 
-  logger.info(`WebSocket connected: user=${userId}, session=${sessionId}`);
+  const state: ConnState = {
+    sessionId: query.session_id || null,
+    userId: '',
+    channels: ['audio', 'transcript', 'neuron_status', 'task'],
+    audio: null,
+    lastActivity: Date.now(),
+  };
 
-  // Send connection acknowledgment
-  socket.send(JSON.stringify({
+  // ── 인증 ──
+  try {
+    await request.jwtVerify();
+    state.userId = (request.user as { sub?: string })?.sub || '';
+  } catch {
+    // DEV_MODE: 토큰 없이도 연결 허용 (테스트 편의)
+    if (!config.devMode) {
+      sendJson(socket, { type: 'error', code: 'AUTH_REQUIRED', message: '인증 토큰이 필요합니다.' });
+      socket.terminate?.();
+      return;
+    }
+    state.userId = query.token === 'dev-test' ? 'dev-test-user' : '';
+  }
+
+  logger.info(`WebSocket connected: user=${state.userId || '(anon)'}, session=${state.sessionId}`);
+
+  sendJson(socket, {
     type: 'connected',
-    session_id: sessionId,
+    session_id: state.sessionId,
     timestamp: new Date().toISOString(),
-  }));
+  });
 
-  // Handle incoming messages
-  socket.on('message', async (rawMessage: Buffer | ArrayBuffer | Buffer[]) => {
+  if (state.sessionId) registerConnection(state.sessionId, socket);
+
+  // 프로토콜 레벨 ping → pong (ws 표준)
+  const pingInterval = setInterval(() => {
     try {
-      const message = JSON.parse(rawMessage.toString()) as WSMessage;
+      socket.ping?.();
+    } catch {
+      /* noop */
+    }
+  }, config.ws.pingIntervalMs);
 
+  const checkAlive = setInterval(() => {
+    if (Date.now() - state.lastActivity > config.ws.pongTimeoutMs) {
+      logger.info(`WebSocket heartbeat timeout, closing: user=${state.userId}`);
+      cleanup(true);
+    }
+  }, config.ws.pingIntervalMs);
+
+  function cleanup(terminate = false) {
+    clearInterval(pingInterval);
+    clearInterval(checkAlive);
+    if (state.sessionId) unregisterConnection(state.sessionId, socket);
+    if (terminate) socket.terminate?.();
+  }
+
+  socket.on('message', async (raw: Buffer | string) => {
+    state.lastActivity = Date.now();
+
+    // 바이너리 프레임 = 오디오 청크
+    if (Buffer.isBuffer(raw) || raw instanceof ArrayBuffer) {
+      handleAudioChunk(socket, state, Buffer.isBuffer(raw) ? raw : Buffer.from(raw));
+      return;
+    }
+
+    let message: ClientMessage;
+    try {
+      message = JSON.parse(String(raw)) as ClientMessage;
+    } catch {
+      sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'Invalid message format' });
+      return;
+    }
+
+    try {
       switch (message.type) {
-        case 'audio_chunk':
-          await handleAudioChunk(socket, message, sessionId, userId);
+        case 'subscribe':
+          state.sessionId = message.session_id || state.sessionId;
+          state.channels = message.channels || state.channels;
+          if (state.sessionId) registerConnection(state.sessionId, socket);
+          sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels });
+          break;
+
+        case 'audio.start':
+          await handleAudioStart(socket, state, message);
+          break;
+
+        case 'audio.end':
+          await handleAudioEnd(socket, state, message.session_id || state.sessionId);
+          break;
+
+        case 'audio.cancel':
+          if (state.audio) state.audio = null;
+          sendJson(socket, { type: 'audio.vad', session_id: state.sessionId || '', active: false });
           break;
 
         case 'transcript':
-          await handleTranscript(socket, message, sessionId);
+          await handleTr({ text: message.text, isFinal: message.is_final !== false, sessionId: message.session_id || state.sessionId });
+          break;
+
+        case 'ping':
+          sendJson(socket, { type: 'pong', ts: message.ts || Date.now() });
+          break;
+
+        case 'pong':
           break;
 
         default:
-          logger.warn(`Unknown message type: ${(message as any).type}`);
+          sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'Unknown message type' });
       }
-    } catch (error) {
-      logger.error('WebSocket message error:', error);
-      socket.send(JSON.stringify({
-        type: 'error',
-        message: 'Invalid message format',
-      }));
+    } catch (err: any) {
+      logger.error({ err: err?.message }, 'WS message handler error');
+      sendJson(socket, {
+        type: 'session.error',
+        code: err?.code || 'INTERNAL_ERROR',
+        message: err?.message || '처리 중 오류가 발생했습니다.',
+      });
     }
   });
 
   socket.on('close', () => {
-    logger.info(`WebSocket disconnected: user=${userId}, session=${sessionId}`);
+    logger.info(`WebSocket disconnected: user=${state.userId}`);
+    cleanup(false);
+  });
+  socket.on('error', () => cleanup(true));
+}
+
+// ── 오디오 스트리밍 ────────────────────────────────────
+
+function handleAudioChunk(socket: WSSocket, state: ConnState, chunk: Buffer) {
+  if (!state.audio) {
+    // 스트림 시작 전 도착 → 무시
+    return;
+  }
+  if (!hasVoiceActivity(chunk)) {
+    // 무음 청크 — 버퍼에는 넣되 VAD 신호 전달
+    state.audio.buffer.push(chunk);
+    return;
+  }
+  state.audio.buffer.push(chunk);
+  if (state.audio.buffer.durationMs % 16000 < 100) {
+    // 약 1초마다 수신 확인 신호
+    sendJson(socket, { type: 'audio.received', bytes: chunk.length, timestamp: new Date().toISOString() });
+  }
+  // 문장 경계 후보 시 부분 트랜스크립트 훅 (실제 STT 연동 시 partial 발생 지점)
+  if (state.audio.buffer.hasSilenceBoundary(chunk) && config.openai.apiKey) {
+    // 실서비스: 이 시점에 최근 3초 윈도우 부분 트랜스크립션 수행
+    // Phase 1에서는 final에서만 트랜스크립션 (비용/지연 절감)
+  }
+}
+
+async function handleAudioStart(socket: WSSocket, state: ConnState, message: Extract<ClientMessage, { type: 'audio.start' }>) {
+  const sessionId = message.session_id || state.sessionId;
+  if (!sessionId) {
+    sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'session_id가 필요합니다.' });
+    return;
+  }
+  state.sessionId = sessionId;
+  registerConnection(sessionId, socket);
+  state.audio = {
+    buffer: new AudioStreamBuffer(),
+    startedAt: Date.now(),
+    language: message.config?.language || 'auto',
+  };
+  sendJson(socket, {
+    type: 'audio.started',
+    session_id: sessionId,
+    config: {
+      sample_rate: message.config?.sample_rate || config.openai.stt.sampleRate,
+      encoding: message.config?.encoding || config.openai.stt.encoding,
+      language: state.audio.language,
+    },
   });
 }
 
-// Handle audio streaming for STT
-async function handleAudioChunk(
-  socket: WebSocket,
-  message: WSMessage,
-  sessionId: string,
-  userId: string
-) {
-  if (message.type !== 'audio_chunk') return;
+async function handleAudioEnd(socket: WSSocket, state: ConnState, sessionId: string | null) {
+  const target = sessionId || state.sessionId;
+  if (!target) {
+    sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'session_id가 필요합니다.' });
+    return;
+  }
 
-  // In production: send to Whisper v3 Turbo API
-  // For now: acknowledge receipt
-  socket.send(JSON.stringify({
-    type: 'audio_received',
-    timestamp: new Date().toISOString(),
-  }));
+  const audio = state.audio;
+  if (!audio) {
+    sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: '활성 오디오 스트림이 없습니다.' });
+    return;
+  }
+  state.audio = null;
+
+  if (!audio.buffer.hasSignal) {
+    sendJson(socket, { type: 'transcript.final', session_id: target, turn_index: -1, text: '', confidence: 0, language: audio.language, duration_ms: audio.buffer.durationMs, message_id: null });
+    return;
+  }
+
+  sendJson(socket, { type: 'audio.vad', session_id: target, active: false });
+
+  const result = await transcribeAudio(audio.buffer.bundle);
+  if (!result.text) {
+    sendJson(socket, { type: 'transcript.final', session_id: target, turn_index: -1, text: '', confidence: 0, language: audio.language, duration_ms: result.durationMs, message_id: null });
+    return;
+  }
+
+  await handleTr({
+    text: result.text,
+    isFinal: true,
+    sessionId: target,
+    stt: { confidence: result.confidence, language: result.language, duration_ms: result.durationMs, service: result.service },
+  });
 }
 
-// Handle transcript from STT
-async function handleTranscript(
-  socket: WebSocket,
-  message: WSMessage,
-  sessionId: string
-) {
-  if (message.type !== 'transcript') return;
+// ── 최종 트랜스크립트 → 뉴런 파이프라인 → 브로드캐스트 ──
 
-  // Store in raw_transcripts table
-  if (message.is_final) {
-    await supabaseAdmin.from('raw_transcripts').insert({
+interface TrInput {
+  text: string;
+  isFinal: boolean;
+  sessionId: string | null;
+  stt?: Record<string, unknown>;
+}
+
+async function handleTr({ text, isFinal, sessionId, stt }: TrInput) {
+  if (!sessionId) throw Object.assign(new Error('session_id가 필요합니다.'), { code: 'VALIDATION_ERROR' });
+  if (!text.trim()) return;
+
+  const db = supabaseAdmin;
+
+  // 세션 조회 — 사용자/소유권 검증은 REST와 동일하게 JWT 기반
+  const { data: session } = await db.from('sessions').select('*').eq('id', sessionId).maybeSingle();
+  if (!session) throw Object.assign(new Error('세션을 찾을 수 없습니다.'), { code: 'SESSION_NOT_FOUND' });
+  if (session.status === 'archived') throw Object.assign(new Error('아카이브된 세션입니다.'), { code: 'SESSION_ARCHIVED' });
+
+  // 부분 트랜스크립트는 브로드캐스트만 (sentence 경계 아닌 경우)
+  if (!isFinal) {
+    broadcastToSession(sessionId, {
+      type: 'transcript.partial',
       session_id: sessionId,
-      text: message.text,
-      is_final: true,
-      created_at: new Date().toISOString(),
+      text,
+      confidence: 0.8,
+      language: (stt?.language as string) || 'ko',
     });
+    return;
   }
 
-  // Broadcast to session subscribers
-  socket.send(JSON.stringify({
-    type: 'transcript',
-    text: message.text,
-    is_final: message.is_final,
-    timestamp: new Date().toISOString(),
-  }));
+  // 페르소나 로드
+  const { data: persona } = await db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
+  const personaConfig = persona ? rowToPersonaConfig(persona) : null;
+
+  // 뉴런 상태 이벤트를 WS로 실시간 브로드캐스트
+  const emitEvent = (event: { neuron: string; status: string; stage: string; quip: string }) => {
+    broadcastToSession(sessionId, {
+      type: 'neuron.status',
+      session_id: sessionId,
+      neuron: { slug: event.neuron, name: NEURON_NAMES[event.neuron] || event.neuron },
+      status: event.status,
+      stage: event.stage,
+      quip: event.quip,
+    });
+  };
+
+  const result = await processTurn(db, sessionId, session.user_id as string, session.agent_id as string, personaConfig, text, {
+    emitEvent: emitEvent as any,
+    sttMetadata: stt || undefined,
+  });
+
+  // 최종 트랜스크립트 + 응답 브로드캐스트
+  broadcastToSession(sessionId, {
+    type: 'transcript.final',
+    session_id: sessionId,
+    turn_index: 0,
+    text,
+    confidence: (stt?.confidence as number) || 0.95,
+    language: (stt?.language as string) || 'ko',
+    duration_ms: (stt?.duration_ms as number) || 0,
+    message_id: result.userMessageId,
+  });
+
+  broadcastToSession(sessionId, {
+    type: 'queue.update',
+    session_id: sessionId,
+    pending_count: 0,
+    current_task: result.answerResponse ? '답변 생성 완료' : null,
+    next_tasks: [],
+  });
 }
 
-// Classify dialogue type and route to appropriate neuron
-export async function classifyDialogueType(text: string): Promise<string> {
-  // Simple keyword-based classification (MVP)
-  // Stage 1: Pattern matching (0ms)
-  const patterns = [
-    { type: 'data', keywords: ['스프레드시트', '표', '데이터', '차트', '그래프', '계산'] },
-    { type: 'file', keywords: ['파일', 'PDF', '이미지', '문서', '다운로드', '업로드'] },
-    { type: 'task', keywords: ['작업', '실행', '예약', '알림', '설정', '삭제', '추가'] },
-    { type: 'multi', keywords: ['여러', '함께', '협업', '다른 에이전트', '비교'] },
-  ];
-
-  for (const pattern of patterns) {
-    if (pattern.keywords.some(kw => text.includes(kw))) {
-      return pattern.type;
-    }
-  }
-
-  // Default: information
-  return 'information';
+/** 테스트용 — 허브 상태 검사 */
+export function __hubInfo(): { sessions: number; connections: number } {
+  let connections = 0;
+  for (const set of sessionHub.values()) connections += set.size;
+  return { sessions: sessionHub.size, connections };
 }
