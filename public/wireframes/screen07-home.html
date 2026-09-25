@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Screen 07 - 음성 우선 홈 | 에이전트톡</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif; }
+        
+        /* Joystick mic button */
+        .mic-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+        }
+        .mic-outer {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+        }
+        .mic-outer.active {
+            box-shadow: 0 0 0 20px rgba(59, 130, 246, 0.1), 0 0 40px rgba(59, 130, 246, 0.3);
+            transform: scale(1.05);
+        }
+        .mic-outer.active .mic-icon {
+            color: #fff;
+        }
+        .mic-inner {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        .mic-outer.active .mic-inner {
+            background: linear-gradient(135deg, #ef4444, #f97316);
+        }
+        .mic-icon {
+            font-size: 2rem;
+            transition: all 0.3s;
+        }
+        
+        /* Waveform animation */
+        .waveform {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            height: 40px;
+        }
+        .wave-bar {
+            width: 4px;
+            background: #3b82f6;
+            border-radius: 2px;
+            transition: height 0.1s;
+        }
+        .wave-bar.animate {
+            animation: wave 0.6s ease-in-out infinite alternate;
+        }
+        @keyframes wave {
+            0% { height: 8px; }
+            100% { height: 32px; }
+        }
+        .wave-bar:nth-child(2).animate { animation-delay: 0.1s; }
+        .wave-bar:nth-child(3).animate { animation-delay: 0.2s; }
+        .wave-bar:nth-child(4).animate { animation-delay: 0.15s; }
+        .wave-bar:nth-child(5).animate { animation-delay: 0.05s; }
+        .wave-bar:nth-child(6).animate { animation-delay: 0.25s; }
+        .wave-bar:nth-child(7).animate { animation-delay: 0.1s; }
+
+        /* Quick action ring */
+        .quick-action {
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #1e293b;
+            border: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            opacity: 0;
+            transform: scale(0.5);
+        }
+        .mic-container.expanded .quick-action {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .quick-action:hover {
+            background: #334155;
+            border-color: #3b82f6;
+        }
+
+        /* Transcript area */
+        .transcript-area {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+        }
+        .transcript-area.visible {
+            max-height: 200px;
+        }
+
+        /* Status pill */
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        /* Suggestion cards */
+        .suggestion-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 14px 18px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .suggestion-card:hover {
+            border-color: #3b82f6;
+            background: #1e293b;
+        }
+        .suggestion-card:active {
+            transform: scale(0.98);
+        }
+
+        /* Agent status bar */
+        .agent-bar {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid #334155;
+        }
+
+        /* Bottom nav */
+        .bottom-nav {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(12px);
+            border-top: 1px solid #1e293b;
+        }
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #64748b;
+        }
+        .nav-item.active {
+            color: #3b82f6;
+        }
+        .nav-item:hover {
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen flex flex-col">
+
+    <!-- Status Bar (agent connection) -->
+    <div class="agent-bar sticky top-0 z-50 px-4 py-3">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold">A</div>
+                <div>
+                    <div class="text-sm font-medium">에이전트톡</div>
+                    <div class="text-xs text-gray-400">3개 에이전트 연결됨</div>
+                </div>
+            </div>
+            <div class="status-pill bg-green-500/10 text-green-400 border border-green-500/20">
+                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                활성
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col items-center justify-center px-6 pb-24">
+        
+        <!-- Greeting -->
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-bold mb-2" id="greeting">무엇을 도와드릴까요?</h1>
+            <p class="text-gray-400 text-sm" id="subtext">마이크 버튼을 눌러 음성으로 시작하세요</p>
+        </div>
+
+        <!-- Joystick Mic Button -->
+        <div class="mic-container mb-8" id="micContainer">
+            <div class="mic-outer" id="micButton" onclick="toggleMic()">
+                <div class="mic-inner">
+                    <span class="mic-icon" id="micIcon">🎙️</span>
+                </div>
+            </div>
+            
+            <!-- Quick actions (radial) -->
+            <div class="quick-action" style="top: -50px; left: 50%; transform: translateX(-50%);" title="검색" onclick="quickAction('search')">🔍</div>
+            <div class="quick-action" style="top: 10px; right: -50px;" title="일정" onclick="quickAction('calendar')">📅</div>
+            <div class="quick-action" style="bottom: 10px; right: -50px;" title="메모" onclick="quickAction('memo')">📝</div>
+            <div class="quick-action" style="bottom: -50px; left: 50%; transform: translateX(-50%);" title="번역" onclick="quickAction('translate')">🌐</div>
+            <div class="quick-action" style="top: 10px; left: -50px;" title="요약" onclick="quickAction('summary')">📋</div>
+            <div class="quick-action" style="bottom: 10px; left: -50px;" title="코드" onclick="quickAction('code')">💻</div>
+        </div>
+
+        <!-- Waveform (hidden until active) -->
+        <div class="waveform mb-4" id="waveform">
+            <div class="wave-bar" style="height: 8px;"></div>
+            <div class="wave-bar" style="height: 8px;"></div>
+            <div class="wave-bar" style="height: 8px;"></div>
+            <div class="wave-bar" style="height: 8px;"></div>
+            <div class="wave-bar" style="height: 8px;"></div>
+            <div class="wave-bar" style="height: 8px;"></div>
+            <div class="wave-bar" style="height: 8px;"></div>
+        </div>
+
+        <!-- Transcript -->
+        <div class="transcript-area w-full max-w-sm" id="transcriptArea">
+            <div class="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+                <div class="text-xs text-gray-400 mb-2">실시간 음성 인식</div>
+                <p class="text-white text-sm leading-relaxed" id="transcriptText"></p>
+                <div class="mt-3 flex gap-2">
+                    <button class="text-xs px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full" onclick="confirmTranscript()">확인</button>
+                    <button class="text-xs px-3 py-1 bg-gray-700 text-gray-300 rounded-full" onclick="cancelTranscript()">취소</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Suggestions -->
+        <div class="w-full max-w-sm mt-8" id="suggestions">
+            <div class="text-xs text-gray-500 mb-3 uppercase tracking-wider">추천 명령</div>
+            <div class="grid gap-3">
+                <div class="suggestion-card" onclick="useSuggestion('오늘 일정 정리해줘')">
+                    <div class="flex items-center gap-3">
+                        <span>📅</span>
+                        <div>
+                            <div class="text-sm font-medium">오늘 일정 정리해줘</div>
+                            <div class="text-xs text-gray-500">일정 관리 에이전트</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="suggestion-card" onclick="useSuggestion('이메일 요약해줘')">
+                    <div class="flex items-center gap-3">
+                        <span>✉️</span>
+                        <div>
+                            <div class="text-sm font-medium">이메일 요약해줘</div>
+                            <div class="text-xs text-gray-500">이메일 에이전트</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="suggestion-card" onclick="useSuggestion('코드 리뷰해줘')">
+                    <div class="flex items-center gap-3">
+                        <span>💻</span>
+                        <div>
+                            <div class="text-sm font-medium">코드 리뷰해줘</div>
+                            <div class="text-xs text-gray-500">코딩 에이전트</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <div class="bottom-nav fixed bottom-0 left-0 right-0 px-4 py-2">
+        <div class="flex justify-around max-w-md mx-auto">
+            <div class="nav-item active">
+                <span class="text-xl">🏠</span>
+                <span class="text-xs">홈</span>
+            </div>
+            <div class="nav-item">
+                <span class="text-xl">🔍</span>
+                <span class="text-xs">탐색</span>
+            </div>
+            <div class="nav-item">
+                <span class="text-xl">📋</span>
+                <span class="text-xs">작업</span>
+            </div>
+            <div class="nav-item">
+                <span class="text-xl">⚙️</span>
+                <span class="text-xs">설정</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isActive = false;
+        let expanded = false;
+        let holdTimer = null;
+        let transcriptTimer = null;
+
+        const micButton = document.getElementById('micButton');
+        const micContainer = document.getElementById('micContainer');
+        const micIcon = document.getElementById('micIcon');
+        const waveform = document.getElementById('waveform');
+        const transcriptArea = document.getElementById('transcriptArea');
+        const transcriptText = document.getElementById('transcriptText');
+        const greeting = document.getElementById('greeting');
+        const subtext = document.getElementById('subtext');
+        const suggestions = document.getElementById('suggestions');
+        const bars = waveform.querySelectorAll('.wave-bar');
+
+        // Long press to expand quick actions
+        let pressTimer = null;
+        micButton.addEventListener('mousedown', () => {
+            pressTimer = setTimeout(() => {
+                micContainer.classList.toggle('expanded');
+                expanded = !expanded;
+            }, 500);
+        });
+        micButton.addEventListener('mouseup', () => clearTimeout(pressTimer));
+        micButton.addEventListener('mouseleave', () => clearTimeout(pressTimer));
+        micButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            pressTimer = setTimeout(() => {
+                micContainer.classList.toggle('expanded');
+                expanded = !expanded;
+            }, 500);
+        });
+        micButton.addEventListener('touchend', () => clearTimeout(pressTimer));
+
+        function toggleMic() {
+            isActive = !isActive;
+            
+            if (isActive) {
+                micButton.classList.add('active');
+                micIcon.textContent = '⏹️';
+                greeting.textContent = '듣고 있습니다...';
+                subtext.textContent = '말씀해주세요';
+                
+                // Start waveform
+                bars.forEach(bar => bar.classList.add('animate'));
+                
+                // Show transcript after delay
+                setTimeout(() => {
+                    transcriptArea.classList.add('visible');
+                    simulateTranscript();
+                }, 1000);
+
+                // Collapse suggestions
+                suggestions.style.opacity = '0.3';
+                suggestions.style.pointerEvents = 'none';
+            } else {
+                micButton.classList.remove('active');
+                micIcon.textContent = '🎙️';
+                greeting.textContent = '무엇을 도와드릴까요?';
+                subtext.textContent = '마이크 버튼을 눌러 음성으로 시작하세요';
+                
+                // Stop waveform
+                bars.forEach(bar => bar.classList.remove('animate'));
+                
+                // Hide transcript
+                transcriptArea.classList.remove('visible');
+                transcriptText.textContent = '';
+                
+                suggestions.style.opacity = '1';
+                suggestions.style.pointerEvents = 'auto';
+            }
+        }
+
+        function simulateTranscript() {
+            const samples = [
+                '오늘 오후 3시 미팅 일정을 확인하고...',
+                '어제 받은 이메일 중에 중요한 것만...',
+                '이 코드의 성능 이슈를 분석해...',
+                '프로젝트 진행 상황을 요약해...'
+            ];
+            const text = samples[Math.floor(Math.random() * samples.length)];
+            let i = 0;
+            transcriptText.textContent = '';
+            
+            transcriptTimer = setInterval(() => {
+                if (i < text.length && isActive) {
+                    transcriptText.textContent += text[i];
+                    i++;
+                } else {
+                    clearInterval(transcriptTimer);
+                }
+            }, 80);
+        }
+
+        function confirmTranscript() {
+            toggleMic();
+            greeting.textContent = '처리 중...';
+            subtext.textContent = '에이전트가 작업을 준비합니다';
+            
+            setTimeout(() => {
+                greeting.textContent = '작업이 완료되었습니다';
+                subtext.textContent = '결과를 확인하세요';
+            }, 1500);
+        }
+
+        function cancelTranscript() {
+            if (isActive) toggleMic();
+            transcriptText.textContent = '';
+        }
+
+        function useSuggestion(text) {
+            greeting.textContent = '처리 중...';
+            subtext.textContent = `"${text}"`;
+            suggestions.style.opacity = '0.3';
+            suggestions.style.pointerEvents = 'none';
+            
+            setTimeout(() => {
+                greeting.textContent = '작업이 완료되었습니다';
+                subtext.textContent = '결과 캔버스에서 확인하세요 →';
+            }, 2000);
+        }
+
+        function quickAction(type) {
+            const labels = {
+                search: '검색',
+                calendar: '일정',
+                memo: '메모',
+                translate: '번역',
+                summary: '요약',
+                code: '코드'
+            };
+            greeting.textContent = `${labels[type]} 모드로 전환`;
+            subtext.textContent = '음성 또는 텍스트로 입력하세요';
+            micContainer.classList.remove('expanded');
+        }
+
+        // Nav items
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>

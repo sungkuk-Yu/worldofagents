@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에이전트톡 와이어프레임</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-12 max-w-4xl">
+        <header class="mb-12 text-center">
+            <h1 class="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                에이전트톡 와이어프레임
+            </h1>
+            <p class="text-gray-400 text-lg">모던 UI 프로토타입</p>
+        </header>
+
+        <div class="grid gap-6 md:grid-cols-2">
+            <!-- Screen 07: 음성 우선 홈 -->
+            <a href="screen07-home.html" class="block group">
+                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-blue-500 transition-all hover:scale-105">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center text-xl">🎙️</div>
+                        <h2 class="text-xl font-semibold">음성 우선 홈</h2>
+                    </div>
+                    <p class="text-gray-400 text-sm">조이스틱 마이크 버튼 인터랙티브</p>
+                    <div class="mt-4 text-xs text-gray-500">screen07-home.html</div>
+                </div>
+            </a>
+
+            <!-- Screen 10: 결과 캔버스 -->
+            <a href="screen10-result-canvas.html" class="block group">
+                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-purple-500 transition-all hover:scale-105">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center text-xl">📊</div>
+                        <h2 class="text-xl font-semibold">결과 캔버스</h2>
+                    </div>
+                    <p class="text-gray-400 text-sm">풀스크린 카드 레이아웃</p>
+                    <div class="mt-4 text-xs text-gray-500">screen10-result-canvas.html</div>
+                </div>
+            </a>
+
+            <!-- Screen 11: 카드 스레드 -->
+            <a href="screen11-card-thread.html" class="block group">
+                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-green-500 transition-all hover:scale-105">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center text-xl">🔗</div>
+                        <h2 class="text-xl font-semibold">카드 스레드</h2>
+                    </div>
+                    <p class="text-gray-400 text-sm">연결된 카드 인터페이스</p>
+                    <div class="mt-4 text-xs text-gray-500">screen11-card-thread.html</div>
+                </div>
+            </a>
+
+            <!-- Dialog Components -->
+            <a href="dialog-components.html" class="block group">
+                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-yellow-500 transition-all hover:scale-105">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center text-xl">💬</div>
+                        <h2 class="text-xl font-semibold">다이얼로그 컴포넌트</h2>
+                    </div>
+                    <p class="text-gray-400 text-sm">5종 다이얼로그 데모</p>
+                    <div class="mt-4 text-xs text-gray-500">dialog-components.html</div>
+                </div>
+            </a>
+        </div>
+
+        <footer class="mt-12 text-center text-gray-500 text-sm">
+            <p>모바일 우선 반응형 • 다크 모드 • Tailwind CSS</p>
+            <p class="mt-2">채팅버블 없는 모던 미니멀 디자인</p>
+        </footer>
+    </div>
+</body>
+</html>
