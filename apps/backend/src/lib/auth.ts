@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
-import { ApiError } from './errors';
-import { DbClient, createUserClient } from './supabase';
+import { ApiError } from './errors.js';
+import { DbClient, createUserClient } from './supabase.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -8,8 +8,6 @@ declare module 'fastify' {
     userId: string;
     /** 사용자 컨텍스트 DB 클라이언트 */
     db: DbClient;
-    /** 라우트 파라미터 (기본 unknown — 편의상 string 레코드) */
-    params: Record<string, string>;
   }
 }
 

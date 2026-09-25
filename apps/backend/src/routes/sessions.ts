@@ -90,7 +90,7 @@ export async function sessionRoutes(app: FastifyInstance) {
 
     // 활성 페르소나 로드
     const { data: persona } = await request.db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
-    const { rowToPersonaConfig } = await import('../lib/persona');
+    const { rowToPersonaConfig } = await import('../lib/persona.js');
     const personaConfig = persona ? rowToPersonaConfig(persona) : null;
 
     const result = await processTurn(request.db, session.id, request.userId, session.agent_id, personaConfig, content, {

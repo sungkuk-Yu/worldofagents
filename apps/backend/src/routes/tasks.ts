@@ -70,7 +70,8 @@ export async function taskRoutes(app: FastifyInstance) {
 
   // GET /api/tasks/:id — 작업 상세
   app.get('/:id', { preHandler: requireAuth }, async (request) => {
-    const { data, error } = await request.db.from('tasks').select('*, sessions(user_id)').eq('id', request.params.id).maybeSingle();
+    const { id } = request.params as { id: string };
+    const { data, error } = await request.db.from('tasks').select('*, sessions(user_id)').eq('id', id).maybeSingle();
     if (error || !data) throw new ApiError(ERROR_CODES.TASK_NOT_FOUND, '작업을 찾을 수 없습니다.');
     const sessionRef = (data as any).sessions as { user_id?: string } | null;
     if (!sessionRef || sessionRef.user_id !== request.userId) throw new ApiError(ERROR_CODES.TASK_NOT_FOUND, '작업을 찾을 수 없습니다.');
@@ -80,7 +81,8 @@ export async function taskRoutes(app: FastifyInstance) {
 
   // PATCH /api/tasks/:id — 작업 상태 변경
   app.patch('/:id', { preHandler: requireAuth }, async (request) => {
-    const task = await loadOwnedTask(request.db, request.userId, request.params.id);
+    const { id } = request.params as { id: string };
+    const task = await loadOwnedTask(request.db, request.userId, id);
     const body = request.body as { status?: string; result?: unknown; priority?: string };
     if (body.status && !(TASK_STATUSES as readonly string[]).includes(body.status)) {
       throw badRequest(`status는 ${TASK_STATUSES.join('/')} 중 하나여야 합니다.`);
@@ -116,7 +118,8 @@ export async function taskRoutes(app: FastifyInstance) {
 
   // POST /api/tasks/:id/cancel — 작업 취소 (Temporal user_stop 신호 대응)
   app.post('/:id/cancel', { preHandler: requireAuth }, async (request) => {
-    const task = await loadOwnedTask(request.db, request.userId, request.params.id);
+    const { id } = request.params as { id: string };
+    const task = await loadOwnedTask(request.db, request.userId, id);
     const { data, error } = await request.db.from('tasks').update({ status: 'cancelled', completed_at: new Date().toISOString() }).eq('id', task.id).select().single();
     if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
     await request.db.from('task_logs').insert({
@@ -132,7 +135,8 @@ export async function taskRoutes(app: FastifyInstance) {
 
   // GET /api/tasks/:id/logs — 작업 로그
   app.get('/:id/logs', { preHandler: requireAuth }, async (request) => {
-    const task = await loadOwnedTask(request.db, request.userId, request.params.id);
+    const { id } = request.params as { id: string };
+    const task = await loadOwnedTask(request.db, request.userId, id);
     const { data } = await request.db.from('task_logs').select('*').eq('task_id', task.id).order('created_at', { ascending: true });
     return ok(data || []);
   });

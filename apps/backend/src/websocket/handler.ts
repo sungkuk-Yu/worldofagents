@@ -121,8 +121,8 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     state.lastActivity = Date.now();
 
     // 바이너리 프레임 = 오디오 청크
-    if (Buffer.isBuffer(raw) || raw instanceof ArrayBuffer) {
-      handleAudioChunk(socket, state, Buffer.isBuffer(raw) ? raw : Buffer.from(raw));
+    if (Buffer.isBuffer(raw) || ArrayBuffer.isView(raw)) {
+      handleAudioChunk(socket, state, Buffer.isBuffer(raw) ? raw : Buffer.from(raw as unknown as ArrayBuffer));
       return;
     }
 

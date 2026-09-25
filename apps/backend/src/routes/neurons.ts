@@ -26,7 +26,8 @@ export async function neuronRoutes(app: FastifyInstance) {
 
   // GET /api/neurons/:neuronId — 뉴런 유형 상세
   app.get('/:neuronId', { preHandler: requireAuth }, async (request) => {
-    const { data, error } = await request.db.from('neurons').select('*').eq('id', request.params.neuronId).maybeSingle();
+    const { neuronId } = request.params as { neuronId: string };
+    const { data, error } = await request.db.from('neurons').select('*').eq('id', neuronId).maybeSingle();
     if (error || !data) throw new ApiError(ERROR_CODES.NEURON_NOT_FOUND, '뉴런 유형을 찾을 수 없습니다.');
     return ok(data);
   });

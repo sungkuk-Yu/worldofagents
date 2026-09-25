@@ -81,7 +81,8 @@ export async function skillRoutes(app: FastifyInstance) {
 
   // GET /api/skills/:skillIdOrSlug — 스킬 상세
   app.get('/:skillIdOrSlug', { preHandler: requireAuth }, async (request) => {
-    const skill = await findSkill(request.db, request.params.skillIdOrSlug);
+    const { skillIdOrSlug } = request.params as { skillIdOrSlug: string };
+    const skill = await findSkill(request.db, skillIdOrSlug);
     return ok(skill);
   });
 
@@ -156,7 +157,8 @@ export async function skillRoutes(app: FastifyInstance) {
 
   // DELETE /api/skills/:skillId/install — 스킬 제거
   app.delete('/:skillId/install', { preHandler: requireAuth }, async (request) => {
-    const skill = await findSkill(request.db, request.params.skillId);
+    const { skillId } = request.params as { skillId: string };
+    const skill = await findSkill(request.db, skillId);
     const inst = await installedSkill(request.db, request.userId, skill.id);
     if (!inst) throw new ApiError(ERROR_CODES.SKILL_NOT_FOUND, '설치된 스킬이 아닙니다.');
     await request.db.from('skill_installations').delete().eq('id', inst.id);
@@ -166,7 +168,8 @@ export async function skillRoutes(app: FastifyInstance) {
 
   // POST /api/skills/:skillId/rate — 스킬 평가 (1~5)
   app.post('/:skillId/rate', { preHandler: requireAuth }, async (request) => {
-    const skill = await findSkill(request.db, request.params.skillId);
+    const { skillId } = request.params as { skillId: string };
+    const skill = await findSkill(request.db, skillId);
     const { rating } = request.body as { rating?: number };
     if (rating === undefined || !Number.isInteger(rating) || rating < 1 || rating > 5) {
       throw badRequest('rating은 1~5 사이의 정수여야 합니다.');

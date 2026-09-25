@@ -249,6 +249,9 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
       return { data: rows, error: null };
     }
     // select
+    if (this.op.kind !== 'select') {
+      return { data: null, error: { message: 'Unexpected operation kind' } };
+    }
     const rows = this.execSelect(this.op);
     if (this.op.single) {
       if (rows.length === 0) return { data: null, error: { message: 'No rows found' } };
