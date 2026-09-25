@@ -19,9 +19,8 @@
 | `export-frames.cjs` | 프레임 재추출 스크립트 (Node + playwright-core) |
 | `verify-dom.cjs` | DOM 메트릭 자동 검증 스크립트 (프레임 크기/오버플로우/깨진 아이콘/JS 에러) |
 
-> **Figma 연동 참고:** 이 세션에서는 Figma MCP(OAuth) 연결이 없어 클라우드 파일을 직접 생성하지 못했습니다.
-> 연결을 원하시면 `hermes mcp add figma --url https://mcp.figma.com/mcp` → OAuth 승인 후 세션 재시작을 요청해 주세요.
-> 그 전까지는 위 파일들(SVG/PNG/tokens)로 Figma 워크스페이스에 바로 임포트해 사용할 수 있습니다.
+> **Figma 연동 참고 (2026-09-25 PAT 실측):** 제공된 Figma Personal Access Token(유성국)으로 클라우드 업로드를 시도했습니다 — `GET /v1/me`로 토큰 유효 확인(유성국, holysky87@gmail.com). 그러나 Figma REST API(공식 OpenAPI 스펙 `figma/rest-api-spec`)에는 **파일 생성·노드 삽입·임포트 엔드포인트가 없습니다**(`POST /v1/files` 실측 404, 쓰기 가능한 API는 comments·variables·dev_resources·webhooks뿐). HTML → 클라우드 파일 직접 변환은 Figma MCP(OAuth: `hermes mcp add figma --url https://mcp.figma.com/mcp` → 승인 → 세션 재시작) 또는 Figma 앱의 수동 임포트로만 가능합니다.
+> 임포트 전까지는 아래 산출물(SVG/PNG/tokens.json)로 Figma 워크스페이스에서 바로 사용할 수 있습니다.
 
 ---
 
@@ -138,10 +137,12 @@
 
 - 14개 프레임 정상 렌더 (390×844 ×12, 768×1024, 1440×900)
 - DOM 계측: 깨진 아이콘/이미지 0건, 가로 오버플로우 0건, 콘솔/JS 에러 0건
-- 토큰 색상 렌더 일치: bg rgb(10,12,16)=#0A0C10, seg-info #4CC9F0
+- 토큰 색상 렌더 일치 (라이트): bg rgb(245,247,250)=#F5F7FA, seg-info #0891B2, primary #00A86B
 - 14장 PNG / 43종 아이콘 SVG 추출 완료
 - 재검증 (run 3, 2026-09-25): `cat build/01..09_*.html` 재어셈블 → 마스터와 md5 일치(`bfab9a13…`), `node export-frames.cjs` 재추출 성공(14프레임/43아이콘), `node verify-dom.cjs` 통과(이슈 0건, JS 에러 0건)
 - **v1.1 라이트 모드 재검증 (run 4, 2026-09-25):** 다크 → 라이트 색상 치환(타일/아이콘/PDF/조이스틱/히스토리바 등 6개 파츠, 잔여 다크 토큰 0건) 후 재어셈블 → `diff -q` 동기화 확인, `node verify-dom.cjs` 통과(14프레임 크기 정확, 이슈 0건, JS 에러 0건), 브라우저 계산 스타일 실측 — bg=#F5F7FA / primary=#00A86B / seg-info=#0891B2 / text=#1A1D26 / 히스토리바 흰 그라디언트, `node export-frames.cjs` 재추출 성공(14PNG/43아이콘, 프레임 크기 782×1690 등 정상)
+- **최종 동기화 (run 5, 2026-09-25):** 프레임 마이크/PDF 파츠 잔여 다크 색(#3B2E2E·#E3DED0 등) 잔류 발견 → 빌드 파츠에서 정리 후 마스터 재어셈블(`cat build/*.html`), 전체 다크 토큰 스윕 0건, `node export-frames.cjs`로 PNG 14장 재추출, `node verify-dom.cjs` 통과(이슈 0건·JS 에러 0건·14프레임 크기 정확), 브라우저 계산 스타일 재실측 — 조이스틱=화이트 그라디언트 / PDF=연한 종이(#FBF7EE) / 아바타=라이트 틴트 / 스테퍼 체크=흰색 / 히스토리바=흰 그라디언트
+- **최종 재검증 (run 6, 2026-09-25):** 마스터←파츠 재어셈블 동기화 재확인(`cat build/*.html | diff -q - agenttalk-design-system.html` 0건), `node export-frames.cjs` 재추출(14PNG/43아이콘, 해상도 정상), `node verify-dom.cjs` 통과(이슈 0건·JS 에러 0건·14프레임 크기 정확·bg=#F5F7FA), Figma PAT 실측 — 토큰 유효(유성국) / 파일 생성 엔드포인트 부재(POST /v1/files 404 + OpenAPI 스펙 확인), 전체 다크 잔재 스윕 0건
 - ※ 시각 모델(vision) 미지원 환경이라 픽셀 단위 눈 검증은 제한 — 프레임 PNG를 김비서/대표님께서 직접 확인해 주시면 좋습니다.
 
 ---
