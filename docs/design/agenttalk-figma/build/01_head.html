@@ -3,47 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>에이전트톡 (AgentTalk) — Figma Design System · 모던 UX v1.0</title>
+<title>에이전트톡 (AgentTalk) — Figma Design System · 모던 UX v1.1 · 라이트</title>
 <style>
 /* ============================================================
-   에이전트톡 디자인 시스템 — Design Tokens (다크 모드)
+   에이전트톡 디자인 시스템 — Design Tokens (라이트 모드)
    - 채팅버블 탈피: 기능 중심 / 사각형 카드 / 모던 미니멀
    - 모바일 우선: 390×844 기준, 반응형 (태블릿/데스크톱)
    ============================================================ */
 :root{
   /* Color — Surface */
-  --bg:            #0A0C10;
-  --surface:       #12151C;
-  --surface-raise: #181C25;
-  --surface-hover: #1E2330;
-  --overlay:       rgba(10,12,16,.72);
+  --bg:            #F5F7FA;
+  --surface:       #FFFFFF;
+  --surface-raise: #F0F3F7;
+  --surface-hover: #EAEEF3;
+  --overlay:       rgba(17,24,39,.40);
 
   /* Color — Border */
-  --border:        #252B39;
-  --border-strong: #323A4D;
+  --border:        #E4E8EE;
+  --border-strong: #CBD3DD;
 
   /* Color — Text */
-  --text-1: #F2F4F8;
-  --text-2: #A6AFC1;
-  --text-3: #606B80;
-  --text-dis: rgba(242,244,248,.34);
+  --text-1: #1A1D26;
+  --text-2: #5A6472;
+  --text-3: #8F98A6;
+  --text-dis: rgba(26,29,38,.32);
 
   /* Color — Accent (최소 팔레트) */
-  --primary:     #5B8CFF;   /* 메인 액센트 — 상호작용 */
-  --primary-soft:rgba(91,140,255,.14);
-  --on-primary:  #0A0C10;
+  --primary:     #00A86B;   /* 메인 액센트 — 상호작용 */
+  --primary-soft:rgba(0,168,107,.12);
+  --on-primary:  #FFFFFF;
 
   /* Color — Segment (기능 단위 식별색, 사용 최소화) */
-  --seg-info:  #4CC9F0;  /* 정보 */
-  --seg-data:  #9B7BF3;  /* 데이터 */
-  --seg-file:  #FFB454;  /* 파일 */
-  --seg-task:  #4ADE80;  /* 작업 */
-  --seg-multi: #FB7185;  /* 멀티에이전트 */
+  --seg-info:  #0891B2;  /* 정보 */
+  --seg-data:  #7C5CE0;  /* 데이터 */
+  --seg-file:  #E8912D;  /* 파일 */
+  --seg-task:  #16A34A;  /* 작업 */
+  --seg-multi: #F43F5E;  /* 멀티에이전트 */
 
   /* Color — Status */
-  --ok:     #4ADE80;
-  --warn:   #FBBF24;
-  --err:    #F87171;
+  --ok:     #16A34A;
+  --warn:   #D97706;
+  --err:    #DC2626;
   --neutral:#6B7280;
 
   /* Radius — 사각형 카드 (극소 반경) */
@@ -67,24 +67,24 @@
   --t-micro:   500 11px/1.3  var(--font);
 
   /* Shadow */
-  --sh-1: 0 1px 2px rgba(0,0,0,.4);
-  --sh-2: 0 4px 14px rgba(0,0,0,.45);
-  --sh-3: 0 12px 32px rgba(0,0,0,.55);
+  --sh-1: 0 1px 2px rgba(16,24,40,.06);
+  --sh-2: 0 4px 14px rgba(16,24,40,.08);
+  --sh-3: 0 12px 32px rgba(16,24,40,.12);
 }
 
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 body{
-  font:var(--t-body);color:var(--text-1);background:#10131A;
+  font:var(--t-body);color:var(--text-1);background:#F5F7FA;
   min-height:100vh;
 }
-::selection{background:rgba(91,140,255,.35)}
+::selection{background:rgba(0,168,107,.25)}
 
 /* ============ 도큐먼트 헤더 ============ */
 .doc-header{
   padding:40px 48px 24px;
-  border-bottom:1px solid #222836;
-  background:linear-gradient(180deg,#131722 0%,#10131A 100%);
+  border-bottom:1px solid #E4E8EE;
+  background:linear-gradient(180deg,#FFFFFF 0%,#F5F7FA 100%);
 }
 .doc-header h1{font:var(--t-display);letter-spacing:-.5px}
 .doc-header .sub{margin-top:8px;color:var(--text-2);font:var(--t-body)}
@@ -94,7 +94,7 @@ body{
   border:1px solid var(--border);background:var(--surface);
   padding:6px 10px;border-radius:var(--r-full);letter-spacing:.2px;
 }
-.tag.hot{color:var(--primary);border-color:rgba(91,140,255,.5);background:var(--primary-soft)}
+.tag.hot{color:var(--primary);border-color:rgba(0,168,107,.50);background:var(--primary-soft)}
 
 /* ============ 캔버스 (Figma 캔버스 역할) ============ */
 .canvas{
@@ -108,7 +108,7 @@ body{
 }
 .frame-art{
   position:relative;width:390px;height:844px;background:var(--bg);
-  border:1px solid #2A3140;border-radius:14px;overflow:hidden;
+  border:1px solid #D7DEE8;border-radius:14px;overflow:hidden;
   box-shadow:var(--sh-3);flex:none;
 }
 .frame-art.wide{width:auto;height:auto;aspect-ratio:auto;border-radius:10px}
@@ -155,17 +155,17 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   font:var(--t-micro);padding:5px 10px;border-radius:var(--r-full);
   border:1px solid var(--border);background:var(--surface-raise);color:var(--text-2);
 }
-.chip.active{color:var(--primary);border-color:rgba(91,140,255,.55);background:var(--primary-soft)}
-.chip.ok{color:var(--ok);border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08)}
-.chip.warn{color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+.chip.active{color:var(--primary);border-color:rgba(0,168,107,.50);background:var(--primary-soft)}
+.chip.ok{color:var(--ok);border-color:rgba(22,163,74,.35);background:rgba(22,163,74,.07)}
+.chip.warn{color:var(--warn);border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.07)}
 .chip.plain{color:var(--text-1);background:var(--surface-raise)}
 
 .badge{display:inline-flex;align-items:center;gap:4px;font:var(--t-micro);font-weight:600;
   padding:2px 7px;border-radius:var(--r-xs)}
-.badge.ok{color:var(--ok);background:rgba(74,222,128,.12)}
-.badge.warn{color:var(--warn);background:rgba(251,191,36,.12)}
-.badge.err{color:var(--err);background:rgba(248,113,113,.12)}
-.badge.off{color:var(--text-2);background:rgba(96,107,128,.18)}
+.badge.ok{color:var(--ok);background:rgba(22,163,74,.10)}
+.badge.warn{color:var(--warn);background:rgba(217,119,6,.10)}
+.badge.err{color:var(--err);background:rgba(220,38,38,.10)}
+.badge.off{color:var(--text-2);background:rgba(107,114,128,.12)}
 .badge.main{color:var(--primary);background:var(--primary-soft)}
 
 .btn{
@@ -177,7 +177,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .btn-primary{background:var(--primary);color:var(--on-primary)}
 .btn-secondary{background:var(--surface-raise);color:var(--text-1);border-color:var(--border-strong)}
 .btn-ghost{background:transparent;color:var(--text-2);border-color:var(--border)}
-.btn-danger{background:rgba(248,113,113,.12);color:var(--err);border-color:rgba(248,113,113,.3)}
+.btn-danger{background:rgba(220,38,38,.10);color:var(--err);border-color:rgba(220,38,38,.25)}
 .btn-lg{padding:15px 20px;font:700 16px/1.3 var(--font)}
 .btn-sm{padding:8px 12px;font:var(--t-sub)}
 
@@ -187,11 +187,11 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .seg-ico{width:34px;height:34px;border-radius:var(--r-md);display:inline-flex;align-items:center;
   justify-content:center;flex:none}
 .seg-ico svg{width:19px;height:19px}
-.seg-info{background:rgba(76,201,240,.14);color:var(--seg-info)}
-.seg-data{background:rgba(155,123,243,.14);color:var(--seg-data)}
-.seg-file{background:rgba(255,180,84,.14);color:var(--seg-file)}
-.seg-task{background:rgba(74,222,128,.14);color:var(--seg-task)}
-.seg-multi{background:rgba(251,113,133,.14);color:var(--seg-multi)}
+.seg-info{background:rgba(8,145,178,.10);color:var(--seg-info)}
+.seg-data{background:rgba(124,92,224,.10);color:var(--seg-data)}
+.seg-file{background:rgba(232,145,45,.12);color:var(--seg-file)}
+.seg-task{background:rgba(22,163,74,.10);color:var(--seg-task)}
+.seg-multi{background:rgba(244,63,94,.10);color:var(--seg-multi)}
 .seg-ic-sm{width:24px;height:24px;border-radius:var(--r-sm)}
 .seg-ic-sm svg{width:14px;height:14px}
 
@@ -200,7 +200,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 /* ============ 세그먼트 히스토리 바 (하단 연결형) ============ */
 .segbar{
   position:relative;display:flex;align-items:center;gap:0;padding:8px 14px;
-  background:linear-gradient(180deg,rgba(18,21,28,.96),rgba(18,21,28,.88));
+  background:linear-gradient(180deg,rgba(255,255,255,.97),rgba(255,255,255,.92));
   border-top:1px solid var(--border);
 }
 .segbar .sb-scroll{display:flex;align-items:center;gap:0;overflow:hidden;flex:1;
@@ -241,7 +241,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .seg-progress{display:flex;align-items:center;gap:6px;padding:10px 24px 6px}
 .seg-progress .s{flex:1;height:2.5px;border-radius:2px;background:var(--surface-hover)}
 .seg-progress .s.done{background:var(--primary)}
-.seg-progress .s.cur{background:var(--primary);box-shadow:0 0 8px rgba(91,140,255,.7)}
+.seg-progress .s.cur{background:var(--primary);box-shadow:0 0 8px rgba(0,168,107,.45)}
 
 /* ============ 조이스틱 마이크 ============ */
 .joystick{position:relative;width:150px;height:150px}
@@ -251,15 +251,15 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 @keyframes pulse{0%{transform:scale(.86);opacity:.45}100%{transform:scale(1.14);opacity:0}}
 .joystick .core{
   position:absolute;inset:34px;border-radius:50%;
-  background:radial-gradient(circle at 32% 28%, #1E2534 0%, #151A26 58%, #0E1118 100%);
+  background:radial-gradient(circle at 32% 28%, #FFFFFF 0%, #F2F6FA 58%, #E8EDF4 100%);
   border:1.5px solid var(--border-strong);
   display:flex;align-items:center;justify-content:center;color:var(--text-1);
-  box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.06);
+  box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.9);
   transition:transform .15s;
 }
 .joystick .core svg{width:44px;height:44px}
-.joystick .core.rec{background:radial-gradient(circle at 32% 28%, #3A1320 0%, #23101B 58%, #140A10 100%);
-  border-color:rgba(248,113,113,.65);color:var(--err);}
+.joystick .core.rec{background:radial-gradient(circle at 32% 28%, #FDECEC 0%, #FADCDC 58%, #F5C9C9 100%);
+  border-color:rgba(220,38,38,.55);color:var(--err);}
 .joystick .dir{
   position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px;
   font:var(--t-micro);color:var(--text-2);
@@ -269,7 +269,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   display:flex;align-items:center;justify-content:center;opacity:.9}
 .joystick .dir .d-arrow svg{width:13px;height:13px}
 .joystick .dir.lock .d-arrow{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)
-  ;box-shadow:0 0 10px rgba(91,140,255,.35)}
+  ;box-shadow:0 0 10px rgba(0,168,107,.30)}
 .joystick .dir-l{left:-6px;top:50%;transform:translateY(-50%)}
 .joystick .dir-r{right:-6px;top:50%;transform:translateY(-50%)}
 .joystick .dir-u{top:-2px;left:50%;transform:translateX(-50%)}
@@ -318,7 +318,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .tbl tr:last-child td{border-bottom:none}
 .tbl .num{text-align:right;font-variant-numeric:tabular-nums}
 .tbl td.sel{outline:2px solid var(--primary);outline-offset:-2px;background:var(--primary-soft)}
-.tbl .hd-sel th{color:var(--primary);background:rgba(91,140,255,.1)}
+.tbl .hd-sel th{color:var(--primary);background:rgba(0,168,107,.08)}
 
 /* 타임라인 */
 .tl{position:relative;padding-left:20px}
@@ -339,9 +339,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .step .s-dot{width:22px;height:22px;border-radius:50%;background:var(--surface-raise);
   border:2px solid var(--border-strong);display:flex;align-items:center;justify-content:center;
   color:transparent;z-index:1}
-.step.done .s-dot{background:var(--ok);border-color:var(--ok);color:#08130C}
+.step.done .s-dot{background:var(--ok);border-color:var(--ok);color:#FFFFFF}
 .step.cur .s-dot{border-color:var(--primary);color:var(--primary);
-  box-shadow:0 0 10px rgba(91,140,255,.4)}
+  box-shadow:0 0 10px rgba(0,168,107,.32)}
 .step .s-lbl{font:var(--t-micro);color:var(--text-3);margin-top:6px}
 .step.done .s-lbl,.step.cur .s-lbl{color:var(--text-1)}
 .step .s-line{position:absolute;top:11px;height:2px;background:var(--border-strong);
@@ -360,9 +360,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   border-radius:50%;background:var(--primary);transform:translateX(-50%)}
 
 /* PDF 미니페이지 */
-.pdf-page{background:#F5F1E8;border-radius:var(--r-xs);color:#3A3A3A;
+.pdf-page{background:#FBF7EE;border-radius:var(--r-xs);color:#4C4A42;
   padding:10px;font:var(--t-micro);line-height:1.55;position:relative}
-.hl{background:rgba(255,180,84,.4);padding:0 2px;border-radius:2px}
+.hl{background:rgba(232,145,45,.28);padding:0 2px;border-radius:2px}
 
 /* 컴포넌트 라이브러리 그리드 */
 .lib{position:absolute;inset:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:18px}
@@ -381,7 +381,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
 /* 스크롤바 */
 ::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-thumb{background:#2A3140;border-radius:3px}
+::-webkit-scrollbar-thumb{background:#D7DEE8;border-radius:3px}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* 인쇄/내보내기시 프레임만 */

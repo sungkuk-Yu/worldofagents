@@ -3,47 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>에이전트톡 (AgentTalk) — Figma Design System · 모던 UX v1.0</title>
+<title>에이전트톡 (AgentTalk) — Figma Design System · 모던 UX v1.1 · 라이트</title>
 <style>
 /* ============================================================
-   에이전트톡 디자인 시스템 — Design Tokens (다크 모드)
+   에이전트톡 디자인 시스템 — Design Tokens (라이트 모드)
    - 채팅버블 탈피: 기능 중심 / 사각형 카드 / 모던 미니멀
    - 모바일 우선: 390×844 기준, 반응형 (태블릿/데스크톱)
    ============================================================ */
 :root{
   /* Color — Surface */
-  --bg:            #0A0C10;
-  --surface:       #12151C;
-  --surface-raise: #181C25;
-  --surface-hover: #1E2330;
-  --overlay:       rgba(10,12,16,.72);
+  --bg:            #F5F7FA;
+  --surface:       #FFFFFF;
+  --surface-raise: #F0F3F7;
+  --surface-hover: #EAEEF3;
+  --overlay:       rgba(17,24,39,.40);
 
   /* Color — Border */
-  --border:        #252B39;
-  --border-strong: #323A4D;
+  --border:        #E4E8EE;
+  --border-strong: #CBD3DD;
 
   /* Color — Text */
-  --text-1: #F2F4F8;
-  --text-2: #A6AFC1;
-  --text-3: #606B80;
-  --text-dis: rgba(242,244,248,.34);
+  --text-1: #1A1D26;
+  --text-2: #5A6472;
+  --text-3: #8F98A6;
+  --text-dis: rgba(26,29,38,.32);
 
   /* Color — Accent (최소 팔레트) */
-  --primary:     #5B8CFF;   /* 메인 액센트 — 상호작용 */
-  --primary-soft:rgba(91,140,255,.14);
-  --on-primary:  #0A0C10;
+  --primary:     #00A86B;   /* 메인 액센트 — 상호작용 */
+  --primary-soft:rgba(0,168,107,.12);
+  --on-primary:  #FFFFFF;
 
   /* Color — Segment (기능 단위 식별색, 사용 최소화) */
-  --seg-info:  #4CC9F0;  /* 정보 */
-  --seg-data:  #9B7BF3;  /* 데이터 */
-  --seg-file:  #FFB454;  /* 파일 */
-  --seg-task:  #4ADE80;  /* 작업 */
-  --seg-multi: #FB7185;  /* 멀티에이전트 */
+  --seg-info:  #0891B2;  /* 정보 */
+  --seg-data:  #7C5CE0;  /* 데이터 */
+  --seg-file:  #E8912D;  /* 파일 */
+  --seg-task:  #16A34A;  /* 작업 */
+  --seg-multi: #F43F5E;  /* 멀티에이전트 */
 
   /* Color — Status */
-  --ok:     #4ADE80;
-  --warn:   #FBBF24;
-  --err:    #F87171;
+  --ok:     #16A34A;
+  --warn:   #D97706;
+  --err:    #DC2626;
   --neutral:#6B7280;
 
   /* Radius — 사각형 카드 (극소 반경) */
@@ -67,24 +67,24 @@
   --t-micro:   500 11px/1.3  var(--font);
 
   /* Shadow */
-  --sh-1: 0 1px 2px rgba(0,0,0,.4);
-  --sh-2: 0 4px 14px rgba(0,0,0,.45);
-  --sh-3: 0 12px 32px rgba(0,0,0,.55);
+  --sh-1: 0 1px 2px rgba(16,24,40,.06);
+  --sh-2: 0 4px 14px rgba(16,24,40,.08);
+  --sh-3: 0 12px 32px rgba(16,24,40,.12);
 }
 
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 body{
-  font:var(--t-body);color:var(--text-1);background:#10131A;
+  font:var(--t-body);color:var(--text-1);background:#F5F7FA;
   min-height:100vh;
 }
-::selection{background:rgba(91,140,255,.35)}
+::selection{background:rgba(0,168,107,.25)}
 
 /* ============ 도큐먼트 헤더 ============ */
 .doc-header{
   padding:40px 48px 24px;
-  border-bottom:1px solid #222836;
-  background:linear-gradient(180deg,#131722 0%,#10131A 100%);
+  border-bottom:1px solid #E4E8EE;
+  background:linear-gradient(180deg,#FFFFFF 0%,#F5F7FA 100%);
 }
 .doc-header h1{font:var(--t-display);letter-spacing:-.5px}
 .doc-header .sub{margin-top:8px;color:var(--text-2);font:var(--t-body)}
@@ -94,7 +94,7 @@ body{
   border:1px solid var(--border);background:var(--surface);
   padding:6px 10px;border-radius:var(--r-full);letter-spacing:.2px;
 }
-.tag.hot{color:var(--primary);border-color:rgba(91,140,255,.5);background:var(--primary-soft)}
+.tag.hot{color:var(--primary);border-color:rgba(0,168,107,.50);background:var(--primary-soft)}
 
 /* ============ 캔버스 (Figma 캔버스 역할) ============ */
 .canvas{
@@ -108,7 +108,7 @@ body{
 }
 .frame-art{
   position:relative;width:390px;height:844px;background:var(--bg);
-  border:1px solid #2A3140;border-radius:14px;overflow:hidden;
+  border:1px solid #D7DEE8;border-radius:14px;overflow:hidden;
   box-shadow:var(--sh-3);flex:none;
 }
 .frame-art.wide{width:auto;height:auto;aspect-ratio:auto;border-radius:10px}
@@ -155,17 +155,17 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   font:var(--t-micro);padding:5px 10px;border-radius:var(--r-full);
   border:1px solid var(--border);background:var(--surface-raise);color:var(--text-2);
 }
-.chip.active{color:var(--primary);border-color:rgba(91,140,255,.55);background:var(--primary-soft)}
-.chip.ok{color:var(--ok);border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08)}
-.chip.warn{color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+.chip.active{color:var(--primary);border-color:rgba(0,168,107,.50);background:var(--primary-soft)}
+.chip.ok{color:var(--ok);border-color:rgba(22,163,74,.35);background:rgba(22,163,74,.07)}
+.chip.warn{color:var(--warn);border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.07)}
 .chip.plain{color:var(--text-1);background:var(--surface-raise)}
 
 .badge{display:inline-flex;align-items:center;gap:4px;font:var(--t-micro);font-weight:600;
   padding:2px 7px;border-radius:var(--r-xs)}
-.badge.ok{color:var(--ok);background:rgba(74,222,128,.12)}
-.badge.warn{color:var(--warn);background:rgba(251,191,36,.12)}
-.badge.err{color:var(--err);background:rgba(248,113,113,.12)}
-.badge.off{color:var(--text-2);background:rgba(96,107,128,.18)}
+.badge.ok{color:var(--ok);background:rgba(22,163,74,.10)}
+.badge.warn{color:var(--warn);background:rgba(217,119,6,.10)}
+.badge.err{color:var(--err);background:rgba(220,38,38,.10)}
+.badge.off{color:var(--text-2);background:rgba(107,114,128,.12)}
 .badge.main{color:var(--primary);background:var(--primary-soft)}
 
 .btn{
@@ -177,7 +177,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .btn-primary{background:var(--primary);color:var(--on-primary)}
 .btn-secondary{background:var(--surface-raise);color:var(--text-1);border-color:var(--border-strong)}
 .btn-ghost{background:transparent;color:var(--text-2);border-color:var(--border)}
-.btn-danger{background:rgba(248,113,113,.12);color:var(--err);border-color:rgba(248,113,113,.3)}
+.btn-danger{background:rgba(220,38,38,.10);color:var(--err);border-color:rgba(220,38,38,.25)}
 .btn-lg{padding:15px 20px;font:700 16px/1.3 var(--font)}
 .btn-sm{padding:8px 12px;font:var(--t-sub)}
 
@@ -187,11 +187,11 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .seg-ico{width:34px;height:34px;border-radius:var(--r-md);display:inline-flex;align-items:center;
   justify-content:center;flex:none}
 .seg-ico svg{width:19px;height:19px}
-.seg-info{background:rgba(76,201,240,.14);color:var(--seg-info)}
-.seg-data{background:rgba(155,123,243,.14);color:var(--seg-data)}
-.seg-file{background:rgba(255,180,84,.14);color:var(--seg-file)}
-.seg-task{background:rgba(74,222,128,.14);color:var(--seg-task)}
-.seg-multi{background:rgba(251,113,133,.14);color:var(--seg-multi)}
+.seg-info{background:rgba(8,145,178,.10);color:var(--seg-info)}
+.seg-data{background:rgba(124,92,224,.10);color:var(--seg-data)}
+.seg-file{background:rgba(232,145,45,.12);color:var(--seg-file)}
+.seg-task{background:rgba(22,163,74,.10);color:var(--seg-task)}
+.seg-multi{background:rgba(244,63,94,.10);color:var(--seg-multi)}
 .seg-ic-sm{width:24px;height:24px;border-radius:var(--r-sm)}
 .seg-ic-sm svg{width:14px;height:14px}
 
@@ -200,7 +200,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 /* ============ 세그먼트 히스토리 바 (하단 연결형) ============ */
 .segbar{
   position:relative;display:flex;align-items:center;gap:0;padding:8px 14px;
-  background:linear-gradient(180deg,rgba(18,21,28,.96),rgba(18,21,28,.88));
+  background:linear-gradient(180deg,rgba(255,255,255,.97),rgba(255,255,255,.92));
   border-top:1px solid var(--border);
 }
 .segbar .sb-scroll{display:flex;align-items:center;gap:0;overflow:hidden;flex:1;
@@ -241,7 +241,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .seg-progress{display:flex;align-items:center;gap:6px;padding:10px 24px 6px}
 .seg-progress .s{flex:1;height:2.5px;border-radius:2px;background:var(--surface-hover)}
 .seg-progress .s.done{background:var(--primary)}
-.seg-progress .s.cur{background:var(--primary);box-shadow:0 0 8px rgba(91,140,255,.7)}
+.seg-progress .s.cur{background:var(--primary);box-shadow:0 0 8px rgba(0,168,107,.45)}
 
 /* ============ 조이스틱 마이크 ============ */
 .joystick{position:relative;width:150px;height:150px}
@@ -251,15 +251,15 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 @keyframes pulse{0%{transform:scale(.86);opacity:.45}100%{transform:scale(1.14);opacity:0}}
 .joystick .core{
   position:absolute;inset:34px;border-radius:50%;
-  background:radial-gradient(circle at 32% 28%, #1E2534 0%, #151A26 58%, #0E1118 100%);
+  background:radial-gradient(circle at 32% 28%, #FFFFFF 0%, #F2F6FA 58%, #E8EDF4 100%);
   border:1.5px solid var(--border-strong);
   display:flex;align-items:center;justify-content:center;color:var(--text-1);
   box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.06);
   transition:transform .15s;
 }
 .joystick .core svg{width:44px;height:44px}
-.joystick .core.rec{background:radial-gradient(circle at 32% 28%, #3A1320 0%, #23101B 58%, #140A10 100%);
-  border-color:rgba(248,113,113,.65);color:var(--err);}
+.joystick .core.rec{background:radial-gradient(circle at 32% 28%, #FDECEC 0%, #FADCDC 58%, #F5C9C9 100%);
+  border-color:rgba(220,38,38,.55);color:var(--err);}
 .joystick .dir{
   position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px;
   font:var(--t-micro);color:var(--text-2);
@@ -269,7 +269,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   display:flex;align-items:center;justify-content:center;opacity:.9}
 .joystick .dir .d-arrow svg{width:13px;height:13px}
 .joystick .dir.lock .d-arrow{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)
-  ;box-shadow:0 0 10px rgba(91,140,255,.35)}
+  ;box-shadow:0 0 10px rgba(0,168,107,.30)}
 .joystick .dir-l{left:-6px;top:50%;transform:translateY(-50%)}
 .joystick .dir-r{right:-6px;top:50%;transform:translateY(-50%)}
 .joystick .dir-u{top:-2px;left:50%;transform:translateX(-50%)}
@@ -318,7 +318,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .tbl tr:last-child td{border-bottom:none}
 .tbl .num{text-align:right;font-variant-numeric:tabular-nums}
 .tbl td.sel{outline:2px solid var(--primary);outline-offset:-2px;background:var(--primary-soft)}
-.tbl .hd-sel th{color:var(--primary);background:rgba(91,140,255,.1)}
+.tbl .hd-sel th{color:var(--primary);background:rgba(0,168,107,.08)}
 
 /* 타임라인 */
 .tl{position:relative;padding-left:20px}
@@ -339,9 +339,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .step .s-dot{width:22px;height:22px;border-radius:50%;background:var(--surface-raise);
   border:2px solid var(--border-strong);display:flex;align-items:center;justify-content:center;
   color:transparent;z-index:1}
-.step.done .s-dot{background:var(--ok);border-color:var(--ok);color:#08130C}
+.step.done .s-dot{background:var(--ok);border-color:var(--ok);color:#FFFFFF}
 .step.cur .s-dot{border-color:var(--primary);color:var(--primary);
-  box-shadow:0 0 10px rgba(91,140,255,.4)}
+  box-shadow:0 0 10px rgba(0,168,107,.32)}
 .step .s-lbl{font:var(--t-micro);color:var(--text-3);margin-top:6px}
 .step.done .s-lbl,.step.cur .s-lbl{color:var(--text-1)}
 .step .s-line{position:absolute;top:11px;height:2px;background:var(--border-strong);
@@ -362,7 +362,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 /* PDF 미니페이지 */
 .pdf-page{background:#F5F1E8;border-radius:var(--r-xs);color:#3A3A3A;
   padding:10px;font:var(--t-micro);line-height:1.55;position:relative}
-.hl{background:rgba(255,180,84,.4);padding:0 2px;border-radius:2px}
+.hl{background:rgba(232,145,45,.28);padding:0 2px;border-radius:2px}
 
 /* 컴포넌트 라이브러리 그리드 */
 .lib{position:absolute;inset:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:18px}
@@ -381,7 +381,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
 /* 스크롤바 */
 ::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-thumb{background:#2A3140;border-radius:3px}
+::-webkit-scrollbar-thumb{background:#D7DEE8;border-radius:3px}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* 인쇄/내보내기시 프레임만 */
@@ -468,13 +468,13 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <span style="font:var(--t-caption)">에이전트</span>
         </button>
         <div style="display:flex;align-items:center;gap:14px">
-          <div class="avatar sm" style="background:linear-gradient(135deg,#2A3550,#39466B);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-          <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#E9EDF3,#D3DBE5);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar md" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)">
             <span class="ring"></span>
             <span class="st on"></span>
-            <svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+            <svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
           </div>
-          <div class="avatar sm" style="background:linear-gradient(135deg,#3A2A50,#5B3A78);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#ECE6F9,#D9CDF2);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
         </div>
         <button style="padding:8px;border-radius:var(--r-md);color:var(--text-2)">
           <svg class="ico" width="19" height="19"><use href="#i-gear"/></svg>
@@ -525,12 +525,12 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <span style="font:var(--t-caption)">에이전트</span>
         </button>
         <div style="display:flex;align-items:center;gap:14px">
-          <div class="avatar sm" style="background:linear-gradient(135deg,#2A3550,#39466B);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-          <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#E9EDF3,#D3DBE5);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar md" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)">
             <span class="ring"></span><span class="st work"></span>
-            <svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+            <svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
           </div>
-          <div class="avatar sm" style="background:linear-gradient(135deg,#3A2A50,#5B3A78);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#ECE6F9,#D9CDF2);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
         </div>
         <button style="padding:8px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="19" height="19"><use href="#i-gear"/></svg></button>
       </div>
@@ -554,7 +554,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
         <!-- 실시간 트랜스크립트 -->
         <div style="width:100%;max-width:330px;display:flex;flex-direction:column;gap:10px">
-          <div class="card" style="border-color:rgba(91,140,255,.35);background:var(--surface-raise)">
+          <div class="card" style="border-color:rgba(0,168,107,.30);background:var(--surface-raise)">
             <div style="display:flex;gap:10px;align-items:flex-start">
               <div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div>
               <div style="flex:1">
@@ -565,9 +565,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           </div>
           <div class="card" style="opacity:.9">
             <div style="display:flex;gap:10px;align-items:flex-start">
-              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <div style="flex:1">
-                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#4CC9F0">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:41</span></div>
+                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#0891B2">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:41</span></div>
                 <div style="font:var(--t-body);margin-top:3px;color:var(--text-2)">확인했어요, 날씨와 회의 두 가지네요. 지금 정리할게요~</div>
               </div>
             </div>
@@ -598,9 +598,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <span style="font:var(--t-caption)">에이전트</span>
         </button>
         <div style="display:flex;align-items:center;gap:14px">
-          <div class="avatar sm" style="background:linear-gradient(135deg,#2A3550,#39466B);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-          <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-          <div class="avatar sm" style="background:linear-gradient(135deg,#3A2A50,#5B3A78);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#E9EDF3,#D3DBE5);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar md" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><span class="ring"></span><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#ECE6F9,#D9CDF2);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
         </div>
         <button style="padding:8px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="19" height="19"><use href="#i-gear"/></svg></button>
       </div>
@@ -610,9 +610,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
         <div style="width:100%;max-width:338px;border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--border-strong);background:var(--surface);box-shadow:var(--sh-2)">
           <div style="padding:16px;background:var(--surface-raise)">
             <div style="display:flex;gap:10px;align-items:flex-start">
-              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <div style="flex:1">
-                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#4CC9F0">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:40</span></div>
+                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#0891B2">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:40</span></div>
                 <div style="font:var(--t-body);margin-top:4px">바쁘시면 회의 잡는 것부터 먼저 처리해드릴까요?</div>
               </div>
             </div>
@@ -629,9 +629,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <div class="divider"></div>
           <div style="padding:14px 16px;" class="tier-3">
             <div style="display:flex;gap:10px;align-items:flex-start">
-              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <div style="flex:1">
-                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#4CC9F0">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:40</span></div>
+                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#0891B2">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:40</span></div>
                 <div style="font:var(--t-body);margin-top:4px;color:var(--text-1)">네, 먼저 처리하겠습니다! 회의 일정은 잠시 후 확인해 드릴게요.</div>
               </div>
             </div>
@@ -771,8 +771,8 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
               </div>
               <div style="font:var(--t-sub);color:var(--text-2);margin-top:8px">체감 24° · 습도 42% · 바람 북동 2.1m/s</div>
             </div>
-            <div style="width:96px;height:96px;border-radius:var(--r-md);background:radial-gradient(circle at 35% 30%,rgba(76,201,240,.28),rgba(76,201,240,.05));display:flex;align-items:center;justify-content:center">
-              <svg class="ico" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.4"><circle cx="12" cy="12" r="4.2" fill="rgba(76,201,240,.16)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+            <div style="width:96px;height:96px;border-radius:var(--r-md);background:radial-gradient(circle at 35% 30%,rgba(8,145,178,.20),rgba(8,145,178,.04));display:flex;align-items:center;justify-content:center">
+              <svg class="ico" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.4"><circle cx="12" cy="12" r="4.2" fill="rgba(8,145,178,.12)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
             </div>
           </div>
           <div style="display:flex;gap:8px;margin-top:16px">
@@ -1170,20 +1170,20 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
         <div class="card" style="padding:16px;background:var(--surface-raise)">
           <div class="ma-map">
             <div class="ma-node">
-              <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-              <span style="font:var(--t-sub);font-weight:700;color:#4CC9F0">머스크</span>
+              <div class="avatar md" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><span class="ring"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <span style="font:var(--t-sub);font-weight:700;color:#0891B2">머스크</span>
               <span class="role">오케스트레이터</span>
             </div>
             <span class="ma-link on"></span>
             <div class="ma-node">
-              <div class="avatar md" style="background:linear-gradient(135deg,#2A3550,#39466B)"><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar md" style="background:linear-gradient(135deg,#E9EDF3,#D3DBE5)"><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <span style="font:var(--t-sub);font-weight:700;color:var(--text-1)">토토</span>
               <span class="role">회계 분석</span>
             </div>
             <span class="ma-link on"></span>
             <div class="ma-node">
-              <div class="avatar md" style="background:linear-gradient(135deg,#3A2A50,#5B3A78)"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#9B7BF3"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-              <span style="font:var(--t-sub);font-weight:700;color:#9B7BF3">루나</span>
+              <div class="avatar md" style="background:linear-gradient(135deg,#ECE6F9,#D9CDF2)"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#7C5CE0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <span style="font:var(--t-sub);font-weight:700;color:#7C5CE0">루나</span>
               <span class="role">번역</span>
             </div>
           </div>
@@ -1217,7 +1217,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <div style="flex:1;padding:12px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
             <div style="display:flex;gap:8px"><span class="badge off" style="width:22px;height:22px;border-radius:var(--r-full);font-size:10px">머</span><div style="flex:1;min-width:0"><div style="font:var(--t-micro);color:var(--text-2)">→ 토토: 인원별 금액 검증 부탁해</div></div><span style="font:var(--t-micro);color:var(--text-3)">9:48</span></div>
             <div style="display:flex;gap:8px"><span class="badge off" style="width:22px;height:22px;border-radius:var(--r-full);font-size:10px">토</span><div style="flex:1;min-width:0"><div style="font:var(--t-micro);color:var(--text-2)">→ 루나: 영문 초안 확인 완료, 결제 용어는 "settlement"로 통일했어</div></div><span style="font:var(--t-micro);color:var(--text-3)">9:48</span></div>
-            <div style="padding:9px;border:1px dashed var(--border-strong);border-radius:var(--r-sm);background:rgba(251,191,36,.06)">
+            <div style="padding:9px;border:1px dashed var(--border-strong);border-radius:var(--r-sm);background:rgba(217,119,6,.05)">
               <div style="font:var(--t-micro);color:var(--warn);display:flex;gap:6px;align-items:center"><svg class="ico" width="12" height="12"><use href="#i-lock"/></svg> 승인 게이트: 발송 직전 사용자 승인 필요</div>
             </div>
           </div>
@@ -1284,9 +1284,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           </div>
         </div>
         <div class="thread-row">
-          <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
           <div class="t-body">
-            <div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div>
+            <div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:41</span></div>
             <div class="t-text">내일은 오전에 구름 많고 오후부터 맑겠습니다. 22°C 예상이에요.</div>
             <div style="display:flex;gap:12px;margin-top:6px">
               <span style="font:var(--t-micro);color:var(--text-3)">↩ 답장</span>
@@ -1303,16 +1303,16 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           </div>
         </div>
         <div class="thread-row">
-          <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
           <div class="t-body">
-            <div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div>
+            <div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:41</span></div>
             <div class="t-text">강수 확률 10% 미만입니다. 우산은 안 챙기셔도 될 것 같아요 🌤</div>
           </div>
         </div>
         <div class="thread-row" style="opacity:.75">
-          <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
           <div class="t-body">
-            <div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:42</span></div>
+            <div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:42</span></div>
             <div class="t-text">참, 회의는 오후 3시로 잡아뒀어요 — 결과 캔버스에서 확인하실 수 있어요. <span class="chip main" style="font-size:10px;margin-left:4px">작업 세그먼트로 이동</span></div>
           </div>
         </div>
@@ -1335,7 +1335,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
 <!-- ============ FRAME 11 · 세그먼트 히스토리 바 — 상태 변형 ============ -->
 <figure class="frame" id="f11">
-  <div class="frame-art" style="background:#10131A">
+  <div class="frame-art" style="background:#F5F7FA">
     <div class="screen" style="position:absolute;inset:0">
       <div style="overflow-y:auto;padding:64px 18px 24px;display:flex;flex-direction:column;gap:26px">
         <h2 style="font:var(--t-title2)">세그먼트 히스토리 바</h2>
@@ -1461,7 +1461,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   <figcaption class="frame-label"><b>F11 · 세그먼트 히스토리 바 — 상태 변형 7종</b><br>하단 레일 연결형(기본) + 오버플로우/롱프레스 삭제/상단 얇은 진행바 변형. 탭=복원(스택 goTo), 롱프레스=닫기, 10개 초과 시 자동 보관.</figcaption>
 </figure><!-- ============ FRAME 12 · 컴포넌트 라이브러리 ============ -->
 <figure class="frame" id="f12">
-  <div class="frame-art" style="background:#10131A">
+  <div class="frame-art" style="background:#F5F7FA">
     <div class="screen">
       <div class="lib">
         <div>
@@ -1472,8 +1472,8 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
             <div style="font:var(--t-title2)">Title2 22</div>
             <div style="font:var(--t-headline)">Headline 17</div>
             <div style="font:var(--t-body)">Body 15 — 화자 구분은 굵기·색상만으로 처리합니다.</div>
-            <div style="font:var(--t-sub)">Subhead 13 · secondary #A6AFC1</div>
-            <div style="font:var(--t-caption)">Caption 12 · tertiary #606B80</div>
+            <div style="font:var(--t-sub)">Subhead 13 · secondary #5A6472</div>
+            <div style="font:var(--t-caption)">Caption 12 · tertiary #8F98A6</div>
             <div style="font:var(--t-micro)">Micro 11 · letter-spacing +0.4</div>
           </div>
         </div>
@@ -1482,11 +1482,11 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <h4>Color · Segment & Status</h4>
           <div class="cell">
             <div class="row">
-              <span class="chip plain" style="border:2px solid var(--seg-info)">정보 #4CC9F0</span>
-              <span class="chip plain" style="border:2px solid var(--seg-data)">데이터 #9B7BF3</span>
-              <span class="chip plain" style="border:2px solid var(--seg-file)">파일 #FFB454</span>
-              <span class="chip plain" style="border:2px solid var(--seg-task)">작업 #4ADE80</span>
-              <span class="chip plain" style="border:2px solid var(--seg-multi)">멀티 #FB7185</span>
+              <span class="chip plain" style="border:2px solid var(--seg-info)">정보 #0891B2</span>
+              <span class="chip plain" style="border:2px solid var(--seg-data)">데이터 #7C5CE0</span>
+              <span class="chip plain" style="border:2px solid var(--seg-file)">파일 #E8912D</span>
+              <span class="chip plain" style="border:2px solid var(--seg-task)">작업 #16A34A</span>
+              <span class="chip plain" style="border:2px solid var(--seg-multi)">멀티 #F43F5E</span>
             </div>
             <div class="row" style="margin-top:6px">
               <span class="badge ok">완료</span>
@@ -1606,7 +1606,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <div class="cell">
             <div style="display:flex;flex-direction:column;gap:8px">
               <div style="display:flex;gap:8px;align-items:flex-start"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><span style="font:var(--t-sub);color:var(--text-2)">내일 서울 날씨 알려주고, 회의 잡아줘<span style="color:var(--primary)">▍</span></span></div>
-              <div style="display:flex;gap:8px;align-items:flex-start"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><span style="font:var(--t-sub);color:var(--text-2)">확인했어요, 날씨와 회의 두 가지네요~</span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start"><div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><span style="font:var(--t-sub);color:var(--text-2)">확인했어요, 날씨와 회의 두 가지네요~</span></div>
             </div>
             <div class="refbar" style="margin:0;margin-top:10px">
               <span class="seg-ico seg-info seg-ic-sm"><svg class="ico"><use href="#i-info"/></svg></span>
@@ -1625,7 +1625,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
                 <div style="font:var(--t-sub);color:var(--text-2)">찾는 결과가 없어요</div>
                 <div style="font:var(--t-micro);color:var(--text-3);margin-top:3px">다른 키워드로 물어보시겠어요?</div>
               </div>
-              <div style="flex:1;border:1px solid rgba(248,113,113,.35);border-radius:var(--r-md);padding:14px;background:rgba(248,113,113,.05)">
+              <div style="flex:1;border:1px solid rgba(220,38,38,.28);border-radius:var(--r-md);padding:14px;background:rgba(220,38,38,.04)">
                 <div style="font:var(--t-title2)">⚠️</div>
                 <div style="font:var(--t-sub);color:var(--err)">처리 중 오류가 났어요</div>
                 <div style="font:var(--t-micro);color:var(--text-3);margin-top:3px">다시 시도할까요?</div>
@@ -1638,9 +1638,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
               <div class="step"><div class="s-line"></div><div class="s-dot"></div><span class="s-lbl">완료</span></div>
             </div>
             <div class="row" style="margin-top:10px">
-              <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-              <div class="avatar md" style="background:linear-gradient(135deg,#2A3550,#39466B)"><span class="st work"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
-              <div class="avatar md" style="background:linear-gradient(135deg,#3A2A50,#5B3A78)"><span class="st off"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#9B7BF3"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar md" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><span class="ring"></span><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar md" style="background:linear-gradient(135deg,#E9EDF3,#D3DBE5)"><span class="st work"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar md" style="background:linear-gradient(135deg,#ECE6F9,#D9CDF2)"><span class="st off"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#7C5CE0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <span style="font:var(--t-micro);color:var(--text-3)">status: online · working · off</span>
             </div>
           </div>
@@ -1669,7 +1669,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 <figure class="frame" id="f13">
   <div class="frame-art wide" style="width:768px;height:1024px">
     <div class="screen" style="background:var(--surface)">
-      <div class="statusbar" style="justify-content:center;background:rgba(10,12,16,.9)">
+      <div class="statusbar" style="justify-content:center;background:rgba(255,255,255,.92)">
         <span>9:42</span><span class="sb-dyn" style="top:8px"></span><span style="position:absolute;right:30px">태블릿 · 768×1024</span>
       </div>
 
@@ -1699,7 +1699,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
                 </div>
                 <div style="font:var(--t-sub);color:var(--text-2);margin-top:10px">체감 24° · 습도 42% · 바람 북동 2.1m/s · 강수 5%</div>
               </div>
-              <svg class="ico" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.3"><circle cx="12" cy="12" r="4.2" fill="rgba(76,201,240,.14)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+              <svg class="ico" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.3"><circle cx="12" cy="12" r="4.2" fill="rgba(8,145,178,.10)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
             </div>
             <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px;flex:1">
               <div class="card" style="padding:18px">
@@ -1742,9 +1742,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           </div>
           <div style="flex:1;overflow:hidden;padding-top:4px">
             <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">내일도 맑을까?</div></div></div>
-            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">내일은 오전에 구름 많고 오후부터 맑겠습니다. 22°C 예상이에요.</div></div></div>
+            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:41</span></div><div class="t-text">내일은 오전에 구름 많고 오후부터 맑겠습니다. 22°C 예상이에요.</div></div></div>
             <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">비 올 확률은?</div></div></div>
-            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">강수 확률 10% 미만입니다 😊</div></div></div>
+            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:41</span></div><div class="t-text">강수 확률 10% 미만입니다 😊</div></div></div>
           </div>
           <div style="padding:8px 14px 16px;display:flex;gap:10px">
             <div style="flex:1;height:42px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface-raise);display:flex;align-items:center;padding:0 12px;gap:8px;color:var(--text-3)"><svg class="ico" width="15" height="15"><use href="#i-mic"/></svg><span style="font:var(--t-sub)">후속 질문</span></div>
@@ -1761,7 +1761,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 <figure class="frame" id="f14">
   <div class="frame-art wide" style="width:1440px;height:900px">
     <div class="screen" style="background:var(--surface)">
-      <div style="height:44px;background:rgba(10,12,16,.92);display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);font:var(--t-micro);color:var(--text-3)">
+      <div style="height:44px;background:rgba(255,255,255,.95);display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);font:var(--t-micro);color:var(--text-3)">
         데스크톱 · 1440×900 — 결과 캔버스 + 작업 플로우 사이드바(화면 2 체크리스트 패턴)
       </div>
       <div class="rx-split">
@@ -1773,11 +1773,11 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           </div>
           <div style="padding:12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
             <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center;border-left:3px solid var(--seg-info)">
-              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><span class="ring"></span><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <div><div style="font:var(--t-sub);font-weight:700">머스크</div><div style="font:var(--t-micro);color:var(--text-3)">오케스트레이터</div></div>
             </div>
             <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center;opacity:.6">
-              <div class="avatar sm" style="background:linear-gradient(135deg,#2A3550,#39466B)"><span class="st on"></span><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar sm" style="background:linear-gradient(135deg,#E9EDF3,#D3DBE5)"><span class="st on"></span><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#5A6472"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
               <div><div style="font:var(--t-sub);font-weight:700">토토</div><div style="font:var(--t-micro);color:var(--text-3)">회계 분석</div></div>
             </div>
           </div>
@@ -1824,7 +1824,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
                   </div>
                   <div style="font:var(--t-sub);color:var(--text-2);margin-top:8px">체감 24° · 습도 42% · 강수 5%</div>
                 </div>
-                <svg class="ico" width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.3"><circle cx="12" cy="12" r="4.2" fill="rgba(76,201,240,.14)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+                <svg class="ico" width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.3"><circle cx="12" cy="12" r="4.2" fill="rgba(8,145,178,.10)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
               </div>
               <div style="flex:1;display:grid;grid-template-columns:1.5fr 1fr;gap:14px">
                 <div class="card" style="padding:18px">
@@ -1848,9 +1848,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
               </div>
               <div style="flex:1;overflow:hidden;">
                 <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">내일도 맑을까?</div></div></div>
-                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">오전 구름 많고 오후부터 맑음, 22°C.</div></div></div>
+                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:41</span></div><div class="t-text">오전 구름 많고 오후부터 맑음, 22°C.</div></div></div>
                 <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">비 올 확률?</div></div></div>
-                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">10% 미만이에요 😊</div></div></div>
+                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#D9EFF7,#B2E0F2)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#0891B2"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#0891B2">머스크</span><span>9:41</span></div><div class="t-text">10% 미만이에요 😊</div></div></div>
               </div>
               <div style="padding:8px 12px 14px;display:flex;gap:8px">
                 <div style="flex:1;height:40px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface-raise);display:flex;align-items:center;padding:0 10px;gap:8px;color:var(--text-3)"><svg class="ico" width="14" height="14"><use href="#i-mic"/></svg><span style="font:var(--t-micro)">후속 질문</span></div>
@@ -1875,7 +1875,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
 </div><!-- /canvas -->
 
-<footer style="padding:28px 48px 60px;border-top:1px solid #222836;color:var(--text-3);font:var(--t-micro);line-height:1.8">
+<footer style="padding:28px 48px 60px;border-top:1px solid #E4E8EE;color:var(--text-3);font:var(--t-micro);line-height:1.8">
   에이전트톡 Figma Design System v1.0 — 기반: worldofagents-whitepaper.md · agenttalk-modern-ux-plan.md · dialogue-functionality-spec.md · ui-interaction-spec.md · agenttalk-screen-spec.md<br>
   프레임: F01–F04 음성홈/조이스틱 · F05–F09 결과캔버스 세그먼트 5종 · F10 카드 스레드 · F11 세그먼트 히스토리 바 · F12 컴포넌트 라이브러리 · F13–F14 반응형<br>
   Figma import: 각 프레임의 SVG(frames/*.svg)를 Figma에 드래그하면 편집 가능한 프레임으로 임포트됩니다.
