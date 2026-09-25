@@ -10,11 +10,5 @@ declare module '@fastify/jwt' {
     }
 }
 export declare function authRoutes(app: FastifyInstance): Promise<void>;
-declare module 'fastify' {
-    interface FastifyInstance {
-        authenticate: any;
-    }
-}
-export declare function authMiddleware(app: FastifyInstance): Promise<void>;
 export {};
 //# sourceMappingURL=auth.d.ts.map

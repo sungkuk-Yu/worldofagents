@@ -1,6 +1,7 @@
 export declare const config: {
     port: number;
     host: string;
+    devMode: boolean;
     cors: {
         origin: string[];
     };

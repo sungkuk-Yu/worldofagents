@@ -27,6 +27,25 @@ export async function authRoutes(app: FastifyInstance) {
       name?: string;
     };
 
+    // Dev mode: return mock user without Supabase
+    if (config.devMode) {
+      const mockUserId = 'dev-' + Math.random().toString(36).substr(2, 9);
+      const token = app.jwt.sign(
+        { sub: mockUserId, email: email! },
+        { expiresIn: config.jwt.expiresIn as string }
+      );
+      
+      return reply.status(201).send({
+        message: 'User created (dev mode)',
+        user: {
+          id: mockUserId,
+          email,
+          name: name || email.split('@')[0],
+        },
+        token
+      });
+    }
+
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -91,9 +110,15 @@ export async function authRoutes(app: FastifyInstance) {
 
   // GET /api/auth/me
   app.get('/me', {
-    preHandler: [app.authenticate],
+    onRequest: async (request, reply) => {
+      try {
+        await request.jwtVerify();
+      } catch (err) {
+        reply.code(401).send({ error: 'Unauthorized' });
+      }
+    },
     handler: async (request) => {
-      const userId = request.user.sub;
+      const userId = (request.user as any).sub;
       const { data } = await supabaseAdmin
         .from('users')
         .select('*')
@@ -102,23 +127,5 @@ export async function authRoutes(app: FastifyInstance) {
 
       return data;
     },
-  });
-}
-
-// Auth decorator for protected routes
-declare module 'fastify' {
-  interface FastifyInstance {
-    authenticate: any;
-  }
-}
-
-// Middleware
-export async function authMiddleware(app: FastifyInstance) {
-  app.decorate('authenticate', async function (request: any, reply: any) {
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply.code(401).send({ error: 'Unauthorized' });
-    }
   });
 }

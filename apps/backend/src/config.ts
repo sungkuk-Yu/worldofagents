@@ -5,15 +5,16 @@ dotenv.config();
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   host: process.env.HOST || '0.0.0.0',
+  devMode: process.env.DEV_MODE === 'true' || !process.env.SUPABASE_URL,
   
   cors: {
     origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081'],
   },
   
   supabase: {
-    url: process.env.SUPABASE_URL || '',
-    anonKey: process.env.SUPABASE_ANON_KEY || '',
-    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    url: process.env.SUPABASE_URL || 'http://localhost:54321',
+    anonKey: process.env.SUPABASE_ANON_KEY || 'mock-anon-key',
+    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || 'mock-service-key',
   },
   
   streamChat: {

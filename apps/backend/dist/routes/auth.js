@@ -4,7 +4,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authRoutes = authRoutes;
-exports.authMiddleware = authMiddleware;
 const supabase_1 = require("../lib/supabase");
 const config_1 = require("../config");
 const jwt_1 = __importDefault(require("@fastify/jwt"));
@@ -14,6 +13,20 @@ async function authRoutes(app) {
     // POST /api/auth/signup
     app.post('/signup', async (request, reply) => {
         const { email, password, name } = request.body;
+        // Dev mode: return mock user without Supabase
+        if (config_1.config.devMode) {
+            const mockUserId = 'dev-' + Math.random().toString(36).substr(2, 9);
+            const token = app.jwt.sign({ sub: mockUserId, email: email }, { expiresIn: config_1.config.jwt.expiresIn });
+            return reply.status(201).send({
+                message: 'User created (dev mode)',
+                user: {
+                    id: mockUserId,
+                    email,
+                    name: name || email.split('@')[0],
+                },
+                token
+            });
+        }
         const { data, error } = await supabase_1.supabaseAdmin.auth.admin.createUser({
             email,
             password,
@@ -63,7 +76,14 @@ async function authRoutes(app) {
     });
     // GET /api/auth/me
     app.get('/me', {
-        preHandler: [app.authenticate],
+        onRequest: async (request, reply) => {
+            try {
+                await request.jwtVerify();
+            }
+            catch (err) {
+                reply.code(401).send({ error: 'Unauthorized' });
+            }
+        },
         handler: async (request) => {
             const userId = request.user.sub;
             const { data } = await supabase_1.supabaseAdmin
@@ -73,17 +93,6 @@ async function authRoutes(app) {
                 .single();
             return data;
         },
-    });
-}
-// Middleware
-async function authMiddleware(app) {
-    app.decorate('authenticate', async function (request, reply) {
-        try {
-            await request.jwtVerify();
-        }
-        catch (err) {
-            reply.code(401).send({ error: 'Unauthorized' });
-        }
     });
 }
 //# sourceMappingURL=auth.js.map
