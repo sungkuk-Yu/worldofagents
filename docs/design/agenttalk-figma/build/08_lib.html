@@ -1,0 +1,207 @@
+<!-- ============ FRAME 12 · 컴포넌트 라이브러리 ============ -->
+<figure class="frame" id="f12">
+  <div class="frame-art" style="background:#10131A">
+    <div class="screen">
+      <div class="lib">
+        <div>
+          <h4>Typography</h4>
+          <div class="cell">
+            <div style="font:var(--t-display)">Display 34 · 기능 중심 대화</div>
+            <div style="font:var(--t-title1)">Title1 28</div>
+            <div style="font:var(--t-title2)">Title2 22</div>
+            <div style="font:var(--t-headline)">Headline 17</div>
+            <div style="font:var(--t-body)">Body 15 — 화자 구분은 굵기·색상만으로 처리합니다.</div>
+            <div style="font:var(--t-sub)">Subhead 13 · secondary #A6AFC1</div>
+            <div style="font:var(--t-caption)">Caption 12 · tertiary #606B80</div>
+            <div style="font:var(--t-micro)">Micro 11 · letter-spacing +0.4</div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Color · Segment & Status</h4>
+          <div class="cell">
+            <div class="row">
+              <span class="chip plain" style="border:2px solid var(--seg-info)">정보 #4CC9F0</span>
+              <span class="chip plain" style="border:2px solid var(--seg-data)">데이터 #9B7BF3</span>
+              <span class="chip plain" style="border:2px solid var(--seg-file)">파일 #FFB454</span>
+              <span class="chip plain" style="border:2px solid var(--seg-task)">작업 #4ADE80</span>
+              <span class="chip plain" style="border:2px solid var(--seg-multi)">멀티 #FB7185</span>
+            </div>
+            <div class="row" style="margin-top:6px">
+              <span class="badge ok">완료</span>
+              <span class="badge warn">진행 중</span>
+              <span class="badge err">실패/중단</span>
+              <span class="badge off">막힘</span>
+              <span class="badge main">승인 대기</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Buttons</h4>
+          <div class="cell">
+            <div class="row">
+              <button class="btn btn-primary">실행하기</button>
+              <button class="btn btn-secondary">수정</button>
+              <button class="btn btn-ghost">취소</button>
+              <button class="btn btn-danger">즉시 중단</button>
+            </div>
+            <div class="row">
+              <button class="btn btn-primary btn-sm">칩형</button>
+              <button class="btn btn-secondary btn-sm">작게</button>
+              <button class="btn btn-danger btn-sm">작게</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Chips</h4>
+          <div class="cell">
+            <div class="row">
+              <span class="chip">기본</span>
+              <span class="chip active">활성</span>
+              <span class="chip ok">✓ 교차검증</span>
+              <span class="chip warn">⚠ 단일모델</span>
+              <span class="chip plain">강수 5%</span>
+              <span class="chip active">🔗 통합 모드</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Cards · 표면 단계 (사각형)</h4>
+          <div class="cell">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="height:34px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;padding:0 12px"><span style="font:var(--t-micro);color:var(--text-3)">surface — 1px border, r8</span></div>
+              <div style="height:34px;border-radius:var(--r-md);background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;padding:0 12px"><span style="font:var(--t-micro);color:var(--text-3)">surface-raised — hover/selected, r8</span></div>
+              <div style="height:34px;border-radius:var(--r-lg);background:linear-gradient(180deg,var(--surface-raise),var(--surface));border:1px solid var(--border-strong);display:flex;align-items:center;padding:0 12px"><span style="font:var(--t-micro);color:var(--text-3)">hero — r12, 결과 카드</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Joystick Mic · 상태</h4>
+          <div class="cell">
+            <div class="row" style="justify-content:center;gap:26px">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div class="joystick" style="width:96px;height:96px">
+                  <div class="pulse"></div>
+                  <div class="core" style="inset:18px"><svg class="ico" style="width:30px;height:30px"><use href="#i-mic"/></svg></div>
+                </div>
+                <span class="lbl">idle · 펄스링</span>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div class="joystick" style="width:96px;height:96px">
+                  <div class="core rec" style="inset:18px"><svg class="ico" style="width:30px;height:30px"><use href="#i-mic-fill"/></svg></div>
+                </div>
+                <span class="lbl">recording · 레드</span>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div class="joystick" style="width:96px;height:96px">
+                  <div class="core" style="inset:18px"><svg class="ico" style="width:30px;height:30px"><use href="#i-mic"/></svg></div>
+                  <div class="dir dir-l lock" style="left:-40px;top:50%;transform:translateY(-50%)"><span class="d-arrow"><svg class="ico"><use href="#i-arr-l"/></svg></span><span style="font-weight:700;color:var(--primary)">예</span></div>
+                  <div class="dir dir-r" style="right:-40px;top:50%;transform:translateY(-50%)"><span class="d-arrow"><svg class="ico"><use href="#i-arr-r"/></svg></span><span>아니오</span></div>
+                </div>
+                <span class="lbl">direction lock · 햅틱</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Segments · 타입 칩 (기능 단위)</h4>
+          <div class="cell">
+            <div class="row">
+              <span class="seg-ico seg-info seg-ic-sm"><svg class="ico"><use href="#i-info"/></svg></span> 정보
+              <span class="seg-ico seg-data seg-ic-sm"><svg class="ico"><use href="#i-data"/></svg></span> 데이터
+              <span class="seg-ico seg-file seg-ic-sm"><svg class="ico"><use href="#i-file"/></svg></span> 파일
+              <span class="seg-ico seg-task seg-ic-sm"><svg class="ico"><use href="#i-task"/></svg></span> 작업
+              <span class="seg-ico seg-multi seg-ic-sm"><svg class="ico"><use href="#i-multi"/></svg></span> 멀티
+            </div>
+            <div class="row" style="margin-top:6px">
+              <span class="c-type"><span class="seg-ico seg-info seg-ic-sm"><svg class="ico"><use href="#i-info"/></svg></span> 정보 세그먼트</span>
+              <span class="c-type"><span class="seg-ico seg-data seg-ic-sm"><svg class="ico"><use href="#i-data"/></svg></span> 데이터 세그먼트</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Loading · 처리 단계 (자연어)</h4>
+          <div class="cell">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:10px"><span class="badge off">1</span><span style="font:var(--t-sub);color:var(--text-2)">💭 떠오르는 중... "잠깐만요, 기억 뒤지고 있어요"</span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span class="badge off">2</span><span style="font:var(--t-sub);color:var(--text-2)">🧠 생각하는 중... "흠... 이건 좀 고민되네요"</span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span class="badge off">3</span><span style="font:var(--t-sub);color:var(--text-2)">✏️ 정리하는 중... "거의 다 됐어요, 조금만요"</span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span class="badge warn">4</span><span style="font:var(--t-sub);color:var(--text-2)">📦 곧 보내드릴게요 "기다리게 해서 미안해요!"</span></div>
+            </div>
+            <div style="margin-top:8px">
+              <div class="wave"><i style="height:6px"></i><i style="height:14px"></i><i style="height:22px"></i><i style="height:12px"></i><i style="height:26px"></i><i style="height:18px"></i><i style="height:9px"></i><i style="height:20px"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Transcript · 고정 참조 바</h4>
+          <div class="cell">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;gap:8px;align-items:flex-start"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><span style="font:var(--t-sub);color:var(--text-2)">내일 서울 날씨 알려주고, 회의 잡아줘<span style="color:var(--primary)">▍</span></span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><span style="font:var(--t-sub);color:var(--text-2)">확인했어요, 날씨와 회의 두 가지네요~</span></div>
+            </div>
+            <div class="refbar" style="margin:0;margin-top:10px">
+              <span class="seg-ico seg-info seg-ic-sm"><svg class="ico"><use href="#i-info"/></svg></span>
+              <div style="flex:1;min-width:0"><div style="font:var(--t-micro);color:var(--text-3)">원본 · 정보</div><div style="font:var(--t-sub);color:var(--text-1)">서울 날씨: 맑음 24°C</div></div>
+              <svg class="ico" width="14" height="14" style="color:var(--text-3)"><use href="#i-star"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>States · 빈/에러 · Stepper · Avatar</h4>
+          <div class="cell">
+            <div class="row">
+              <div style="flex:1;border:1px dashed var(--border-strong);border-radius:var(--r-md);padding:14px;text-align:center">
+                <div style="font:var(--t-title2)">🔍</div>
+                <div style="font:var(--t-sub);color:var(--text-2)">찾는 결과가 없어요</div>
+                <div style="font:var(--t-micro);color:var(--text-3);margin-top:3px">다른 키워드로 물어보시겠어요?</div>
+              </div>
+              <div style="flex:1;border:1px solid rgba(248,113,113,.35);border-radius:var(--r-md);padding:14px;background:rgba(248,113,113,.05)">
+                <div style="font:var(--t-title2)">⚠️</div>
+                <div style="font:var(--t-sub);color:var(--err)">처리 중 오류가 났어요</div>
+                <div style="font:var(--t-micro);color:var(--text-3);margin-top:3px">다시 시도할까요?</div>
+              </div>
+            </div>
+            <div class="stepper" style="margin-top:10px">
+              <div class="step done"><div class="s-line"></div><div class="s-dot"><svg class="ico" width="12" height="12"><use href="#i-check"/></svg></div><span class="s-lbl">시작</span></div>
+              <div class="step done"><div class="s-line"></div><div class="s-dot"><svg class="ico" width="12" height="12"><use href="#i-check"/></svg></div><span class="s-lbl">진행</span></div>
+              <div class="step cur"><div class="s-line"></div><div class="s-dot"><svg class="ico" width="12" height="12"><use href="#i-bolt"/></svg></div><span class="s-lbl">대기</span></div>
+              <div class="step"><div class="s-line"></div><div class="s-dot"></div><span class="s-lbl">완료</span></div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar md" style="background:linear-gradient(135deg,#2A3550,#39466B)"><span class="st work"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div class="avatar md" style="background:linear-gradient(135deg,#3A2A50,#5B3A78)"><span class="st off"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#9B7BF3"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <span style="font:var(--t-micro);color:var(--text-3)">status: online · working · off</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Timeline · Toggle</h4>
+          <div class="cell">
+            <div class="tl" style="padding-left:18px">
+              <div class="tl-item c"><div class="tl-time">9:41:01 · 시작</div><div class="tl-text">정보 조회 — 날씨</div></div>
+              <div class="tl-item r"><div class="tl-time">9:41:09 · 전환</div><div class="tl-text">데이터 — 표로 정리</div></div>
+              <div class="tl-item w"><div class="tl-time">9:42:03 · 대기</div><div class="tl-text">승인 대기 — 발송</div></div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <span style="width:40px;height:22px;border-radius:var(--r-full);background:var(--primary);position:relative;display:inline-block"><span style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></span></span>
+              <span style="width:40px;height:22px;border-radius:var(--r-full);background:var(--surface-hover);border:1px solid var(--border-strong);position:relative;display:inline-block"><span style="position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--text-3)"></span></span>
+              <span style="font:var(--t-micro);color:var(--text-3)">toggle · 왼손잡이 모드 등</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F12 · 컴포넌트 라이브러리</b><br>타이포/컬러/버튼/칩/칩/카드/조이스틱 상태/세그먼트 타입/로딩 4단계/트랜스크립트/참조 바/빈·에러/스테퍼/아바타/타임라인/토글.</figcaption>
+</figure>

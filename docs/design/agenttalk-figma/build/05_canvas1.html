@@ -1,0 +1,287 @@
+<!-- ============ FRAME 05 · 결과캔버스 — 정보 세그먼트 (풀스크린 날씨 카드, 화면 10) ============ -->
+<figure class="frame" id="f05">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:42</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <!-- 상단 얇은 세그먼트 진행바 -->
+      <div class="seg-progress" style="margin-top:52px">
+        <span class="s cur"></span><span class="s"></span><span class="s"></span><span class="s"></span>
+      </div>
+
+      <!-- 헤더 -->
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button style="padding:7px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="18" height="18"><use href="#i-back"/></svg></button>
+          <span style="font:var(--t-headline)">서울 날씨</span>
+          <span class="badge ok"><svg class="ico" width="11" height="11"><use href="#i-check"/></svg> 교차검증</span>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button style="padding:7px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="18" height="18"><use href="#i-share"/></svg></button>
+          <button style="padding:7px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="18" height="18"><use href="#i-star"/></svg></button>
+        </div>
+      </div>
+
+      <!-- 결과 카드 콘텐츠 -->
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:14px;padding:10px 16px 8px">
+        <!-- 히어로 -->
+        <div class="card hero" style="padding:22px 20px;border-color:var(--border-strong)">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font:var(--t-sub);color:var(--text-3)">서울 · 강남구 · 오늘</div>
+              <div style="display:flex;align-items:baseline;gap:10px;margin-top:6px">
+                <span style="font:700 64px/1 var(--font);letter-spacing:-2px">24°</span>
+                <span style="font:var(--t-title2);color:var(--seg-info)">맑음</span>
+              </div>
+              <div style="font:var(--t-sub);color:var(--text-2);margin-top:8px">체감 24° · 습도 42% · 바람 북동 2.1m/s</div>
+            </div>
+            <div style="width:96px;height:96px;border-radius:var(--r-md);background:radial-gradient(circle at 35% 30%,rgba(76,201,240,.28),rgba(76,201,240,.05));display:flex;align-items:center;justify-content:center">
+              <svg class="ico" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.4"><circle cx="12" cy="12" r="4.2" fill="rgba(76,201,240,.16)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <span class="chip">강수 확률 5%</span>
+            <span class="chip">미세먼지 좋음</span>
+            <span class="chip warn"><svg class="ico" width="12" height="12"><use href="#i-alert"/></svg> 오후 5시 이후 흐림</span>
+          </div>
+        </div>
+
+        <!-- 시간별 3단 -->
+        <div class="card" style="padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span style="font:var(--t-sub);font-weight:700">시간별 예보</span>
+            <span style="font:var(--t-micro);color:var(--text-3)">3시간 단위</span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <div style="text-align:center;flex:1"><div style="font:var(--t-micro);color:var(--text-3)">지금</div><div style="font:var(--t-title2);margin:6px 0">24°</div><span class="chip plain" style="font-size:10px;padding:3px 8px">☀️ 맑음</span></div>
+            <div style="text-align:center;flex:1"><div style="font:var(--t-micro);color:var(--text-3)">14시</div><div style="font:var(--t-title2);margin:6px 0">26°</div><span class="chip plain" style="font-size:10px;padding:3px 8px">☀️ 맑음</span></div>
+            <div style="text-align:center;flex:1"><div style="font:var(--t-micro);color:var(--text-3)">17시</div><div style="font:var(--t-title2);margin:6px 0">25°</div><span class="chip warn" style="font-size:10px;padding:3px 8px">☁️ 구름</span></div>
+            <div style="text-align:center;flex:1"><div style="font:var(--t-micro);color:var(--text-3)">20시</div><div style="font:var(--t-title2);margin:6px 0">22°</div><span class="chip plain" style="font-size:10px;padding:3px 8px">🌙 맑음</span></div>
+          </div>
+        </div>
+
+        <!-- 주간 예보 -->
+        <div class="card" style="padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="font:var(--t-sub);font-weight:700">주간 예보</span>
+            <span class="chip active" style="font-size:10px">목 · 22°</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font:var(--t-micro);color:var(--text-2)">
+            <span>금 24°</span><span>토 23°</span><span>일 21°</span><span>월 20°</span><span>화 22°</span><span>수 23°</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단: 답변 칩 + 세그먼트 히스토리 바 + 마이크 -->
+      <div style="padding:8px 16px 2px">
+        <button style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);color:var(--text-2)">
+          <span style="font:var(--t-sub)">답변 2개 · 탭해서 스레드 열기</span>
+          <svg class="ico" width="15" height="15"><use href="#i-chev"/></svg>
+        </button>
+      </div>
+      <div class="segbar">
+        <div class="sb-scroll">
+          <div class="seg-node current" style="--seg-c:var(--seg-info)">
+            <div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span><span class="new-dot"></span></div>
+            <span class="lbl">정보</span>
+          </div>
+        </div>
+        <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-1);margin-left:12px;flex:none">
+          <svg class="ico" width="20" height="20"><use href="#i-mic"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F05 · 결과캔버스 — 정보 세그먼트 (화면 10)</b><br>날씨가 풀스크린 카드로. 상단 얇은 세그먼트 진행바(다음 결과 존재 암시) + 하단 히스토리 바(현재: 정보) + 후속 질문 마이크.</figcaption>
+</figure>
+
+<!-- ============ FRAME 06 · 결과캔버스 — 데이터 세그먼트 (스프레드시트 뷰) ============ -->
+<figure class="frame" id="f06">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:44</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <div class="seg-progress" style="margin-top:52px">
+        <span class="s done"></span><span class="s cur"></span><span class="s"></span><span class="s"></span>
+      </div>
+
+      <!-- 원본 카드 고정 참조 바 -->
+      <div class="refbar">
+        <span class="seg-ico seg-info seg-ic-sm"><svg class="ico"><use href="#i-info"/></svg></span>
+        <div style="flex:1;min-width:0">
+          <div style="font:var(--t-micro);color:var(--text-3)">원본 · 정보</div>
+          <div style="font:var(--t-sub);color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">서울 날씨: 맑음 24°C — "표로 정리해줘" 전환</div>
+        </div>
+        <svg class="ico" width="14" height="14" style="color:var(--text-3)"><use href="#i-star"/></svg>
+      </div>
+
+      <!-- 툴바 -->
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span class="seg-ico seg-data seg-ic-sm"><svg class="ico"><use href="#i-data"/></svg></span>
+          <div style="min-width:0">
+            <div style="font:var(--t-sub);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">월별 매출 정리</div>
+            <div style="font:var(--t-micro);color:var(--text-3)">4열 · 5행 · 엑셀형 편집 가능</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:2px;color:var(--text-2)">
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-undo"/></svg></button>
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-filter"/></svg></button>
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-chart"/></svg></button>
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-download"/></svg></button>
+        </div>
+      </div>
+
+      <!-- 스프레드시트 -->
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:12px;padding:2px 16px 8px">
+        <div style="flex:1;border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:var(--surface)">
+          <table class="tbl">
+            <thead><tr class="hd-sel"><th style="width:70px">월 <span style="color:var(--primary);font-size:10px">▲</span></th><th style="width:96px">매출 (만원)</th><th style="width:92px">증감률</th><th>비고</th></tr></thead>
+            <tbody>
+              <tr><td>1월</td><td class="num">4,120</td><td class="num" style="color:var(--seg-task)">+4.2%</td><td>—</td></tr>
+              <tr><td>2월</td><td class="num">3,880</td><td class="num" style="color:var(--err)">-5.8%</td><td>설 연휴</td></tr>
+              <tr><td>3월</td><td class="num sel">5,040</td><td class="num" style="color:var(--seg-task)">+29.9%</td><td class="sel" style="opacity:.85">신제품 론칭</td></tr>
+              <tr><td>4월</td><td class="num">5,320</td><td class="num" style="color:var(--seg-task)">+5.6%</td><td>—</td></tr>
+              <tr><td>5월</td><td class="num">5,610</td><td class="num" style="color:var(--seg-task)">+5.5%</td><td>프로모션</td></tr>
+              <tr style="font-weight:700"><td>합계</td><td class="num">23,970</td><td class="num" style="color:var(--seg-data)">Σ</td><td>AVG 4,794</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="padding:12px 14px;border-left:3px solid var(--seg-data)">
+          <div style="display:flex;gap:8px;align-items:center">
+            <svg class="ico" width="14" height="14" style="color:var(--seg-data)"><use href="#i-spark"/></svg>
+            <span style="font:var(--t-micro);font-weight:700;color:var(--text-1)">AI 인사이트</span>
+          </div>
+          <div style="font:var(--t-sub);color:var(--text-2);margin-top:6px;line-height:1.5">3월 신제품 론칭 효과로 매출이 29.9% 급증했어요. 2월 감소는 설 연휴 영향으로 보입니다.</div>
+        </div>
+      </div>
+
+      <!-- 하단: 세그먼트 히스토리 바 (정보 ✓ → 데이터 ●) -->
+      <div class="segbar">
+        <div class="sb-scroll">
+          <div class="seg-node past" style="--seg-c:var(--seg-info)">
+            <div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div>
+            <span class="lbl">정보</span>
+          </div>
+          <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+          <div class="seg-node current" style="--seg-c:var(--seg-data)">
+            <div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span><span class="new-dot"></span></div>
+            <span class="lbl">데이터</span>
+          </div>
+          <span class="seg-link" style="width:8px"></span>
+          <div class="seg-node" style="opacity:.5;width:40px"><div class="dot-wrap"><span class="c-ico" style="border-style:dashed"><span style="font:700 11px/1 var(--font);color:var(--text-3)">+</span></span></div><span class="lbl" style="font-size:10px">더보기</span></div>
+        </div>
+        <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-1);margin-left:12px;flex:none">
+          <svg class="ico" width="20" height="20"><use href="#i-mic"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F06 · 결과캔버스 — 데이터 세그먼트 (스프레드시트 뷰)</b><br>"표로 정리해줘" 전환 후. 셀 편집/정렬/필터/차트. AI 인사이트 한 줄. 히스토리 바가 정보→데이터 연결을 표시.</figcaption>
+</figure>
+
+<!-- ============ FRAME 07 · 결과캔버스 — 파일 세그먼트 (PDF 뷰어 + AI 분석) ============ -->
+<figure class="frame" id="f07">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:45</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <div class="seg-progress" style="margin-top:52px">
+        <span class="s done"></span><span class="s done"></span><span class="s cur"></span><span class="s"></span>
+      </div>
+
+      <div class="refbar">
+        <span class="seg-ico seg-data seg-ic-sm"><svg class="ico"><use href="#i-data"/></svg></span>
+        <div style="flex:1;min-width:0">
+          <div style="font:var(--t-micro);color:var(--text-3)">원본 · 데이터</div>
+          <div style="font:var(--t-sub);color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">월별 매출: 5,610만원 — "이 파일이랑 비교해줘"</div>
+        </div>
+        <span class="badge main" style="font-size:10px">비교 중</span>
+      </div>
+
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span class="seg-ico seg-file seg-ic-sm"><svg class="ico"><use href="#i-file"/></svg></span>
+          <div style="min-width:0">
+            <div style="font:var(--t-sub);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">report_2026.pdf</div>
+            <div style="font:var(--t-micro);color:var(--text-3)">PDF · 2.4MB · 12p · 방금 첨부</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:2px;color:var(--text-2)">
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-download"/></svg></button>
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-share"/></svg></button>
+        </div>
+      </div>
+
+      <!-- 파일 뷰어 + 분석 패널 -->
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:12px;padding:2px 16px 8px">
+        <div style="flex:1;display:flex;gap:12px;min-height:0">
+          <!-- PDF 미리보기 -->
+          <div style="flex:1;border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:var(--surface);display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border)">
+              <span class="badge off">p.3 / 12</span>
+              <span style="font:var(--t-micro);color:var(--text-3)">+ 하이라이트</span>
+            </div>
+            <div style="flex:1;overflow:hidden;padding:12px;display:flex;justify-content:center">
+              <div class="pdf-page" style="width:132px;height:172px">
+                <div style="width:100%;height:6px;background:#D8D2C2;margin-bottom:6px;border-radius:1px"></div>
+                <div style="font-size:9px;color:#8A8A80;margin-bottom:2px">3월 판매 리포트</div>
+                <div style="width:96%;height:4px;background:#E3DED0;margin:3px 0"></div>
+                <div style="width:88%;height:4px;background:#E3DED0;margin:3px 0"></div>
+                <div style="width:92%;height:4px;background:#E3DED0;margin:3px 0"></div>
+                <div style="font-size:9px;color:#8A8A80;margin:8px 0 3px">신제품 론칭 효과 분석</div>
+                <div style="width:94%;height:4px;background:#E3DED0;margin:3px 0"></div>
+                <div style="font-size:9px;margin-bottom:3px"><span class="hl">매출 29.9% 증가</span></div>
+                <div style="width:90%;height:4px;background:#E3DED0;margin:3px 0"></div>
+                <div style="width:70%;height:4px;background:#E3DED0;margin:3px 0"></div>
+                <div style="width:56px;height:30px;background:#DDD6C4;margin-top:8px;border-radius:2px"></div>
+              </div>
+            </div>
+          </div>
+          <!-- AI 분석 패널 -->
+          <div style="width:150px;display:flex;flex-direction:column;gap:8px;min-width:0">
+            <div class="card" style="padding:12px;flex:none">
+              <div style="font:var(--t-micro);font-weight:700;color:var(--seg-file);display:flex;gap:6px;align-items:center"><svg class="ico" width="12" height="12"><use href="#i-spark"/></svg>AI 요약</div>
+              <div style="font:var(--t-micro);color:var(--text-2);margin-top:8px;line-height:1.55">신제품 론칭으로 3월 매출이 29.9% 급증했고, 4~5월에도 상승세가 유지되고 있어요.</div>
+            </div>
+            <div class="card" style="padding:12px;flex:1">
+              <div style="font:var(--t-micro);font-weight:700;color:var(--text-1)">핵심 포인트</div>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+                <div style="display:flex;gap:7px"><span class="badge off" style="font-size:10px">p.3</span><span style="font:var(--t-micro);color:var(--text-2);line-height:1.45">매출 <span class="hl" style="font-size:10px">29.9%</span> 증가</span></div>
+                <div style="display:flex;gap:7px"><span class="badge off" style="font-size:10px">p.7</span><span style="font:var(--t-micro);color:var(--text-2);line-height:1.45">채널별 광고 ROI 2.1배</span></div>
+                <div style="display:flex;gap:7px"><span class="badge off" style="font-size:10px">p.9</span><span style="font:var(--t-micro);color:var(--text-2);line-height:1.45">재고 회전률 개선 필요</span></div>
+              </div>
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+                <button style="font:var(--t-micro);color:var(--seg-file);display:flex;width:100%">이 파일에 질문하기 →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단 히스토리 바 -->
+      <div class="segbar">
+        <div class="sb-scroll">
+          <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+          <div class="seg-node past" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span></div><span class="lbl">데이터</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-data)"></span>
+          <div class="seg-node current" style="--seg-c:var(--seg-file)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-file"/></svg></span><span class="new-dot"></span></div><span class="lbl">파일</span></div>
+        </div>
+        <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-1);margin-left:12px;flex:none">
+          <svg class="ico" width="20" height="20"><use href="#i-mic"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F07 · 결과캔버스 — 파일 세그먼트 (PDF 뷰어 + AI 분석)</b><br>파일 프리뷰 + AI 요약/핵심 포인트 패널. 하이라이트 문구 인용. 히스토리 바: 정보→데이터→파일.</figcaption>
+</figure>

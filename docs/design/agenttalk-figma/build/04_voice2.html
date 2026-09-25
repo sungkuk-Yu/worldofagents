@@ -1,0 +1,149 @@
+<!-- ============ FRAME 03 · 음성홈 — 큐 질문 (질문→응답→후속 3단 카드) ============ -->
+<figure class="frame" id="f03">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:42</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <div style="margin-top:52px" class="topbar">
+        <button style="display:flex;align-items:center;gap:6px;padding:8px;border-radius:var(--r-md);color:var(--text-2)">
+          <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h16M11 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span style="font:var(--t-caption)">에이전트</span>
+        </button>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#2A3550,#39466B);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="avatar sm" style="background:linear-gradient(135deg,#3A2A50,#5B3A78);opacity:.55"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+        </div>
+        <button style="padding:8px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="19" height="19"><use href="#i-gear"/></svg></button>
+      </div>
+
+      <div class="vh-main" style="justify-content:center;padding-top:16px;gap:18px">
+        <!-- 3단 카드: 질문 → 응답 → 후속반응 -->
+        <div style="width:100%;max-width:338px;border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--border-strong);background:var(--surface);box-shadow:var(--sh-2)">
+          <div style="padding:16px;background:var(--surface-raise)">
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div style="flex:1">
+                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#4CC9F0">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:40</span></div>
+                <div style="font:var(--t-body);margin-top:4px">바쁘시면 회의 잡는 것부터 먼저 처리해드릴까요?</div>
+              </div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div style="padding:14px 16px;display:flex;align-items:center;gap:10px">
+            <span class="badge main" style="width:22px;height:22px;border-radius:var(--r-xs);justify-content:center;padding:0">←</span>
+            <div style="flex:1">
+              <div style="font:var(--t-sub);font-weight:700;color:var(--text-1)">예 — 먼저 처리해줘</div>
+              <div style="font:var(--t-micro);color:var(--text-3);margin-top:2px">조이스틱을 왼쪽으로 밀어 응답</div>
+            </div>
+            <span style="font:var(--t-micro);color:var(--text-3)">9:40</span>
+          </div>
+          <div class="divider"></div>
+          <div style="padding:14px 16px;" class="tier-3">
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div style="flex:1">
+                <div style="display:flex;gap:8px;align-items:baseline"><span class="t-name" style="font-size:12px;color:#4CC9F0">머스크</span><span style="font:var(--t-micro);color:var(--text-3)">9:40</span></div>
+                <div style="font:var(--t-body);margin-top:4px;color:var(--text-1)">네, 먼저 처리하겠습니다! 회의 일정은 잠시 후 확인해 드릴게요.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="font:var(--t-micro);color:var(--text-3);text-align:center">질문 → 응답 → 후속반응 3단 묶음 · 히스토리에 영구 고정</div>
+
+        <!-- 조이스틱: 좌우 방향 확정 상태 -->
+        <div class="joystick" style="width:128px;height:128px">
+          <div class="pulse"></div>
+          <div class="core" style="inset:26px">
+            <svg class="ico" style="width:36px;height:36px"><use href="#i-mic"/></svg>
+          </div>
+          <div class="dir dir-l lock" style="flex-direction:row;gap:4px;left:-58px;top:50%;transform:translateY(-50%)">
+            <span style="font:700 12px/1 var(--font);color:var(--primary);white-space:nowrap">예</span>
+            <span class="d-arrow"><svg class="ico" style="width:12px;height:12px"><use href="#i-arr-l"/></svg></span>
+          </div>
+          <div class="dir dir-r lock" style="flex-direction:row;gap:4px;right:-58px;top:50%;transform:translateY(-50%)">
+            <span class="d-arrow"><svg class="ico" style="width:12px;height:12px"><use href="#i-arr-r"/></svg></span>
+            <span style="font:700 12px/1 var(--font);color:var(--primary);white-space:nowrap">아니오</span>
+          </div>
+        </div>
+        <div style="font:var(--t-sub);color:var(--text-2);text-align:center">← 왼쪽으로 밀기 &nbsp;·&nbsp; 오른쪽으로 밀기 →</div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F03 · 음성홈 — 큐 에이뉴런 질문 (화면 7)</b><br>질문→응답→후속반응이 하나의 카드로 통짜 표시. 응답은 조이스틱 좌(예)/우(아니오) 제스처. sticky 하단 고정 규칙 적용 대상.</figcaption>
+</figure>
+
+<!-- ============ FRAME 04 · 조이스틱 커스터마이징 (방향 = 액션 슬롯) ============ -->
+<figure class="frame" id="f04">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:43</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+      <div style="margin-top:56px;padding:4px 20px 12px">
+        <h2 style="font:var(--t-title2)">조이스틱 커스터마이징</h2>
+        <p style="font:var(--t-sub);color:var(--text-3);margin-top:6px">방향 = 액션 슬롯. 탭해서 원하는 단축 액션을 등록하세요. 좌/우(예/아니오)는 고정입니다.</p>
+      </div>
+
+      <!-- 방향 다이어그램 -->
+      <div style="display:flex;justify-content:center;padding:6px 0 4px">
+        <div class="joystick" style="width:210px;height:210px">
+          <div class="core" style="inset:62px;border-color:var(--border-strong)">
+            <svg class="ico" style="width:40px;height:40px;color:var(--primary)"><use href="#i-mic"/></svg>
+          </div>
+          <!-- 8방향 슬롯 -->
+          <div class="dir dir-u" style="top:0;left:50%;transform:translateX(-50%)">
+            <span class="d-arrow" style="background:var(--primary-soft);border-color:var(--primary);color:var(--primary)"><svg class="ico" style="width:13px;height:13px"><use href="#i-file"/></svg></span>
+            <span style="font-weight:700;color:var(--text-1)">파일 첨부</span>
+          </div>
+          <div class="dir dir-d" style="bottom:0;left:50%;transform:translateX(-50%)">
+            <span class="d-arrow"><svg class="ico" style="width:13px;height:13px"><use href="#i-stop"/></svg></span>
+            <span style="color:var(--text-2)">취소</span>
+          </div>
+          <div class="dir dir-l" style="left:-16px;top:50%;transform:translateY(-50%)">
+            <span class="d-arrow" style="background:var(--primary-soft);border-color:var(--primary);color:var(--primary)"><svg class="ico" style="width:13px;height:13px"><use href="#i-arr-l"/></svg></span>
+            <span style="font-weight:700;color:var(--text-1)">예</span>
+          </div>
+          <div class="dir dir-r" style="right:-16px;top:50%;transform:translateY(-50%)">
+            <span class="d-arrow" style="background:var(--primary-soft);border-color:var(--primary);color:var(--primary)"><svg class="ico" style="width:13px;height:13px"><use href="#i-arr-r"/></svg></span>
+            <span style="font-weight:700;color:var(--text-1)">아니오</span>
+          </div>
+          <div class="dir dir-ul" style="left:30px;top:40px"><span class="d-arrow" style="opacity:.5"><span style="font:700 11px/1 var(--font);color:var(--text-3)">↖</span></span><span style="color:var(--text-3)">미할당</span></div>
+          <div class="dir dir-ur" style="right:30px;top:40px"><span class="d-arrow"><svg class="ico" style="width:13px;height:13px"><use href="#i-spark"/></svg></span><span style="color:var(--text-2)">최근 결과</span></div>
+          <div class="dir dir-dl" style="left:30px;bottom:40px"><span class="d-arrow" style="opacity:.5"><span style="font:700 11px/1 var(--font);color:var(--text-3)">↙</span></span><span style="color:var(--text-3)">미할당</span></div>
+          <div class="dir dir-dr" style="right:30px;bottom:40px"><span class="d-arrow"><svg class="ico" style="width:13px;height:13px"><use href="#i-text"/></svg></span><span style="color:var(--text-2)">텍스트 모드</span></div>
+        </div>
+      </div>
+
+      <!-- 프리셋 -->
+      <div style="padding:14px 20px 0;display:flex;gap:10px">
+        <button class="btn btn-primary btn-sm" style="flex:1">프리셋: 기본값</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1">프리셋: 업무모드</button>
+      </div>
+
+      <div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:10px">
+        <div class="card" style="padding:12px 14px;display:flex;gap:12px;align-items:center">
+          <span class="seg-ico seg-task seg-ic-sm"><svg class="ico"><use href="#i-pencil"/></svg></span>
+          <div style="flex:1">
+            <div style="font:var(--t-sub);font-weight:700">슬롯 편집기</div>
+            <div style="font:var(--t-micro);color:var(--text-3);margin-top:2px">방향별 액션을 녹음 중/대기 중에 따라 분리 설정</div>
+          </div>
+          <svg class="ico" width="16" height="16" style="color:var(--text-3)"><use href="#i-chev"/></svg>
+        </div>
+        <div class="card" style="padding:12px 14px;display:flex;gap:12px;align-items:center">
+          <span class="seg-ico seg-info seg-ic-sm"><svg class="ico"><use href="#i-alert"/></svg></span>
+          <div style="flex:1">
+            <div style="font:var(--t-sub);font-weight:700">햅틱 피드백</div>
+            <div style="font:var(--t-micro);color:var(--text-3);margin-top:2px">방향 감지 · 확정 시 진동 (light)</div>
+          </div>
+          <span style="width:40px;height:22px;border-radius:var(--r-full);background:var(--primary);position:relative;flex:none"><span style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F04 · 조이스틱 커스터마이징 (설정)</b><br>8방향 = 액션 슬롯 모델. 좌/우 기본 내장(고정), 그 외 방향은 단축 액션 자유 등록. 프리셋 전환 지원.</figcaption>
+</figure>

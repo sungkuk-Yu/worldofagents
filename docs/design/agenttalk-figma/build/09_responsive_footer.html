@@ -1,0 +1,221 @@
+<!-- ============ FRAME 13 · 반응형 — 태블릿 (가로 768) 결과 캔버스 + 사이드 스레드 ============ -->
+<figure class="frame" id="f13">
+  <div class="frame-art wide" style="width:768px;height:1024px">
+    <div class="screen" style="background:var(--surface)">
+      <div class="statusbar" style="justify-content:center;background:rgba(10,12,16,.9)">
+        <span>9:42</span><span class="sb-dyn" style="top:8px"></span><span style="position:absolute;right:30px">태블릿 · 768×1024</span>
+      </div>
+
+      <div class="rx-split" style="margin-top:44px">
+        <!-- 좌: 결과 캔버스 (정보 세그먼트) -->
+        <div style="flex:3;border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0;background:var(--bg)">
+          <div class="seg-progress"><span class="s done"></span><span class="s cur"></span><span class="s"></span><span class="s"></span></div>
+          <div class="topbar">
+            <div style="display:flex;align-items:center;gap:8px">
+              <button style="padding:7px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="18" height="18"><use href="#i-back"/></svg></button>
+              <span style="font:var(--t-title2)">서울 날씨</span>
+              <span class="badge ok"><svg class="ico" width="11" height="11"><use href="#i-check"/></svg>교차검증</span>
+            </div>
+            <div style="display:flex;gap:4px;color:var(--text-2)">
+              <button style="padding:7px;border-radius:var(--r-md)"><svg class="ico" width="18" height="18"><use href="#i-share"/></svg></button>
+              <button style="padding:7px;border-radius:var(--r-md)"><svg class="ico" width="18" height="18"><use href="#i-star"/></svg></button>
+            </div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:14px;padding:14px 24px 8px">
+            <div class="card hero" style="padding:26px 28px;display:flex;gap:26px;align-items:center">
+              <div style="flex:1">
+                <div style="font:var(--t-sub);color:var(--text-3)">서울 · 강남구 · 오늘</div>
+                <div style="display:flex;align-items:baseline;gap:14px;margin-top:8px">
+                  <span style="font:700 84px/1 var(--font);letter-spacing:-3px">24°</span>
+                  <span style="font:var(--t-title1);color:var(--seg-info)">맑음</span>
+                </div>
+                <div style="font:var(--t-sub);color:var(--text-2);margin-top:10px">체감 24° · 습도 42% · 바람 북동 2.1m/s · 강수 5%</div>
+              </div>
+              <svg class="ico" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.3"><circle cx="12" cy="12" r="4.2" fill="rgba(76,201,240,.14)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+            </div>
+            <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px;flex:1">
+              <div class="card" style="padding:18px">
+                <div style="font:var(--t-sub);font-weight:700;margin-bottom:14px">시간별 예보</div>
+                <div style="display:flex;justify-content:space-between">
+                  <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">지금</div><div style="font:var(--t-title2);margin:8px 0">24°</div><span class="chip plain">☀️ 맑음</span></div>
+                  <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">14시</div><div style="font:var(--t-title2);margin:8px 0">26°</div><span class="chip plain">☀️ 맑음</span></div>
+                  <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">17시</div><div style="font:var(--t-title2);margin:8px 0">25°</div><span class="chip warn">☁️ 구름</span></div>
+                  <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">20시</div><div style="font:var(--t-title2);margin:8px 0">22°</div><span class="chip plain">🌙 맑음</span></div>
+                </div>
+                <div style="font:var(--t-micro);color:var(--text-3);margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">주간: 금 24° · 토 23° · 일 21° · 월 20° · 화 22° · 수 23°</div>
+              </div>
+              <div class="card" style="padding:18px;border-left:3px solid var(--seg-data)">
+                <div style="font:var(--t-micro);color:var(--text-3)">AI 인사이트</div>
+                <div style="font:var(--t-sub);color:var(--text-1);margin-top:10px;line-height:1.6">오후 5시부터 흐려지고, 밤에는 22°C까지 내려가요. 주말 비 소식은 없습니다.</div>
+              </div>
+            </div>
+          </div>
+          <div class="segbar">
+            <div class="sb-scroll">
+              <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+              <div class="seg-node current" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span><span class="new-dot"></span></div><span class="lbl">데이터</span></div>
+              <span class="seg-link" style="width:8px"></span>
+              <div class="seg-node" style="opacity:.55"><div class="dot-wrap"><span class="c-ico" style="border-style:dashed"><span style="font:700 11px/1 var(--font);color:var(--text-3)">+</span></span></div></div>
+            </div>
+            <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;margin-left:12px"><svg class="ico" width="20" height="20"><use href="#i-mic"/></svg></div>
+          </div>
+        </div>
+
+        <!-- 우: 카드 스레드 사이드 -->
+        <div style="flex:2;display:flex;flex-direction:column;min-width:0;background:var(--surface)">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <span style="font:var(--t-headline)">스레드 · 2</span>
+            <span class="chip" style="font-size:10px">고정 참조 유지</span>
+          </div>
+          <div class="refbar" style="margin:10px 12px 0">
+            <svg class="ico" width="13" height="13" style="color:var(--primary)"><use href="#i-pin"/></svg>
+            <div style="flex:1;min-width:0"><div style="font:var(--t-micro);color:var(--text-3)">원본 · 정보</div><div style="font:var(--t-sub);color:var(--text-1)">오늘 서울 날씨: 맑음, 24°C</div></div>
+          </div>
+          <div style="flex:1;overflow:hidden;padding-top:4px">
+            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">내일도 맑을까?</div></div></div>
+            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">내일은 오전에 구름 많고 오후부터 맑겠습니다. 22°C 예상이에요.</div></div></div>
+            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">비 올 확률은?</div></div></div>
+            <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">강수 확률 10% 미만입니다 😊</div></div></div>
+          </div>
+          <div style="padding:8px 14px 16px;display:flex;gap:10px">
+            <div style="flex:1;height:42px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface-raise);display:flex;align-items:center;padding:0 12px;gap:8px;color:var(--text-3)"><svg class="ico" width="15" height="15"><use href="#i-mic"/></svg><span style="font:var(--t-sub)">후속 질문</span></div>
+            <div style="width:42px;height:42px;border-radius:var(--r-md);background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg class="ico" width="16" height="16"><use href="#i-text"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F13 · 반응형 — 태블릿 768×1024</b><br>결과 캔버스(좌) + 카드 스레드(우) 사이드 분할. 900px 미만은 모바일과 동일한 단일 흐름으로.</figcaption>
+</figure>
+
+<!-- ============ FRAME 14 · 반응형 — 데스크톱 (가로 1440) ============ -->
+<figure class="frame" id="f14">
+  <div class="frame-art wide" style="width:1440px;height:900px">
+    <div class="screen" style="background:var(--surface)">
+      <div style="height:44px;background:rgba(10,12,16,.92);display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);font:var(--t-micro);color:var(--text-3)">
+        데스크톱 · 1440×900 — 결과 캔버스 + 작업 플로우 사이드바(화면 2 체크리스트 패턴)
+      </div>
+      <div class="rx-split">
+        <!-- 좌측 네비 -->
+        <div class="rx-side">
+          <div style="padding:18px 16px;border-bottom:1px solid var(--border)">
+            <div style="font:var(--t-headline)">에이전트톡</div>
+            <div style="font:var(--t-micro);color:var(--text-3);margin-top:4px">월드오브에이전트</div>
+          </div>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
+            <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center;border-left:3px solid var(--seg-info)">
+              <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div><div style="font:var(--t-sub);font-weight:700">머스크</div><div style="font:var(--t-micro);color:var(--text-3)">오케스트레이터</div></div>
+            </div>
+            <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center;opacity:.6">
+              <div class="avatar sm" style="background:linear-gradient(135deg,#2A3550,#39466B)"><span class="st on"></span><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <div><div style="font:var(--t-sub);font-weight:700">토토</div><div style="font:var(--t-micro);color:var(--text-3)">회계 분석</div></div>
+            </div>
+          </div>
+          <div style="padding:14px 16px;flex:1;overflow:hidden">
+            <div style="font:var(--t-micro);color:var(--text-3);letter-spacing:1px;margin-bottom:10px">진행중 · 2</div>
+            <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center;margin-bottom:8px">
+              <span class="badge warn">진행 중</span>
+              <span style="font:var(--t-micro);color:var(--text-1)">회식비 정산 발송</span>
+            </div>
+            <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center">
+              <span class="badge warn">진행 중</span>
+              <span style="font:var(--t-micro);color:var(--text-1)">주간 보고서 작성</span>
+            </div>
+            <div style="font:var(--t-micro);color:var(--text-3);letter-spacing:1px;margin:16px 0 10px">완료 · 1</div>
+            <div class="card" style="padding:12px;display:flex;gap:10px;align-items:center;opacity:.6">
+              <span class="badge ok">완료</span>
+              <span style="font:var(--t-micro);color:var(--text-1)">서울 날씨 조회</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 중앙: 결과 캔버스 + 스레드 -->
+        <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)">
+          <div class="seg-progress" style="padding-top:14px"><span class="s done"></span><span class="s cur"></span><span class="s"></span><span class="s"></span></div>
+          <div class="topbar">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="seg-ico seg-info"><svg class="ico"><use href="#i-info"/></svg></span>
+              <span style="font:var(--t-title2)">서울 날씨</span>
+              <span class="badge ok"><svg class="ico" width="11" height="11"><use href="#i-check"/></svg>교차검증</span>
+            </div>
+            <div style="display:flex;gap:4px;color:var(--text-2)">
+              <button style="padding:7px;border-radius:var(--r-md)"><svg class="ico" width="18" height="18"><use href="#i-share"/></svg></button>
+              <button style="padding:7px;border-radius:var(--r-md)"><svg class="ico" width="18" height="18"><use href="#i-star"/></svg></button>
+            </div>
+          </div>
+          <div style="flex:1;overflow:hidden;display:flex;gap:16px;padding:10px 24px 16px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:14px;min-width:0">
+              <div class="card hero" style="padding:24px 26px;display:flex;gap:24px;align-items:center">
+                <div style="flex:1">
+                  <div style="font:var(--t-sub);color:var(--text-3)">서울 · 강남구 · 오늘</div>
+                  <div style="display:flex;align-items:baseline;gap:12px;margin-top:6px">
+                    <span style="font:700 72px/1 var(--font);letter-spacing:-3px">24°</span>
+                    <span style="font:var(--t-title1);color:var(--seg-info)">맑음</span>
+                  </div>
+                  <div style="font:var(--t-sub);color:var(--text-2);margin-top:8px">체감 24° · 습도 42% · 강수 5%</div>
+                </div>
+                <svg class="ico" width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="var(--seg-info)" stroke-width="1.3"><circle cx="12" cy="12" r="4.2" fill="rgba(76,201,240,.14)"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+              </div>
+              <div style="flex:1;display:grid;grid-template-columns:1.5fr 1fr;gap:14px">
+                <div class="card" style="padding:18px">
+                  <div style="font:var(--t-sub);font-weight:700;margin-bottom:14px">시간별 예보</div>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+                    <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">지금</div><div style="font:var(--t-title2);margin:8px 0">24°</div><span class="chip plain">☀️</span></div>
+                    <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">14시</div><div style="font:var(--t-title2);margin:8px 0">26°</div><span class="chip plain">☀️</span></div>
+                    <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">17시</div><div style="font:var(--t-title2);margin:8px 0">25°</div><span class="chip warn">☁️</span></div>
+                    <div style="text-align:center"><div style="font:var(--t-micro);color:var(--text-3)">20시</div><div style="font:var(--t-title2);margin:8px 0">22°</div><span class="chip plain">🌙</span></div>
+                  </div>
+                </div>
+                <div class="card" style="padding:18px;border-left:3px solid var(--seg-data)">
+                  <div style="font:var(--t-micro);color:var(--text-3)">AI 인사이트</div>
+                  <div style="font:var(--t-sub);color:var(--text-1);margin-top:10px;line-height:1.65">오후 5시부터 흐려지고, 밤에는 22°C까지 내려가요. 주말 비 소식은 없습니다.</div>
+                </div>
+              </div>
+            </div>
+            <div style="width:320px;display:flex;flex-direction:column;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden">
+              <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+                <span style="font:var(--t-headline)">스레드 · 2</span><span class="chip" style="font-size:10px">원본 고정</span>
+              </div>
+              <div style="flex:1;overflow:hidden;">
+                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">내일도 맑을까?</div></div></div>
+                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">오전 구름 많고 오후부터 맑음, 22°C.</div></div></div>
+                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div><div class="t-body"><div class="t-meta"><span class="t-name">나</span><span>9:41</span></div><div class="t-text">비 올 확률?</div></div></div>
+                <div class="thread-row"><div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div><div class="t-body"><div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div><div class="t-text">10% 미만이에요 😊</div></div></div>
+              </div>
+              <div style="padding:8px 12px 14px;display:flex;gap:8px">
+                <div style="flex:1;height:40px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface-raise);display:flex;align-items:center;padding:0 10px;gap:8px;color:var(--text-3)"><svg class="ico" width="14" height="14"><use href="#i-mic"/></svg><span style="font:var(--t-micro)">후속 질문</span></div>
+                <div style="width:40px;height:40px;border-radius:var(--r-md);background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg class="ico" width="15" height="15"><use href="#i-text"/></svg></div>
+              </div>
+            </div>
+          </div>
+          <div class="segbar">
+            <div class="sb-scroll">
+              <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+              <div class="seg-node current" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span><span class="new-dot"></span></div><span class="lbl">데이터</span></div>
+            </div>
+            <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;margin-left:12px"><svg class="ico" width="20" height="20"><use href="#i-mic"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F14 · 반응형 — 데스크톱 1440×900</b><br>좌측 에이전트/작업 사이드바 + 중앙 기능 캔버스 + 우측 스레드. 넓은 화면에서 히스토리 바는 그대로 하단 고정.</figcaption>
+</figure>
+
+</div><!-- /canvas -->
+
+<footer style="padding:28px 48px 60px;border-top:1px solid #222836;color:var(--text-3);font:var(--t-micro);line-height:1.8">
+  에이전트톡 Figma Design System v1.0 — 기반: worldofagents-whitepaper.md · agenttalk-modern-ux-plan.md · dialogue-functionality-spec.md · ui-interaction-spec.md · agenttalk-screen-spec.md<br>
+  프레임: F01–F04 음성홈/조이스틱 · F05–F09 결과캔버스 세그먼트 5종 · F10 카드 스레드 · F11 세그먼트 히스토리 바 · F12 컴포넌트 라이브러리 · F13–F14 반응형<br>
+  Figma import: 각 프레임의 SVG(frames/*.svg)를 Figma에 드래그하면 편집 가능한 프레임으로 임포트됩니다.
+</footer>
+
+<script>
+// 프레임 label에 "현재" 하이라이트 토글 없음 — 정적 디자인 문서
+</script>
+</body>
+</html>

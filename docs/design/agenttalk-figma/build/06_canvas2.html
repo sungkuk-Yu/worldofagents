@@ -1,0 +1,232 @@
+<!-- ============ FRAME 08 · 결과캔버스 — 작업 세그먼트 (작업 플로우, 화면 13 스타일) ============ -->
+<figure class="frame" id="f08">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:47</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <div class="seg-progress" style="margin-top:52px">
+        <span class="s done"></span><span class="s done"></span><span class="s done"></span><span class="s cur"></span>
+      </div>
+
+      <div class="refbar">
+        <span class="seg-ico seg-file seg-ic-sm"><svg class="ico"><use href="#i-file"/></svg></span>
+        <div style="flex:1;min-width:0">
+          <div style="font:var(--t-micro);color:var(--text-3)">원본 · 파일</div>
+          <div style="font:var(--t-sub);color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">report_2026.pdf 분석 — "이대로 카톡으로 보내줘"</div>
+        </div>
+        <span class="badge warn"><svg class="ico" width="11" height="11"><use href="#i-bolt"/></svg> 승인 대기</span>
+      </div>
+
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span class="seg-ico seg-task seg-ic-sm"><svg class="ico"><use href="#i-task"/></svg></span>
+          <div style="min-width:0">
+            <div style="font:var(--t-sub);font-weight:700">회식비 정산 결과 발송</div>
+            <div style="font:var(--t-micro);color:var(--text-3)">작업 ID T-2841 · 예상 1분 · 대화 위임</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:2px;color:var(--text-2)">
+          <button style="padding:7px;border-radius:var(--r-sm)"><svg class="ico" width="16" height="16"><use href="#i-pencil"/></svg></button>
+          <button style="padding:7px;border-radius:var(--r-sm);color:var(--err)"><svg class="ico" width="16" height="16"><use href="#i-stop"/></svg></button>
+        </div>
+      </div>
+
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:12px;padding:2px 16px 8px">
+        <!-- 작업 계획 카드 -->
+        <div class="card" style="padding:14px 16px;border-left:3px solid var(--seg-task)">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font:var(--t-sub);font-weight:700">발송 계획</div>
+            <span class="badge main">[실행하기] ← 조이스틱 →</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+            <div style="display:flex;gap:10px;align-items:center">
+              <span class="badge ok" style="width:20px;height:20px;border-radius:var(--r-full);justify-content:center;padding:0"><svg class="ico" width="11" height="11"><use href="#i-check"/></svg></span>
+              <span style="font:var(--t-sub)">수신자 확인 — 단체톡 "우리 집" (4명)</span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <span class="badge ok" style="width:20px;height:20px;border-radius:var(--r-full);justify-content:center;padding:0"><svg class="ico" width="11" height="11"><use href="#i-check"/></svg></span>
+              <span style="font:var(--t-sub)">내용 미리보기 — 정산표 + 인원별 금액</span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <span class="badge warn" style="width:20px;height:20px;border-radius:var(--r-full);justify-content:center;padding:0;font-size:10px">⏳</span>
+              <span style="font:var(--t-sub)">발송 실행 (외부 API) — 승인 후 진행</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 스테퍼 -->
+        <div class="card" style="padding:14px 16px">
+          <div class="stepper">
+            <div class="step done"><div class="s-line"></div><div class="s-dot"><svg class="ico" width="12" height="12"><use href="#i-check"/></svg></div><span class="s-lbl">시작</span></div>
+            <div class="step done"><div class="s-line"></div><div class="s-dot"><svg class="ico" width="12" height="12"><use href="#i-check"/></svg></div><span class="s-lbl">진행</span></div>
+            <div class="step cur"><div class="s-line"></div><div class="s-dot"><svg class="ico" width="12" height="12"><use href="#i-bolt"/></svg></div><span class="s-lbl">대기</span></div>
+            <div class="step"><div class="s-line"></div><div class="s-dot"></div><span class="s-lbl">완료</span></div>
+          </div>
+        </div>
+
+        <!-- 타임라인 (task_log) -->
+        <div style="flex:1;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);padding:14px 16px;overflow:hidden">
+          <div style="font:var(--t-micro);color:var(--text-3);letter-spacing:1px;margin-bottom:12px">TASK LOG · 실시간</div>
+          <div class="tl">
+            <div class="tl-item c"><div class="tl-time">9:47:01 · 시작</div><div class="tl-text">정산 데이터 불러오기 완료 (영수증 OCR 4건)</div></div>
+            <div class="tl-item c"><div class="tl-time">9:47:05 · 팔로업</div><div class="tl-text">인원별 금액 자동 정산 — 4명, 총 128,000원</div></div>
+            <div class="tl-item"><div class="tl-time">9:47:09 · 진행</div><div class="tl-text">메시지 초안 작성 완료 · <span style="color:var(--seg-task)">승인 대기 중</span></div></div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" style="flex:1">실행하기</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1">수정</button>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-danger btn-sm" style="flex:1">즉시 중단</button>
+            <span style="font:var(--t-micro);color:var(--text-3)">롱프레스 시 SIGTERM</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단 히스토리 바 -->
+      <div class="segbar">
+        <div class="sb-scroll">
+          <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+          <div class="seg-node past" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span></div><span class="lbl">데이터</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-data)"></span>
+          <div class="seg-node past" style="--seg-c:var(--seg-file)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-file"/></svg></span></div><span class="lbl">파일</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-file)"></span>
+          <div class="seg-node current" style="--seg-c:var(--seg-task)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-task"/></svg></span><span class="new-dot"></span></div><span class="lbl">작업</span></div>
+        </div>
+        <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-1);margin-left:12px;flex:none">
+          <svg class="ico" width="20" height="20"><use href="#i-mic"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F08 · 결과캔버스 — 작업 세그먼트 (작업 플로우, 화면 13)</b><br>발송 위임: 계획 카드 + 4단 스테퍼 + task_log 타임라인. [실행하기]는 조이스틱 →(예)와 동일. 막힘은 경고색이 아닌 중립 회색.</figcaption>
+</figure>
+
+<!-- ============ FRAME 09 · 결과캔버스 — 멀티에이전트 세그먼트 (협업 뷰) ============ -->
+<figure class="frame" id="f09">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:49</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <div class="seg-progress" style="margin-top:52px">
+        <span class="s done"></span><span class="s done"></span><span class="s done"></span><span class="s cur"></span>
+      </div>
+
+      <div class="refbar">
+        <span class="seg-ico seg-task seg-ic-sm"><svg class="ico"><use href="#i-task"/></svg></span>
+        <div style="flex:1;min-width:0">
+          <div style="font:var(--t-micro);color:var(--text-3)">원본 · 작업</div>
+          <div style="font:var(--t-sub);color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">회식비 정산 발송 — "번역 에이전트도 불러와"</div>
+        </div>
+        <span class="badge warn">개입 가능</span>
+      </div>
+
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span class="seg-ico seg-multi seg-ic-sm"><svg class="ico"><use href="#i-multi"/></svg></span>
+          <div style="min-width:0">
+            <div style="font:var(--t-sub);font-weight:700">통합 협업 세션</div>
+            <div style="font:var(--t-micro);color:var(--text-3)">3 에이전트 · 통합 모드 (단일 페르소나)</div>
+          </div>
+        </div>
+        <button style="padding:7px;border-radius:var(--r-sm);color:var(--text-2)"><svg class="ico" width="17" height="17"><use href="#i-plus"/></svg></button>
+      </div>
+
+      <!-- 모드 탭 -->
+      <div style="display:flex;gap:6px;padding:0 16px">
+        <span class="chip active">🔗 통합 모드</span>
+        <span class="chip">👥 독립 모드</span>
+        <span class="chip">🎯 위임 모드</span>
+      </div>
+
+      <!-- 에이전트 노드 맵 -->
+      <div style="padding:14px 16px 4px">
+        <div class="card" style="padding:16px;background:var(--surface-raise)">
+          <div class="ma-map">
+            <div class="ma-node">
+              <div class="avatar md" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><span class="ring"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <span style="font:var(--t-sub);font-weight:700;color:#4CC9F0">머스크</span>
+              <span class="role">오케스트레이터</span>
+            </div>
+            <span class="ma-link on"></span>
+            <div class="ma-node">
+              <div class="avatar md" style="background:linear-gradient(135deg,#2A3550,#39466B)"><span class="st on"></span><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#A6AFC1"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <span style="font:var(--t-sub);font-weight:700;color:var(--text-1)">토토</span>
+              <span class="role">회계 분석</span>
+            </div>
+            <span class="ma-link on"></span>
+            <div class="ma-node">
+              <div class="avatar md" style="background:linear-gradient(135deg,#3A2A50,#5B3A78)"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="#9B7BF3"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+              <span style="font:var(--t-sub);font-weight:700;color:#9B7BF3">루나</span>
+              <span class="role">번역</span>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:center;gap:6px;margin-top:10px">
+            <span class="chip" style="font-size:10px">동적 연결 · 실시간 동기화</span>
+            <span class="chip main" style="font-size:10px">단일 페르소나 유지 중</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 통합 결과 + 에이전트 간 로그 -->
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px;padding:10px 16px 8px">
+        <div class="card" style="padding:14px;border-left:3px solid var(--seg-multi)">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font:var(--t-micro);font-weight:700;color:var(--seg-multi)">통합 결과</span>
+            <span class="badge ok">협업 완료</span>
+          </div>
+          <div style="font:var(--t-body);color:var(--text-1);margin-top:8px;line-height:1.55">정산표를 영어로 번역해 발송 준비 완료. 4명 · 총 128,000원 · 영문 메시지 초안도 작성했어요.</div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <span class="chip" style="font-size:10px">머스크 · 초안</span>
+            <span class="chip" style="font-size:10px">토토 · 회계</span>
+            <span class="chip" style="font-size:10px">루나 · 번역</span>
+          </div>
+        </div>
+
+        <div style="flex:1;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);overflow:hidden;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-bottom:1px solid var(--border)">
+            <span style="font:var(--t-micro);color:var(--text-3);letter-spacing:1px">에이전트 간 대화 (RPC 로그) · 열람 중</span>
+            <span class="badge main" style="font-size:10px">라이브</span>
+          </div>
+          <div style="flex:1;padding:12px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+            <div style="display:flex;gap:8px"><span class="badge off" style="width:22px;height:22px;border-radius:var(--r-full);font-size:10px">머</span><div style="flex:1;min-width:0"><div style="font:var(--t-micro);color:var(--text-2)">→ 토토: 인원별 금액 검증 부탁해</div></div><span style="font:var(--t-micro);color:var(--text-3)">9:48</span></div>
+            <div style="display:flex;gap:8px"><span class="badge off" style="width:22px;height:22px;border-radius:var(--r-full);font-size:10px">토</span><div style="flex:1;min-width:0"><div style="font:var(--t-micro);color:var(--text-2)">→ 루나: 영문 초안 확인 완료, 결제 용어는 "settlement"로 통일했어</div></div><span style="font:var(--t-micro);color:var(--text-3)">9:48</span></div>
+            <div style="padding:9px;border:1px dashed var(--border-strong);border-radius:var(--r-sm);background:rgba(251,191,36,.06)">
+              <div style="font:var(--t-micro);color:var(--warn);display:flex;gap:6px;align-items:center"><svg class="ico" width="12" height="12"><use href="#i-lock"/></svg> 승인 게이트: 발송 직전 사용자 승인 필요</div>
+            </div>
+          </div>
+          <div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" style="flex:1">발송 승인</button>
+            <button class="btn btn-danger btn-sm">잠깐만 멈춰봐</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단 히스토리 바 -->
+      <div class="segbar">
+        <div class="sb-scroll">
+          <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+          <div class="seg-node past" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span></div><span class="lbl">데이터</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-data)"></span>
+          <div class="seg-node past" style="--seg-c:var(--seg-file)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-file"/></svg></span></div><span class="lbl">파일</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-file)"></span>
+          <div class="seg-node past" style="--seg-c:var(--seg-task)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-task"/></svg></span></div><span class="lbl">작업</span></div>
+          <span class="seg-link done" style="--seg-c:var(--seg-task)"></span>
+          <div class="seg-node current" style="--seg-c:var(--seg-multi)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-multi"/></svg></span><span class="new-dot"></span></div><span class="lbl">멀티</span></div>
+        </div>
+        <div style="width:42px;height:42px;border-radius:50%;background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-1);margin-left:12px;flex:none">
+          <svg class="ico" width="20" height="20"><use href="#i-mic"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F09 · 결과캔버스 — 멀티에이전트 세그먼트 (협업 뷰)</b><br>참여 에이전트 노드 맵 + 협업 모드 탭 + 에이전트 간 대화(RPC 로그) 열람 + 승인 게이트/개입 컨트롤. 히스토리 바 5종 전체 연결.</figcaption>
+</figure>

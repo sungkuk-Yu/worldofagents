@@ -1,0 +1,212 @@
+<!-- ============ FRAME 10 · 카드 스레드 (화면 11) ============ -->
+<figure class="frame" id="f10">
+  <div class="frame-art">
+    <div class="screen">
+      <div class="statusbar">
+        <span>9:50</span><span class="sb-dyn"></span>
+        <span class="sb-right"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5c5-4 13-4 18 0l-2 2c-3.8-3-10.2-3-14 0L3 9.5Zm4 4c2.8-2.2 7.2-2.2 10 0l-2 2a6.2 6.2 0 0 0-6 0l-2-2Zm4 4a2.5 2.5 0 0 1 2 0l-1 2-1-2Z"/></svg><span class="battery"></span></span>
+      </div>
+
+      <!-- 스레드 헤더 -->
+      <div style="margin-top:52px;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid var(--border)">
+        <button style="padding:7px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="18" height="18"><use href="#i-back"/></svg></button>
+        <span style="font:var(--t-headline)">스레드</span>
+        <button style="padding:7px;border-radius:var(--r-md);color:var(--text-2)"><svg class="ico" width="18" height="18"><use href="#i-ell"/></svg></button>
+      </div>
+
+      <!-- 원본 카드 고정 참조 바 -->
+      <div class="refbar">
+        <svg class="ico" width="13" height="13" style="color:var(--primary)"><use href="#i-pin"/></svg>
+        <div style="flex:1;min-width:0">
+          <div style="font:var(--t-micro);color:var(--text-3)">원본 카드 · 탭하면 풀스크린으로 복귀</div>
+          <div style="font:var(--t-sub);color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">오늘 서울 날씨: 맑음, 24°C — 시간별 예보 포함</div>
+        </div>
+        <svg class="ico" width="14" height="14" style="color:var(--seg-info)"><use href="#i-star"/></svg>
+      </div>
+
+      <!-- 스레드 Q&A (슬랙식) -->
+      <div style="flex:1;overflow-y:auto;padding:6px 0 90px">
+        <div class="thread-row">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div>
+          <div class="t-body">
+            <div class="t-meta"><span class="t-name" style="color:var(--text-1)">나</span><span>9:41</span></div>
+            <div class="t-text">내일도 맑을까?</div>
+          </div>
+        </div>
+        <div class="thread-row">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="t-body">
+            <div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div>
+            <div class="t-text">내일은 오전에 구름 많고 오후부터 맑겠습니다. 22°C 예상이에요.</div>
+            <div style="display:flex;gap:12px;margin-top:6px">
+              <span style="font:var(--t-micro);color:var(--text-3)">↩ 답장</span>
+              <span style="font:var(--t-micro);color:var(--text-3)">공유</span>
+              <span style="font:var(--t-micro);color:var(--text-3)">반응</span>
+            </div>
+          </div>
+        </div>
+        <div class="thread-row">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#3B2E2E,#7A3E3E)"><span style="color:#F2A2A2;font:700 12px/1">나</span></div>
+          <div class="t-body">
+            <div class="t-meta"><span class="t-name" style="color:var(--text-1)">나</span><span>9:41</span></div>
+            <div class="t-text">비 올 확률은?</div>
+          </div>
+        </div>
+        <div class="thread-row">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="t-body">
+            <div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:41</span></div>
+            <div class="t-text">강수 확률 10% 미만입니다. 우산은 안 챙기셔도 될 것 같아요 🌤</div>
+          </div>
+        </div>
+        <div class="thread-row" style="opacity:.75">
+          <div class="avatar sm" style="background:linear-gradient(135deg,#173A4D,#0F5C7A)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="#4CC9F0"><circle cx="12" cy="8.5" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg></div>
+          <div class="t-body">
+            <div class="t-meta"><span class="t-name" style="color:#4CC9F0">머스크</span><span>9:42</span></div>
+            <div class="t-text">참, 회의는 오후 3시로 잡아뒀어요 — 결과 캔버스에서 확인하실 수 있어요. <span class="chip main" style="font-size:10px;margin-left:4px">작업 세그먼트로 이동</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단 입력 (스레드 고정) -->
+      <div style="position:absolute;bottom:0;left:0;right:0;padding:8px 14px 30px;display:flex;gap:10px;align-items:center;background:linear-gradient(180deg,transparent,var(--bg) 40%)">
+        <div style="flex:1;height:44px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface-raise);display:flex;align-items:center;padding:0 12px;gap:8px;color:var(--text-3)">
+          <svg class="ico" width="16" height="16"><use href="#i-mic"/></svg>
+          <span style="font:var(--t-sub)">후속 질문 · 음성 대기</span>
+        </div>
+        <div style="width:44px;height:44px;border-radius:var(--r-md);background:var(--surface-raise);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--text-2)">
+          <svg class="ico" width="17" height="17"><use href="#i-text"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F10 · 카드 스레드 (화면 11)</b><br>원본 카드 축소 고정 참조 바 + 슬랙식 Q&A(화자 구분은 이름 색상). 좌스와이프=인라인 답장, 우스와이프=즐겨찾기, 아래 스와이프=결과 캔버스 복귀.</figcaption>
+</figure>
+
+<!-- ============ FRAME 11 · 세그먼트 히스토리 바 — 상태 변형 ============ -->
+<figure class="frame" id="f11">
+  <div class="frame-art" style="background:#10131A">
+    <div class="screen" style="position:absolute;inset:0">
+      <div style="overflow-y:auto;padding:64px 18px 24px;display:flex;flex-direction:column;gap:26px">
+        <h2 style="font:var(--t-title2)">세그먼트 히스토리 바</h2>
+        <p style="font:var(--t-sub);color:var(--text-3);line-height:1.6">대화 내 기능 단위(세그먼트)를 하단 레일로 시각적으로 연결. 탭=복원, 롱프레스=삭제, 좌우 스와이프=이전/다음 전환.</p>
+
+        <!-- A. 기본 (1개) -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">A · 단일 세그먼트 — 현재(정보)</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:10px 14px;font:var(--t-micro);color:var(--text-3);text-align:center;border-bottom:1px solid var(--border)">SEGMENT HISTORY · 하단 고정 레일</div>
+            <div class="segbar" style="border-top:none;justify-content:center">
+              <div class="seg-node current" style="--seg-c:var(--seg-info)">
+                <div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span><span class="new-dot"></span></div>
+                <span class="lbl">정보</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- B. 2개 연결 -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">B · 연결 — 이전 완료(정보) → 현재(데이터)</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div class="segbar" style="border-top:none;justify-content:center">
+              <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+              <div class="seg-node current" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span><span class="new-dot"></span></div><span class="lbl">데이터</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- C. 5개 풀 스택 (회식비 정산 시나리오) -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">C · 풀 스택 5종 — 정보→데이터→파일→작업→멀티에이전트(현재)</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div class="segbar" style="border-top:none;justify-content:center">
+              <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+              <div class="seg-node past" style="--seg-c:var(--seg-data)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span></div><span class="lbl">데이터</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-data)"></span>
+              <div class="seg-node past" style="--seg-c:var(--seg-file)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-file"/></svg></span></div><span class="lbl">파일</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-file)"></span>
+              <div class="seg-node past" style="--seg-c:var(--seg-task)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-task"/></svg></span></div><span class="lbl">작업</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-task)"></span>
+              <div class="seg-node current" style="--seg-c:var(--seg-multi)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-multi"/></svg></span><span class="new-dot"></span></div><span class="lbl">멀티</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- D. 오버플로우 12+ -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">D · 10개 초과 — 자동 보관 (+ 그리드 시트)</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div class="segbar" style="border-top:none;justify-content:center">
+              <div class="seg-node past" style="--seg-c:var(--seg-info)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+              <div class="seg-node past" style="--seg-c:var(--seg-file)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-file"/></svg></span></div><span class="lbl">파일</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-file)"></span>
+              <div class="seg-node past" style="--seg-c:var(--seg-task)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-task"/></svg></span></div><span class="lbl">작업</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-task)"></span>
+              <div class="seg-node past" style="--seg-c:var(--seg-multi)"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-multi"/></svg></span></div><span class="lbl">멀티</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-multi)"></span>
+              <div class="seg-node current" style="--seg-c:var(--seg-data);width:52px"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span><span class="new-dot"></span></div><span class="lbl">데이터</span></div>
+              <span class="more">+8</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- E. 롱프레스 삭제 모드 -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">E · 롱프레스 — 삭제 모드 (컴포넌트 닫기)</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div class="segbar" style="border-top:none;justify-content:center">
+              <div class="seg-node past" style="--seg-c:var(--seg-info);opacity:.55"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-info"/></svg></span></div><span class="lbl">정보</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-info)"></span>
+              <div class="seg-node" style="--seg-c:var(--seg-data);opacity:.55"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-data"/></svg></span></div><span class="lbl">데이터</span></div>
+              <span class="seg-link done" style="--seg-c:var(--seg-data);opacity:.4"></span>
+              <div class="seg-node current" style="--seg-c:var(--seg-file);opacity:.55">
+                <div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-file"/></svg></span></div>
+                <span class="lbl">파일</span>
+                <span style="position:absolute;top:-8px;right:2px;width:16px;height:16px;border-radius:50%;background:var(--err);color:#fff;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--bg)"><svg class="ico" width="8" height="8"><use href="#i-close"/></svg></span>
+              </div>
+              <span class="seg-link" style="opacity:.3"></span>
+              <div class="seg-node" style="--seg-c:var(--seg-task);opacity:.35"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-task"/></svg></span></div><span class="lbl">작업</span></div>
+              <span class="seg-link" style="opacity:.3"></span>
+              <div class="seg-node" style="--seg-c:var(--seg-multi);opacity:.35"><div class="dot-wrap"><span class="c-ico"><svg class="ico"><use href="#i-multi"/></svg></span></div><span class="lbl">멀티</span></div>
+            </div>
+            <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:10px">
+              <span class="badge err">파일 세그먼트 삭제?</span>
+              <button class="btn btn-danger btn-sm">삭제</button>
+              <button class="btn btn-ghost btn-sm">취소</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- F. 상단 얇은 진행바 -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">F · 상단 얇은 세그먼트 진행바 (화면 10 변형) — 다음 결과 존재 표시</div>
+          <div class="card" style="padding:8px 14px">
+            <div class="seg-progress">
+              <span class="s done"></span><span class="s done"></span><span class="s cur"></span><span class="s"></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font:var(--t-micro);color:var(--text-3);padding:2px 10px 6px">
+              <span>정보</span><span>데이터</span><span style="color:var(--text-1);font-weight:700">파일 · 현재</span><span>다음 ▸</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- G. 세그먼트 타입 아이덴티티 -->
+        <div>
+          <div class="lbl" style="font:var(--t-caption);color:var(--text-3);margin-bottom:8px">G · 세그먼트 5종 시그니처 (아이콘 + 식별색)</div>
+          <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:12px"><span class="seg-ico seg-info"><svg class="ico"><use href="#i-info"/></svg></span><div><div style="font:var(--t-sub);font-weight:700">정보</div><div style="font:var(--t-micro);color:var(--text-3)">결과 카드 · 날씨/검색/Q&A</div></div></div>
+            <div style="display:flex;align-items:center;gap:12px"><span class="seg-ico seg-data"><svg class="ico"><use href="#i-data"/></svg></span><div><div style="font:var(--t-sub);font-weight:700">데이터</div><div style="font:var(--t-micro);color:var(--text-3)">스프레드시트 · 표/차트/정렬/필터</div></div></div>
+            <div style="display:flex;align-items:center;gap:12px"><span class="seg-ico seg-file"><svg class="ico"><use href="#i-file"/></svg></span><div><div style="font:var(--t-sub);font-weight:700">파일</div><div style="font:var(--t-micro);color:var(--text-3)">PDF/이미지/오디오 · AI 분석</div></div></div>
+            <div style="display:flex;align-items:center;gap:12px"><span class="seg-ico seg-task"><svg class="ico"><use href="#i-task"/></svg></span><div><div style="font:var(--t-sub);font-weight:700">작업</div><div style="font:var(--t-micro);color:var(--text-3)">작업 플로우 · 발송/예약/주문</div></div></div>
+            <div style="display:flex;align-items:center;gap:12px"><span class="seg-ico seg-multi"><svg class="ico"><use href="#i-multi"/></svg></span><div><div style="font:var(--t-sub);font-weight:700">멀티에이전트</div><div style="font:var(--t-micro);color:var(--text-3)">협업 · 에이전트 연결/역할/로그</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="frame-label"><b>F11 · 세그먼트 히스토리 바 — 상태 변형 7종</b><br>하단 레일 연결형(기본) + 오버플로우/롱프레스 삭제/상단 얇은 진행바 변형. 탭=복원(스택 goTo), 롱프레스=닫기, 10개 초과 시 자동 보관.</figcaption>
+</figure>
