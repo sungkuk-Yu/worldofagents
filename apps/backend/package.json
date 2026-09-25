@@ -1,0 +1,42 @@
+{
+  "name": "agenttalk-backend",
+  "version": "1.0.0",
+  "description": "AgentTalk Backend API Server",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.5.0",
+    "@fastify/jwt": "^7.2.0",
+    "@fastify/websocket": "^8.3.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "@types/ws": "^8.18.1",
+    "dotenv": "^16.3.1",
+    "fastify": "^4.25.0",
+    "openai": "^4.24.0",
+    "pino": "^8.17.0",
+    "stream-chat": "^8.14.0",
+    "temporalio": "^1.9.0",
+    "ws": "^8.21.3",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "eslint": "^8.56.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
