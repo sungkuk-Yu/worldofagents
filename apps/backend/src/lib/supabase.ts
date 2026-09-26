@@ -40,6 +40,29 @@ function buildClient(
 // 서비스 롤 클라이언트 (RLS 우회 — 서버에서만 사용)
 export const supabaseAdmin: DbClient = buildClient(config.supabase.url, config.supabase.serviceKey);
 
+/**
+ * 로그인(signInWithPassword) 전용 — 요청마다 새로 만드는 일회용 클라이언트의 auth.
+ *
+ * P0 핫픽스(t_486cf23b): 공유 supabaseAdmin에서 signInWithPassword를 호출하면
+ * supabase-js가 해당 인스턴스에 사용자 세션을 저장한다(persistSession=false여도
+ * 메모리 세션으로 유지). 이후 공유 클라이언트의 모든 PostgREST 요청이
+ * service_role 키 대신 "마지막 로그인한 사용자"의 JWT를 Authorization으로 보내
+ * RLS가 발동 → 002 마이그레이션(SELECT 전용 정책) 기준으로 쓰기 전체가 거부된다.
+ * 따라서 사용자 세션이 생기는 auth 호출은 절대 공유 admin 클라이언트에서 하지 말고
+ * 이 팩토리로 만든 일회용 클라이언트에서 수행한 뒤 버린다(GC).
+ */
+export function createEphemeralAuthClient(): DbClient['auth'] {
+  if (config.devMode) {
+    // devstore 클라이언트는 세션 상태가 없는 무상태 객체 — 그래도 공유 인스턴스를
+    // 건드리지 않도록 매번 새 래퍼를 만든다.
+    return (createDevClient(getStore()) as unknown as DbClient).auth;
+  }
+  const client = createClient(config.supabase.url, config.supabase.anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  });
+  return client.auth as unknown as DbClient['auth'];
+}
+
 // 익명(anon) 클라이언트 (RLS 적용)
 export const supabase: DbClient = buildClient(config.supabase.url, config.supabase.anonKey);
 

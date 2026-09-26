@@ -1,7 +1,7 @@
 import { validateSignupConsents, SignupConsent } from '../lib/consents';
 import { FastifyInstance } from 'fastify';
 import { config } from '../config';
-import { supabaseAdmin, DbClient } from '../lib/supabase';
+import { supabaseAdmin, createEphemeralAuthClient, DbClient } from '../lib/supabase';
 import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 
@@ -85,7 +85,12 @@ export async function authRoutes(app: FastifyInstance) {
     const body = _request.body as LoginBody;
     if (!body?.email || !body?.password) throw badRequest('email과 password는 필수입니다.');
 
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email: body.email, password: body.password });
+    // P0(t_486cf23b): 사용자 세션이 생기는 signInWithPassword는 절대 공유 supabaseAdmin에서
+    // 호출하지 않는다. 공유 클라이언트에 세션이 남으면 이후 서버 전체의 DB 요청이
+    // service_role 대신 마지막 로그인 사용자의 JWT로 나가 RLS 쓰기 거부가 발생한다.
+    // 요청마다 일회용 클라이언트를 생성해 사용하고 폐기한다.
+    const ephemeralAuth = createEphemeralAuthClient();
+    const { data, error } = await ephemeralAuth.signInWithPassword({ email: body.email, password: body.password });
     if (error || !data.session || !data.user) {
       throw new ApiError(ERROR_CODES.AUTH_INVALID, '이메일 또는 비밀번호가 올바르지 않습니다.');
     }
@@ -128,11 +133,8 @@ export async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/logout — 로그아웃
   app.post('/logout', async (_request, reply) => {
-    try {
-      await supabaseAdmin.auth.signOut?.();
-    } catch {
-      // 무시 — 토큰 폐기 정책은 클라이언트에서
-    }
+    // 자체 JWT는 stateless라 서버 측 세션 저장소가 없다 — 클라이언트가 토큰을 폐기한다.
+    // 공유 admin 클라이언트의 auth 상태를 건드리지 않는다 (P0 t_486cf23b 오염 방지).
     return reply.send(ok({ success: true }));
   });
 

@@ -1,5 +1,5 @@
 /**
- * 에이전트톡 채팅 MVP 스모크 테스트 (Phase 2)
+ * 마이에이전트톡 채팅 MVP 스모크 테스트 (Phase 2)
  *
  * 사용법:
  *   cd apps/backend
@@ -14,6 +14,7 @@
  *   → REST 전송 시 WS 브로드캐스트 수신 (크로스 디바이스 동기화)
  *   → 재연결 seq 재생 (subscribe last_seq)
  *   → 스레드 답글 + 하드포크 + lineage
+ *   → 즐겨찾기 PATCH/GET 왕복 + 격리 + 페이지네이션 + 탈퇴 cascade (마이그레이션 003)
  *
  * DEV_MODE=true(devstore)와 DEV_MODE=false(실 Supabase) 양쪽에서 동일하게 통과해야 한다.
  *
@@ -135,7 +136,8 @@ class WsCollector {
 
 async function signupUser(tag, locale) {
   const email = `smoke_chat_${tag}_${Date.now()}@test.io`;
-  const body = { email, password: 'password123', display_name: `스모크${tag}` };
+  const password = 'password123';
+  const body = { email, password, display_name: `스모크${tag}` };
   // 법률 인프라: 필수 동의 4종 + 만 14세 확인 (운영 모드 strict, dev 모드도 동일하게 전송)
   if (locale) body.locale = locale;
   body.age_confirmed = true;
@@ -147,7 +149,19 @@ async function signupUser(tag, locale) {
   ];
   const r = await req('POST', '/api/auth/signup', { body });
   if (r.status !== 201 || !r.json?.data?.token) throw new Error(`signup(${tag}) 실패: ${r.status} ${JSON.stringify(r.json)?.slice(0, 200)}`);
-  return { token: r.json.data.token, userId: r.json.data.user.id, email };
+  return { token: r.json.data.token, userId: r.json.data.user.id, email, password };
+}
+
+/**
+ * P0 회귀(t_486cf23b): login은 반드시 signup 이후·쓰기(agent/session/message) 이전에
+ * 호출한다. 과거에는 login이 공유 supabaseAdmin 클라이언트에 사용자 세션을 심어
+ * DEV_MODE=false에서 이후 모든 서버 쓰기가 RLS로 거부됐다(signInWithPassword 오염).
+ * 이 시퀀스가 스모크에 없던 것이 미검출 원인 — login→쓰기 경로를 항상 태운다.
+ */
+async function loginUser(email, password) {
+  const r = await req('POST', '/api/auth/login', { body: { email, password } });
+  if (r.status !== 200 || !r.json?.data?.token) throw new Error(`login(${email}) 실패: ${r.status} ${JSON.stringify(r.json)?.slice(0, 200)}`);
+  return r.json.data.token;
 }
 
 async function createAgentAndSession(token, name) {
@@ -159,15 +173,17 @@ async function createAgentAndSession(token, name) {
 }
 
 async function main() {
-  console.log(`\n=== 에이전트톡 채팅 MVP 스모크 (@ ${BASE}) ===\n`);
+  console.log(`\n=== 마이에이전트톡 채팅 MVP 스모크 (@ ${BASE}) ===\n`);
 
   const health = await req('GET', '/health');
   check('GET /health → ok', health.status === 200 && health.json?.status === 'ok', `mode=${health.json?.mode}`);
 
-  // ── 1. 사용자 A: signup → agent → session ──
+  // ── 1. 사용자 A: signup → login(P0 오염 회귀) → agent → session ──
   const A = await signupUser('a');
+  A.token = await loginUser(A.email, A.password);
+  check('POST /api/auth/login → 200 + 자체 JWT', !!A.token);
   const { agentId, sessionId } = await createAgentAndSession(A.token, '스모크 LLM 상담사');
-  check('signup → agent → session ensure 완료', !!sessionId, `session=${sessionId.slice(0, 8)}`);
+  check('signup → login → agent → session ensure 완료 (login 후 쓰기 정상)', !!sessionId, `session=${sessionId.slice(0, 8)}`);
 
   // ── 2. 텍스트 메시지 전송 — 실제 LLM 응답 ──
   console.log('\n[2] POST /messages — 실제 LLM 호출 (최대 ' + LLM_TIMEOUT_MS / 1000 + 's)…');
@@ -447,6 +463,51 @@ async function main() {
   check('  └ 탈퇴 후 GET /api/me → 401/404 (데이터 파기)', r.status === 401 || r.status === 404, `status=${r.status}`);
   r = await req('GET', `/api/sessions/${sessC}/messages`, { token: C.token });
   check('  └ 탈퇴 후 세션 히스토리 접근 불가', r.status === 401 || r.status === 404, `status=${r.status}`);
+
+  // ── 11. 즐겨찾기 영속화 (마이그레이션 003) — PATCH/GET 왕복 + 격리 + cascade ──
+  console.log('\n[11] 즐겨찾기 — PATCH /api/messages/:id/favorite + GET /api/favorites');
+  r = await req('PATCH', `/api/messages/${turn.answer_message_id}/favorite`, { token: A.token, body: { favorite: true } });
+  check('즐겨찾기 등록 PATCH → 200 + favorite=true 행 반환', r.status === 200 && r.json?.data?.favorite === true && r.json?.data?.id === turn.answer_message_id, `status=${r.status}`);
+  check('  └ 행에 dialogue_type/structured_payload/locale 유지', r.json?.data && 'dialogue_type' in r.json.data && typeof r.json.data.structured_payload === 'object' && !!r.json.data.locale);
+
+  r = await req('PATCH', `/api/messages/${turn.answer_message_id}/favorite`, { token: B.token, body: { favorite: true } });
+  check('B가 A 메시지 즐겨찾기 시도 → 404 (소유권, 존재 숨김)', r.status === 404, `status=${r.status}`);
+
+  r = await req('PATCH', `/api/messages/${turn.answer_message_id}/favorite`, { token: A.token, body: { favorite: 'yes' } });
+  check('favorite 비boolean → 400 VALIDATION_ERROR', r.status === 400 && r.json?.error?.code === 'VALIDATION_ERROR', `status=${r.status}`);
+
+  r = await req('PATCH', `/api/messages/${turn.user_message_id}/favorite`, { token: A.token, body: { favorite: true } });
+  check('두 번째 메시지(사용자 행) 등록 → 200', r.status === 200 && r.json?.data?.favorite === true);
+
+  r = await req('GET', '/api/favorites', { token: A.token });
+  const favs = r.json?.data || [];
+  check('GET /api/favorites → 200 + 등록 행 2건 포함', r.status === 200 && favs.length === 2 && favs.every((f) => f.message?.favorite === true), `${favs.length} rows`);
+  const favRow = favs.find((f) => f.message?.id === turn.answer_message_id);
+  check('  └ 세션 조인(session_id/agent_name)', favRow?.session?.id === sessionId && typeof favRow?.session?.agent_name === 'string' && favRow.session.agent_name.length > 0, `agent=${favRow?.session?.agent_name || 'none'}`);
+  check('  └ 메시지 필드(dialogue_type/structured_payload/created_at) 보존', !!favRow?.message && 'dialogue_type' in favRow.message && typeof favRow.message.structured_payload === 'object' && typeof favRow.message.created_at === 'string');
+  check('  └ 정렬: 최신 즐겨찾기 먼저 (answer가 user보다 나중에 생성)', favs[0]?.message?.id === turn.answer_message_id && favs[1]?.message?.id === turn.user_message_id, `order=${favs.map((f) => f.message?.role).join(',')}`);
+
+  r = await req('GET', '/api/favorites?limit=1', { token: A.token });
+  check('limit=1 → 1행 + meta.has_more=true', r.status === 200 && (r.json?.data || []).length === 1 && r.json?.meta?.has_more === true, `meta=${JSON.stringify(r.json?.meta)}`);
+  r = await req('GET', '/api/favorites?limit=1&offset=1', { token: A.token });
+  check('offset=1 → 두 번째 행 + has_more=false', r.status === 200 && (r.json?.data || []).length === 1 && r.json?.data?.[0]?.message?.id === turn.user_message_id && r.json?.meta?.has_more === false);
+
+  r = await req('GET', '/api/favorites', { token: B.token });
+  check('B의 즐겨찾기 목록은 빈 배열 (격리)', r.status === 200 && (r.json?.data || []).length === 0);
+
+  r = await req('PATCH', `/api/messages/${turn.user_message_id}/favorite`, { token: A.token, body: { favorite: false } });
+  check('해제 PATCH → 200 + favorite=false', r.status === 200 && r.json?.data?.favorite === false);
+  r = await req('GET', '/api/favorites', { token: A.token });
+  check('해제 후 목록에서 소멸 (왕복)', r.status === 200 && (r.json?.data || []).length === 1 && r.json?.data?.[0]?.message?.id === turn.answer_message_id);
+
+  // 잔여 스모크 계정 정리 — A/B 회원탈퇴로 cascade 파기 (실DB 잔여 데이터 0 유지 + 즐겨찾기 cascade 검증)
+  r = await req('DELETE', '/api/me', { token: A.token });
+  check('정리: DELETE /api/me(A) → 200', r.status === 200 && r.json?.ok, `status=${r.status}`);
+  // 탈퇴 후: JWT 서명은 유효하나 세션이 전멸 → 빈 목록 200 또는 401/404 (데이터 유출 없음 = cascade 파기)
+  r = await req('GET', '/api/favorites', { token: A.token });
+  check('  └ 탈퇴 후 A 즐겨찾기 목록 없음 (cascade 파기)', r.status === 401 || r.status === 404 || (r.status === 200 && (r.json?.data || []).length === 0), `status=${r.status} rows=${(r.json?.data || []).length}`);
+  r = await req('DELETE', '/api/me', { token: B.token });
+  check('정리: DELETE /api/me(B) → 200', r.status === 200 && r.json?.ok, `status=${r.status}`);
 
   console.log(`\n=== 결과: ${passed} passed, ${failed} failed ===\n`);
   process.exit(failed === 0 ? 0 : 1);
