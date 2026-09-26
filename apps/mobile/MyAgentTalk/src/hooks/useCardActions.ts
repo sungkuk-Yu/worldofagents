@@ -4,15 +4,52 @@ import type { ChatMessage } from '../types';
 import type { CardActionHandlers } from '../cards/types';
 import { toggleTaskOverride } from '../lib/cardLogic';
 import { safeFileUrl } from '../cards/payload';
+import { api } from '../lib/api';
 
 // 가상 목록이 카드를 해제해도 수동 완료와 즐겨찾기는 화면에 보존한다.
-export function useCardActions(openThread: CardActionHandlers['openThread'], forkFromHere: CardActionHandlers['forkFromHere']) {
+// 즐겨찾기 영속화 (백엔드 t_219c4d36 연결): 낙관적 업데이트 → PATCH /api/messages/:id/favorite,
+// 실패 시 원래 값으로 롤백 + errors.favorite 노출. 서버가 곧 진실 — 재진입 시 GET messages의
+// favorite 필드(chatLogic 정규화)로 복원되므로 로컬 override는 화면 세션 한정 캐시다.
+export function useCardActions(
+  openThread: CardActionHandlers['openThread'],
+  forkFromHere: CardActionHandlers['forkFromHere'],
+  send?: (content: string) => Promise<{ ok: boolean }>,
+) {
   const [local, setLocal] = useState<Record<string, Pick<ChatMessage, 'favorite' | 'taskOverrides'>>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const decorate = (message: ChatMessage): ChatMessage => ({ ...message, ...local[message.id] });
+  /** 즐겨찾기 값 설정(토글/일괄 보관 공용) — 낙관 반영 → PATCH → 실패 시 롤백. */
+  const applyFavorite = async (message: ChatMessage, next: boolean) => {
+    const prev = local[message.id]?.favorite ?? message.favorite ?? false;
+    if (prev === next) return true;
+    setLocal((cur) => ({ ...cur, [message.id]: { ...cur[message.id], favorite: next } }));
+    try {
+      const env = await api.setFavorite(message.id, next);
+      if (!env.ok) throw new Error('favorite');
+      return true;
+    } catch {
+      setLocal((cur) => ({ ...cur, [message.id]: { ...cur[message.id], favorite: prev } }));
+      setActionError('errors.favorite');
+      return false;
+    }
+  };
+  const toggleFavorite = (message: ChatMessage) => {
+    // 미전송(optimistic/failed) 메시지는 서버 행이 없어 즐겨찾기 불가 — 스레드/포크 가드와 동일 원칙
+    if (message.pending || message.status === 'failed') { setActionError('errors.unavailableAction'); return; }
+    void applyFavorite(message, !(local[message.id]?.favorite ?? message.favorite ?? false));
+  };
+  /** 다중 선택 "보관" (대표님 9/26) — 선택 카드 일괄 즐겨찾기. 전부 실패 시 errors.favorite만 노출. */
+  const keepFavorites = async (messages: ChatMessage[]) => {
+    const results = await Promise.all(messages.map((m) => applyFavorite(m, true)));
+    return results.some(Boolean);
+  };
   const handlers: CardActionHandlers = {
     openThread, forkFromHere,
-    toggleFavorite: (message) => setLocal((prev) => ({ ...prev, [message.id]: { ...prev[message.id], favorite: !(prev[message.id]?.favorite ?? message.favorite) } })),
+    toggleFavorite,
+    submitForm: async (_message, content) => {
+      if (!send) return false;
+      try { const result = await send(content); return result.ok; } catch { setActionError('errors.request'); return false; }
+    },
     toggleTaskDone: (message, index, done) => setLocal((prev) => ({
       ...prev, [message.id]: { ...prev[message.id], taskOverrides: toggleTaskOverride({ ...message, ...prev[message.id] }, index, done).taskOverrides },
     })),
@@ -22,5 +59,5 @@ export function useCardActions(openThread: CardActionHandlers['openThread'], for
       void Linking.openURL(safe).catch(() => setActionError('errors.file'));
     },
   };
-  return { handlers, decorate, actionError, setActionError };
+  return { handlers, decorate, actionError, setActionError, keepFavorites };
 }

@@ -2,7 +2,7 @@
 // 순수 함수 모듈(UI 의존 없음): dialogue_type별 접힘 상태 요약을 만든다.
 // 백엔드가 새 카드 타입을 추가해도 폴백(제목+요약)으로 기본 렌더 — 프론트 재배포 없이 유연성 유지.
 import type { StructuredPayload } from '../types';
-import { displayValue, records } from './payload';
+import { displayValue, records, safeFileUrl } from './payload';
 
 export interface CardPreview {
   /** 미리보기 제목 (payload.title 우선, 없으면 유형 라벨 키 등 컴포넌트가 보완) */
@@ -116,6 +116,41 @@ export function buildCardPreview(
         summary: firstSentence(displayValue(agents[0]?.content ?? agents[0]?.result) || content),
         moreCount: Math.max(0, agents.length - 1),
         expandable: agents.length > 0 || content.length > LONG_TEXT_THRESHOLD,
+      };
+    }
+    // ── Wave 1 인터랙티브 카드 접힘 미리보기 ──────────────────
+    case 'form': {
+      const fields = records(payload?.fields);
+      return {
+        ...base,
+        title: title || firstSentence(displayValue(payload?.submit_label)) || '',
+        summary: firstSentence(content),
+        moreCount: Math.max(0, fields.length - 1),
+        badge: fields.length ? `${fields.length}` : '',
+        expandable: fields.length > 0 || !!content.trim(),
+      };
+    }
+    case 'chart': {
+      const series = records(payload?.series);
+      const labels = Array.isArray(payload?.labels) ? payload.labels : [];
+      return {
+        ...base,
+        title,
+        summary: firstSentence(content),
+        moreCount: Math.max(0, labels.length - PREVIEW_ROWS),
+        badge: series.length ? series.map((s) => displayValue(s.name)).filter(Boolean).slice(0, 2).join(', ') : '',
+        expandable: series.length > 0 || !!content.trim(),
+      };
+    }
+    case 'media': {
+      // poster 썸네일은 getCardPreview가 렌더 — 여기선 텍스트 메타(캡션)만 요약
+      const caption = displayValue(payload?.caption);
+      return {
+        ...base,
+        title: title || caption,
+        summary: caption && caption !== title ? firstSentence(caption) : firstSentence(content),
+        badge: payload?.media_type === 'video' ? '▶' : '',
+        expandable: !!safeFileUrl(payload?.url),
       };
     }
     case 'text':

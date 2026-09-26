@@ -53,6 +53,8 @@ export default function DialogueListScreen({ navigation }: Props) {
       <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
       <View style={styles.headerRight}>
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
+        {/* 즐겨찾기 컬렉션 진입 (Wave1 코멘트 — 대화목록 상단) */}
+        <TouchableOpacity onPress={() => navigation.navigate('Favorites')} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><Text style={styles.settingsIcon}>{t('favorites.icon')}</Text></TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="settings-button" style={styles.settingsButton} accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
       </View>
     </View>

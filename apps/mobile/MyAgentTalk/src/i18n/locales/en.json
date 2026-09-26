@@ -114,6 +114,7 @@
     "thread": "Could not load this thread. Please try again.",
     "fork": "Could not create the new project. Please try again.",
     "file": "Could not open this file.",
+    "favorite": "Couldn't update the favorite. Please try again.",
     "unavailableAction": "This message is not available on the server for threads or new projects yet.",
     "consentRequired": "Please agree to all required consent items.",
     "ageConfirmRequired": "Please confirm that you are at least 14 years old.",
@@ -145,6 +146,22 @@
     "original": "Original conversation",
     "badge": "Forked"
   },
+  "favorites": {
+    "title": "Favorites",
+    "icon": "★",
+    "empty": "Cards you favorite will collect here.",
+    "untitledSession": "Untitled conversation",
+    "openSource": "Go to the {{title}} conversation",
+    "loadMore": "Load more"
+  },
+  "selection": {
+    "enter": "Select",
+    "count": "{{countText}} selected",
+    "keep": "Keep",
+    "continue": "Continue in a new chat",
+    "selectAll": "Select all",
+    "clearAll": "Deselect"
+  },
   "cards": {
     "thread": "Thread",
     "replies": "{{countText}} replies",
@@ -174,7 +191,28 @@
     "expand": "Expand",
     "collapse": "Collapse",
     "moreRows": "{{countText}} more rows",
-    "unknownType": "New card format ({{type}})"
+    "unknownType": "New card format ({{type}})",
+    "copy": "Copy",
+    "copied": "Copied ✓",
+    "copyCode": "Copy code",
+    "openLink": "Open {{label}} link",
+    "chartView": "Show chart",
+    "tableView": "Show table",
+    "chartHint": "Tap a point for its value · {{countText}} data points",
+    "chartHintZoom": "Pinch to zoom · tap a point for its value · {{countText}} data points",
+    "formSubmit": "Send answer",
+    "formSubmitPrefix": "[Form answer]",
+    "formRequired": "Required",
+    "formMissing": "Please fill in all required fields",
+    "formLocked": "Submitted — answer:",
+    "formDefaultTitle": "Questions from your agent",
+    "formYes": "Yes",
+    "formNo": "No",
+    "mediaImage": "Image",
+    "mediaHint": "Tap to enlarge · long-press to save/share",
+    "mediaSaved": "Saved",
+    "mediaSaveFailed": "Couldn't save or share.",
+    "closeViewer": "Close"
   },
   "consent": {
     "terms": "[Required] I agree to the Terms of Service",

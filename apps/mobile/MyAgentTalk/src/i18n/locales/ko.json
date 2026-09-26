@@ -114,6 +114,7 @@
     "thread": "스레드를 불러오지 못했어요. 다시 시도해 주세요.",
     "fork": "새 프로젝트를 만들지 못했어요. 다시 시도해 주세요.",
     "file": "파일을 열 수 없어요.",
+    "favorite": "즐겨찾기를 반영하지 못했어요. 다시 시도해 주세요.",
     "unavailableAction": "이 메시지는 아직 서버에서 스레드나 새 프로젝트로 열 수 없어요.",
     "consentRequired": "필수 동의 항목을 모두 확인해 주세요.",
     "ageConfirmRequired": "만 14세 이상인지 확인해 주세요.",
@@ -145,6 +146,22 @@
     "original": "원본 대화",
     "badge": "분기됨"
   },
+  "favorites": {
+    "title": "즐겨찾기",
+    "icon": "★",
+    "empty": "즐겨찾기한 카드가 여기에 모입니다.",
+    "untitledSession": "이름 없는 대화",
+    "openSource": "{{title}} 대화로 이동",
+    "loadMore": "더 보기"
+  },
+  "selection": {
+    "enter": "선택",
+    "count": "{{countText}}개 선택됨",
+    "keep": "보관",
+    "continue": "다음 대화로 이어가기",
+    "selectAll": "전체 선택",
+    "clearAll": "선택 해제"
+  },
   "cards": {
     "thread": "스레드",
     "replies": "답변 {{countText}}개",
@@ -174,7 +191,28 @@
     "expand": "펼치기",
     "collapse": "접기",
     "moreRows": "{{countText}}행 더",
-    "unknownType": "새 카드 형식 ({{type}})"
+    "unknownType": "새 카드 형식 ({{type}})",
+    "copy": "복사",
+    "copied": "복사됨 ✓",
+    "copyCode": "코드 복사",
+    "openLink": "{{label}} 링크 열기",
+    "chartView": "차트로 보기",
+    "tableView": "표로 보기",
+    "chartHint": "점을 탭하면 값이 보여요 · {{countText}}개 데이터",
+    "chartHintZoom": "두 손가락으로 확대 · 점을 탭하면 값이 보여요 · {{countText}}개 데이터",
+    "formSubmit": "답변 보내기",
+    "formSubmitPrefix": "[폼 답변]",
+    "formRequired": "필수 항목이에요",
+    "formMissing": "필수 항목을 모두 채워주세요",
+    "formLocked": "제출 완료 — 답변:",
+    "formDefaultTitle": "에이전트의 질문",
+    "formYes": "예",
+    "formNo": "아니요",
+    "mediaImage": "이미지",
+    "mediaHint": "탭하면 크게 보기 · 길게 누르면 저장/공유",
+    "mediaSaved": "저장했어요",
+    "mediaSaveFailed": "저장/공유에 실패했어요.",
+    "closeViewer": "닫기"
   },
   "consent": {
     "terms": "[필수] 이용약관 동의",

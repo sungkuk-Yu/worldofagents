@@ -4,5 +4,6 @@ export { default as LoginScreen } from './LoginScreen';
 export { default as VoiceHomeScreen } from './VoiceHomeScreen';
 export { default as ResultCanvasScreen } from './ResultCanvasScreen';
 export { default as CardThreadScreen } from './CardThreadScreen';
+export { default as FavoritesScreen } from './FavoritesScreen';
 export { default as NeuronDashboardScreen } from './NeuronDashboardScreen';
 export { default as SettingsScreen } from './SettingsScreen';

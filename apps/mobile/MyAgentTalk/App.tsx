@@ -25,6 +25,7 @@ import {
   VoiceHomeScreen,
   ResultCanvasScreen,
   CardThreadScreen,
+  FavoritesScreen,
   NeuronDashboardScreen,
   SettingsScreen,
 } from './src/screens';
@@ -33,10 +34,11 @@ import {
 export type RootStackParamList = {
   Login: undefined;
   DialogueList: { demo?: boolean } | undefined;
-  Chat: { sessionId?: string; agentId?: string; agentName?: string; demo?: boolean; presetTitleKey?: string; sessionTitle?: string; forkedFrom?: ForkOrigin };
+  Chat: { sessionId?: string; agentId?: string; agentName?: string; demo?: boolean; presetTitleKey?: string; sessionTitle?: string; forkedFrom?: ForkOrigin; focusMessageId?: string };
   VoiceHome: { dialogueId?: string };
   ResultCanvas: { dialogueId?: string };
   CardThread: { sessionId: string; rootMessageId: string; agentName?: string; sessionTitle?: string };
+  Favorites: undefined;
   NeuronDashboard: undefined;
   Settings: undefined;
 };
@@ -174,6 +176,11 @@ export default function App() {
               name="CardThread"
               component={CardThreadScreen}
               options={{ title: t('common.thread'), animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="Favorites"
+              component={FavoritesScreen}
+              options={{ title: t('favorites.title') }}
             />
             <Stack.Screen
               name="NeuronDashboard"

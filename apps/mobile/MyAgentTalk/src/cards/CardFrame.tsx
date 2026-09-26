@@ -3,7 +3,7 @@ import { needsClientDisclaimer } from '../lib/legal';
 import React, { useCallback, useSyncExternalStore } from 'react';
 import { LayoutAnimation, Platform, Pressable, Text, TouchableOpacity, UIManager, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { getCard, isCardRegistered } from './registry';
+import { getCard, getCardPreview, isCardRegistered } from './registry';
 import UserCard from './UserCard';
 import type { CardProps } from './types';
 import { cardStyles as s } from './styles';
@@ -26,18 +26,28 @@ const expandAnimation = (skip: boolean) => {
   });
 };
 
-export function CardActions({ message, handlers }: CardProps) {
+export function CardActions({ message, handlers, withFavorite = true }: CardProps & { withFavorite?: boolean }) {
   const { t, i18n } = useTranslation();
   return <View style={s.actions}>
     {message.role === 'agent' && message.aiGenerated !== false && <Text style={s.micro} testID="ai-generated-badge">{t('common.aiGenerated')}</Text>}
     <TouchableOpacity style={s.action} onPress={() => handlers.openThread(message)}>
       <Text style={s.link}>{message.threadReplyCount === undefined ? t('cards.thread') : t('cards.replies', { count: message.threadReplyCount, countText: formatNumber(message.threadReplyCount, i18n.language) })}</Text>
     </TouchableOpacity>
-    <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
+    {withFavorite && <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
       <Text style={s.link}>{t(message.favorite ? 'cards.starredIcon' : 'cards.starIcon')}</Text>
-    </TouchableOpacity>
+    </TouchableOpacity>}
     <TouchableOpacity style={s.action} onPress={() => handlers.forkFromHere(message)}><Text style={s.link}>{t('fork.action')}</Text></TouchableOpacity>
   </View>;
+}
+
+// 즐겨찾기 ⭐ — 대표님 지시(9/26): 카드 헤더 우상단 고정. 비활성=옅은 외곽선(☆·text3), 활성=채운 별(★·accent).
+export function FavoriteStar({ message, handlers }: CardProps) {
+  const { t } = useTranslation();
+  return <TouchableOpacity style={s.starTop} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button"
+    accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)} testID="card-favorite">
+    <Text style={[s.starTopText, message.favorite ? s.starTopActive : s.starTopIdle]}>{t(message.favorite ? 'cards.starredIcon' : 'cards.starIcon')}</Text>
+  </TouchableOpacity>;
 }
 
 // 미등록 dialogue_type 폴백 — 제목 + JSON 접기 (#51: 백엔드가 새 카드 타입을 추가해도 프론트 재배포 없이 기본 렌더)
@@ -83,9 +93,16 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
 
   // 발신자 구분 = 영역(zone) 방식 (#54): 사용자 = 연그린 밴드 전체폭 행, 에이전트 = 흰 카드. 좌우 말풍선 금지.
   return <View style={props.compact ? undefined : (props.message.role === 'user' ? s.userFrame : s.frame)} testID={props.message.role === 'user' ? 'message-user' : 'message-agent'}>
-    {!props.compact && <Text style={s.title}>{props.message.role === 'user' ? t('chat.me') : props.agentName}</Text>}
+    {!props.compact && <View style={s.headerRow}>
+      <Text style={[s.title, s.headerTitle]} numberOfLines={1}>{props.message.role === 'user' ? t('chat.me') : props.agentName}</Text>
+      {/* 즐겨찾기 ⭐ = 카드 우상단 고정 (대표님 지시 9/26) — 하단 액션라인에서는 제외(compact 행은 헤더 없음 → 유지) */}
+      {props.message.role === 'agent' && <FavoriteStar {...props} />}
+    </View>}
     {expanded || !showHandle ? (
       React.createElement(Component, { ...props, payload: props.message.payload })
+    ) : getCardPreview(props.message.dialogueType) && props.message.role === 'agent' ? (
+      // 카드별 커스텀 접힘 렌더러 (Wave1: media=poster 썸네일) — 텍스트 요약으로 못 그리는 유형용
+      React.createElement(getCardPreview(props.message.dialogueType)!, { ...props, payload: props.message.payload })
     ) : (
       // 접힘 상태 — 카드 종류별 미리보기 (info=제목+한 줄, data=첫 N행+"N행 더", file=파일명, task=상태 배지, multi=에이전트 나열)
       <View style={s.webTransition}>
@@ -109,6 +126,7 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
       <Text style={s.expandHandleText}>{expanded ? `${t('cards.collapse')} ⌃` : `${t('cards.expand')} ⌄`}</Text>
     </Pressable>}
     {props.message.role === 'agent' && needsClientDisclaimer(props.presetCategory, props.message.content) && <Text style={s.micro} testID="legal-disclaimer">{t('legal.disclaimer')}</Text>}
-    {props.message.role === 'agent' && <CardActions {...props} />}
+    {/* compact(스레드 행)는 헤더 없음 → 즐겨찾기를 하단 액션에 유지. 일반 카드는 ⭐ 우상단 고정. */}
+    {props.message.role === 'agent' && <CardActions {...props} withFavorite={props.compact === true} />}
   </View>;
 }

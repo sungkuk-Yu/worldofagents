@@ -72,6 +72,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   const presetTitleKey = route?.params?.presetTitleKey;
   const agentName: string = presetTitleKey && i18n.exists(presetTitleKey) ? t(presetTitleKey) : route?.params?.agentName || t('common.agent');
   const initialSessionId: string | undefined = route?.params?.sessionId;
+  // 즐겨찾기 딥링크 (Wave1): focusMessageId로 진입 → 해당 메시지까지 스크롤 + 하이라이트 1회
+  const focusMessageId: string | undefined = route?.params?.focusMessageId;
 
   const {
     messages, sessionId, enterDemo,
@@ -95,7 +97,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
   // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
   const threadSheet = useRef<ThreadSheetHandle>(null);
-  const { handlers, decorate, actionError } = useCardActions(
+  const { handlers, decorate, actionError, keepFavorites } = useCardActions(
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
       threadSheet.current?.open({ sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
@@ -104,6 +106,8 @@ export default function ChatScreen({ navigation, route }: Props) {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
       setForkMessage(message);
     },
+    // Wave 1 #1: form 카드 제출 — 데모/미연결에서는 send가 거절되어 false 반환(카드가 잠기지 않음)
+    (content) => (isDemo ? Promise.resolve({ ok: false, error: 'errors.unavailableAction' }) : send(content)),
   );
   useEffect(() => {
     let active = true;
@@ -120,6 +124,32 @@ export default function ChatScreen({ navigation, route }: Props) {
   }, [sessionId, isDemo]);
 
   const [input, setInput] = useState('');
+  // 다중 선택 모드 (대표님 지시 9/26 — "복수로 누를수 있게, 다음대화에서 이어가거나 보관"):
+  // 진입 = 앱바 '선택' 버튼 또는 카드 롱프레스. 보관 = 선택 카드 일괄 즐겨찾기(서버 PATCH),
+  // 이어가기 = 가장 최근 선택 카드 지점의 포크(ForkDialog 재사용 — 백엔드 선택적 포크 없는 MVP는 계보 preserved 방식).
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selection = { active: selectionMode, ids: selectedIds };
+  const selectionMessages = useMemo(() => messages.filter((m) => selectedIds.includes(m.id)), [messages, selectedIds]);
+  const selectableIds = useMemo(() => messages.filter((m) => !m.pending && m.status !== 'failed').map((m) => m.id), [messages]);
+  const allSelected = selectableIds.length > 0 && selectedIds.length === selectableIds.length;
+  const exitSelection = useCallback(() => { setSelectionMode(false); setSelectedIds([]); }, []);
+  const toggleSelect = useCallback((id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])), []);
+  const selectAll = useCallback(() => setSelectedIds(selectableIds), [selectableIds]);
+  const clearSelection = useCallback(() => setSelectedIds([]), []);
+  const beginSelection = useCallback((withId?: string) => { setSelectionMode(true); if (withId) setSelectedIds([withId]); }, []);
+  const keepSelected = useCallback(async () => {
+    if (!selectionMessages.length) return;
+    const ok = await keepFavorites(selectionMessages);
+    if (ok) exitSelection();
+  }, [keepFavorites, selectionMessages, exitSelection]);
+  const forkSelected = useCallback(() => {
+    const lastAgent = [...selectionMessages].reverse().find((m) => m.role === 'agent');
+    const target = lastAgent ?? selectionMessages[selectionMessages.length - 1];
+    if (!target || isDemo || !sessionId || target.pending || target.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
+    setForkMessage(target);
+    exitSelection();
+  }, [selectionMessages, isDemo, sessionId, exitSelection]);
   const [sendFailed, setSendFailed] = useState(false);
   const listRef = useRef<FlatList<TurnGroup>>(null);
 
@@ -153,9 +183,38 @@ export default function ChatScreen({ navigation, route }: Props) {
   const layouts = useRef(new Map<string, { y: number; height: number }>());
   const prependAnchor = useRef<{ id: string; relative: number; y: number } | null>(null);
   const [unseen, setUnseen] = useState(0);
+  // 즐겨찾기 딥링크 하이라이트 (Wave1) — highlightId/state만 선언, 스크롤 효과는 groups 정의 후
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const focusTries = useRef(0);
+  const pendingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (pendingClear.current) clearTimeout(pendingClear.current); }, []);
   const previousMessages = useRef<ChatMessage[]>([]);
   const groups = useMemo(() => groupByTurn(messages), [messages]);
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
+  // 딥링크 스크롤 — 그룹을 찾으면 scrollToIndex + 하이라이트 2.6초, 히스토리 밖이면 loadOlder로 역행 추적
+  useEffect(() => {
+    if (!focusMessageId) return;
+    // setTimeout(0) 지연 — DialogueListScreen의 refresh 패턴과 동일 (effect 동기 setState 회피)
+    const find = setTimeout(() => {
+      const groupIndex = groups.findIndex((g) => g.items.some((m) => m.id === focusMessageId));
+      if (groupIndex >= 0) {
+        if (highlightId !== focusMessageId) {
+          setHighlightId(focusMessageId);
+          const groupKey = groups[groupIndex].key;
+          const layout = layouts.current.get(groupKey);
+          try {
+            if (layout) listRef.current?.scrollToOffset({ offset: Math.max(0, layout.y - 60), animated: true });
+            else listRef.current?.scrollToIndex({ index: groupIndex, animated: true, viewPosition: 0.3 });
+          } catch { /* 미측정 행 — 다음 레이아웃 잡힐 때 재시도 */ }
+          const clear = setTimeout(() => setHighlightId(null), 2800);
+          pendingClear.current = clear;
+        }
+        return;
+      }
+      if (hasMoreHistory && !loadingHistory && focusTries.current < 12) { focusTries.current += 1; void loadOlder(); }
+    }, 0);
+    return () => clearTimeout(find);
+  }, [focusMessageId, groups, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     offset.current = contentOffset.y;
@@ -246,22 +305,37 @@ export default function ChatScreen({ navigation, route }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      {/* 커스텀 헤더 — 웹 export에서 Paper Appbar 아이콘 글리프 깨짐 방지 (다른 화면과 동일한 ← 텍스트 패턴) */}
+      {/* 커스텀 헤더 — 웹 export에서 Paper Appbar 아이콘 글리프 깨짐 방지 (다른 화면과 동일한 ← 텍스트 패턴)
+          선택 모드(대표님 9/26): 좌측 ✕ / 제목 = "N개 선택" / 우측 전체선택·전체해제 */}
       <View style={styles.appbar} testID="chat-appbar">
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel={t('common.back')}>
-          <Text style={styles.backText}>{t('common.backIcon')}</Text>
+        <TouchableOpacity onPress={selection.active ? exitSelection : () => navigation.goBack()} style={styles.backButton} accessibilityLabel={t(selection.active ? 'common.cancel' : 'common.back')}>
+          <Text style={styles.backText}>{selection.active ? '✕' : t('common.backIcon')}</Text>
         </TouchableOpacity>
         <View style={styles.headerBody}>
-          <Text style={styles.appbarTitle} numberOfLines={1}>{sessionTitle}</Text>
-          <Text
+          <Text style={styles.appbarTitle} numberOfLines={1}>{selection.active ? t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) }) : sessionTitle}</Text>
+          {!selection.active && <Text
             style={[styles.appbarSubtitle, { color: isDemo ? colors.statusWarn : connectionColor }]}
             numberOfLines={1}
             testID="chat-status-line"
           >
             {t('chat.statusIndicator', { status: subtitle })}
-          </Text>
+          </Text>}
         </View>
-
+        {selection.active ? <TouchableOpacity
+          onPress={() => (allSelected ? clearSelection() : selectAll())}
+          style={styles.backButton}
+          accessibilityLabel={t(allSelected ? 'selection.clearAll' : 'selection.selectAll')}
+          testID="selection-toggle-all"
+        >
+          <Text style={styles.backText}>{t(allSelected ? 'selection.clearAll' : 'selection.selectAll')}</Text>
+        </TouchableOpacity> : <TouchableOpacity
+          onPress={() => beginSelection()}
+          style={styles.backButton}
+          accessibilityLabel={t('selection.enter')}
+          testID="selection-enter"
+        >
+          <Text style={styles.backText}>{t('selection.enter')}</Text>
+        </TouchableOpacity>}
       </View>
 
       {isDemo && <Text testID="demo-badge" style={styles.pendingMark}>{t('chat.demoBadge')}</Text>}
@@ -285,8 +359,19 @@ export default function ChatScreen({ navigation, route }: Props) {
         data={groups}
         renderItem={({ item }) => <View>
           {times.get(item.key) && <Text style={styles.pendingMark}>{times.get(item.key)}</Text>}
-          {item.items.map((message) => <View key={message.id}>
-            <CardFrame presetCategory={presetCategory} message={decorate(message)} handlers={handlers} agentName={agentName} />
+          {item.items.map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
+            {/* 다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
+            {selection.active
+              ? <TouchableOpacity
+                onPress={() => toggleSelect(message.id)}
+                style={selectedIds.includes(message.id) ? styles.selectedRow : undefined}
+                testID={`select-${message.id}`}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selectedIds.includes(message.id) }}
+              >
+                <CardFrame presetCategory={presetCategory} message={decorate(message)} handlers={handlers} agentName={agentName} />
+              </TouchableOpacity>
+              : <CardFrame presetCategory={presetCategory} message={decorate(message)} handlers={handlers} agentName={agentName} />}
             {message.role === 'user' && <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
             {message.status === 'failed' && <View style={styles.msgHeader}>
               <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
@@ -323,6 +408,12 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
 
       {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={styles.msgCard}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
+      {/* 다중 선택 액션 바 (대표님 9/26) — 입력창 위에 떠서 보관/이어가기 제공, ✕로 종료 */}
+      {selection.active && <View style={styles.selectionBar} testID="selection-bar">
+        <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selectedIds.length, i18n.language) })}</Text>
+        <Button compact mode="outlined" onPress={() => void keepSelected()} disabled={isDemo} textColor={colors.accent} testID="selection-keep">{t('selection.keep')}</Button>
+        <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
+      </View>}
       {input.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
       {/* 하단 입력 영역 — 화이트 배경 + 초박형 상단 테두리, 그린 포커스 (Mintlify 패턴) */}
       <View style={styles.inputBar}>
@@ -447,6 +538,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.statusErr,
   },
+  // 즐겨찾기 딥링크 하이라이트 (Wave1) — 액센트 좌측 밴드 + 연그린 tint (말풍선 금지 #54 — 영역 강조)
+  focusHighlight: { borderLeftWidth: 3, borderLeftColor: colors.accent, backgroundColor: colors.accentTint, borderRadius: radii.md },
+  // 다중 선택 (대표님 9/26) — 선택 행=연그린 밴드, 액션 바=입력창 위 플로팅
+  selectedRow: { borderLeftWidth: 3, borderLeftColor: colors.accent, backgroundColor: colors.accentTint, borderRadius: radii.md },
+  selectionBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginHorizontal: spacing.sp3, marginBottom: spacing.sp1, padding: spacing.sp2, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
+  selectionCount: { ...typography.caption, color: colors.text2, flex: 1, minWidth: 0 },
   listContent: {
     paddingHorizontal: spacing.sp3,
     paddingVertical: spacing.sp3,

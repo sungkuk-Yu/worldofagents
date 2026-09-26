@@ -131,6 +131,7 @@ export interface ServerChatMessage {
   message_type: string;
   content: string;
   ai_generated?: boolean;
+  favorite?: boolean;
   source_neuron?: string | null;
   attachments?: unknown[];
   structured_payload?: unknown;
@@ -226,7 +227,29 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
     }),
+
+  /** 즐겨찾기 등록/해제 — PATCH /api/messages/:id/favorite (백엔드 t_219c4d36, boolean 필수) */
+  setFavorite: (messageId: string, favorite: boolean) =>
+    request<ApiEnvelope<ServerChatMessage>>(`/api/messages/${encodeURIComponent(messageId)}/favorite`, {
+      method: 'PATCH',
+      body: JSON.stringify({ favorite }),
+    }),
+
+  /** 내 즐겨찾기 목록 — GET /api/favorites (created_at 내림차순 + offset 페이지네이션, 기본 50) */
+  listFavorites: (opts?: { limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    if (opts?.offset) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    return request<ApiEnvelope<FavoriteEntry[]>>(`/api/favorites${qs ? `?${qs}` : ''}`);
+  },
 };
+
+/** GET /api/favorites 응답 행 — 메시지 + 소속 세션 요약 (백엔드 favorites.ts 수동 조인) */
+export interface FavoriteEntry {
+  message: ServerChatMessage;
+  session: { id: string; title: string | null; agent_id: string | null; agent_name: string | null; status: string | null };
+}
 
 // ── WebSocket (백엔드 protocol.ts 서버→클라이언트) ─
 export type ServerMessage = (

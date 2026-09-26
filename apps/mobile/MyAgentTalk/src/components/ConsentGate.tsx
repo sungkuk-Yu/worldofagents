@@ -1,6 +1,7 @@
-// 가입 동의 게이트 — 대표님 지시 레이아웃 (김비서 코멘트 #48, 2026-09-26):
-//   ① 선택 동의(마케팅) 맨 위 + caption급 저대비 ② 전체 동의 = 분리된 강조 블록(divider 위아래)
-//   ③ 필수 개별 항목 목록은 전체 동의 아래. 토글 로직/검증/testID 계약 불변 (기존 단위테스트 통과 조건).
+// 가입 동의 게이트 — 대표님 지시 레이아웃 (김비서 코멘트 #48 → 9/26 후퇴 반영):
+//   ① 전체 동의 = 분리된 강조 블록(divider 위아래) ② 필수 개별 항목 목록
+//   ③ 선택 동의(마케팅) = 맨 아래 + 저대비 caption·미노출에 가까움 (opt-in — 개인정보보호법 제22조 선택 동의).
+//   토글 로직/검증/testID 계약 불변 (기존 단위테스트 통과 조건), marketing 기본값 false (lib/consents.ts).
 import React from 'react';
 import { Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
@@ -35,24 +36,23 @@ export default function ConsentGate({ value, onChange, disabled, onError }: {
     </Pressable>
   );
   return <View style={styles.container}>
-    {/* ① 선택 동의 — 맨 위, 시각 위계 낮춤 (caption·text3) */}
-    {checkbox('consent.marketing', value.marketing, () => toggle({ ...value, marketing: !value.marketing }), `consent-${testIds.marketing}`,
-      { row: styles.optionalRow, box: styles.optionalBox, label: styles.optionalLabel })}
-
-    <View style={styles.divider} />
-
-    {/* ② 전체 동의 — 목록 행이 아닌 분리된 강조 블록 (카드 배경 + 큰 체크박스 + 굵은 라벨) */}
+    {/* ① 전체 동의 — 목록 행이 아닌 분리된 강조 블록 (카드 배경 + 큰 체크박스 + 굵은 라벨) */}
     {checkbox('consent.allRequired', validateConsents(value), () => toggle(toggleRequiredConsents(value)), 'consent-all-required',
       { row: styles.allRow, box: styles.allBox, label: styles.allLabel })}
 
     <View style={styles.divider} />
 
-    {/* ③ 필수 개별 항목 — 전체 동의 아래 기존 목록 */}
+    {/* ② 필수 개별 항목 — 전체 동의 아래 기존 목록 */}
     {requiredTypes.map((type) => <View key={type}>
       {checkbox(`consent.${type}`, value[type], () => toggle({ ...value, [type]: !value[type] }), `consent-${testIds[type]}`)}
       {type === 'voice_recording' && <Text style={styles.notice}>{t('consent.voiceNotice')}</Text>}
       {type === 'overseas_transfer' && <Text style={styles.notice}>{t('consent.overseasNotice')}</Text>}
     </View>)}
+
+    {/* ③ 선택 동의(마케팅) — 9/26 후퇴 지시: 맨 아래 + 저대비 최소 박스, 기본 미체크(opt-in) */}
+    <View style={styles.divider} />
+    {checkbox('consent.marketing', value.marketing, () => toggle({ ...value, marketing: !value.marketing }), `consent-${testIds.marketing}`,
+      { row: styles.optionalRow, box: styles.optionalBox, label: styles.optionalLabel })}
     <Text style={styles.notice}>{t('consent.documentsPending')}</Text>
     <View style={styles.links}>
       {(['terms', 'privacy'] as const).map((type) => <Pressable key={type} accessibilityRole="link" style={styles.link}

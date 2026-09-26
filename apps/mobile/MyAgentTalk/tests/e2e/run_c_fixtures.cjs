@@ -1,6 +1,6 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false } = {}) {
-  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, sessions: [], messages: {}, sockets: [] };
+async function installFixtures(page, { rich = false, wave = false } = {}) {
+  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [] };
   const agent = { id: 'agent', name: 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
   const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: '2026-09-26T12:00:00Z' });
@@ -12,7 +12,30 @@ async function installFixtures(page, { rich = false } = {}) {
     row('task', 'task_flow', { items: [{ title: 'Review draft', status: 'pending' }] }),
     row('multi', 'multi_agent', { agents: [{ name: 'Expert', content: 'Expert result' }] }),
     row('unknown', 'future_card'),
-  ] : [];
+  ] : wave ? (() => {
+    // Wave 1 — 인터랙티브 3종 + 리치텍스트 + 즐겨찾기 복원(favorite:true 행)
+    const fav = { ...row('fav', 'info_card', { title: 'Fav card', fields: [{ label: 'k', value: 'v' }, { label: 'k2', value: 'v2' }] }), favorite: true };
+    return [
+      { ...row('rich', 'text'), content: '문의는 [여기](https://example.test/contact) · 코드는 `npm i` 로 설치\n> 인용 테스트' },
+      row('form', 'form', { title: '견적 요청', form_id: 'q1', fields: [
+        { id: 'name', type: 'text', label: '성함', required: true },
+        { id: 'plan', type: 'radio', label: '플랜', options: ['Basic', 'Pro'], required: true },
+        { id: 'agree', type: 'checkbox', label: '약관', required: true },
+      ] }),
+      row('chart', 'chart', { chart_type: 'bar', title: '매출', unit: '만원', labels: ['1월', '2월', '3월'], series: [{ name: 'A', data: [10, 20, 30] }, { name: 'B', data: [5, 15, 25] }] }),
+      row('media', 'media', { media_type: 'image', url: 'https://picsum.photos/seed/mat/640/360', width: 640, height: 360, poster: 'https://picsum.photos/seed/mat/64/36', caption: '샘플 이미지' }),
+      fav,
+      row('task', 'task_flow', { items: [{ title: 'Review draft', status: 'pending' }] }),
+    ];
+  })() : [];
+  state.favorites = state.messages.source.filter((m) => m.favorite).map((m) => ({ message: m, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } }));
+  if (wave) {
+    // 픽스처 이미지 스텁 — 외부 네트워크 없이 결정적으로 로드/저장 검증
+    await page.route('https://picsum.photos/**', (route) => route.fulfill({
+      status: 200, contentType: 'image/png',
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
+    }));
+  }
   await page.addInitScript(() => {
     localStorage.setItem('at-web-v1.sess', 'test-token');
     localStorage.setItem('at-language', 'ko');
@@ -32,9 +55,25 @@ async function installFixtures(page, { rich = false } = {}) {
     const ok = (data) => route.fulfill({ json: { ok: true, data } });
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204 });
     if (path === '/api/ws-ticket') return ok({ ticket: 'test-ticket' });
-    if (path === '/api/agents') return ok(request.method() === 'POST' ? agent : rich ? [agent] : []);
+    if (path === '/api/agents') return ok(request.method() === 'POST' ? agent : (rich || wave) ? [agent] : []);
     if (path === '/api/sessions/ensure') return ok(state.sessions[0]);
     if (path === '/api/sessions') return ok(state.sessions);
+    if (path === '/api/favorites' && request.method() === 'GET') {
+      return route.fulfill({ json: { ok: true, data: state.favorites, meta: { limit: 50, offset: 0, has_more: false } } });
+    }
+    const favorite = path.match(/^\/api\/messages\/([^/]+)\/favorite$/);
+    if (favorite && request.method() === 'PATCH') {
+      if (state.failFavorite) return route.fulfill({ status: 500, json: { ok: false, error: { code: 'E', message: 'boom' } } });
+      const row0 = state.messages.source.find((m) => m.id === favorite[1]);
+      const target = row0 ?? state.favorites.find((e) => e.message.id === favorite[1])?.message;
+      if (target) {
+        target.favorite = body.favorite;
+        state.favorites = body.favorite
+          ? (state.favorites.some((e) => e.message.id === favorite[1]) ? state.favorites : [...state.favorites, { message: target, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } }])
+          : state.favorites.filter((e) => e.message.id !== favorite[1]);
+      }
+      return ok(target ?? { id: favorite[1], favorite: body.favorite });
+    }
     const thread = path.match(/^\/api\/messages\/([^/]+)\/thread$/);
     if (thread) {
       if (state.unsupportedThread) return route.fulfill({ status: 404, json: {} });

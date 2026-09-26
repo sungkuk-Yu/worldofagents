@@ -45,6 +45,8 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     payload: isRecord(r.structured_payload) ? r.structured_payload : undefined,
     parentMessageId: typeof r.parent_message_id === 'string' ? r.parent_message_id : undefined,
     threadReplyCount: typeof r.thread_reply_count === 'number' && Number.isInteger(r.thread_reply_count) && r.thread_reply_count >= 0 ? r.thread_reply_count : undefined,
+    // 즐겨찾기 영속화 (백엔드 t_219c4d36) — GET messages 응답의 favorite 보존. 결측 시 undefined(로컬 상태 우선).
+    favorite: typeof r.favorite === 'boolean' ? r.favorite : undefined,
     runId: typeof r.run_id === 'string' ? r.run_id : undefined,
     status: 'sent',
   })).sort((a, b) => a.turnIndex - b.turnIndex);

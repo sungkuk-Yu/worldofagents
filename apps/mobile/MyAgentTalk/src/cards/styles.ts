@@ -19,6 +19,13 @@ export const cardStyles = StyleSheet.create({
     : {},
   expandHandle: { paddingVertical: spacing.sp2, marginTop: spacing.sp1 },
   expandHandleText: { ...typography.caption, color: colors.accent },
+  // 헤더 행 — 발신자 라벨 + 우측 즐겨찾기 ⭐ 고정 (대표님 지시 9/26)
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2 },
+  headerTitle: { flex: 1, minWidth: 0 },
+  starTop: { padding: spacing.sp1 },
+  starTopText: { fontSize: 16, lineHeight: 20 },
+  starTopIdle: { color: colors.text3 },
+  starTopActive: { color: colors.accent },
   previewMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sp2, marginTop: spacing.sp1 },
   badge: { ...typography.microSm, color: colors.accent, backgroundColor: colors.surfaceRaise, borderRadius: radii.xs, paddingHorizontal: spacing.sp2, paddingVertical: 2 },
   fallbackJson: { marginTop: spacing.sp2, borderTopWidth: 1, borderColor: colors.border, paddingTop: spacing.sp2 },
