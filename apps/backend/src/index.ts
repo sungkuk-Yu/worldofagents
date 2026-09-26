@@ -13,6 +13,7 @@ import { sessionRoutes } from './routes/sessions';
 import { taskRoutes } from './routes/tasks';
 import { skillRoutes } from './routes/skills';
 import { neuronRoutes } from './routes/neurons';
+import { classifyRoutes } from './routes/classify';
 import { meRoutes } from './routes/me';
 import { vaultRoutes } from './routes/vault';
 import { boardRoutes, cardRoutes } from './routes/boards';
@@ -65,6 +66,7 @@ export async function build() {
   await app.register(taskRoutes, { prefix: '/api/tasks' });
   await app.register(skillRoutes, { prefix: '/api/skills' });
   await app.register(neuronRoutes, { prefix: '/api/neurons' });
+  await app.register(classifyRoutes, { prefix: '/api/classify' });
   await app.register(meRoutes, { prefix: '/api/me' });
   await app.register(vaultRoutes, { prefix: '/api/vault' });
   await app.register(boardRoutes, { prefix: '/api/boards' });

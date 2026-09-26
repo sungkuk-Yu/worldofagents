@@ -78,6 +78,7 @@ export async function runTextTurn(
       llm: { ...result.llm, usage: result.llm.usage ?? null }, grounding: result.grounding });
     opts.emit({ type: 'run.completed', ...base,
       structured: { dialogue_type: result.structured.dialogue_type, structured_payload: result.structured.structured_payload },
+      classifier: { type: result.dialogueType, stage: result.dialogueStage, confidence: result.dialogueConfidence },
       message_ids: { user: result.userMessageId, empathy: result.empathyMessageId, answer: result.answerMessageId }, llm: result.llm,
       grounding: result.grounding });
     completed = true;
@@ -117,6 +118,8 @@ export function textTurnResponse(result: TurnResult) {
     empathy_response: result.empathyResponse,
     answer_response: result.answerResponse,
     dialogue_type: result.dialogueType,
+    /** 판별 신뢰도 공개 계약 (t_56498848) — stage: 1=패턴 2=LLM 3=폴백/수동 */
+    classifier: { type: result.dialogueType, stage: result.dialogueStage, confidence: result.dialogueConfidence },
     grounding: result.grounding,
     activation_plan: result.activationPlan,
     neuron_events: result.events,

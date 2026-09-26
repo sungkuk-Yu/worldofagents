@@ -1,0 +1,37 @@
+{
+  "source": "dialogue-functionality-spec.md §2.3 Stage 1 — 프론트/백엔드 공유 패턴 표(단일 콘텐츠). 두 사본(backend/src/neurons/ ↔ mobile/src/neurons/dialogPatterns.json)의 규칙/임계 동치는 apps/backend/tests/unit/dialog-classifier.test.ts 드리프트 테스트로 강제. 규칙 배열 순서 = 우선순위(file→data→task→multi, 구체 명사가 일반 동사보다 앞: 'PDF 파일 정리해줘'→file, '거래처 표 만들어줘'→data).",
+  "matching": "ASCII 패턴은 단어경계 case-insensitive('\\b' 정규식 — 'suitable'의 'table' 오매칭 차단). 한글 패턴은 substring이 원칙이나 '표','팀' 등 단음절은 좌측 비한글 경계 + 우측 (비한글 | 단일음절 조사)만 매칭 — '목표/발표'·'표현' 오탐 차단, '거래처 표'·'표로'는 유지. 규칙 단위 excludes_ko(예: '파일러')가 발화에 있으면 그 규칙 통째 스킵 — 부분일치 오탐 확정 사례. 구현: backend/src/neurons/dialogClassifier.ts ↔ mobile DialogTypeClassifier.ts 1:1 대칭.",
+  "type_note": "rule.type은 백엔드 DialogueType 명명('multi'). 프론트는 toDialogType()로 'multi-agent'에 대응. '보고서'는 file이 아닌 task — '보고서 작성해줘'(백엔드 회귀)·'보고서 첨부해줘'는 '첨부'로 file 회수.",
+  "confidence": { "pattern": 0.85, "adopt": 0.8, "fallback": 0.5 },
+  "single_syllable_particles": ["로", "를", "을", "에", "의", "와", "과", "이", "가", "은", "는", "도", "만", "야", "게"],
+  "rules": [
+    {
+      "type": "file",
+      "ko": ["파일", "문서", "pdf", "이미지", "다운로드", "업로드", "첨부", "계약서"],
+      "en": ["file", "files", "document", "documents", "doc", "docs", "pdf", "image", "images", "photo", "photos", "upload", "uploads", "download", "downloads", "attachment", "attachments", "contract", "contracts"],
+      "excludes_ko": ["파일러"]
+    },
+    {
+      "type": "data",
+      "ko": ["표", "차트", "엑셀", "스프레드시트", "데이터", "계산", "수식", "그래프", "분석"],
+      "en": ["table", "tables", "chart", "charts", "graph", "graphs", "spreadsheet", "spreadsheets", "excel", "csv", "data", "calculation", "calculations", "formula", "formulas", "analyze", "analyse", "analysis", "analytics", "visualize", "visualise", "visualization", "visualisation"]
+    },
+    {
+      "type": "task",
+      "ko": ["작업", "실행", "예약", "알림", "설정", "삭제", "추가", "보고서", "작성해", "보내줘", "만들어줘", "일정", "캘린더", "스케줄", "리마인드"],
+      "en": ["task", "tasks", "todo", "to-do", "schedule", "scheduled", "scheduling", "book a", "book an", "appointment", "appointments", "calendar", "calendars", "reminder", "reminders", "remind me", "booking", "reservation", "reservations"]
+    },
+    {
+      "type": "multi",
+      "ko": ["에이전트 초대", "여러 명", "여러", "함께", "협업", "다른 에이전트", "비교", "팀"],
+      "en": ["collaborate", "collaboration", "multiple agents", "several agents", "agents together", "team", "teams", "compare", "comparison", "invite an agent"]
+    }
+  ],
+  "stage3_fallback": {
+    "question": { "ko": ["?", "어떻게", "뭐", "왜", "언제", "누구", "무엇", "인지", "알려주"], "en": ["\\?", "\\bwhat\\b", "\\bhow\\b", "\\bwhy\\b", "\\bwhen\\b", "\\bwho\\b", "\\bwhere\\b", "\\bwhich\\b", "\\bwhether\\b", "\\bexplain", "\\btell me", "\\bdo[es']? i\\b", "\\bcan i\\b", "\\bshould i\\b", "\\bis it\\b", "\\bare we\\b"] },
+    "command": { "ko": ["해줘", "해주", "해라", "시켜", "요청", "부탁", "좀"], "en": ["\\bplease\\b", "\\bdo it\\b", "\\bgo ahead\\b", "\\bset up\\b", "\\bturn (it )?on\\b", "\\bturn (it )?off\\b", "\\bremember to\\b"] },
+    "information": "question/command 미매칭 기본 폴백"
+  },
+  "addition_policy": "오탐이 탐지 누락보다 위험(spec §2.3) — 신규 키는 '단독 발화만으로 그 유형이 명백한' 명사/복합어만. 동사 단수형·대명사에 강한 의존('make it', 'handle it' 등)은 Stage 2(LLM) 관할로 남긴다. 후보 추가 시 근거 문장 2개 이상과 대조 케이스(오탐 위험 발화)를 PR에 첨부한다. Stage 3 폴백은 이 표가 아니라 코드가 소유: 백엔드 ruleFallbackType(dialogClassifier.ts)은 7분류(question/command 포함), 프론트는 5분류라 Stage 3에서 information+사용자 확인(spec §2.5). Stage2 프롬프트(llmClassify.ts SYSTEM_PROMPT)의 5분류 정의와 rule.type이 일치해야 한다.",
+  "provenance": "ko 키: 백엔드 router.ts 기존 표 + 프론트 DialogTypeClassifier 기존 표 병합(누락 방지: '스케줄'·'캘린더'·'계약서'·'보고서'·'팀' 등). en 키: spec §2.4 유형 정의 기반 신규(t_56498848). Stage2 프롬프트 유형 정의(llmClassify.ts SYSTEM_PROMPT)와 5분류 일치."
+}

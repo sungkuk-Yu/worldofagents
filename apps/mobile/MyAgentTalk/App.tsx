@@ -8,7 +8,8 @@ import { useTranslation } from 'react-i18next';
 import React, { useEffect, useState } from 'react';
 import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
-import { initializeApi } from './src/lib/api';
+import { initializeApi, api } from './src/lib/api';
+import { setClassifyRequest } from './src/neurons/DialogTypeClassifier';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme, useNavigation, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -138,6 +139,16 @@ export default function App() {
   });
   // 부트스트랩 — setState는 항상 비동기 콜백에서만 (react-hooks/set-state-in-effect 대응)
   const runBootstrap = (markStale: () => boolean) => {
+    // 대화 유형 Stage 2 서버 위임 배선 (t_56498848): 로컬 패턴 미확정 발화만 /api/classify 호출.
+    setClassifyRequest(async (input, history) => {
+      try {
+        const res = await api.classify(input, history);
+        const d = res.data;
+        return d && typeof d.type === 'string' ? { type: d.type, confidence: d.confidence, stage: d.stage } : null;
+      } catch {
+        return null; // 미로그인/오프라인 → Stage 3 폴백(로컬 information+확인).
+      }
+    });
     void Promise.all([initializeApi(), initializeLanguage()])
       .then(() => { if (!markStale()) setReady(true); })
       .catch(() => { if (!markStale()) setError('errors.bootstrap'); });

@@ -19,6 +19,7 @@ import { config } from '../config';
 import { DbClient } from '../lib/supabase';
 import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
+import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 
@@ -71,6 +72,9 @@ export interface NeuronState {
   sttMetadata: Record<string, unknown> | null;
   // 라우팅
   dialogueType: DialogueType;
+  /** 판별 단계 (1=패턴 확정 2=LLM 인용 3=규칙 폴백) — classifier_stage 계약 (t_56498848). */
+  dialogueStage?: 1 | 2 | 3;
+  dialogueConfidence?: number;
   activationPlan: string[];
   reason: string;
   hasActiveTask: boolean;
@@ -116,6 +120,9 @@ export interface TurnResult {
   answerResponse: string | null;
   structured: StructuredAnswer;
   dialogueType: DialogueType;
+  /** 판별 단계 (t_56498848) — 1=패턴 2=LLM 3=폴백/수동 */
+  dialogueStage: 1 | 2 | 3;
+  dialogueConfidence: number;
   /** 전문가 그라운딩 요약 (t_d54bc456) — 발동하지 않았으면 null */
   grounding: GroundingSummary | null;
   /** 뉴런 활성화 계획 — 설계 문서와 동일한 객체 형태 (activate/reason) */
@@ -138,16 +145,43 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
   };
 }
 
-function routerNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
+async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
   const plan = NeuronRouter.plan(state.userMessage, {
     hasActiveTask: state.hasActiveTask,
     pendingQueueLength: state.pendingQueueLength,
   });
+  // Stage 2 (t_56498848): 패턴 미확정(Stage 3 폴백)인 발화만 LLM 의도 분류에 넘긴다 —
+  // 고신뢰 패턴 확정 발화는 0ms 규칙으로 이미 끝난다(spec §2.3 "놓치는 것보다 오판이 위험").
+  // LLM 미설정/실패/타임아웃 → null → 규칙 폴백 유지. 인용 임계(0.8) 미만도 각 단계 값 그대로 둔다.
+  let dialogueType = plan.dialogueType;
+  let dialogueStage: 1 | 2 | 3 = plan.dialogueStage;
+  let confidence = plan.confidence;
+  if (plan.dialogueStage === 3) {
+    const history = (state.history || []).slice(-6).map(h => `${h.role}: ${String(h.content).slice(0, 200)}`);
+    const llm = await classifyByLLM(state.userMessage, { history, signal: ctx.signal });
+    if (llm && llm.confidence >= CLASSIFY_ADOPT) {
+      dialogueType = llm.type;
+      dialogueStage = 2;
+      confidence = llm.confidence;
+    }
+  }
   ctx.emit({ neuron: 'router', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') });
+  // Stage 2 인용 시 계획 보정: 요청형이면 answer, data면 visual (plan과 동일 규칙).
+  let activationPlan = plan.activate;
+  let reason = plan.reason;
+  if (dialogueStage === 2) {
+    const set = new Set(plan.activate);
+    if (dialogueType !== 'information') set.add('answer');
+    if (dialogueType === 'data') set.add('visual');
+    activationPlan = [...set];
+    reason = `${plan.reason}, llm_stage2=${confidence.toFixed(2)}`;
+  }
   return {
-    dialogueType: plan.dialogueType,
-    activationPlan: plan.activate,
-    reason: plan.reason,
+    dialogueType,
+    dialogueStage,
+    dialogueConfidence: confidence,
+    activationPlan,
+    reason,
     events: [...state.events, { neuron: 'router', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') }],
   };
 }
@@ -324,6 +358,8 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     userMessage: Annotation,
     sttMetadata: Annotation,
     dialogueType: Annotation,
+    dialogueStage: Annotation,
+    dialogueConfidence: Annotation,
     activationPlan: Annotation,
     reason: Annotation,
     hasActiveTask: Annotation,
@@ -435,6 +471,8 @@ export async function processTurn(
         llm: ctx.llm,
         sttMetadata: opts.sttMetadata || null,
         dialogueType,
+        dialogueStage: 3,
+        dialogueConfidence: 0,
         activationPlan: ['empathy'],
         reason: '',
         hasActiveTask,
@@ -646,6 +684,8 @@ export async function processTurn(
         answerResponse: final.answerResponse,
         structured: final.structured,
         dialogueType: final.dialogueType,
+        dialogueStage: final.dialogueStage ?? 3,
+        dialogueConfidence: final.dialogueConfidence ?? 0,
         grounding: final.grounding ? toGroundingSummary(final.grounding) : null,
         activationPlan: {
           activate: final.activationPlan,
