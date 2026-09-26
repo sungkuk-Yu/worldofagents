@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { colors, radii, spacing, typography } from '../theme';
+import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
@@ -48,7 +48,7 @@ export default function DialogueListScreen({ navigation }: Props) {
     finally { setStarting(false); }
   };
   const offline = !connected && !loading;
-  return <SafeAreaView style={styles.container}>
+  return <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
     <View style={styles.header}>
       <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
       <View style={styles.headerRight}>
@@ -113,10 +113,9 @@ const styles = StyleSheet.create({
     gap: spacing.sp2,
   },
   headerTitle: {
+    ...typography.title1,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: typography.title1.fontSize,
-    fontWeight: '700',
     color: colors.text1,
   },
   demoBadge: {
@@ -126,7 +125,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   demoBadgeText: {
-    fontSize: 10,
+    ...typography.microSm,
     fontWeight: '700',
     color: colors.statusWarn,
   },
@@ -141,7 +140,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   settingsIcon: {
-    fontSize: 18,
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     color: colors.text2,
   },
   errorBar: {
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sp2,
   },
   errorText: {
-    fontSize: typography.caption.fontSize,
+    ...typography.caption,
     color: colors.statusErr,
   },
   newChatButton: {
@@ -168,15 +168,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sp3 + 2,
   },
   newChatIcon: {
-    fontSize: 18,
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     fontWeight: '700',
     color: colors.onPrimary,
   },
   newChatText: {
+    ...typography.bodyBold,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: typography.bodyBold.fontSize,
-    fontWeight: '600',
     color: colors.onPrimary,
   },
   loadingWrap: {
@@ -207,7 +207,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.sp3,
   },
   segIconText: {
-    fontSize: 16,
+    ...typography.body,
+    fontSize: iconSize.tile,
     fontWeight: '700',
   },
   dialogueBody: {
@@ -223,23 +224,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   dialogueType: {
+    ...typography.micro,
+    fontWeight: '700',
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 11,
-    fontWeight: '700',
   },
   dialogueTime: {
+    ...typography.micro,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 11,
     color: colors.text3,
   },
   dialogueTitle: {
+    ...typography.body,
+    fontWeight: '500',
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 15,
     color: colors.text1,
-    fontWeight: '500',
   },
   empty: {
     paddingHorizontal: spacing.sp4,
@@ -258,20 +259,20 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sp4,
   },
   emptyIcon: {
-    fontSize: 32,
+    ...typography.title1,
+    fontSize: iconSize.hero,
   },
   emptyText: {
+    ...typography.headline,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 17,
     color: colors.text2,
-    fontWeight: '600',
     marginBottom: spacing.sp2,
   },
   emptySubtext: {
+    ...typography.subhead,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 13,
     color: colors.text3,
   },
   offlineAction: {
@@ -284,10 +285,9 @@ const styles = StyleSheet.create({
     minWidth: 200,
   },
   offlineActionText: {
+    ...typography.bodyBold,
     flexShrink: 1,
     minWidth: 0,
     color: colors.onPrimary,
-    fontSize: 14,
-    fontWeight: '600',
   },
 });

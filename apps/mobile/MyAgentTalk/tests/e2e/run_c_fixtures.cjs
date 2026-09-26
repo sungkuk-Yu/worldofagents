@@ -7,7 +7,7 @@ async function installFixtures(page, { rich = false } = {}) {
   state.messages.source = rich ? [
     { ...row('text', 'text'), thread_reply_count: 1 },
     row('info', 'info_card', { fields: [{ label: 'Real field', value: 'Server value' }] }),
-    row('table', 'spreadsheet', { columns: ['Amount'], rows: [[123]] }),
+    row('table', 'spreadsheet', { columns: ['Amount'], rows: [[123], [456], [789]] }),
     row('file', 'file', { name: 'report.pdf', url: 'https://example.test/report.pdf' }),
     row('task', 'task_flow', { items: [{ title: 'Review draft', status: 'pending' }] }),
     row('multi', 'multi_agent', { agents: [{ name: 'Expert', content: 'Expert result' }] }),

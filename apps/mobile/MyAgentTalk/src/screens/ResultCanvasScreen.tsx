@@ -27,7 +27,7 @@ import MultiAgentView from '../components/dialogs/MultiAgentView';
 import SegmentHistoryBar, { SegmentHistoryEntry } from '../components/SegmentHistoryBar';
 import SegmentProgressBar from '../components/SegmentProgressBar';
 import JoystickMic from '../components/JoystickMic';
-import { colors, radii, spacing, SegmentType, segmentMeta } from '../theme';
+import { colors, radii, spacing, typography, iconSize, SegmentType, segmentMeta, webScreenMotion } from '../theme';
 import { useStore, getState } from '../store';
 
 interface Props {
@@ -72,19 +72,27 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
     boundsRef.current = { isFirst, isLast };
   }, [isFirst, isLast]);
 
-  // ── 스토어 액션 (하단 히스토리 바 + 상단 진행바와 공유) ──
-  // getState() 래퍼는 매 렌더 새 함수 생성 → useCallback 으로 안정화 (exhaustive-deps)
-  const prevSegment = useCallback(() => getState().prevSegment(), []);
-  const nextSegment = useCallback(() => getState().nextSegment(), []);
-  const selectSegment = useCallback((index: number) => getState().selectSegment(index), []);
-  const removeSegment = useCallback((index: number) => getState().removeSegment(index), []);
-
   // ── 카드 스와이프 전환 애니메이션 ────────────────
   const screenWidth = Dimensions.get('window').width;
   // Animated.Value 는 렌더 간 안정적인 identity 가 필요 → useState 초기화 패턴
   const [slideX] = React.useState(() => new Animated.Value(0));
   const [slideOpacity] = React.useState(() => new Animated.Value(1));
   const [slideScale] = React.useState(() => new Animated.Value(1));
+
+  // ── 스토어 액션 (하단 히스토리 바 + 상단 진행바와 공유) ──
+  // getState() 래퍼는 매 렌더 새 함수 생성 → useCallback 으로 안정화 (exhaustive-deps)
+  const prevSegment = useCallback(() => getState().prevSegment(), []);
+  const nextSegment = useCallback(() => getState().nextSegment(), []);
+  // 탭/세그먼트 전환 = 크로스페이드만, 슬라이드 금지 (#52 — iOS 세그먼트 컨트롤).
+  // swipe(commitSwipe)와 달리 translateX 없이 opacity만 페이드아웃→인덱스 변경→페이드인.
+  const selectSegment = useCallback((index: number) => {
+    if (getState().segmentHistory.length && index === getState().activeSegmentIndex) return;
+    Animated.timing(slideOpacity, { toValue: 0, duration: 90, useNativeDriver: true }).start(() => {
+      getState().selectSegment(index);
+      Animated.timing(slideOpacity, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+    });
+  }, [slideOpacity]);
+  const removeSegment = useCallback((index: number) => getState().removeSegment(index), []);
 
   // 최신 네비게이션/핸들러를 ref 에 유지 (PanResponder 재생성 방지)
   const navRef = useRef(navigation);
@@ -201,7 +209,7 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
   const isRecording = useStore((s) => s.isRecording);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-bottom')]}>
       {/* 상단 세그먼트 진행바 */}
       <SegmentProgressBar
         items={history.map((h) => ({ id: h.id, type: h.type }))}
@@ -293,16 +301,16 @@ const styles = StyleSheet.create({
     minWidth: 44,
   },
   headerButtonText: {
-    fontSize: 18,
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     color: colors.text2,
-    fontWeight: '600',
   },
   headerCenter: {
     flex: 1,
     alignItems: 'center',
   },
   headerMarker: {
-    fontSize: 13,
+    ...typography.subhead,
     fontWeight: '700',
   },
   content: {
@@ -342,9 +350,8 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
   },
   threadChipText: {
-    fontSize: 12,
+    ...typography.caption,
     color: colors.text2,
-    fontWeight: '500',
   },
   bottomBar: {
     flexDirection: 'row',
@@ -365,7 +372,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fabIcon: {
-    fontSize: 18,
+    ...typography.headline,
+    fontSize: iconSize.glyph,
   },
   micWrap: {
     alignItems: 'center',

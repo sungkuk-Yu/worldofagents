@@ -1,5 +1,7 @@
 import CardFrame from '../cards/CardFrame';
 import ForkDialog from '../components/ForkDialog';
+import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
+import TypingCard from '../components/TypingCard';
 import { useCardActions } from '../hooks/useCardActions';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { api } from '../lib/api';
@@ -19,8 +21,6 @@ import { formatNumber } from '../i18n/format';
 // 컴포넌트: react-native-paper 조립 (Appbar/TextInput/Button/Surface/Text)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
-  Easing,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -35,7 +35,8 @@ import {
   Text,
   TextInput,
 } from 'react-native-paper';
-import { colors, radii, spacing, typography } from '../theme';
+import * as Haptics from 'expo-haptics';
+import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
 import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft } from '../lib/chatLogic';
 import { useChatSession } from '../hooks/useChatSession';
 
@@ -62,46 +63,6 @@ function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
     }
   }
   return groups;
-}
-
-// ── 처리중 카드 — 자연어 quip + 잔잔한 점 3개 (스피너 대신 대화체) ──
-// 정체성 규칙: 에이전트가 일하는 동안은 이 카드가 예외 없이 계속 보인다.
-export function TypingCard({ quip, agentName, count }: { quip: string | null; agentName: string; count: number }) {
-  const { t, i18n } = useTranslation();
-  const [pulse] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
-  const dotOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] });
-
-  return (
-    <Surface style={[styles.msgCard, styles.msgCardAgent, styles.typingCard]} elevation={0} testID="typing-indicator"
-      accessibilityLabel={t('chat.preparing', { agentName })}
-      accessibilityRole="progressbar"
-      accessibilityLiveRegion="polite"
-    >
-      <View style={styles.msgHeader}>
-        <Text style={[styles.msgRole, styles.msgRoleAgent]}>{agentName}</Text>
-        <View style={styles.dotsRow}>
-          {[0, 1, 2].map((i) => (
-            <Animated.View
-              key={i}
-              style={[styles.dot, { opacity: dotOpacity, transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.1] }) }] }]}
-            />
-          ))}
-        </View>
-      </View>
-      {count > 1 && <Text style={styles.typingQuip}>{t('chat.tasks', { countText: formatNumber(count, i18n.language) })}</Text>}
-      <Text style={styles.typingQuip}>{t(quip || 'quip.default')}</Text>
-    </Surface>
-  );
 }
 
 export default function ChatScreen({ navigation, route }: Props) {
@@ -132,10 +93,12 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [origin, setOrigin] = useState<ForkOrigin | undefined>(() => parseForkOrigin(route?.params?.forkedFrom));
   const sessionTitle = route?.params?.sessionTitle || agentName;
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
+  // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
+  const threadSheet = useRef<ThreadSheetHandle>(null);
   const { handlers, decorate, actionError } = useCardActions(
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
-      navigation.navigate('CardThread', { sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
+      threadSheet.current?.open({ sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
     },
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
@@ -171,6 +134,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         // 실패 시 입력 원문 복원 (Codex 리뷰 #2 — 초안 보존) + 재시도 UI
         setInput((current) => restoreFailedDraft(current, text));
         setSendFailed(true);
+      } else {
+        // 햅틱 (#52 규칙 4): 전송 성공 = light impact — 이 3곳 외 남용 금지
+        try { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); } catch { /* web no-op */ }
       }
     });
   }, [input, send]);
@@ -276,7 +242,7 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { paddingBottom: viewportInset }]}
+      style={[styles.container, webScreenMotion('mat-slide-from-right'), { paddingBottom: viewportInset }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
@@ -392,6 +358,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           {t('chat.send')}
         </Button>
       </View>
+      {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
+      <ThreadSheet ref={threadSheet} navigation={navigation} />
     </KeyboardAvoidingView>
   );
 }
@@ -418,7 +386,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   backText: {
-    fontSize: typography.headline.fontSize,
+    ...typography.headline,
     color: colors.text1,
   },
   headerBody: {
@@ -429,14 +397,12 @@ const styles = StyleSheet.create({
     marginRight: spacing.sp2,
   },
   appbarTitle: {
-    fontSize: typography.headline.fontSize,
-    fontWeight: '600',
-    color: colors.text1,
+    ...typography.headline,
     letterSpacing: -0.2,
+    color: colors.text1,
   },
   appbarSubtitle: {
-    fontSize: typography.micro.fontSize,
-    fontWeight: '500',
+    ...typography.micro,
     marginTop: spacing.sp1,
   },
   demoBadge: {
@@ -447,10 +413,10 @@ const styles = StyleSheet.create({
     marginRight: spacing.sp3,
   },
   demoBadgeText: {
-    fontSize: typography.micro.fontSize,
+    ...typography.micro,
     fontWeight: '700',
-    color: colors.statusWarn,
     letterSpacing: 0.6,
+    color: colors.statusWarn,
   },
   errorBar: {
     flexWrap: 'wrap',
@@ -465,7 +431,7 @@ const styles = StyleSheet.create({
     gap: spacing.sp2,
   },
   errorText: {
-    fontSize: typography.caption.fontSize,
+    ...typography.caption,
     color: colors.statusErr,
     flex: 1,
   },
@@ -477,9 +443,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sp1,
   },
   retryText: {
-    fontSize: typography.caption.fontSize,
-    color: colors.statusErr,
+    ...typography.caption,
     fontWeight: '600',
+    color: colors.statusErr,
   },
   listContent: {
     paddingHorizontal: spacing.sp3,
@@ -494,12 +460,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sp3,
     paddingVertical: spacing.sp3,
   },
-  msgCardUser: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.accent,
-  },
   msgCardAgent: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -512,11 +472,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sp1,
   },
   msgRole: {
-    minWidth: 0,
-    flexShrink: 1,
-    fontSize: typography.micro.fontSize,
+    ...typography.micro,
     fontWeight: '700',
     letterSpacing: 0.5,
+    minWidth: 0,
+    flexShrink: 1,
   },
   msgRoleUser: {
     color: colors.accent,
@@ -533,28 +493,27 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sp1,
   },
   neuronChipText: {
-    fontSize: typography.micro.fontSize,
+    ...typography.micro,
     fontWeight: '700',
-    color: colors.accent,
     letterSpacing: 0.3,
+    color: colors.accent,
   },
   pendingMark: {
+    ...typography.micro,
     minWidth: 0,
     flexShrink: 1,
     marginLeft: 'auto',
-    fontSize: typography.micro.fontSize,
     color: colors.text3,
   },
   msgText: {
-    fontSize: typography.body.fontSize,
-    lineHeight: typography.body.lineHeight,
+    ...typography.body,
     color: colors.text1,
   },
   empathyText: {
-    fontSize: typography.body.fontSize,
+    ...typography.body,
+    lineHeight: typography.bodyBold.lineHeight,
     color: colors.text2,
     fontStyle: 'italic',
-    lineHeight: typography.bodyBold.lineHeight,
     marginBottom: spacing.sp1,
   },
   systemRow: {
@@ -562,7 +521,7 @@ const styles = StyleSheet.create({
     marginVertical: spacing.sp1,
   },
   systemText: {
-    fontSize: typography.caption.fontSize,
+    ...typography.caption,
     color: colors.statusErr,
     backgroundColor: colors.surfaceRaise,
     paddingHorizontal: spacing.sp2,
@@ -570,24 +529,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.xs,
     overflow: 'hidden',
   },
-  typingCard: {
-    borderColor: colors.border,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sp1,
-  },
-  dot: {
-    width: spacing.sp1,
-    height: spacing.sp1,
-    borderRadius: radii.full,
-    backgroundColor: colors.accent,
-  },
   typingQuip: {
-    fontSize: typography.subhead.fontSize,
+    ...typography.subhead,
     color: colors.text2,
-    lineHeight: typography.subhead.lineHeight,
     fontStyle: 'italic',
   },
   loadMoreWrap: {
@@ -602,18 +546,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sp8,
   },
   emptyTitle: {
-    fontSize: typography.title2.fontSize,
-    fontWeight: '700',
+    ...typography.title2,
+    letterSpacing: -0.24,
     color: colors.text1,
     marginBottom: spacing.sp2,
-    letterSpacing: -0.24,
     textAlign: 'center',
   },
   emptySub: {
-    fontSize: typography.subhead.fontSize,
+    ...typography.subhead,
     color: colors.text3,
     textAlign: 'center',
-    lineHeight: typography.subhead.lineHeight,
   },
   inputBar: {
     flexDirection: 'row',
@@ -627,11 +569,11 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   textInput: {
+    ...typography.body,
     minWidth: 0,
     flexShrink: 1,
     flex: 1,
     backgroundColor: colors.surface,
-    fontSize: typography.body.fontSize,
     maxHeight: spacing.sp6 * 2,
     borderRadius: radii.md,
   },
@@ -645,10 +587,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sp3,
   },
   sendLabel: {
+    ...typography.bodyBold,
+    letterSpacing: 0,
     minWidth: 0,
     flexShrink: 1,
-    fontSize: typography.bodyBold.fontSize,
-    fontWeight: '600',
-    letterSpacing: 0,
   },
 });

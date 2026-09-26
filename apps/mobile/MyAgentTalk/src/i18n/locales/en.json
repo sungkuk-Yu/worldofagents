@@ -12,7 +12,7 @@
     "results": "Results",
     "thread": "Thread",
     "neurons": "Neuron dashboard",
-    "logo": "AT",
+    "logo": "MAT",
     "aiGenerated": "AI-generated",
     "cancel": "Cancel",
     "settingsIcon": "⚙",
@@ -170,7 +170,11 @@
     "text": "Conversation",
     "inProgress": "In progress",
     "failed": "Failed",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "moreRows": "{{countText}} more rows",
+    "unknownType": "New card format ({{type}})"
   },
   "consent": {
     "terms": "[Required] I agree to the Terms of Service",

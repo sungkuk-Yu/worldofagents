@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Button, Surface, Text, TextInput } from 'react-native-paper';
-import { colors, radii, spacing, typography } from '../theme';
+import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
 import { errorKey } from '../lib/errorKeys';
 import { api, setToken } from '../lib/api';
 import ConsentGate from '../components/ConsentGate';
@@ -59,7 +59,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, webScreenMotion('mat-slide-from-right')]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.center} keyboardShouldPersistTaps="handled">
@@ -149,46 +149,41 @@ const styles = StyleSheet.create({
     padding: spacing.sp6,
   },
   logoWrap: {
-    minWidth: 52,
-    minHeight: 52,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceRaise,
+    // 워드마크 — 텍스트 박스 로고 폐기 (#47): 배경 박스 없이 그린 이니셜 워드마크만
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sp4,
   },
   logoText: {
-    fontSize: 20,
+    ...typography.display,
     fontWeight: '800',
+    letterSpacing: -0.8,
     color: colors.accent,
-    letterSpacing: -0.4,
   },
   title: {
-    fontSize: typography.title1.fontSize,
-    fontWeight: '700',
-    color: colors.text1,
+    ...typography.title1,
     letterSpacing: -0.8,
+    color: colors.text1,
     marginBottom: spacing.sp1,
   },
   subtitle: {
-    fontSize: typography.subhead.fontSize,
+    ...typography.subhead,
     color: colors.text2,
     marginBottom: spacing.sp5,
-    lineHeight: 19,
   },
   input: {
+    ...typography.body,
     backgroundColor: colors.surface,
     marginBottom: spacing.sp3,
     borderRadius: radii.md,
-    fontSize: typography.body.fontSize,
   },
   error: {
-    fontSize: typography.caption.fontSize,
+    ...typography.caption,
     color: colors.statusErr,
     marginBottom: spacing.sp2,
   },
   skipMsg: {
-    fontSize: typography.caption.fontSize,
+    ...typography.caption,
     color: colors.text3,
     marginBottom: spacing.sp2,
   },
@@ -197,12 +192,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.sp1,
   },
   submitLabel: {
-    fontSize: typography.bodyBold.fontSize,
-    fontWeight: '600',
+    ...typography.bodyBold,
     paddingVertical: spacing.sp1,
   },
   skipLabel: {
-    fontSize: typography.subhead.fontSize,
+    ...typography.subhead,
     marginTop: spacing.sp2,
   },
 });

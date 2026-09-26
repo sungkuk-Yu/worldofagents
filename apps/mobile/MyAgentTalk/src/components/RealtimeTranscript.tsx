@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Transcript } from '../types';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, typography } from '../theme';
 
 interface Props {
   transcripts: Transcript[];
@@ -109,16 +109,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sp4,
   },
   placeholderIcon: {
-    fontSize: 28,
+    ...typography.title1,
   },
   placeholderText: {
-    fontSize: 17,
-    fontWeight: '600',
+    ...typography.headline,
     color: colors.text1,
     marginBottom: spacing.sp2,
   },
   placeholderSubtext: {
-    fontSize: 13,
+    ...typography.subhead,
     color: colors.text3,
   },
   transcriptCard: {
@@ -141,7 +140,7 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.segInfo,
   },
   speakerLabel: {
-    fontSize: 11,
+    ...typography.micro,
     fontWeight: '700',
     marginBottom: 4,
   },
@@ -152,8 +151,7 @@ const styles = StyleSheet.create({
     color: colors.segInfo,
   },
   transcriptText: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...typography.body,
   },
   userText: {
     color: colors.text1,
@@ -177,8 +175,7 @@ const styles = StyleSheet.create({
     gap: spacing.sp2,
   },
   recordingText: {
-    fontSize: 13,
+    ...typography.subhead,
     color: colors.statusErr,
-    fontWeight: '500',
   },
 });

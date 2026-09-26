@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Modal, View, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button } from 'react-native-paper';
+import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
 import { forkTitle, parseForkSession } from '../lib/cardLogic';
@@ -22,6 +23,8 @@ export default function ForkDialog({ sessionId, messageId, title: sourceTitle, n
       const env = await api.forkSession(sessionId, { from_message_id: messageId, new_session_title: title.trim() });
       if (!env.ok) throw new Error('errors.fork');
       const session = parseForkSession(env.data, sessionId);
+      // 햅틱 (#52 규칙 4): 포크 완료 = success notification — 이 3곳 외 남용 금지
+      try { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined); } catch { /* web no-op */ }
       // 새 방은 목록과 동등한 진입점이며 뒤로 가기는 원본 대신 목록으로 향한다.
       navigation.reset({ index: 1, routes: [
         { name: 'DialogueList' },

@@ -3,7 +3,7 @@
 // "다음 결과로 넘어갈 수 있음"을 암시하는 상단 얇은 진행바 — 하단 히스토리 바와 동일 데이터
 import React from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import { colors, spacing, SegmentType, segmentMeta } from '../theme';
+import { colors, spacing, typography, SegmentType, segmentMeta } from '../theme';
 
 export interface SegmentProgressItem {
   id: string;
@@ -83,9 +83,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   currentLabel: {
+    ...typography.microSm,
     marginTop: 4,
-    fontSize: 10,
     color: colors.text2,
-    fontWeight: '600',
   },
 });

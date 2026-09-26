@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { NeuronState, NeuronType } from '../types';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 
 interface Props {
   navigation: any;
@@ -57,7 +57,7 @@ export default function NeuronDashboardScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>←</Text>
@@ -153,12 +153,12 @@ const styles = StyleSheet.create({
     padding: spacing.sp2,
   },
   headerButtonText: {
-    fontSize: 20,
+    ...typography.title2,
+    fontSize: iconSize.glyphLg,
     color: colors.text1,
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
+    ...typography.headline,
     color: colors.text1,
   },
   content: {
@@ -169,11 +169,11 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sp8,
   },
   sectionTitle: {
-    fontSize: 12,
+    ...typography.caption,
     fontWeight: '700',
+    letterSpacing: 0.5,
     color: colors.text3,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
     marginBottom: spacing.sp3,
   },
   neuronCard: {
@@ -198,19 +198,20 @@ const styles = StyleSheet.create({
     marginRight: spacing.sp3,
   },
   neuronIconText: {
-    fontSize: 16,
+    ...typography.body,
+    fontSize: iconSize.tile,
     fontWeight: '700',
   },
   neuronNameWrap: {
     flex: 1,
   },
   neuronName: {
-    fontSize: 15,
+    ...typography.body,
     fontWeight: '600',
     color: colors.text1,
   },
   neuronDescription: {
-    fontSize: 12,
+    ...typography.caption,
     color: colors.text3,
     marginTop: 2,
   },
@@ -223,7 +224,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceHover,
   },
   statusText: {
-    fontSize: 11,
+    ...typography.micro,
     fontWeight: '700',
   },
   metricsRow: {
@@ -235,13 +236,13 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   metric: {
-    fontSize: 12,
+    ...typography.caption,
     fontWeight: '600',
   },
   processingIndicator: {
-    fontSize: 12,
-    color: colors.statusWarn,
+    ...typography.caption,
     fontWeight: '600',
+    color: colors.statusWarn,
   },
   emptyEvents: {
     padding: spacing.sp6,
@@ -253,7 +254,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   emptyEventsText: {
-    fontSize: 13,
+    ...typography.subhead,
     color: colors.text3,
   },
 });

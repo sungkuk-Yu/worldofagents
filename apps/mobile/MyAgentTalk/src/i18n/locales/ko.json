@@ -12,7 +12,7 @@
     "results": "결과",
     "thread": "스레드",
     "neurons": "뉴런 대시보드",
-    "logo": "AT",
+    "logo": "MAT",
     "aiGenerated": "AI 생성",
     "cancel": "취소",
     "settingsIcon": "⚙",
@@ -170,7 +170,11 @@
     "text": "대화",
     "inProgress": "진행 중",
     "failed": "실패",
-    "cancelled": "취소됨"
+    "cancelled": "취소됨",
+    "expand": "펼치기",
+    "collapse": "접기",
+    "moreRows": "{{countText}}행 더",
+    "unknownType": "새 카드 형식 ({{type}})"
   },
   "consent": {
     "terms": "[필수] 이용약관 동의",

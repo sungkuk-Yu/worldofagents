@@ -45,7 +45,7 @@ export async function build() {
 
   app.get('/', async () => {
     return {
-      service: 'agenttalk-backend',
+      service: 'myagenttalk-backend',
       version: '1.0.0',
       mode: config.devMode ? 'dev' : 'prod',
       docs: '/api-version',
@@ -86,7 +86,7 @@ export async function build() {
 export async function start(): Promise<void> {
   await build();
   await app.listen({ port: config.port, host: config.host });
-  logger.info(`🚀 AgentTalk Backend running on ${config.host}:${config.port} (mode: ${config.devMode ? 'dev' : 'prod'})`);
+  logger.info(`🚀 MyAgentTalk Backend running on ${config.host}:${config.port} (mode: ${config.devMode ? 'dev' : 'prod'})`);
 }
 
 export async function stop(): Promise<void> {

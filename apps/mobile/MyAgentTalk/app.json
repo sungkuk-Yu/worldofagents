@@ -28,7 +28,20 @@
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "bundler": "metro",
+      "name": "MyAgentTalk",
+      "shortName": "MyAgentTalk",
+      "themeColor": "#00A86B",
+      "backgroundColor": "#F5F7FA",
+      "display": "standalone",
+      "startUrl": "/",
+      "scope": "/",
+      "appleMobileWebAppCapable": "yes",
+      "appleMobileWebAppStatusBarStyle": "default",
+      "appleMobileWebAppTitle": "마이에이전트톡",
+      "meta": {
+        "description": "MyAgentTalk(마이에이전트톡) — 내 에이전트와 대화하는 앱"
+      }
     },
     "plugins": [
       [
@@ -38,7 +51,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-localization"
+      "expo-localization",
+      "expo-font"
     ]
   }
 }

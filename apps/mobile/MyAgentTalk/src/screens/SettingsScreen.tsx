@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   Switch,
 } from 'react-native';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 
 interface Props {
   navigation: any;
@@ -32,7 +32,7 @@ export default function SettingsScreen({ navigation }: Props) {
   const [autoTransition, setAutoTransition] = React.useState(true);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
       <View style={styles.header}>
         <TouchableOpacity accessibilityLabel={t('common.back')} onPress={() => navigation.goBack()} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>{t('common.backIcon')}</Text>
@@ -152,12 +152,12 @@ const styles = StyleSheet.create({
     padding: spacing.sp2,
   },
   headerButtonText: {
-    fontSize: 20,
+    ...typography.title2,
+    fontSize: iconSize.glyphLg,
     color: colors.text1,
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
+    ...typography.headline,
     color: colors.text1,
   },
   content: {
@@ -168,11 +168,11 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sp8,
   },
   sectionTitle: {
-    fontSize: 12,
+    ...typography.caption,
     fontWeight: '700',
+    letterSpacing: 0.5,
     color: colors.text3,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
     marginBottom: spacing.sp2,
   },
   settingCard: {
@@ -197,15 +197,14 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sp3,
   },
   settingLabel: {
-    fontSize: 15,
-    color: colors.text1,
+    ...typography.body,
     fontWeight: '500',
+    color: colors.text1,
   },
   settingDescription: {
-    fontSize: 12,
+    ...typography.caption,
     color: colors.text3,
     marginTop: 3,
-    lineHeight: 17,
   },
   linkRow: {
     flexDirection: 'row',
@@ -215,13 +214,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sp4,
   },
   chevron: {
-    fontSize: 18,
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     color: colors.text3,
   },
   footerText: {
+    ...typography.micro,
     marginTop: spacing.sp8,
     textAlign: 'center',
-    fontSize: 11,
     color: colors.text3,
   },
 });

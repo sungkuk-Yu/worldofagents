@@ -13,7 +13,7 @@ import {
   GestureResponderEvent,
   PanResponderGestureState,
 } from 'react-native';
-import { colors, radii, spacing, segmentMeta } from '../theme';
+import { colors, radii, spacing, typography, iconSize, segmentMeta } from '../theme';
 import type { SegmentHistoryEntry } from '../types';
 
 export type { SegmentHistoryEntry };
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    ...({ fontSize: 12 } as any),
+    ...typography.caption,
     color: colors.text3,
   },
   scrollContent: {
@@ -234,7 +234,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   iconText: {
-    fontSize: 14,
+    ...typography.subhead,
+    fontSize: iconSize.tileSm,
     fontWeight: '600',
   },
   newDot: {
@@ -256,14 +257,12 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   deleteBadgeText: {
-    fontSize: 9,
+    ...typography.microXs,
     color: '#fff',
-    fontWeight: '700',
   },
   label: {
+    ...typography.micro,
     marginTop: 4,
-    fontSize: 11,
-    fontWeight: '500',
     maxWidth: 44,
   },
   labelCurrent: {
@@ -278,8 +277,8 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
   },
   overflowText: {
-    fontSize: 11,
-    color: colors.text2,
+    ...typography.micro,
     fontWeight: '700',
+    color: colors.text2,
   },
 });

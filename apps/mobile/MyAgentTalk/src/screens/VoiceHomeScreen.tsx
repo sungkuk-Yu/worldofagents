@@ -14,7 +14,7 @@ import { useIsFocused } from '@react-navigation/native';
 import JoystickMic from '../components/JoystickMic';
 import RealtimeTranscript from '../components/RealtimeTranscript';
 import { JoystickGesture } from '../types';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { useStore, setState, getState } from '../store';
 import { useVoiceSession } from '../hooks/useVoiceSession';
 
@@ -114,7 +114,7 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
   }, [transcripts]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
       {/* 상단: 에이전트 아바타 스트립 + 설정 */}
       <View style={styles.topBar}>
         <TouchableOpacity
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sp2,
   },
   agentName: {
-    fontSize: 15,
+    ...typography.body,
     fontWeight: '700',
     color: colors.text1,
   },
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sp1,
   },
   agentSwitchText: {
-    fontSize: 16,
+    ...typography.body,
     color: colors.text2,
   },
   statusBadge: {
@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   statusText: {
-    fontSize: 11,
+    ...typography.micro,
     fontWeight: '700',
     color: colors.text2,
   },
@@ -276,7 +276,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   settingsIcon: {
-    fontSize: 18,
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     color: colors.text2,
   },
   transcriptArea: {
@@ -285,7 +286,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sp3,
   },
   sessionMeta: {
-    fontSize: 10,
+    ...typography.microSm,
+    fontWeight: '400',
     color: colors.text3,
     textAlign: 'center',
     marginBottom: 4,
@@ -296,7 +298,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sp4,
   },
   hintText: {
-    fontSize: 13,
+    ...typography.subhead,
     color: colors.text3,
     marginTop: spacing.sp4,
     textAlign: 'center',
@@ -308,13 +310,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.sp2,
   },
   gestureHintLeft: {
-    fontSize: 12,
-    color: colors.segTask,
+    ...typography.caption,
     fontWeight: '600',
+    color: colors.segTask,
   },
   gestureHintRight: {
-    fontSize: 12,
-    color: colors.statusErr,
+    ...typography.caption,
     fontWeight: '600',
+    color: colors.statusErr,
   },
 });

@@ -3,18 +3,21 @@ import { initializeLanguage } from './src/i18n';
 import { useTranslation } from 'react-i18next';
 // MyAgentTalk — 메인 앱 진입점
 // React Navigation 기반 네비게이션 구조
-// 디자인 시스템 v1.0 토큰 적용 (docs/design/agenttalk-figma/tokens.json)
+// 디자인 시스템 v1.2 토큰 적용 (docs/design/agenttalk-figma/tokens.json + Pretendard/Inter 번들)
 // 화면 6(대화 목록) → 7(음성 우선 홈) → 10(결과 캔버스) → 11(카드 스레드)
 import React, { useEffect, useState } from 'react';
+import { useFonts } from 'expo-font';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { initializeApi } from './src/lib/api';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PaperProvider, MD3LightTheme, Text, Button } from 'react-native-paper';
-import { StyleSheet, View } from 'react-native';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { PaperProvider, MD3LightTheme, Text, Button, configureFonts } from 'react-native-paper';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { colors } from './src/theme';
+import { colors, fontFamily, spacing, typography } from './src/theme';
 import {
   DialogueListScreen,
   ChatScreen,
@@ -57,8 +60,16 @@ const AppTheme = {
 };
 
 // react-native-paper 테마 — 마이에이전트톡 토큰을 MD3에 매핑 (기성 컴포넌트에 기존 디자인 시스템 입히기)
+// 폰트: Paper MD3 variant 전체의 fontFamily를 Pretendard/Inter 스택으로 통일
+// (기성 컴포넌트가 시스템 폴백 폰트로 렌더되는 것 방지 — 대표님 지적 "촌스러운 글씨체" 원인)
+const paperFonts = configureFonts({
+  config: Object.fromEntries(
+    Object.entries(MD3LightTheme.fonts).map(([variant, style]) => [variant, { ...style, fontFamily }])
+  ) as typeof MD3LightTheme.fonts,
+});
 const PaperTheme = {
   ...MD3LightTheme,
+  fonts: paperFonts,
   colors: {
     ...MD3LightTheme.colors,
     primary: colors.accent,
@@ -82,24 +93,53 @@ export default function App() {
   const { t } = useTranslation();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bootstrap = () => {
-    setError(null);
-    void Promise.all([initializeApi(), initializeLanguage()]).then(() => setReady(true)).catch(() => setError('errors.bootstrap'));
+  // 폰트 번들 — 로드 완료 전에는 스플래시만 (폰트 없는 화면 노출 방지, 대표님 지시 2026-09-26)
+  // 웹: Inter는 expo-font, PretendardVariable은 public/index.html CSS(@font-face, 로컬 woff2 + CDN 폴백)
+  const [fontsLoaded] = useFonts({
+    PretendardVariable: require('./assets/fonts/PretendardVariable.ttf'),
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter: Inter_400Regular,
+    'Inter-Medium': Inter_500Medium,
+    'Inter-SemiBold': Inter_600SemiBold,
+    'Inter-Bold': Inter_700Bold,
+  });
+  // 부트스트랩 — setState는 항상 비동기 콜백에서만 (react-hooks/set-state-in-effect 대응)
+  const runBootstrap = (markStale: () => boolean) => {
+    void Promise.all([initializeApi(), initializeLanguage()])
+      .then(() => { if (!markStale()) setReady(true); })
+      .catch(() => { if (!markStale()) setError('errors.bootstrap'); });
   };
-  useEffect(bootstrap, []);
-  if (!ready) return <PaperProvider theme={PaperTheme}><View style={styles.container}>
-    <Text>{error ? t(error) : t('login.loading')}</Text>
-    {error && <Button onPress={bootstrap}>{t('common.retry')}</Button>}
+  useEffect(() => {
+    let cancelled = false;
+    runBootstrap(() => cancelled);
+    return () => { cancelled = true; };
+  }, []);
+  const retryBootstrap = () => {
+    setError(null);
+    runBootstrap(() => false);
+  };
+  if (!ready || !fontsLoaded) return <PaperProvider theme={PaperTheme}><View style={styles.splash}>
+    <Text style={styles.splashBrand}>{t('common.app')}</Text>
+    <ActivityIndicator color={colors.accent} testID="font-splash" />
+    {error && <Text>{t(error)}</Text>}
+    {error && <Button onPress={retryBootstrap}>{t('common.retry')}</Button>}
   </View></PaperProvider>;
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      {/* #52: 카드 스레드 바텀시트(디텐트) — BottomSheetModalProvider는 GestureHandlerRootView 하위에 */}
+      <BottomSheetModalProvider>
       <PaperProvider theme={PaperTheme}>
         <NavigationContainer theme={AppTheme}>
           <Stack.Navigator
             initialRouteName="DialogueList"
             screenOptions={{
               headerShown: false,
+              // #52 애플 감성: native-stack 푸시(네이티브는 iOS 스와이프 백 포함 기본 유지),
+              // 웹은 theme/webScreenMotion의 CSS keyframes 폴백이 화면 루트에서 동일 곡선 적용.
               animation: 'slide_from_right',
               contentStyle: { backgroundColor: colors.bg },
             }}
@@ -127,6 +167,7 @@ export default function App() {
             <Stack.Screen
               name="ResultCanvas"
               component={ResultCanvasScreen}
+              // #52: fullScreenCover 스타일 — 아래서 밀어올림 (네이티브: slide_from_bottom)
               options={{ title: t('common.results'), animation: 'slide_from_bottom' }}
             />
             <Stack.Screen
@@ -148,6 +189,7 @@ export default function App() {
           <StatusBar style="dark" />
         </NavigationContainer>
       </PaperProvider>
+      </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
 }
@@ -155,5 +197,19 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  splash: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sp4,
+    backgroundColor: colors.bg,
+  },
+  splashBrand: {
+    fontFamily,
+    fontSize: typography.title2.fontSize,
+    fontWeight: '700',
+    letterSpacing: typography.title2.letterSpacing,
+    color: colors.text1,
   },
 });

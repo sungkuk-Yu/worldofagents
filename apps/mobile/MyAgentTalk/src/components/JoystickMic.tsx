@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { JoystickGesture } from '../types';
-import { colors } from '../theme';
+import { colors, typography, iconSize } from '../theme';
 import {
   getDirection,
   isOutsideDeadzone,
@@ -318,14 +318,15 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   dtoDirectionArrow: {
-    fontSize: 18,
-    color: '#fff',
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     fontWeight: '700',
+    color: '#fff',
   },
   directionLabel: {
-    fontSize: 11,
-    color: '#fff',
+    ...typography.micro,
     fontWeight: '600',
+    color: '#fff',
   },
   directionLabels: {
     position: 'absolute',
@@ -335,8 +336,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dirLabel: {
+    ...typography.headline,
+    fontSize: iconSize.glyph,
     position: 'absolute',
-    fontSize: 18,
     color: colors.text3,
   },
   dirUp: { top: 0 },
