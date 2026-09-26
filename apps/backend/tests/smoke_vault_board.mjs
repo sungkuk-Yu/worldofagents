@@ -59,8 +59,20 @@ async function req(method, path, { token, body } = {}) {
 }
 
 async function signup(email, display_name) {
+  // 법률 인프라(Run E): 운영 모드는 필수 동의 4종 + 만14세 확인을 요구한다 (smoke_chat.mjs와 동일 규격)
   const r = await req('POST', '/api/auth/signup', {
-    body: { email, password: 'password123', display_name: display_name || email.split('@')[0] },
+    body: {
+      email,
+      password: 'password123',
+      display_name: display_name || email.split('@')[0],
+      age_confirmed: true,
+      consents: [
+        { type: 'terms', version: '1.0', consented: true },
+        { type: 'privacy', version: '1.0', consented: true },
+        { type: 'voice_recording', version: '1.0', consented: true },
+        { type: 'overseas_transfer', version: '1.0', consented: true },
+      ],
+    },
   });
   if (r.status !== 201 || !r.json?.data?.token) throw new Error(`signup 실패(${email}): ${r.status} ${JSON.stringify(r.json)}`);
   return { token: r.json.data.token, userId: r.json.data.user.id };
