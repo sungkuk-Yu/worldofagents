@@ -17,6 +17,7 @@ import { GroundingResult, GroundingSummary, searchGrounding, buildGroundingPromp
 import { MessagesRow } from '../types/db';
 import { config } from '../config';
 import { DbClient } from '../lib/supabase';
+import { linkAttachmentsToMessage } from '../lib/attachments';
 import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
@@ -107,6 +108,8 @@ export interface ProcessTurnOptions {
   onTurnStatus?(status: 'received' | 'processing' | 'completed' | 'failed', extra?: { stage?: NeuronStage; error?: { code: string; message: string } }): void;
   /** STT 메타데이터 (음성 입력인 경우) */
   sttMetadata?: Record<string, unknown> | null;
+  /** 첨부 링크 (t_401c5bd1): 사용자 메시지 저장 후 messages_attachments에 링크할 ID 목록. */
+  attachmentIds?: string[];
 }
 
 export interface TurnResult {
@@ -538,6 +541,10 @@ export async function processTurn(
         ({ data: msgUser, error: errUser } = await saveUser());
       }
       if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
+      // 첨부 링크 (t_401c5bd1): LLM 호출 전에 실패시켜 비용을 물리지 않는다. 소유권/이중링크 검증은 공유 lib.
+      if (opts.attachmentIds?.length) {
+        await linkAttachmentsToMessage(db, userId, sessionId, (msgUser as { id: string }).id, opts.attachmentIds);
+      }
       const checkCancelled = () => {
         if (opts.signal?.aborted && !ctx.classificationCancelled) throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
       };

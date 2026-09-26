@@ -3,6 +3,7 @@ import { Locale, PATIENCE_PLAN, patienceQuipAt, pickQuip, QuipKey } from './loca
 import { registerRun } from '../websocket/eventlog';
 import { randomUUID } from 'node:crypto';
 import { DbClient } from './supabase';
+import { assertAttachmentsOwned } from './attachments';
 import { SessionsRow } from '../types/db';
 import { processTurn, TurnResult, NeuronStage, ProcessTurnOptions } from '../neurons/graph';
 import { rowToPersonaConfig } from './persona';
@@ -14,7 +15,7 @@ export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
   db: DbClient, session: SessionsRow, userId: string, content: string,
-  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; emit: (e: TurnEmitEvent) => void }
+  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; emit: (e: TurnEmitEvent) => void }
 ): Promise<TurnResult> {
   const locale = opts.locale ?? config.defaultLocale;
   const turnId = randomUUID();
@@ -27,6 +28,9 @@ export async function runTextTurn(
   let personaTone: Record<string, unknown> | null = null;
   const quip = (key: QuipKey) => pickQuip(key, locale, personaTone);
   const abort = new AbortController();
+  // 첨부 선검증 (t_401c5bd1): 소유권 없는 attachment_ids로 고아 user 메시지/LLM 비용이 남지 않게
+  // 턴 저장·실행 전에 실패시킨다. WS message.send/REST sendMessage/replies 공통 경로.
+  if (opts.attachmentIds?.length) await assertAttachmentsOwned(db, userId, opts.attachmentIds);
   const unregister = registerRun(session.id, { runId: turnId, abort, partial: () => partialText });
   let failure = { code: 'INTERNAL_ERROR', message: '턴 처리 중 오류가 발생했습니다.' };
   // 지연 진행도 티커: patienceMs 이후 "확인 중→거의 다 됨" 2회까지 이어 붙이고 그 뒤 정지한다.
@@ -55,6 +59,7 @@ export async function runTextTurn(
       thread: opts.thread,
       signal: abort.signal,
       sttMetadata: opts.sttMetadata,
+      attachmentIds: opts.attachmentIds,
       onTurnStatus: (status, extra) => {
         // 완료/실패는 확정 메시지 발행 이후 이 실행기에서 한 번만 전송한다.
         if (status !== 'processing') return;

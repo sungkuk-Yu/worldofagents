@@ -105,6 +105,20 @@ export const config = {
   },
 
   /**
+   * 첨부 업로드 (t_401c5bd1, 카드 B안) — POST /api/upload → Storage 버킷 attachments.
+   * - maxBytes: 파일당 상한 20MB (multipart fileSizeLimit와 동일 값 — 초과 스트림 413)
+   * - maxPerDay: 사용자당 UTC 일일 카운터 (upload_quota_daily 테이블, 라우트 UPSERT)
+   * - allowedMimes: allowlist (image/* 프리픽스 매칭 + 정확매칭 PDF)
+   */
+  upload: {
+    maxBytes: parseInt(process.env.UPLOAD_MAX_BYTES || String(20 * 1024 * 1024), 10),
+    maxPerDay: parseInt(process.env.UPLOAD_MAX_PER_DAY || '50', 10),
+    bucket: process.env.UPLOAD_BUCKET || 'attachments',
+    allowedMimes: (process.env.UPLOAD_ALLOWED_MIMES || 'image/*,application/pdf')
+      .split(',').map(s => s.trim()).filter(Boolean),
+  },
+
+  /**
    * 뉴런 오케스트레이션 엔진 선택:
    * - 'langgraph': LangGraph StateGraph 기반 (설치/런타임 정상 시)
    * - 'simple'   : 동일 노드 로직을 순차 파이프라인으로 실행 (폴백)

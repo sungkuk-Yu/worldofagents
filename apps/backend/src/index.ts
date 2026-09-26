@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import websocket from '@fastify/websocket';
+import multipart from '@fastify/multipart';
 import { config, validateConfig } from './config';
 import { errorHandler } from './lib/errors';
 import { wsTicketRoutes } from './routes/wsTicket';
@@ -17,6 +18,8 @@ import { classifyRoutes } from './routes/classify';
 import { meRoutes } from './routes/me';
 import { vaultRoutes } from './routes/vault';
 import { boardRoutes, cardRoutes } from './routes/boards';
+import { uploadRoutes } from './routes/upload';
+import { attachmentRoutes } from './routes/attachments';
 import { websocketHandler } from './websocket/handler';
 import { logger } from './utils/logger';
 import { ensureDefaultNeurons } from './neurons/registry';
@@ -40,6 +43,11 @@ export async function build() {
   await app.register(jwt, { secret: config.jwt.secret });
 
   await app.register(websocket);
+
+  // 첨부 업로드 (t_401c5bd1) — /api/upload의 POST만 multipart. 라우트 단위 bodyLimit이 더 크게 설정됨.
+  await app.register(multipart, {
+    limits: { fileSize: config.upload.maxBytes, files: 1, fields: 0 },
+  });
 
   // Health check
   app.get('/health', async () => {
@@ -71,12 +79,15 @@ export async function build() {
   await app.register(vaultRoutes, { prefix: '/api/vault' });
   await app.register(boardRoutes, { prefix: '/api/boards' });
   await app.register(cardRoutes, { prefix: '/api/cards' });
+  // 첨부 (t_401c5bd1) — 업로드 인입 + 열람/링크
+  await app.register(uploadRoutes, { prefix: '/api/upload' });
+  await app.register(attachmentRoutes, { prefix: '/api/attachments' });
 
   // API 버전/목록
   app.get('/api-version', async () => {
     return {
       version: 'v1',
-      api: ['/api/messages', '/api/favorites', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards'],
+      api: ['/api/messages', '/api/favorites', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards', '/api/upload', '/api/attachments'],
       docs: 'apps/backend/docs/api-design.md',
     };
   });

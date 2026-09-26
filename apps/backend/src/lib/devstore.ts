@@ -12,6 +12,8 @@ export interface DevStore {
   tables: Record<string, DevRow[]>;
   usersByEmail: Map<string, { email: string; password: string; user: DevRow }>;
   sequences: Record<string, number>;
+  /** DEV_MODE 첨부 바이트 스토어 (object_path → bytes) — lib/storage.ts dev 경로 + GET /api/attachments/object/* 가 독점. */
+  blobs: Map<string, { bytes: Buffer; mime: string }>;
 }
 
 function randomUUID(): string {
@@ -40,9 +42,12 @@ export const emptyStore = (): DevStore => ({
     vault_notes: [],
     boards: [],
     board_cards: [],
+    messages_attachments: [],
+    upload_quota_daily: [],
   },
   usersByEmail: new Map(),
   sequences: {},
+  blobs: new Map(),
 });
 
 /** 기본 뉴런 4종 + 커스텀 1종 (seed.sql과 동일한 데이터) */
@@ -85,8 +90,17 @@ export function getStore(): DevStore {
 }
 
 export function resetStore(): DevStore {
-  __devStore.store = null;
-  return getStore();
+  if (!__devStore.store) __devStore.store = createStore();
+  // ⚠️ 새 객체로 교체하지 말 것 (t_401c5bd1에서 노출된 잠재인 버그): lib/supabase.ts의
+  // supabaseAdmin/dev 클라이언트는 모듈 임포트 시점의 스토어 객체 참조를 캡처한다.
+  // 객체를 교체하면 캡처된 참조가 고아 구스토어를 가리켜 reset 이후 모든 HTTP 쓰기가
+  // 테스트가 읽는 getStore()와 다른 저장소에 쌓인다. 필드만 in-place 스왑한다.
+  const fresh = createStore();
+  __devStore.store.tables = fresh.tables;
+  __devStore.store.usersByEmail = fresh.usersByEmail;
+  __devStore.store.sequences = fresh.sequences;
+  __devStore.store.blobs = fresh.blobs;
+  return __devStore.store;
 }
 
 type QueryResult = { data: any; error: { message: string } | null };
@@ -178,6 +192,13 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
 
   in(field: string, values: unknown[]): DevQueryBuilder {
     return this.addFilter(field, (v) => values.includes(v));
+  }
+
+  /** PostgREST .is(col, value) — NULL/동등 매칭 (t_401c5bd1 첨부 링크 조건부 UPDATE).
+   *  컬럼 미설정(undefined)도 SQL NULL로 취급 — insert에서 생략된 컬럼의 실DB 기본값(NULL)과 동일. */
+  is(field: string, value: unknown): DevQueryBuilder {
+    if (value === null) return this.addFilter(field, (v) => v === null || v === undefined);
+    return this.addFilter(field, (v) => v === value);
   }
 
   private addFilter(field: string, predicate: (v: unknown) => boolean): DevQueryBuilder {
@@ -296,10 +317,11 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
     }
     if (this.op.kind === 'upsert') {
       const table = this.store.tables[this.table] || (this.store.tables[this.table] = []);
-      const conflictKey = this.op.conflictKey || 'id';
+      // onConflict는 PostgREST 규약대로 쉼표 복합키 허용 (t_401c5bd1 upload_quota_daily 'user_id,day').
+      const conflictKeys = (this.op.conflictKey || 'id').split(',').map(k => k.trim());
       const result: DevRow[] = [];
       for (const row of this.op.rows) {
-        const existing = table.find((r) => r[conflictKey] === row[conflictKey]);
+        const existing = table.find((r) => conflictKeys.every(k => String(r[k]) === String(row[k])));
         if (existing) {
           Object.assign(existing, row);
           result.push(existing);
@@ -428,6 +450,22 @@ export function createDevClient(store: DevStore): DevClient {
         }
         return { data: null, error: null };
       }
+      // 첨부 쿼터 (t_401c5bd1) — 실DB bump_upload_quota(007)의 원자적 증가/-1 센티넬 시맨틱 재현.
+      if (fn === 'bump_upload_quota') {
+        const userId = args.p_user as string;
+        const day = args.p_day as string;
+        const limit = Number(args.p_limit ?? 0);
+        const table = store.tables.upload_quota_daily;
+        const row = table.find(r => r.user_id === userId && r.day === day);
+        if (!row) {
+          table.push({ user_id: userId, day, used: 1, updated_at: new Date().toISOString() });
+          return { data: 1, error: null };
+        }
+        if (row.used >= limit) return { data: -1, error: null };
+        row.used += 1;
+        row.updated_at = new Date().toISOString();
+        return { data: row.used, error: null };
+      }
       return { data: null, error: { message: `Unknown RPC: ${fn}` } };
     },
 
@@ -492,12 +530,17 @@ export function deleteDevUser(store: DevStore, userId: string): void {
   const skills = ids('skills', r => r.author_id === userId);
   // board_cards는 user_id가 없고 boards.id 경유 cascade다 (마이그레이션 004).
   const boards = ids('boards', r => r.user_id === userId);
+  // 첨부(t_401c5bd1): 실DB와 동일 계약 — uploader_id FK CASCADE로 즉시 파기(dev는 바이트까지 동시).
+  // 실DB Storage 바이트는 /api/me가 deleteUser 전에 select해 deleteFromAttachmentsBucket으로 찍는다.
+  const mineAttachments = store.tables.messages_attachments.filter(r => r.uploader_id === userId);
+  for (const a of mineAttachments) store.blobs.delete(String(a.object_path));
   for (const [table, rows] of Object.entries(store.tables)) {
     store.tables[table] = rows.filter(r => !(
       (table === 'users' && r.id === userId) || r.user_id === userId || r.owner_id === userId
       || agents.has(r.agent_id) || sessions.has(r.session_id) || tasks.has(r.task_id)
       || (table === 'skills' && skills.has(r.id)) || (table === 'skill_installations' && skills.has(r.skill_id))
       || (table === 'board_cards' && boards.has(r.board_id))
+      || (table === 'messages_attachments' && r.uploader_id === userId)
     ));
   }
   for (const [email, entry] of store.usersByEmail) if (entry.user.id === userId) store.usersByEmail.delete(email);
