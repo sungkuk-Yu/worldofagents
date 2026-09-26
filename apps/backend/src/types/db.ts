@@ -219,6 +219,8 @@ export interface PersonaConfig {
     emoji_usage: 'never' | 'rare' | 'frequent' | string;
     sentence_length: 'short' | 'medium' | 'long' | string;
     honorific_level: number;
+    /** 처리 중 문구(quip) 톤: warm | brisk | playful (미설정 시 formality에서 추론) */
+    quip_tone?: 'warm' | 'brisk' | 'playful' | string;
   };
   style_guide: {
     personality_traits: string[];

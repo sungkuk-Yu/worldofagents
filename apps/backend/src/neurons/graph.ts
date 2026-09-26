@@ -1,4 +1,4 @@
-import { Locale, QUIPS, appendLanguageInstruction } from '../lib/locale';
+import { Locale, appendLanguageInstruction, pickQuip, QuipKey } from '../lib/locale';
 /**
  * 뉴런 오케스트레이션 그래프 — neuron-architecture-spec §5
  * LangGraph StateGraph 구성 (공감 → Router → 답변/비주얼 → Compose).
@@ -49,6 +49,11 @@ export interface NodeContext {
 }
 
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null };
+
+/** 뉴런 이벤트 quip: 페르소나 말투(tone_config.quip_tone/formality) + 세션 로케일 조합. */
+function quipText(state: NeuronState, key: QuipKey): string {
+  return pickQuip(key, state.locale, state.persona?.tone);
+}
 
 export interface NeuronState {
   locale: Locale;
@@ -124,10 +129,10 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
   const response = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
-  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: QUIPS.thinking[state.locale] });
+  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'thinking') });
   return {
     empathyResponse: response,
-    events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: QUIPS.thinking[state.locale] }],
+    events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'thinking') }],
   };
 }
 
@@ -136,19 +141,19 @@ function routerNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> 
     hasActiveTask: state.hasActiveTask,
     pendingQueueLength: state.pendingQueueLength,
   });
-  ctx.emit({ neuron: 'router', status: 'processing', stage: 'organizing', quip: QUIPS.organizing[state.locale] });
+  ctx.emit({ neuron: 'router', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') });
   return {
     dialogueType: plan.dialogueType,
     activationPlan: plan.activate,
     reason: plan.reason,
-    events: [...state.events, { neuron: 'router', status: 'processing', stage: 'organizing', quip: QUIPS.organizing[state.locale] }],
+    events: [...state.events, { neuron: 'router', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') }],
   };
 }
 
 async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
   if (!state.activationPlan.includes('answer')) return {};
   const prompt = state.persona ? buildPersonaPrompt(state.persona, 'answer') : '';
-  const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: QUIPS.thinking[state.locale] };
+  const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') };
   ctx.emit(start);
   let answerResponse: string;
   // ── 전문가 그라운딩 (t_d54bc456) — 법률·회계 등 전문가 카테고리는 Perplexity
@@ -156,13 +161,13 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   // (DEV/unit 테스트는 실 키 없이도 기존 동작 그대로). ──
   let grounding: GroundingResult | null = null;
   if (state.groundEnabled && isPerplexityConfigured() && !ctx.signal?.aborted) {
-    ctx.emit({ neuron: 'grounding', status: 'processing', stage: 'thinking', quip: QUIPS.thinking[state.locale] });
+    ctx.emit({ neuron: 'grounding', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') });
     grounding = await searchGrounding(state.userMessage, state.locale, { signal: ctx.signal });
     ctx.emit({
       neuron: 'grounding',
       status: grounding.status === 'grounded' ? 'idle' : 'degraded',
       stage: 'organizing',
-      quip: QUIPS.organizing[state.locale],
+      quip: quipText(state, 'organizing'),
     });
   }
   const groundingBlock = grounding && grounding.status === 'grounded' ? `\n\n${buildGroundingPrompt(grounding, state.locale)}` : '';
@@ -208,7 +213,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   }
   // 답변 생성 이후 분류 단계에서 받은 취소는 규칙 카드로 완료한다.
   ctx.classificationCancelled = Boolean(ctx.signal?.aborted);
-  const end: NeuronStatusEvent = { neuron: 'answer', status: 'idle', stage: 'finalizing', quip: QUIPS.finalizing[state.locale] };
+  const end: NeuronStatusEvent = { neuron: 'answer', status: 'idle', stage: 'finalizing', quip: quipText(state, 'finalizing') };
   ctx.emit(end);
   return { answerResponse, structured, grounding, llm: ctx.llm, events: [...state.events, start, end] };
 }
@@ -216,10 +221,10 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
 function visualNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
   const requested = state.activationPlan.includes('visual');
   if (!requested) return { visualRequested: false };
-  ctx.emit({ neuron: 'visual', status: 'processing', stage: 'rendering', quip: QUIPS.rendering[state.locale] });
+  ctx.emit({ neuron: 'visual', status: 'processing', stage: 'rendering', quip: quipText(state, 'rendering') });
   return {
     visualRequested: true,
-    events: [...state.events, { neuron: 'visual', status: 'processing', stage: 'rendering', quip: QUIPS.rendering[state.locale] }],
+    events: [...state.events, { neuron: 'visual', status: 'processing', stage: 'rendering', quip: quipText(state, 'rendering') }],
   };
 }
 

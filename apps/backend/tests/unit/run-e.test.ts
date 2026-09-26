@@ -132,7 +132,7 @@ it('REST/WS/답글/히스토리에 로케일과 AI 표시를 보존하고 전문
     await send({ type: 'subscribe', session_id: session.id, locale: 'ko' });
     await send({ type: 'transcript', session_id: session.id, text: '왜 그런가요?', is_final: true });
     expect(socket.events.find(e => e.type === 'answer.done')).toMatchObject({ locale: 'ko', ai_generated: true });
-    expect(socket.events.find(e => e.type === 'run.started').quip).toBe(QUIPS.started.ko);
+    expect(socket.events.find(e => e.type === 'run.started').quip).toBe(QUIPS.started.warm.ko);
 
     // 실제 답변 노드가 페르소나 지시 뒤에 요청 언어를 붙이는지 검증한다.
     vi.spyOn(llm, 'isLlmConfigured').mockReturnValue(true);

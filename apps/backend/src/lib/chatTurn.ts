@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { Locale, QUIPS } from './locale';
+import { Locale, PATIENCE_PLAN, patienceQuipAt, pickQuip, QuipKey } from './locale';
 import { registerRun } from '../websocket/eventlog';
 import { randomUUID } from 'node:crypto';
 import { DbClient } from './supabase';
@@ -23,15 +23,32 @@ export async function runTextTurn(
   let processing = false;
   let lastStage: NeuronStage | undefined;
   let partialText = '';
+  // 페르소나 말투(quip tone)가 로드되기 전 문구는 기본 warm으로 나간다.
+  let personaTone: Record<string, unknown> | null = null;
+  const quip = (key: QuipKey) => pickQuip(key, locale, personaTone);
   const abort = new AbortController();
   const unregister = registerRun(session.id, { runId: turnId, abort, partial: () => partialText });
   let failure = { code: 'INTERNAL_ERROR', message: '턴 처리 중 오류가 발생했습니다.' };
+  // 지연 진행도 티커: patienceMs 이후 "확인 중→거의 다 됨" 2회까지 이어 붙이고 그 뒤 정지한다.
+  const startedAt = Date.now();
+  let quipTick = 0;
+  const patience = setInterval(() => {
+    if (completed || Date.now() - startedAt < config.quipPatienceMs) return;
+    const step = patienceQuipAt(quipTick);
+    if (step) {
+      lastStage = step.stage;
+      opts.emit({ type: 'run.progress', ...base, stage: step.stage, quip: quip(step.quip) });
+    }
+    if (++quipTick >= PATIENCE_PLAN.length) clearInterval(patience);
+  }, config.quipPatienceMs);
   try {
-    opts.emit({ type: 'run.started', ...base, quip: QUIPS.started[locale] });
     if (session.user_id !== userId) throw new ApiError('FORBIDDEN', '세션 소유자만 메시지를 보낼 수 있습니다.');
     if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션입니다.');
     const { data: persona, error } = await db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
     if (error) throw new ApiError('INTERNAL_ERROR', error.message);
+    // 접수 문구는 페르소나 말투를 반영한다 (formal→빠릿하게(brisk), casual→캐주얼하게(playful)).
+    personaTone = (persona as { tone_config?: Record<string, unknown> } | null)?.tone_config ?? null;
+    opts.emit({ type: 'run.started', ...base, quip: quip('started') });
     const result = await processTurn(db, session.id, userId, session.agent_id, persona ? rowToPersonaConfig(persona) : null, content, {
       turnId,
       locale,
@@ -45,7 +62,7 @@ export async function runTextTurn(
         const stage = extra?.stage || 'thinking';
         if (lastStage === stage) return;
         lastStage = stage;
-        opts.emit({ type: 'run.progress', ...base, stage, quip: QUIPS[stage][locale] });
+        opts.emit({ type: 'run.progress', ...base, stage, quip: quip(stage) });
       },
       emitEvent: e => opts.emit({ type: 'neuron.status', session_id: session.id,
         neuron: { slug: e.neuron, name: NEURON_NAMES[e.neuron] || e.neuron }, status: e.status, stage: e.stage, quip: e.quip }),
@@ -73,10 +90,11 @@ export async function runTextTurn(
     failure = { code: err?.code || 'INTERNAL_ERROR', message: err?.message || failure.message };
     throw err;
   } finally {
+    clearInterval(patience);
     unregister();
     // WS message.send를 포함한 모든 호출 경로에서 실패 종료를 보장한다.
     if (!completed) {
-      if (!processing) opts.emit({ type: 'run.progress', ...base, stage: 'thinking', quip: QUIPS.thinking[locale] });
+      if (!processing) opts.emit({ type: 'run.progress', ...base, stage: 'thinking', quip: quip('thinking') });
       opts.emit({ type: 'run.failed', ...base, error: failure });
     }
   }
