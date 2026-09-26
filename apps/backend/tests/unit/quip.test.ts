@@ -9,14 +9,24 @@ vi.mock('../../src/neurons/graph', () => ({
 }));
 
 import { config } from '../../src/config';
-import { PATIENCE_PLAN, pickQuip, patienceQuipAt, QUIPS, QuipKey, QuipTone, resolveQuipTone } from '../../src/lib/locale';
+import { CHARACTER_QUIPS, PATIENCE_PLAN, pickQuip, patienceQuipAt, QUIPS, QuipCharacter, QuipKey, QuipTone, resolveQuipTone } from '../../src/lib/locale';
 import { runTextTurn, TurnEmitEvent } from '../../src/lib/chatTurn';
 import { createDevClient, createStore } from '../../src/lib/devstore';
 import { DbClient } from '../../src/lib/supabase';
 import { SessionsRow } from '../../src/types/db';
 
 const toneKeys: QuipTone[] = ['warm', 'brisk', 'playful'];
+const charKeys: QuipCharacter[] = ['noir', 'adjutant', 'sf'];
 const quipKeys = Object.keys(QUIPS) as QuipKey[];
+/** 공용 3톤 + 캐릭터 전용 3풀의 전 문자열 (캐릭터 간·stage 간 중복 0이 수용 기준, t_80f0d396). */
+function allQuipStrings(): { id: string; text: string }[] {
+  const out: { id: string; text: string }[] = [];
+  for (const key of quipKeys) {
+    for (const tone of toneKeys) for (const locale of ['ko', 'en'] as const) out.push({ id: `common.${key}.${tone}.${locale}`, text: QUIPS[key][tone][locale] });
+    for (const ch of charKeys) for (const locale of ['ko', 'en'] as const) out.push({ id: `${ch}.${key}.${locale}`, text: CHARACTER_QUIPS[ch][key][locale] });
+  }
+  return out;
+}
 // 금지: 영문 코드 단어 노출(대/소문자·품사 무관)와 시스템 용어. stage 필드 코드는 계약상 유지되므로 검사 대상이 아니다.
 const FORBIDDEN: [RegExp, string][] = [
   [/\b(think|thinking|thinks|thought)\b/i, 'thinking'],
@@ -28,19 +38,45 @@ const FORBIDDEN: [RegExp, string][] = [
 ];
 
 describe('quip 금지 노출 검사', () => {
-  it('전 톤×로케일 문구에서 thinking/organizing/recalling/composing/처리중/기술용어 0건', () => {
+  it('공용 3톤+캐릭터 3풀 전 문구에서 thinking/organizing/recalling/composing/처리중/기술용어 0건', () => {
     const offenders: string[] = [];
-    for (const key of quipKeys) for (const tone of toneKeys) for (const locale of ['ko', 'en'] as const) {
-      const text = QUIPS[key][tone][locale];
-      for (const [re, label] of FORBIDDEN) if (re.test(text)) offenders.push(`${key}.${tone}.${locale} → ${label}: ${text}`);
+    for (const { id, text } of allQuipStrings()) {
+      for (const [re, label] of FORBIDDEN) if (re.test(text)) offenders.push(`${id} → ${label}: ${text}`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('캐릭터 간·stage 간 중복 0건 — 공용 3톤 포함 전체 quip 문자열 84개가 서로 다르다', () => {
+    const all = allQuipStrings();
+    expect(all).toHaveLength(7 * (3 + 3) * 2);
+    const byText = new Map<string, string[]>();
+    for (const { id, text } of all) byText.set(text, [...(byText.get(text) || []), id]);
+    const dupes = [...byText.entries()].filter(([, ids]) => ids.length > 1).map(([t, ids]) => `"${t}" ← ${ids.join(', ')}`);
+    expect(dupes).toEqual([]);
   });
 
   it('전체 키×톤×로케일 조합이 빈 문자열 없이 채워져 있다', () => {
     for (const key of ['started', 'thinking', 'organizing', 'finalizing', 'rendering', 'patience_check', 'patience_nearly'] as QuipKey[])
       for (const tone of toneKeys) for (const locale of ['ko', 'en'] as const)
         expect(QUIPS[key][tone][locale].length, `${key}.${tone}.${locale}`).toBeGreaterThan(0);
+    for (const ch of charKeys) for (const key of quipKeys) for (const locale of ['ko', 'en'] as const)
+      expect(CHARACTER_QUIPS[ch][key][locale].length, `${ch}.${key}.${locale}`).toBeGreaterThan(0);
+  });
+
+  it('대표님 지정 문구가 각 캐릭터 풀의 올바른 stage에 있다 (t_80f0d396)', () => {
+    expect(CHARACTER_QUIPS.noir.started.ko).toBe('현장에 나가볼게요, 잠깐만요');
+    expect(CHARACTER_QUIPS.noir.thinking.ko).toBe('단서가 두 개 나왔습니다, 더 캘까요');
+    expect(CHARACTER_QUIPS.noir.organizing.ko).toBe('증거는 모았어요, 정리해서 가져올게요');
+    expect(CHARACTER_QUIPS.noir.finalizing.ko).toBe('이 사건 생각보다 복잡하네요, 좀 더 봐야돼요');
+    expect(CHARACTER_QUIPS.noir.patience_check.ko).toBe('네, 제가 꼼꼼히 봐드릴게요'); // 현행 유지(이관)
+    expect(CHARACTER_QUIPS.adjutant.started.ko).toBe('이건 제가 한 번 제대로 물어볼게요');
+    expect(CHARACTER_QUIPS.adjutant.thinking.ko).toBe('잠깐만요, 지금 뛰고 있습니다');
+    expect(CHARACTER_QUIPS.adjutant.organizing.ko).toBe('맡겨주세요, 금방 정리해서 가져올게요');
+    expect(CHARACTER_QUIPS.adjutant.finalizing.ko).toBe('판은 봤어요, 숫자만 세면 됩니다');
+    expect(CHARACTER_QUIPS.sf.thinking.ko).toBe('0.4초만 주시죠, 지금 찾고 있어요');
+    expect(CHARACTER_QUIPS.sf.organizing.ko).toBe('지금 서류 넘기는 소리 들리실 겁니다');
+    expect(CHARACTER_QUIPS.sf.finalizing.ko).toBe('이 항목은 처음이에요, 지도 다시 그립니다');
+    expect(CHARACTER_QUIPS.sf.rendering.ko).toBe('준비되었습니다, 보시죠');
   });
 });
 
@@ -55,10 +91,24 @@ describe('톤 해석', () => {
     expect(resolveQuipTone({ quip_tone: 'nonsense' })).toBe('warm');
   });
 
-  it('pickQuip — 미지정 톤은 warm, formal이면 brisk 문구', () => {
+  it('캐릭터 값(noir/adjutant/sf)은 quip_tone 명시 시에만 성립 — formality로는 추론되지 않는다', () => {
+    expect(resolveQuipTone({ quip_tone: 'noir' })).toBe('noir');
+    expect(resolveQuipTone({ quip_tone: 'adjutant' })).toBe('adjutant');
+    expect(resolveQuipTone({ quip_tone: 'sf' })).toBe('sf');
+    expect(resolveQuipTone({ formality: 'formal', quip_tone: 'sf' })).toBe('sf'); // 명시 우선
+    expect(resolveQuipTone({ formality: 'formal' })).toBe('brisk'); // 캐릭터 추론 없음
+    expect(resolveQuipTone({ quip_tone: 'detective' })).toBe('warm'); // 오타/미지정 → 폴백
+  });
+
+  it('pickQuip — 미지정 톤은 warm, formal이면 brisk, 캐릭터면 전용 풀', () => {
     expect(pickQuip('started', 'ko')).toBe(QUIPS.started.warm.ko);
     expect(pickQuip('started', 'ko', { formality: 'formal' })).toBe(QUIPS.started.brisk.ko);
     expect(pickQuip('started', 'en', { formality: 'casual' })).toBe(QUIPS.started.playful.en);
+    expect(pickQuip('started', 'ko', { quip_tone: 'noir' })).toBe(CHARACTER_QUIPS.noir.started.ko);
+    expect(pickQuip('finalizing', 'en', { quip_tone: 'adjutant' })).toBe(CHARACTER_QUIPS.adjutant.finalizing.en);
+    expect(pickQuip('thinking', 'ko', { quip_tone: 'sf', formality: 'formal' })).toBe(CHARACTER_QUIPS.sf.thinking.ko);
+    // 캐릭터 풀도 patience 진행도 키를 완비한다 — 티커가 캐릭터 문구로 이어 붙는다.
+    expect(pickQuip('patience_check', 'ko', { quip_tone: 'noir' })).toBe('네, 제가 꼼꼼히 봐드릴게요');
   });
 });
 

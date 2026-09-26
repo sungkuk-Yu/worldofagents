@@ -194,9 +194,10 @@ RETURNING id INTO persona_minji_shadow;
 
 INSERT INTO personas (agent_id, version, name, voice_config, tone_config, style_guide, neuron_overrides, relationship_type)
 VALUES
+-- 내 보좌관 캐릭터(t_80f0d396): quip_tone='adjutant' → 한국 영화 친근 quip 풀.
     (agent_assistant, 1, '세심',
      '{"voice_id": "alloy", "speed": 1.0, "pitch": 0, "language": "ko"}'::jsonb,
-     '{"formality": "formal", "emoji_usage": "never", "sentence_length": "short", "honorific_level": 5}'::jsonb,
+     '{"formality": "formal", "emoji_usage": "never", "sentence_length": "short", "honorific_level": 5, "quip_tone": "adjutant"}'::jsonb,
      '{"personality_traits": ["MBTI: ISTJ", "정확함", "간결함"],
        "preferred_expressions": ["확인했습니다", "진행하겠습니다"],
        "forbidden_expressions": ["아마", "글쎄", "~인 것 같다"]
@@ -207,9 +208,10 @@ RETURNING id INTO persona_cheolsu_assistant;
 
 INSERT INTO personas (agent_id, version, name, voice_config, tone_config, style_guide, relationship_type)
 VALUES
+-- 범용/신규 캐릭터(t_80f0d396): quip_tone='sf' → SF 집사 quip 풀.
     (agent_dev_custom, 1, '코디',
      '{"voice_id": "echo", "speed": 1.1, "pitch": 0, "language": "ko"}'::jsonb,
-     '{"formality": "casual", "emoji_usage": "frequent", "sentence_length": "short", "honorific_level": 1}'::jsonb,
+     '{"formality": "casual", "emoji_usage": "frequent", "sentence_length": "short", "honorific_level": 1, "quip_tone": "sf"}'::jsonb,
      '{"personality_traits": ["MBTI: INTP", "직설적", "기술적"],
        "preferred_expressions": ["이렇게 해봐", "버그 찾았어"],
        "forbidden_expressions": []
@@ -451,13 +453,14 @@ INSERT INTO context_patches (session_id, key, operation, delta, source_neuron) V
      'system.compaction');
 
 -- 영어 프리셋: 기존 JSON 확장 지점에 로케일과 시스템 프롬프트를 저장한다.
+-- 내 변호사 캐릭터(t_80f0d396): tone_config.quip_tone='noir' → 탐정 누아르 전용 quip 풀 사용.
 INSERT INTO agents (owner_id, name, description, agent_type, config)
 VALUES (user_dev, 'Legal Guide', 'An English legal information assistant', 'custom',
         '{"locale":"en","category":"legal"}'::jsonb)
 RETURNING id INTO agent_en;
 INSERT INTO personas (agent_id, version, name, voice_config, tone_config, style_guide, relationship_type)
 VALUES (agent_en, 1, 'Legal Guide', '{"language":"en"}'::jsonb,
-        '{"formality":"formal","emoji_usage":"never","sentence_length":"medium"}'::jsonb,
+        '{"formality":"formal","emoji_usage":"never","sentence_length":"medium","quip_tone":"noir"}'::jsonb,
         '{"system_prompt":"You are Legal Guide. Explain legal concepts clearly and suggest consulting a qualified lawyer for individual advice.","personality_traits":["careful","clear"],"preferred_expressions":["Here is an overview"],"forbidden_expressions":[],"example_responses":[{"user_input":"What is a contract?","agent_response":"A contract is an agreement that creates enforceable obligations."}]}'::jsonb,
         'assistant');
 
