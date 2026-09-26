@@ -1121,3 +1121,35 @@ WS `message.send`에 선택 필드 `parent_message_id`를 보내면 같은 스�
 조상 추적은 visited set으로 순환을 차단하고 최대 50단계로 제한한다. 다른 소유자의 세션은 계보 조회에 노출하지 않는다. 포크 지점 메시지가 원본 세션에 없으면 404다.
 
 마이그레이션은 `002_rls_hardening.sql` 끝에 추가했다. sessions의 기존 `UNIQUE(user_id, agent_id)`를 제거하고 `forked_from ->> 'session_id' IS NULL`인 원본 세션만 부분 유니크 인덱스로 보호한다. 포크 세션은 예외다. ensureSession은 여러 세션 중 forked_from.session_id가 없는 원본만 반환한다. 실DB 적용은 별도 감독 작업이다.
+
+### i18n 계약 (Run E)
+
+지원 로케일은 `ko | en`이며 기본값은 `DEFAULT_LOCALE` 환경변수(기본 `ko`)다.
+
+- **REST 수신**: `Accept-Language` 헤더의 첫 태그를 정규화한다(`en-US,en;q=0.9` → `en`). 미지원/없음 → 기본값.
+- **WS 수신**: 연결 쿼리 `locale` → 연결 `Accept-Language` 헤더 → 기본값 순서. `subscribe.locale`로 연결 중 변경 가능.
+- **LLM 언어 지시**: 시스템 프롬프트 마지막에 `Respond in {한국어|English}.`를 항상 append한다(persona 프롬프트보다 후순위 고정).
+- **run.* quip**: `run.progress.stage`는 언어 중립 코드(`thinking|organizing|finalizing|rendering`)를 유지하고, `quip`·`empathy_response`는 요청 로케일 문구를 담는다. 표시 번역의 1차 책임은 프론트 i18n(stage 코드 기반)이며 quip은 폴백이다.
+- **메시지 행**: `locale TEXT NOT NULL DEFAULT 'ko'`, `ai_generated BOOLEAN NOT NULL DEFAULT false` 컬럼 추가(002). 사용자/공감/답변 행 모두 요청 로케일로 저장하며, 에이전트 생성 행(source_neuron != null 또는 role=agent/assistant)은 `ai_generated: true`(AI 기본법 제31조 표시 의무 — 프론트 배지 연동). REST 행·`message.new.message`·`answer.done`·턴 결과에 포함.
+- **에러 i18n**: 서버 응답의 `code`(대문자 스네이크)가 번역 키이고 `message`는 한국어 폴백이다. 신규 코드: `CONSENT_REQUIRED`, `AGE_CONFIRM_REQUIRED`.
+
+### 법률 인프라 (Run E — 개인정보보호법·AI 기본법)
+
+**가입 동의 검증** — `POST /api/auth/signup` body 확장:
+
+```json
+{"email":"...","password":"***","age_confirmed":true,
+ "consents":[{"type":"terms","version":"1.0","consented":true},
+             {"type":"privacy","version":"1.0","consented":true},
+             {"type":"voice_recording","version":"1.0","consented":true},
+             {"type":"overseas_transfer","version":"1.0","consented":true},
+             {"type":"marketing","version":"1.0","consented":false}]}
+```
+
+필수 4종(terms/privacy/voice_recording/overseas_transfer) 모두 `consented: true` + `age_confirmed: true`(만 14세) 아니면 400(`CONSENT_REQUIRED`/`AGE_CONFIRM_REQUIRED`). marketing은 선택. 동의 이력은 `consents` 테이블(user_id/consent_type/version/consented/ip_or_device/created_at, RLS 자기 열람)에 기록되며, 기록 실패 시 발급된 계정을 즉시 삭제한다(동의 없는 계정 미발급). **DEV_MODE=true에서만** consents 필드 전체 생략 시 `version: 'dev-auto'`로 자동 기록(스모크 호환) — 운영 모드는 strict 거부.
+
+**회원탈퇴** — `DELETE /api/me` (requireAuth): auth.users 삭제 → FK ON DELETE CASCADE로 users/agents/personas/sessions/messages/raw_transcripts/compressed_memories/tasks/consents/context_patches/skills(작성자) 등 전 파기(개인정보보호법 제21조). 실행 중 턴은 세션 락으로 마무리 대기 후 삭제하고, 삭제 후 해당 사용자의 WS 연결·이벤트 버퍼를 정리한다. 응답 `{ok:true,data:{deleted:true}}`. DEV_MODE에서는 devstore cascade 시뮬레이션(`deleteDevUser`).
+
+**전문가 디스클레이머** — 에이전트 태그/이름/프롬프트가 법률·세무/회계·의료 계열이면(`classifyExpertise` 순수함수) 응답 끝에 로케일별 면책 문구 append(예 ko: "본 응답은 AI가 생성한 정보이며 정식 법률 자문이 아닙니다."). 일반 에이전트는 미부착.
+
+**raw_transcripts 보존 정책** — `RAW_TRANSCRIPT_RETENTION_DAYS`(기본 180일)을 config로 선언하고 탈퇴 시 즉시 파기. 자동 삭제 크론은 Phase 3(코드 주석 명시).
