@@ -1,7 +1,9 @@
 // Screen 6: 대화 목록 (Dialogue List) — Phase 2: 백엔드 실연결
-// 설계: agenttalk-screen-spec.md 화면 2/6 패턴 — 사각 카드 + 세그먼트 식별색 뱃지
-// 동작: 기동 시 GET /api/sessions 실조회 → 세션 카드 렌더. 연결 실패 시에만 목업(데모) 표시.
-//   "새 채팅" 버튼: 에이전트 확보(목록→없으면 생성) → POST /api/sessions/ensure → ChatScreen
+// 설계: agenttalk-screen-spec.md 화면 2/6 패턴 — 사각 카드
+// 동작: 기동 시 GET /api/sessions 실조회 → 세션 카드 렌더.
+//   연결 실패 시 목업 목록을 사실처럼 보여주지 않음 — 오프라인 상태 + 명시적 선택(재시도/데모)만 제공.
+//   (Codex 리뷰 #6: 데모 폴백이 실제 오류를 가리면 안 됨)
+//   "에이전트와 이어서 대화" 버튼: 에이전트 확보(목록→없으면 생성) → POST /api/sessions/ensure → ChatScreen
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet,
@@ -12,45 +14,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { Dialogue, DialogType } from '../types';
-import { colors, radii, spacing, typography, segmentMeta } from '../theme';
+import { colors, radii, spacing, typography } from '../theme';
 import { api, getApiConfig, SessionSummary } from '../lib/api';
-
-// 임시 목업 데이터 — 백엔드 연결 실패(데모) 시에만 표시
-const MOCK_DIALOGUES: Dialogue[] = [
-  {
-    id: '1',
-    type: 'information',
-    title: '오늘 서울 날씨 확인',
-    createdAt: new Date('2026-09-25T09:00:00'),
-    updatedAt: new Date('2026-09-25T09:30:00'),
-    activeNeurons: [],
-  },
-  {
-    id: '2',
-    type: 'data',
-    title: 'Q3 매출 분석 요청',
-    createdAt: new Date('2026-09-25T10:00:00'),
-    updatedAt: new Date('2026-09-25T10:15:00'),
-    activeNeurons: [],
-  },
-  {
-    id: '3',
-    type: 'file',
-    title: '계약서 검토',
-    createdAt: new Date('2026-09-24T14:00:00'),
-    updatedAt: new Date('2026-09-24T14:45:00'),
-    activeNeurons: [],
-  },
-  {
-    id: '4',
-    type: 'task',
-    title: '회식비 정산',
-    createdAt: new Date('2026-09-24T11:00:00'),
-    updatedAt: new Date('2026-09-24T11:30:00'),
-    activeNeurons: [],
-  },
-];
 
 interface Props {
   navigation: any;
@@ -60,35 +25,28 @@ interface Props {
 interface SessionRow {
   id: string;
   title: string;
-  type: DialogType;
   updatedAt: Date;
   agentId: string;
   agentName: string;
 }
 
-const SEGMENT_CYCLE: DialogType[] = ['information', 'data', 'file', 'task', 'multi-agent'];
-
-function sessionToRow(s: SessionSummary, index: number, agentNames: Record<string, string>): SessionRow {
+function sessionToRow(s: SessionSummary, agentNames: Record<string, string>): SessionRow {
   const agentName = agentNames[s.agent_id] || '에이전트';
   return {
     id: s.id,
     title: `${agentName}와의 대화`,
-    // 세션 목록 API에는 유형이 없음 — MVP에서는 인덱스 로테이션 뱃지 (실분류는 백엔드 dialogue_type 연동 시 교체)
-    type: SEGMENT_CYCLE[index % SEGMENT_CYCLE.length],
     updatedAt: s.last_activity_at ? new Date(s.last_activity_at) : new Date(),
     agentId: s.agent_id,
     agentName,
   };
 }
 
-export default function DialogueListScreen({ navigation, route }: Props) {
+export default function DialogueListScreen({ navigation }: Props) {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const demoRequested = Boolean(route?.params?.demo);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -105,16 +63,16 @@ export default function DialogueListScreen({ navigation, route }: Props) {
         /* 이름 조회 실패는 치명적이지 않음 */
       }
       const env = await api.listSessions();
-      const rows = (env?.data ?? []).map((s, i) => sessionToRow(s, i, agentNames));
+      const rows = (env?.data ?? []).map((s) => sessionToRow(s, agentNames));
       setSessions(rows);
       setConnected(true);
     } catch (e) {
       setConnected(false);
-      setError(demoRequested ? null : (e as Error).message);
+      setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [demoRequested]);
+  }, []);
 
   useEffect(() => {
     // effect 본문의 동기 setState 방지 (react-hooks/set-state-in-effect) — 다음 틱에 스케줄
@@ -162,66 +120,39 @@ export default function DialogueListScreen({ navigation, route }: Props) {
     [navigation]
   );
 
-  const renderSession = ({ item }: { item: SessionRow }) => {
-    const meta = segmentMeta(item.type as DialogType);
-    return (
-      <TouchableOpacity
-        style={[styles.dialogueCard, { borderLeftColor: meta.color }]}
-        onPress={() => openSession(item)}
-        accessibilityLabel={`${meta.label} 대화: ${item.title}`}
-        testID="session-card"
-      >
-        <View style={[styles.segIcon, { backgroundColor: withAlpha(meta.color, 0.12) }]}>
-          <Text style={[styles.segIconText, { color: meta.color }]}>{meta.icon}</Text>
+  const renderSession = ({ item }: { item: SessionRow }) => (
+    <TouchableOpacity
+      style={[styles.dialogueCard, { borderLeftColor: colors.accent }]}
+      onPress={() => openSession(item)}
+      accessibilityLabel={`${item.agentName}와의 대화 이어서 보기`}
+      testID="session-card"
+    >
+      <View style={[styles.segIcon, { backgroundColor: withAlpha(colors.accent, 0.12) }]}>
+        <Text style={[styles.segIconText, { color: colors.accent }]}>{item.agentName.slice(0, 1)}</Text>
+      </View>
+      <View style={styles.dialogueBody}>
+        <View style={styles.dialogueHeader}>
+          <Text style={[styles.dialogueType, { color: colors.accent }]}>{item.agentName}</Text>
+          <Text style={styles.dialogueTime}>
+            {item.updatedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
         </View>
-        <View style={styles.dialogueBody}>
-          <View style={styles.dialogueHeader}>
-            <Text style={[styles.dialogueType, { color: meta.color }]}>{meta.label}</Text>
-            <Text style={styles.dialogueTime}>
-              {item.updatedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-          <Text style={styles.dialogueTitle}>{item.title}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+        <Text style={styles.dialogueTitle}>{item.title}</Text>
+      </View>
+    </TouchableOpacity>
+  );
 
-  const showMock = !connected;
-  const listData: (SessionRow | Dialogue)[] = showMock ? MOCK_DIALOGUES : sessions;
-
-  const renderMock = ({ item }: { item: Dialogue }) => {
-    const meta = segmentMeta(item.type as DialogType);
-    return (
-      <TouchableOpacity
-        style={[styles.dialogueCard, { borderLeftColor: meta.color, opacity: 0.75 }]}
-        onPress={() => navigation.navigate('Chat', { agentName: '데모 에이전트' })}
-        accessibilityLabel={`데모 대화: ${item.title}`}
-      >
-        <View style={[styles.segIcon, { backgroundColor: withAlpha(meta.color, 0.12) }]}>
-          <Text style={[styles.segIconText, { color: meta.color }]}>{meta.icon}</Text>
-        </View>
-        <View style={styles.dialogueBody}>
-          <View style={styles.dialogueHeader}>
-            <Text style={[styles.dialogueType, { color: meta.color }]}>{meta.label}</Text>
-            <Text style={styles.dialogueTime}>
-              {item.updatedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-          <Text style={styles.dialogueTitle}>{item.title}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  // 연결 실패 = 오프라인 상태. 목업 목록을 사실처럼 보여주지 않고 명시적 선택만 제공.
+  const offline = !connected && !loading;
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>에이전트톡</Text>
         <View style={styles.headerRight}>
-          {!connected && !loading && (
+          {offline && (
             <View style={styles.demoBadge}>
-              <Text style={styles.demoBadgeText}>데모</Text>
+              <Text style={styles.demoBadgeText}>오프라인</Text>
             </View>
           )}
           <TouchableOpacity
@@ -244,7 +175,7 @@ export default function DialogueListScreen({ navigation, route }: Props) {
         style={[styles.newChatButton, starting && { opacity: 0.6 }]}
         onPress={() => void startNewChat()}
         disabled={starting}
-        accessibilityLabel="새 채팅 시작"
+        accessibilityLabel="에이전트와 이어서 대화"
         testID="new-chat-button"
       >
         {starting ? (
@@ -252,18 +183,36 @@ export default function DialogueListScreen({ navigation, route }: Props) {
         ) : (
           <Text style={styles.newChatIcon}>＋</Text>
         )}
-        <Text style={styles.newChatText}>{starting ? '세션 준비 중…' : '새 채팅 시작'}</Text>
+        <Text style={styles.newChatText}>{starting ? '세션 준비 중…' : '에이전트와 이어서 대화'}</Text>
       </TouchableOpacity>
 
       {loading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={colors.accent} />
         </View>
+      ) : offline ? (
+        <View style={styles.empty} testID="offline-panel">
+          <View style={styles.emptyIconWrap}>
+            <Text style={styles.emptyIcon}>⚠️</Text>
+          </View>
+          <Text style={styles.emptyText}>백엔드에 연결할 수 없습니다</Text>
+          <Text style={styles.emptySubtext}>{error || '네트워크 또는 서버 상태를 확인하세요.'}</Text>
+          <TouchableOpacity style={styles.offlineAction} onPress={() => void refresh()} testID="retry-button">
+            <Text style={styles.offlineActionText}>다시 시도</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.offlineAction, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }]}
+            onPress={() => navigation.navigate('Chat', { agentName: '데모 에이전트', demo: true })}
+            testID="demo-button"
+          >
+            <Text style={[styles.offlineActionText, { color: colors.text2 }]}>데모로 둘러보기</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
-          data={listData as any[]}
-          renderItem={(showMock ? renderMock : renderSession) as any}
-          keyExtractor={(item: any) => item.id}
+          data={sessions}
+          renderItem={renderSession}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -271,9 +220,7 @@ export default function DialogueListScreen({ navigation, route }: Props) {
                 <Text style={styles.emptyIcon}>💬</Text>
               </View>
               <Text style={styles.emptyText}>대화가 없습니다</Text>
-              <Text style={styles.emptySubtext}>
-                {connected ? '새 채팅을 시작해보세요' : '백엔드 미연결 — 데모 데이터 표시 중'}
-              </Text>
+              <Text style={styles.emptySubtext}>에이전트와 이어서 대화를 시작해보세요</Text>
             </View>
           }
           testID="session-list"
@@ -451,5 +398,19 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 13,
     color: colors.text3,
+  },
+  offlineAction: {
+    marginTop: spacing.sp3,
+    backgroundColor: colors.accent,
+    borderRadius: radii.xs,
+    paddingHorizontal: spacing.sp5,
+    paddingVertical: spacing.sp3,
+    alignItems: 'center',
+    minWidth: 200,
+  },
+  offlineActionText: {
+    color: colors.onPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

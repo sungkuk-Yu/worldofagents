@@ -3,7 +3,9 @@
 // 백엔드 스펙: apps/backend/docs/api-design.md §3.4
 //   GET  /api/sessions/:id/messages → data[]: { id, turn_index, role, content, source_neuron, created_at }
 //   POST /api/sessions/:id/messages → data: { user_message_id, empathy_response, answer_response, ... }
-import { ChatMessage } from '../types';
+import type { ChatMessage as BaseChatMessage } from '../types';
+
+export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed' };
 
 /** 서버 messages 행 (최소 필드 — ApiEnvelope data[] 항목) */
 export interface ServerMessageRow {
@@ -26,6 +28,7 @@ export function normalizeServerMessages(rows: ServerMessageRow[]): ChatMessage[]
       turnIndex: Number(r.turn_index) || 0,
       sourceNeuron: r.source_neuron ?? null,
       createdAt: r.created_at,
+      status: 'sent',
     }))
     .sort((a, b) => a.turnIndex - b.turnIndex);
 }
@@ -66,13 +69,14 @@ export function confirmTurn(
   userContent: string,
   baseTurnIndex: number
 ): ChatMessage[] {
-  const withoutPending = existing.filter((m) => m.id !== optimisticId);
+  const withoutPending = existing.filter((m) => m.id !== optimisticId && m.id !== confirm.user_message_id);
   const confirmedUser: ChatMessage = {
     id: confirm.user_message_id || optimisticId,
     role: 'user',
     content: userContent,
     turnIndex: baseTurnIndex,
     pending: false,
+    status: 'sent',
   };
   const out: ChatMessage[] = [...withoutPending, confirmedUser];
   let offset = 1;
@@ -105,7 +109,11 @@ export function confirmTurn(
 /** WS로 수신한 에이전트 응답(브로드캐스트) 머지 — id 중복이면 스킵 */
 export function mergeIncoming(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const seen = new Set(existing.map((m) => m.id));
-  const fresh = incoming.filter((m) => !seen.has(m.id));
+  const fresh = incoming.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
   if (fresh.length === 0) return existing;
   return [...existing, ...fresh].sort((a, b) => a.turnIndex - b.turnIndex);
 }
@@ -128,54 +136,182 @@ export function oldestCursor(messages: ChatMessage[]): number | null {
 
 export const DEFAULT_QUIP = '잠깐만요, 생각 중이에요…';
 
+export type ExecutionStatus = 'active' | 'completed' | 'failed' | 'cancelled';
+
 export interface TypingTracker {
-  begin(source: string, quip?: string | null): void;
-  end(source: string): void;
+  begin(execId: string, quip?: string | null): void;
+  complete(execId: string): void;
+  fail(execId: string): void;
+  cancel(execId: string): void;
+  bind(execId: string, turnId: string): void;
+  finishTurn(turnId: string, failed?: boolean): void;
+  /** 레거시 호출 호환 */
+  end(execId: string): void;
   endAll(): void;
   readonly active: boolean;
+  readonly activeCount: number;
 }
 
-/**
- * 소스 카운터 기반 typing 트래커.
- * - begin(source, quip): 소스 활성화 (최근 quip 우선 표시)
- * - end(source): 소스 해제 — 다른 활성 소스가 남아 있으면 상태 유지
- * - onChange(active, quip): 상태가 바뀔 때만 호출 (중복 emit 없음)
- */
+/** 사람↔에이전트 대화의 처리중 상태는 실행 수로 결정한다. 종료된 실행은 늦은 begin으로 부활하지 않는다. */
 export function createTypingTracker(onChange: (active: boolean, quip: string | null) => void): TypingTracker {
-  const sources = new Set<string>();
-  const quips = new Map<string, string>();
+  const executions = new Map<string, { status: ExecutionStatus; quip: string }>();
+  const turns = new Map<string, Set<string>>();
+  const endedTurns = new Map<string, ExecutionStatus>();
   let lastActive = false;
   let lastQuip: string | null = null;
-
+  const activeEntries = () => [...executions.values()].filter((e) => e.status === 'active');
   function emit() {
-    const active = sources.size > 0;
-    const quip = active ? [...quips.values()].filter(Boolean).pop() ?? DEFAULT_QUIP : null;
+    const entries = activeEntries();
+    const active = entries.length > 0;
+    const quip = entries.length ? entries[entries.length - 1].quip : null;
     if (active !== lastActive || quip !== lastQuip) {
       lastActive = active;
       lastQuip = quip;
       onChange(active, quip);
     }
   }
-
+  function finish(id: string, status: ExecutionStatus) {
+    const entry = executions.get(id);
+    if (!entry || entry.status === 'active') executions.set(id, { status, quip: DEFAULT_QUIP });
+    emit();
+  }
   return {
-    begin(source: string, quip?: string | null) {
-      sources.add(source);
-      if (quip) quips.set(source, quip);
-      else quips.delete(source);
+    begin(id, quip) {
+      const entry = executions.get(id);
+      if (entry && entry.status !== 'active') return;
+      executions.set(id, { status: 'active', quip: quip || DEFAULT_QUIP });
       emit();
     },
-    end(source: string) {
-      sources.delete(source);
-      quips.delete(source);
+    complete: (id) => finish(id, 'completed'),
+    fail: (id) => finish(id, 'failed'),
+    cancel: (id) => finish(id, 'cancelled'),
+    end: (id) => finish(id, 'completed'),
+    bind(id, turn) {
+      const members = turns.get(turn) ?? new Set<string>();
+      members.add(id);
+      turns.set(turn, members);
+      const ended = endedTurns.get(turn);
+      if (ended) finish(id, ended);
+    },
+    finishTurn(turn, failed = false) {
+      const status = failed ? 'failed' : 'completed';
+      endedTurns.set(turn, status);
+      // 모든 실행의 상태를 먼저 바꾸어 중간 quip/typing 깜빡임을 방지한다.
+      for (const id of turns.get(turn) ?? []) {
+        const entry = executions.get(id);
+        if (!entry || entry.status === 'active') executions.set(id, { status, quip: DEFAULT_QUIP });
+      }
       emit();
     },
     endAll() {
-      sources.clear();
-      quips.clear();
+      for (const entry of executions.values()) if (entry.status === 'active') entry.status = 'cancelled';
       emit();
     },
-    get active() {
-      return sources.size > 0;
+    get active() { return activeEntries().length > 0; },
+    get activeCount() { return activeEntries().length; },
+  };
+}
+
+/** attempt=0부터 1s, 2s, 4s…; 최종 지연도 30s 이하, ±20% jitter. */
+export function nextBackoffMs(attempt: number, rand: () => number = Math.random): number {
+  const base = Math.min(30000, 1000 * 2 ** Math.min(30, Math.max(0, Math.floor(attempt))));
+  return Math.round(Math.min(30000, base * (0.8 + 0.4 * Math.max(0, Math.min(1, rand())))));
+}
+
+export interface TurnIdentity {
+  session_id?: string;
+  turn_id?: string;
+  execution_id?: string;
+  run_id?: string;
+  client_exec_id?: string;
+  turn_index?: number;
+}
+
+/** 서버 ID가 없을 때만 session + turn_index를 사용한다. */
+export function turnKey(event: TurnIdentity, sessionId: string): string | null {
+  const id = event.turn_id ?? event.execution_id ?? event.run_id;
+  if (id) return `${sessionId}:turn:${id}`;
+  return event.turn_index !== undefined ? `${sessionId}:index:${event.turn_index}` : null;
+}
+
+export interface TurnEvent extends TurnIdentity {
+  type: string;
+  status?: string;
+  quip?: string;
+  stage?: string;
+}
+
+/** REST와 WS의 실행 연결 및 종료를 공유한다. 식별자 없는 레거시 이벤트는 당시 REST 실행들이 끝나면 정리한다. */
+export function createTurnCoordinator(tracker: TypingTracker) {
+  const pending = new Set<string>();
+  const watches = new Map<string, Set<string>>();
+  const executionTurns = new Map<string, Set<string>>();
+  const turnExecution = new Map<string, string>();
+  let legacyCounter = 0;
+  let legacyKey: string | null = null;
+  function bindIdentity(execId: string, event: TurnIdentity, sid: string) {
+    // 여러 ID가 함께 올 때 어느 별칭으로 종료되더라도 같은 실행을 찾는다.
+    const keys = [event.turn_id, event.execution_id, event.run_id]
+      .filter((id): id is string => Boolean(id)).map((id) => `${sid}:turn:${id}`);
+    if (event.turn_index !== undefined) keys.push(`${sid}:index:${event.turn_index}`);
+    const turns = executionTurns.get(execId) ?? new Set<string>();
+    for (const key of keys) {
+      tracker.bind(execId, key);
+      turns.add(key);
+      turnExecution.set(key, execId);
+    }
+    executionTurns.set(execId, turns);
+  }
+  return {
+    start(execId: string) { pending.add(execId); tracker.begin(execId); },
+    observe(event: TurnEvent, sid: string) {
+      const key = turnKey(event, sid);
+      const clientId = event.client_exec_id ?? [event.execution_id, event.run_id, event.turn_id]
+        .find((id) => id !== undefined && pending.has(id));
+      const knownExec = key ? turnExecution.get(key) : undefined;
+      const execId = clientId ?? knownExec ?? key ?? (legacyKey ??= `${sid}:legacy:${++legacyCounter}`);
+      if (clientId && knownExec && knownExec !== clientId && !pending.has(knownExec)) {
+        // 뒤늦게 client_exec_id가 도착하면 WS 임시 실행을 실제 REST 실행으로 합친다.
+        tracker.cancel(knownExec);
+        watches.delete(knownExec);
+      }
+      bindIdentity(execId, event, sid);
+      if (clientId && key) {
+        tracker.bind(key, key);
+        tracker.bind(clientId, key);
+      }
+      const status = event.status?.toLowerCase() ?? '';
+      const failed = ['failed', 'error', 'failure', 'cancelled', 'canceled'].includes(status);
+      const ended = failed || ['completed', 'complete', 'done', 'idle', 'success', 'finished'].includes(status) || event.type === 'answer.done';
+      if (ended) {
+        if (key) tracker.finishTurn(key, failed);
+        if (failed) tracker.fail(execId); else tracker.complete(execId);
+        if (!key && !clientId) legacyKey = null;
+      } else {
+        if (!clientId && pending.size && !watches.has(execId)) watches.set(execId, new Set(pending));
+        tracker.begin(execId, event.quip || event.stage || DEFAULT_QUIP);
+      }
+      return execId;
+    },
+    finish(execId: string, sid: string, identity?: TurnIdentity, failed = false) {
+      if (identity) {
+        bindIdentity(execId, identity, sid);
+        const key = turnKey(identity, sid);
+        if (key) tracker.finishTurn(key, failed);
+      }
+      // REST 본문이 ID를 생략해도 앞서 WS에서 알게 된 턴을 종료한다.
+      for (const key of executionTurns.get(execId) ?? []) tracker.finishTurn(key, failed);
+      if (failed) tracker.fail(execId); else tracker.complete(execId);
+      pending.delete(execId);
+      for (const [wsId, owners] of watches) {
+        owners.delete(execId);
+        if (!owners.size) {
+          for (const key of executionTurns.get(wsId) ?? []) tracker.finishTurn(key, failed);
+          tracker.complete(wsId);
+          watches.delete(wsId);
+          if (legacyKey === wsId) legacyKey = null;
+        }
+      }
     },
   };
 }

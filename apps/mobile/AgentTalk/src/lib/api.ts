@@ -3,7 +3,8 @@
 //   REST:  /api/sessions/ensure, /api/... (Fastify + JWT)
 //   WebSocket: /ws?session_id=<id>&token=<jwt> (dev 모드: 토큰 없이 연결 허용)
 // 참고: 네이티브/웹 모두 동작하도록 fetch + 글로벌 WebSocket 사용.
-import { DialogueState } from '../store';
+import type { DialogueState } from '../store';
+import type { TurnIdentity } from './chatLogic';
 
 // ── 설정 ──────────────────────────────────────────
 const DEFAULT_API_URL = 'http://localhost:3000';
@@ -131,6 +132,11 @@ export interface ServerChatMessage {
 
 /** POST /api/sessions/:id/messages 동기 응답 (api-design.md §3.4) */
 export interface SendMessageResult {
+  turn_id?: string;
+  execution_id?: string;
+  run_id?: string;
+  turn_index?: number;
+  client_exec_id?: string;
   user_message_id: string;
   empathy_message_id: string | null;
   answer_message_id: string | null;
@@ -198,15 +204,20 @@ export const api = {
   },
 
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환) */
-  sendMessage: (sessionId: string, content: string) =>
+  sendMessage: (sessionId: string, content: string, clientExecId?: string) =>
     request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, message_type: 'text', attachments: [] }),
+      body: JSON.stringify({ content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
     }),
 };
 
 // ── WebSocket (백엔드 protocol.ts 서버→클라이언트) ─
 export type ServerMessage =
+  | (TurnIdentity & { type: 'turn.status'; session_id: string; status: 'received' | 'processing' | 'completed' | 'failed'; stage?: string; quip?: string })
+  | (TurnIdentity & { type: 'answer.delta'; session_id: string; delta: string })
+  | (TurnIdentity & { type: 'answer.done'; session_id: string })
+  | { type: 'message.new'; session_id: string; message: ServerChatMessage }
+  | (ServerChatMessage & { type: 'message.new' })
   | { type: 'connected'; session_id: string | null; timestamp: string }
   | { type: 'subscribed'; session_id: string; channels: string[] }
   | { type: 'error'; code: string; message: string }
@@ -307,6 +318,7 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
     } catch {
       return; // 비-JSON (오디오 바이너리 등) 무시
     }
+    if (!msg || typeof msg !== 'object') return;
     handlers.onRaw?.(msg as unknown as Record<string, unknown>);
     switch (msg.type) {
       case 'connected':

@@ -1,287 +1,310 @@
-// useChatSession — 채팅 MVP 세션 훅 (REST 실연결 + WebSocket + 히스토리 페이지네이션)
-// 설계: apps/backend/docs/api-design.md §3.4 (GET/POST /api/sessions/:id/messages) + §4 (WS)
-// 원칙:
-//   - demo 폴백은 "연결 실패 시에만" — health/ensure 실패 시 데모 모드로 강등
-//   - typing(처리중) 상태는 소스 카운터 기반 단일 진실: REST pending과 WS neuron.status가
-//     겹쳐도 "활성 소스 ≥ 1개"면 예외 없이 표시 — 깜빡임/소실 재현 금지 (공통 규칙: 100% 신뢰 가능한 상태 표시)
+// 에이전트톡은 사람↔에이전트 대화 앱이다. 처리중 표시는 실행별 상태를 따르며,
+// 지연 안내는 자연어 quip으로 전달한다. 데모/목업은 enterDemo의 명시적 선택만 허용한다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, connectVoiceSocket, VoiceSocket } from '../lib/api';
 import {
-  appendOptimistic,
-  confirmTurn,
-  createTypingTracker,
-  DEFAULT_QUIP,
-  mergeIncoming,
-  nextTurnIndex,
-  normalizeServerMessages,
-  oldestCursor,
-  prependPage,
-  ServerMessageRow,
+  appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
+  mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
+  prependPage, ServerMessageRow, TurnEvent,
 } from '../lib/chatLogic';
-import { ChatMessage } from '../types';
 
 export const PAGE_SIZE = 30;
-
-export interface UseChatSessionOptions {
-  /** 확보된 세션 id — 없으면 agentId로 ensure 시도 */
-  sessionId?: string | null;
-  agentId?: string | null;
-}
-
+export type SendResult = { ok: true } | { ok: false; error: string };
+export type Connection = 'connecting' | 'live' | 'reconnecting' | 'offline';
+export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null }
 export interface UseChatSessionReturn {
   sessionId: string | null;
   messages: ChatMessage[];
-  /** 에이전트 처리 중 — true인 동안 UI는 예외 없이 상태 표시 (100% 신뢰 규칙) */
   typing: boolean;
-  /** 지연 시 자연어 안내 — WS neuron.status quip 우선, 없으면 기본 대화체 문구 */
+  quip: string | null;
+  mode: 'live' | 'demo';
+  connection: Connection;
+  lastError: string | null;
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  send: (content: string) => Promise<SendResult>;
+  retryLastSend: () => Promise<SendResult>;
+  loadOlder: () => Promise<void>;
+  enterDemo: () => void;
+  clearError: () => void;
+  // 기존 화면과 병행 배포를 위한 호환 필드
   typingQuip: string | null;
   isDemo: boolean;
   error: string | null;
   hasMoreHistory: boolean;
   loadingHistory: boolean;
   ready: boolean;
-  send: (content: string) => Promise<void>;
-  loadOlder: () => Promise<void>;
+}
+let executionCounter = 0;
+const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+
+function createRuntime(onChange: (active: boolean, quip: string | null) => void) {
+  const tracker = createTypingTracker(onChange);
+    return {
+      tracker, coordinator: createTurnCoordinator(tracker), messages: [] as ChatMessage[],
+      generation: 0, sid: null as string | null, demo: false, initialized: false, loadingOlder: false,
+      socket: null as VoiceSocket | null, stop: () => {},
+      lastFailedContent: null as { content: string; id: string } | null,
+      demoTimers: new Map<ReturnType<typeof setTimeout>, (result: SendResult) => void>(),
+    };
 }
 
-// 데모 폴백 응답 — 백엔드 연결 실패 시에만 사용 (카드 지침: 연결 실패 시에만 demo 유지)
-// 에이전트는 도구가 아닌 인격체 — 데모 응답도 대화체 톤으로
-function demoReply(content: string): { empathy: string; answer: string } {
-  return {
-    empathy: `"${content.slice(0, 24)}" — 네, 말씀하신 내용 잘 받았어요.`,
-    answer:
-      `지금 백엔드와 연결되지 않아서 제가 온전히 능력을 발휘할 수 없는 상태예요.\n\n` +
-      `서버가 연결되면 "${content.slice(0, 40)}" 요청을 실제로 처리해서 결과를 보여드릴게요. 조금만 기다려주세요!`,
-  };
-}
-
-export function useChatSession(opts: UseChatSessionOptions = {}): UseChatSessionReturn {
-  const [sessionId, setSessionId] = useState<string | null>(opts.sessionId ?? null);
+export function useChatSession(sessionId?: string | null, opts?: UseChatSessionOptions): UseChatSessionReturn;
+export function useChatSession(opts?: UseChatSessionOptions): UseChatSessionReturn;
+export function useChatSession(
+  sessionOrOptions: string | null | UseChatSessionOptions | undefined = undefined, options: UseChatSessionOptions = {}
+): UseChatSessionReturn {
+  const opts = typeof sessionOrOptions === 'object' && sessionOrOptions !== null
+    ? sessionOrOptions : { ...options, sessionId: sessionOrOptions ?? options.sessionId };
+  const requestedSession = opts.sessionId;
+  const agentId = opts.agentId;
+  const [sessionId, setSessionId] = useState<string | null>(requestedSession ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
-  const [typingQuip, setTypingQuip] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [quip, setQuip] = useState<string | null>(null);
+  const [mode, setMode] = useState<'live' | 'demo'>('live');
+  const [connection, setConnection] = useState<Connection>('connecting');
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [ready, setReady] = useState(false);
+  const runtimeRef = useRef(createRuntime((active, text) => {
+    setTyping(active); setQuip(text);
+  }));
+  // 동시 전송도 최신 목록을 읽도록 렌더를 기다리지 않고 원자적으로 반영한다.
+  const updateMessages = useCallback((update: (prev: ChatMessage[]) => ChatMessage[]) => {
+    const runtime = runtimeRef.current;
+    runtime.messages = update(runtime.messages);
+    setMessages(runtime.messages);
+  }, [runtimeRef]);
 
-  const socketRef = useRef<VoiceSocket | null>(null);
-  const messagesRef = useRef<ChatMessage[]>([]);
-  messagesRef.current = messages;
-  const initRef = useRef(false);
-  const demoTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const trackerRef = useRef(
-    createTypingTracker((active, quip) => {
-      setTyping(active);
-      setTypingQuip(quip);
-    })
-  );
-
-  // WS neuron.status 처리 — processing 계열이면 소스 활성화, idle/완료면 해제
-  const handleNeuronStatus = useCallback((neuronSlug: string, status: string, quip: string | null) => {
-    const tracker = trackerRef.current;
-    const source = `ws:${neuronSlug}`;
-    const processing = status === 'processing' || status === 'running' || status === 'active';
-    if (processing) tracker.begin(source, quip);
-    else tracker.end(source);
-  }, []);
-
-  // ── 초기화: 세션 확보 → 히스토리 로드 → WS 연결 ──
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
-    const tracker = trackerRef.current;
-
-    let cancelled = false;
-
-    async function init() {
-      // 1) 세션 확보
-      let sid = opts.sessionId ?? null;
-      try {
-        if (!sid && opts.agentId) {
-          const env = await api.ensureSession(opts.agentId);
-          sid = env?.data?.id ?? null;
-        }
-        // 서버 생존 확인 (토큰 만료 등 조기 감지)
-        if (sid) await api.health();
-      } catch {
-        if (cancelled) return;
-        // 연결 실패 → 데모 폴백
-        setIsDemo(true);
-        setError(null);
-        setReady(true);
-        return;
+    const runtime = runtimeRef.current;
+    const generation = ++runtime.generation;
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let connectedOnce = false;
+    let socketVersion = 0;
+    const alive = () => !disposed && generation === runtime.generation;
+    runtime.demo = mode === 'demo';
+    runtime.initialized = false;
+    runtime.sid = null;
+    runtime.tracker = createTypingTracker((active, text) => { setTyping(active); setQuip(text); });
+    runtime.coordinator = createTurnCoordinator(runtime.tracker);
+    runtime.loadingOlder = false;
+    // 외부 세션 리소스를 바꿀 때만 UI 상태를 초기화한다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingOlder(false);
+    setReady(false);
+    setHasOlder(false);
+    const stop = () => {
+      disposed = true;
+      ++runtime.generation;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      runtime.socket?.close();
+      runtime.socket = null;
+      runtime.tracker.endAll();
+      for (const [timer, resolve] of runtime.demoTimers) {
+        clearTimeout(timer);
+        resolve({ ok: false, error: '대화가 종료되었습니다' });
       }
-
-      if (cancelled) return;
-      if (!sid) {
-        setIsDemo(true);
-        setReady(true);
-        return;
-      }
-      setSessionId(sid);
-      setIsDemo(false);
-
-      // 2) 히스토리 최초 로드
-      try {
-        const env = await api.getMessages(sid, { limit: PAGE_SIZE });
-        if (cancelled) return;
-        const rows = normalizeServerMessages((env?.data ?? []) as ServerMessageRow[]);
-        setMessages(rows);
-        setHasMoreHistory(Boolean(env?.meta?.has_more) && rows.length > 0);
-      } catch (e) {
-        if (cancelled) return;
-        setError(`히스토리를 불러오지 못했습니다: ${(e as Error).message}`);
-      }
-
-      // 3) WS 연결 — neuron.status(처리중 quip) 및 미래 message 이벤트 수신
-      socketRef.current?.close();
-      socketRef.current = connectVoiceSocket(sid, {
-        onNeuronStatus: (msg) => {
-          if (cancelled) return;
-          handleNeuronStatus(msg.neuron?.slug || 'unknown', msg.status, msg.quip || null);
-        },
-        onRaw: (raw) => {
-          if (cancelled) return;
-          // forward-compatible: 백엔드가 WS로 확정 메시지를 브로드캐스트하면 머지
-          const type = raw?.type as string;
-          if (type === 'message.new' || type === 'message.created') {
-            const row = (raw.message ?? raw.data) as ServerMessageRow | undefined;
-            if (row && row.id) {
-              const [incoming] = normalizeServerMessages([row]);
-              if (incoming) setMessages((prev) => mergeIncoming(prev, [incoming]));
-            }
-          }
-        },
-        onError: (msg) => {
-          if (!cancelled) setError(msg.message || '연결 오류');
-        },
-      });
-
-      if (!cancelled) setReady(true);
-    }
-
-    void init();
-    return () => {
-      cancelled = true;
-      socketRef.current?.close();
-      socketRef.current = null;
-      tracker.endAll();
-      for (const t of demoTimers.current) clearTimeout(t);
-      demoTimers.current = [];
+      runtime.demoTimers.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── 이전 히스토리 페이지 로드 (turn_index 커서) ──
-  const loadOlder = useCallback(async () => {
-    const sid = sessionId;
-    if (!sid || isDemo || loadingHistory || !hasMoreHistory) return;
-    const cursor = oldestCursor(messagesRef.current);
-    if (cursor === null || cursor <= 0) {
-      setHasMoreHistory(false);
-      return;
+    runtime.stop = stop;
+    if (mode === 'demo') {
+      setConnection('offline');
+      setReady(true);
+      runtime.initialized = true;
+      return stop;
     }
-    setLoadingHistory(true);
+    updateMessages(() => []);
+    runtime.lastFailedContent = null;
+    setSessionId(requestedSession ?? null);
+    setLastError(null);
+    setConnection('connecting');
+
+    async function refresh(sid: string, initial: boolean) {
+      const env = await api.getMessages(sid, { limit: PAGE_SIZE });
+      if (!env.ok || !env.data) throw new Error(env.error?.message || '대화를 불러오지 못했습니다');
+      if (!alive()) return;
+      const rows = normalizeServerMessages(env.data);
+      updateMessages((prev) => mergeIncoming(prev, rows));
+      if (initial) setHasOlder(Boolean(env.meta?.has_more) && rows.length > 0);
+    }
+    function connect(sid: string) {
+      if (!alive()) return;
+      const version = ++socketVersion;
+      const current = () => alive() && version === socketVersion;
+      let disconnected = false;
+      const reconnect = () => {
+        if (!current() || disconnected) return;
+        disconnected = true;
+        setConnection('reconnecting');
+        reconnectTimer = setTimeout(() => {
+          runtime.socket?.close();
+          connect(sid);
+        }, nextBackoffMs(attempt++));
+      };
+      try {
+        runtime.socket = connectVoiceSocket(sid, {
+          onStatusChange: (status) => {
+            if (!current()) return;
+            if (status === 'connected' && !disconnected) {
+              setConnection('live');
+              const recovering = connectedOnce || attempt > 0;
+              connectedOnce = true;
+              attempt = 0;
+              if (recovering) void refresh(sid, false).catch((e) => {
+                if (current()) setLastError(`누락된 대화를 복구하지 못했습니다: ${errorText(e)}`);
+              });
+            } else if (status === 'disconnected') reconnect();
+          },
+          onRaw: (raw) => {
+            if (!current() || disconnected || (raw.session_id && raw.session_id !== sid)) return;
+            const type = raw.type;
+            if (type === 'message.new' || type === 'message.created') {
+              const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
+              if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([row])));
+            } else if (type === 'turn.status' || type === 'neuron.status' || type === 'answer.done' || type === 'answer.delta') {
+              // delta도 실행 상태에 반영한다. 확정 본문은 message.new/REST/재조회에서 머지한다.
+              runtime.coordinator.observe(raw as unknown as TurnEvent, sid);
+            }
+          },
+          onError: (msg) => {
+            if (!current()) return;
+            setLastError(msg.message || '연결 오류');
+            // 명시적 서버/인증/지원 오류는 자동 재연결을 멈춘다.
+            disconnected = true;
+            ++socketVersion;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            runtime.socket?.close();
+            setConnection('offline');
+          },
+        });
+      } catch (e) {
+        if (current()) { setLastError(errorText(e)); setConnection('offline'); }
+      }
+    }
+    async function init() {
+      try {
+        let sid = requestedSession ?? null;
+        if (!sid && agentId) {
+          const env = await api.ensureSession(agentId);
+          if (!env.ok || !env.data?.id) throw new Error(env.error?.message || '세션을 확보하지 못했습니다');
+          sid = env.data.id;
+        }
+        if (!sid) throw new Error('대화할 세션을 확보하지 못했습니다');
+        if (!alive()) return;
+        setSessionId(sid);
+        runtime.sid = sid;
+        await refresh(sid, true);
+        if (!alive()) return;
+        runtime.initialized = true;
+        setReady(true);
+        connect(sid);
+      } catch (e) {
+        if (alive()) { setLastError(errorText(e)); setConnection('offline'); setReady(true); }
+      }
+    }
+    void init();
+    return stop;
+  }, [requestedSession, agentId, mode, runtimeRef, updateMessages]);
+
+  const loadOlder = useCallback(async () => {
+    const runtime = runtimeRef.current;
+    const sid = runtime.sid;
+    if (!sid || runtime.demo || runtime.loadingOlder || !hasOlder) return;
+    const cursor = oldestCursor(runtime.messages);
+    if (cursor === null || cursor <= 0) { setHasOlder(false); return; }
+    const generation = runtime.generation;
+    runtime.loadingOlder = true;
+    setLoadingOlder(true);
     try {
       const env = await api.getMessages(sid, { before: cursor, limit: PAGE_SIZE });
-      const older = normalizeServerMessages((env?.data ?? []) as ServerMessageRow[]);
-      setMessages((prev) => prependPage(prev, older));
-      setHasMoreHistory(older.length >= PAGE_SIZE);
+      if (!env.ok || !env.data) throw new Error(env.error?.message || '이전 대화를 불러오지 못했습니다');
+      if (generation !== runtime.generation) return;
+      const older = normalizeServerMessages(env.data);
+      updateMessages((prev) => prependPage(prev, older));
+      setHasOlder(env.meta?.has_more ?? older.length >= PAGE_SIZE);
     } catch (e) {
-      setError(`이전 대화를 불러오지 못했습니다: ${(e as Error).message}`);
-      setHasMoreHistory(false);
+      if (generation === runtime.generation) setLastError(errorText(e));
     } finally {
-      setLoadingHistory(false);
+      if (generation === runtime.generation) { runtime.loadingOlder = false; setLoadingOlder(false); }
     }
-  }, [sessionId, isDemo, loadingHistory, hasMoreHistory]);
+  }, [runtimeRef, hasOlder, updateMessages]);
 
-  // ── 메시지 전송 ──
-  const send = useCallback(
-    async (content: string) => {
-      const text = content.trim();
-      if (!text) return;
-      setError(null);
-      const tracker = trackerRef.current;
-
-      // 데모 모드: 로컬 에코 (연결 실패 시에만 이 경로)
-      if (isDemo || !sessionId) {
-        const base = nextTurnIndex(messagesRef.current);
-        const draft: ChatMessage = { id: `demo-user-${Date.now()}`, role: 'user', content: text, turnIndex: base };
-        setMessages((prev) => appendOptimistic(prev, { ...draft, pending: true }));
-        tracker.begin('rest:send', '생각 중이에요…');
-        const t = setTimeout(() => {
-          const reply = demoReply(text);
-          setMessages((prev) =>
-            confirmTurn(
-              prev,
-              draft.id,
-              {
-                user_message_id: draft.id,
-                empathy_message_id: `demo-empathy-${Date.now()}`,
-                answer_message_id: `demo-answer-${Date.now()}`,
-                empathy_response: reply.empathy,
-                answer_response: reply.answer,
-              },
-              text,
-              base
-            )
-          );
-          tracker.end('rest:send');
-        }, 900);
-        demoTimers.current.push(t);
-        return;
+  const performSend = useCallback(async (content: string, retryId?: string): Promise<SendResult> => {
+    const runtime = runtimeRef.current;
+    const text = content.trim();
+    if (!text) return { ok: false, error: '메시지를 입력해주세요' };
+    const generation = runtime.generation;
+    const coordinator = runtime.coordinator;
+    const execId = `exec-${Date.now()}-${++executionCounter}`;
+    const optimisticId = retryId ?? `local-${execId}`;
+    const base = runtime.messages.find((m) => m.id === retryId)?.turnIndex ?? nextTurnIndex(runtime.messages);
+    const sid = runtime.sid;
+    setLastError(null);
+    updateMessages((prev) => appendOptimistic(prev, {
+      id: optimisticId, role: 'user', content: text, turnIndex: base, pending: true, status: 'pending',
+    }));
+    coordinator.start(execId);
+    try {
+      if (runtime.demo) {
+        return await new Promise<SendResult>((resolve) => {
+          const timer = setTimeout(() => {
+            runtime.demoTimers.delete(timer);
+            updateMessages((prev) => confirmTurn(prev, optimisticId, {
+              user_message_id: optimisticId, answer_message_id: `demo-answer-${execId}`,
+              answer_response: `“${text.slice(0, 40)}” — 말씀 잘 받았어요. 지금은 직접 선택하신 데모 대화예요.`,
+            }, text, base));
+            resolve({ ok: true });
+          }, 900);
+          runtime.demoTimers.set(timer, resolve);
+        });
       }
-
-      // 실연결: 낙관적 추가 → POST 동기 응답으로 확정
-      // REST pending과 WS neuron.status가 동시에 들어와도 트래커가 상태 소실을 막는다.
-      const base = nextTurnIndex(messagesRef.current);
-      const optimisticId = `local-${Date.now()}`;
-      setMessages((prev) =>
-        appendOptimistic(prev, { id: optimisticId, role: 'user', content: text, turnIndex: base, pending: true })
-      );
-      tracker.begin('rest:send', DEFAULT_QUIP);
-
-      try {
-        const env = await api.sendMessage(sessionId, text);
-        const data = env?.data;
-        if (!env?.ok || !data) {
-          throw new Error(env?.error?.message || '응답이 비어 있습니다');
-        }
-        setMessages((prev) => confirmTurn(prev, optimisticId, data, text, base));
-      } catch (e) {
-        // 전송 실패 — 낙관적 메시지 회수 + 시스템 오류 카드
-        setMessages((prev) => [
-          ...prev.filter((m) => m.id !== optimisticId),
-          {
-            id: `err-${Date.now()}`,
-            role: 'system',
-            content: `전송 실패: ${(e as Error).message}`,
-            turnIndex: base,
-          },
-        ]);
-        setError((e as Error).message);
-      } finally {
-        tracker.end('rest:send');
+      if (!sid || !runtime.initialized) throw new Error('대화 연결이 준비되지 않았습니다');
+      const env = await api.sendMessage(sid, text, execId);
+      if (!env.ok || !env.data) throw new Error(env.error?.message || '응답이 비어 있습니다');
+      if (generation !== runtime.generation) return { ok: false, error: '대화가 변경되었습니다' };
+      updateMessages((prev) => confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base));
+      coordinator.finish(execId, sid, env.data);
+      if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
+      return { ok: true };
+    } catch (e) {
+      const error = errorText(e);
+      if (generation === runtime.generation) {
+        updateMessages((prev) => prev.map((m) => m.id === optimisticId ? { ...m, pending: false, status: 'failed' } : m));
+        runtime.lastFailedContent = { content, id: optimisticId };
+        setLastError(error);
       }
-    },
-    [sessionId, isDemo]
-  );
-
+      coordinator.finish(execId, sid ?? '', undefined, true);
+      return { ok: false, error };
+    } finally {
+      // 종료 WS가 누락되어도 REST 확정/실패는 반드시 해당 실행을 종료한다.
+      coordinator.finish(execId, sid ?? '');
+    }
+  }, [runtimeRef, updateMessages]);
+  const send = useCallback((content: string) => performSend(content), [performSend]);
+  const retryLastSend = useCallback((): Promise<SendResult> => {
+    const runtime = runtimeRef.current;
+    const failed = runtime.lastFailedContent;
+    return failed ? performSend(failed.content, failed.id)
+      : Promise.resolve({ ok: false, error: '재시도할 메시지가 없습니다' });
+  }, [runtimeRef, performSend]);
+  const enterDemo = useCallback(() => {
+    const runtime = runtimeRef.current;
+    if (runtime.demo) return;
+    runtime.stop();
+    runtime.demo = true;
+    setLastError(null);
+    setMode('demo');
+  }, [runtimeRef]);
+  const clearError = useCallback(() => setLastError(null), []);
   return {
-    sessionId,
-    messages,
-    typing,
-    typingQuip,
-    isDemo,
-    error,
-    hasMoreHistory,
-    loadingHistory,
-    ready,
-    send,
-    loadOlder,
+    sessionId, messages, typing, quip, mode, connection, lastError, hasOlder, loadingOlder,
+    send, retryLastSend, loadOlder, enterDemo, clearError,
+    typingQuip: quip, isDemo: mode === 'demo', error: lastError,
+    hasMoreHistory: hasOlder, loadingHistory: loadingOlder, ready,
   };
 }
-
-export default useChatSession;

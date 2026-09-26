@@ -185,3 +185,110 @@ test('typingTracker — 동일 상태 중복 emit 없음 (렌더 낭비 방지)'
   t.endAll();
   assert.deepEqual(events, [true, false]);
 });
+
+// 실행/턴 계약 회귀 테스트
+import { createTurnCoordinator, nextBackoffMs, turnKey } from '../../src/lib/chatLogic';
+
+test('실행 A/B 동시 전송 — A 완료 후에도 B의 처리중 표시 유지', () => {
+  const tracker = createTypingTracker(() => {});
+  tracker.begin('A'); tracker.begin('B');
+  assert.equal(tracker.activeCount, 2);
+  tracker.complete('A');
+  assert.equal(tracker.active, true);
+  assert.equal(tracker.activeCount, 1);
+  tracker.complete('B');
+  assert.equal(tracker.active, false);
+});
+
+test('실행 begin/complete/fail/cancel 멱등성과 늦은 begin 방어', () => {
+  const tracker = createTypingTracker(() => {});
+  tracker.begin('A'); tracker.begin('A');
+  assert.equal(tracker.activeCount, 1);
+  tracker.complete('A'); tracker.complete('A'); tracker.fail('A'); tracker.begin('A');
+  assert.equal(tracker.activeCount, 0);
+  tracker.fail('B'); tracker.begin('B');
+  tracker.begin('C'); tracker.cancel('C'); tracker.cancel('C');
+  assert.equal(tracker.activeCount, 0);
+});
+
+test('turn.status completed — 같은 turn에 연결된 미종료 실행 모두 종료', () => {
+  const tracker = createTypingTracker(() => {});
+  const turns = createTurnCoordinator(tracker);
+  for (const id of ['A', 'B']) {
+    turns.start(id);
+    turns.observe({ type: 'turn.status', turn_id: 'turn1', client_exec_id: id, status: 'processing' }, 's');
+  }
+  turns.start('C');
+  turns.observe({ type: 'turn.status', turn_id: 'turn1', status: 'completed' }, 's');
+  assert.equal(tracker.activeCount, 1);
+  turns.finish('C', 's');
+  assert.equal(tracker.active, false);
+  turns.observe({ type: 'turn.status', turn_id: 'turn1', status: 'processing' }, 's');
+  assert.equal(tracker.active, false);
+});
+
+test('REST 종료 안전장치 — 식별자 없는 레거시 WS와 동시 요청', () => {
+  const tracker = createTypingTracker(() => {});
+  const turns = createTurnCoordinator(tracker);
+  turns.start('A'); turns.start('B');
+  turns.observe({ type: 'neuron.status', status: 'processing' }, 's');
+  turns.finish('A', 's');
+  assert.equal(tracker.active, true);
+  turns.finish('B', 's', undefined, true);
+  assert.equal(tracker.active, false);
+});
+
+test('서버 ID 별칭과 turn_index 폴백, answer.done 및 실패 종료', () => {
+  assert.equal(turnKey({ execution_id: 'e' }, 's'), 's:turn:e');
+  assert.equal(turnKey({ run_id: 'r' }, 's'), 's:turn:r');
+  assert.equal(turnKey({ turn_index: 0 }, 's'), 's:index:0');
+  const tracker = createTypingTracker(() => {});
+  const turns = createTurnCoordinator(tracker);
+  turns.observe({ type: 'answer.delta', execution_id: 'e', run_id: 'r' }, 's');
+  turns.observe({ type: 'answer.done', run_id: 'r' }, 's');
+  assert.equal(tracker.active, false);
+  turns.observe({ type: 'neuron.status', turn_index: 2, status: 'received' }, 's');
+  turns.observe({ type: 'neuron.status', turn_index: 2, status: 'error' }, 's');
+  assert.equal(tracker.active, false);
+});
+
+test('nextBackoffMs — 지수 증가, 30초 캡, ±20% jitter', () => {
+  assert.deepEqual([0, 1, 2, 10].map((n) => nextBackoffMs(n, () => 0.5)), [1000, 2000, 4000, 30000]);
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const base = Math.min(30000, 1000 * 2 ** attempt);
+    for (const random of [0, 0.25, 0.5, 0.75, 1]) {
+      const delay = nextBackoffMs(attempt, () => random);
+      assert.ok(delay >= base * 0.8 && delay <= Math.min(30000, base * 1.2));
+    }
+  }
+});
+
+test('재조회 복구 — 페이지 내부 중복도 제거하고 turn_index 순서 유지', () => {
+  const row = (id: string, turnIndex: number): ChatMessage => ({ id, turnIndex, role: 'agent', content: id });
+  const merged = mergeIncoming([row('b', 2)], [row('c', 3), row('a', 1), row('b', 2), row('c', 3)]);
+  assert.deepEqual(merged.map((m) => m.id), ['a', 'b', 'c']);
+  assert.equal(mergeIncoming(merged, merged), merged);
+});
+
+test('REST와 WS의 동일 실행은 하나로 추적하고 늦은 진행 이벤트로 부활하지 않는다', () => {
+  const tracker = createTypingTracker(() => {});
+  const turns = createTurnCoordinator(tracker);
+  turns.start('client-A');
+  turns.observe({ type: 'turn.status', turn_id: 'server-turn', client_exec_id: 'client-A', status: 'received' }, 's');
+  turns.observe({ type: 'turn.status', turn_id: 'server-turn', status: 'processing' }, 's');
+  assert.equal(tracker.activeCount, 1);
+  turns.finish('client-A', 's'); // REST 응답에는 turn_id가 없어도 WS 연결 기억
+  assert.equal(tracker.activeCount, 0);
+  turns.observe({ type: 'turn.status', turn_id: 'server-turn', status: 'processing' }, 's');
+  assert.equal(tracker.activeCount, 0);
+});
+
+test('REST client_exec_id를 execution_id로 반영한 서버도 begin 멱등', () => {
+  const tracker = createTypingTracker(() => {});
+  const turns = createTurnCoordinator(tracker);
+  turns.start('exec-A');
+  turns.observe({ type: 'turn.status', execution_id: 'exec-A', status: 'processing' }, 's');
+  assert.equal(tracker.activeCount, 1);
+  turns.observe({ type: 'turn.status', execution_id: 'exec-A', status: 'failed' }, 's');
+  assert.equal(tracker.activeCount, 0);
+});

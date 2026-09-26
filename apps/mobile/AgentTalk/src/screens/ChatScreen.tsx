@@ -35,14 +35,6 @@ interface Props {
   route: any;
 }
 
-// 뉴런 라벨 (source_neuron → 표시명) — 백엔드 protocol.ts NEURON_NAMES 대응
-const NEURON_LABEL: Record<string, string> = {
-  empathy: '공감 에이뉴런',
-  answer: '답변생성 에이뉴런',
-  visual: '비주얼 에이뉴런',
-  queue: '큐 에이뉴런',
-};
-
 // ── 메시지 카드 (전폭 사각형 — 좌우 말풍선 아님) ──
 function MessageCard({ item, agentName }: { item: ChatMessage; agentName: string }) {
   if (item.role === 'system') {
@@ -65,16 +57,58 @@ function MessageCard({ item, agentName }: { item: ChatMessage; agentName: string
         <Text style={[styles.msgRole, isUser ? styles.msgRoleUser : styles.msgRoleAgent]}>
           {isUser ? '나' : agentName}
         </Text>
-        {!isUser && item.sourceNeuron && (
-          <View style={styles.neuronChip}>
-            <Text style={styles.neuronChipText}>{NEURON_LABEL[item.sourceNeuron] || item.sourceNeuron}</Text>
-          </View>
-        )}
         {item.pending && <Text style={styles.pendingMark}>전송 중…</Text>}
       </View>
       <Text style={styles.msgText}>{item.content}</Text>
     </Surface>
   );
+}
+
+// ── 에이전트 턴 카드 — 같은 턴의 공감+답변을 하나의 결과 카드로 (Codex 리뷰 #4) ──
+// 내부 뉴런 이름(공감 에이뉴런 등)은 사용자에게 노출하지 않음: 대화만 시끄러워짐.
+// 공감을 카드 상단의 짧은 인사말로, 답변을 본문으로 구조화 = 결과 중심 출력.
+function AgentTurnCard({ items, agentName }: { items: ChatMessage[]; agentName: string }) {
+  const empathy = items.find((m) => m.sourceNeuron === 'empathy');
+  const body = items.filter((m) => m !== empathy);
+  const pending = items.some((m) => m.pending);
+  const text = body.map((m) => m.content).join('\n\n');
+  return (
+    <Surface
+      style={[styles.msgCard, styles.msgCardAgent]}
+      elevation={0}
+      testID="message-agent"
+      accessibilityLabel={`${agentName}의 응답: ${text}`}
+    >
+      <View style={styles.msgHeader}>
+        <Text style={[styles.msgRole, styles.msgRoleAgent]}>{agentName}</Text>
+        {pending && <Text style={styles.pendingMark}>전송 중…</Text>}
+      </View>
+      {empathy ? <Text style={styles.empathyText}>{empathy.content}</Text> : null}
+      {body.map((m) => (
+        <Text key={m.id} style={styles.msgText}>{m.content}</Text>
+      ))}
+    </Surface>
+  );
+}
+
+// 같은 turnIndex 의 연속 에이전트 메시지를 하나의 턴 카드로 그룹
+interface TurnGroup {
+  key: string;
+  role: 'user' | 'system' | 'agent';
+  items: ChatMessage[];
+}
+
+function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
+  const groups: TurnGroup[] = [];
+  for (const m of messages) {
+    const last = groups[groups.length - 1];
+    if (m.role === 'agent' && last && last.role === 'agent' && last.items[0].turnIndex === m.turnIndex) {
+      last.items.push(m);
+    } else {
+      groups.push({ key: m.id, role: m.role, items: [m] });
+    }
+  }
+  return groups;
 }
 
 // ── 처리중 카드 — 자연어 quip + 잔잔한 점 3개 (스피너 대신 대화체) ──
@@ -132,25 +166,61 @@ export default function ChatScreen({ navigation, route }: Props) {
     ready,
     send,
     loadOlder,
+    enterDemo,
+    retryLastSend,
+    connection,
   } = useChatSession({ sessionId: initialSessionId ?? null, agentId: agentId ?? null });
 
   const [input, setInput] = useState('');
-  const listRef = useRef<FlatList<ChatMessage>>(null);
+  const [sendFailed, setSendFailed] = useState(false);
+  const listRef = useRef<FlatList<TurnGroup>>(null);
+
+  // 명시적 데모 진입 (목록의 "데모로 둘러보기"에서만) — 자동 폴백 없음
+  const demoParam = Boolean(route?.params?.demo);
+  useEffect(() => {
+    if (demoParam) enterDemo();
+  }, [demoParam, enterDemo]);
 
   const submit = useCallback(() => {
     const text = input.trim();
     if (!text) return;
     setInput('');
-    void send(text);
+    setSendFailed(false);
+    void send(text).then((res) => {
+      if (!res.ok) {
+        // 실패 시 입력 원문 복원 (Codex 리뷰 #2 — 초안 보존) + 재시도 UI
+        setInput(text);
+        setSendFailed(true);
+      }
+    });
   }, [input, send]);
 
-  // 새 메시지/typing 도착 시 최하단 스크롤
+  const retry = useCallback(() => {
+    setSendFailed(false);
+    void retryLastSend().then((res) => {
+      if (!res.ok) setSendFailed(true);
+    });
+  }, [retryLastSend]);
+
+  // 스크롤: 새 메시지가 "꼬리에 추가"될 때만 최하단 이동 (Codex 리뷰 #2 —
+  // 이전 히스토리 prepend 시 messages.length 변화로 최하단 점프하면 안 됨)
+  const firstIdRef = useRef<string | null>(null);
+  const lastIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const t = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    }, 50);
-    return () => clearTimeout(t);
-  }, [messages.length, typing]);
+    const firstId = messages.length ? messages[0].id : null;
+    const lastId = messages.length ? messages[messages.length - 1].id : null;
+    const appended = lastId !== lastIdRef.current;
+    const prepended = firstId !== firstIdRef.current && lastIdRef.current !== null;
+    firstIdRef.current = firstId;
+    lastIdRef.current = lastId;
+    if (appended && !prepended) {
+      const t = setTimeout(() => {
+        listRef.current?.scrollToEnd({ animated: true });
+      }, 50);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [messages, typing]);
 
   const renderFooter = useCallback(() => {
     // 처리중 카드 — typing=true인 동안 항상 렌더 (100% 신뢰 규칙)
@@ -171,13 +241,15 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const subtitle = isDemo
-    ? '데모 모드 — 백엔드 미연결'
+    ? '데모 모드 — 직접 선택한 대화'
     : typing
     ? (typingQuip || '응답 준비 중…')
+    : connection === 'reconnecting'
+    ? '연결이 끊어져서 다시 잇는 중이에요'
+    : connection === 'offline'
+    ? '연결이 끊겼어요 — 잠시 후 다시 시도해 주세요'
     : sessionId
     ? `${agentName}이(가) 듣고 있어요 · 세션 ${sessionId.slice(0, 8)}`
-    : ready
-    ? '연결됨'
     : '연결 중…';
 
   return (
@@ -211,14 +283,25 @@ export default function ChatScreen({ navigation, route }: Props) {
       {error && !typing && (
         <View style={styles.errorBar} testID="error-bar">
           <Text style={styles.errorText}>{error}</Text>
+          {sendFailed && (
+            <TouchableOpacity onPress={retry} style={styles.retryButton} testID="retry-send">
+              <Text style={styles.retryText}>재시도</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
       <FlatList
         ref={listRef}
-        data={messages}
-        renderItem={({ item }) => <MessageCard item={item} agentName={agentName} />}
-        keyExtractor={(item) => item.id}
+        data={groupByTurn(messages)}
+        renderItem={({ item }) =>
+          item.role === 'agent' ? (
+            <AgentTurnCard items={item.items} agentName={agentName} />
+          ) : (
+            <MessageCard item={item.items[0]} agentName={agentName} />
+          )
+        }
+        keyExtractor={(item) => item.key}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={renderHeader}
         ListFooterComponent={renderFooter}
@@ -332,10 +415,27 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sp2,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(220,38,38,0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sp2,
   },
   errorText: {
     fontSize: typography.caption.fontSize,
     color: colors.statusErr,
+    flex: 1,
+  },
+  retryButton: {
+    borderWidth: 1,
+    borderColor: colors.statusErr,
+    borderRadius: radii.xs,
+    paddingHorizontal: spacing.sp3,
+    paddingVertical: spacing.sp1,
+  },
+  retryText: {
+    fontSize: typography.caption.fontSize,
+    color: colors.statusErr,
+    fontWeight: '600',
   },
   listContent: {
     paddingHorizontal: spacing.sp3,
@@ -398,6 +498,13 @@ const styles = StyleSheet.create({
     fontSize: typography.body.fontSize,
     lineHeight: 22,
     color: colors.text1,
+  },
+  empathyText: {
+    fontSize: typography.body.fontSize,
+    color: colors.text2,
+    fontStyle: 'italic',
+    lineHeight: 21,
+    marginBottom: spacing.sp1,
   },
   systemRow: {
     alignItems: 'center',
