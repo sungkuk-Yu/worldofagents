@@ -63,6 +63,9 @@ export function isTap(durationMs: number): boolean {
 }
 
 /** 8방향 기본 라벨 — 화면/상호작용에 표시 (스크린 7 기본값) */
+/* i18n-exempt-start — 8방향 기본 라벨. 사용자 저장 데이터(joystickMapping 커스텀 라벨)와
+   동일 채널 혼재 + t_267f14da/t_eded715c 소관 파일 — 값 키화 금지.
+   화면 표시는 VoiceHomeScreen이 directionLabels로 t('cards.formYes') 등 주입. */
 export const DEFAULT_DIRECTION_LABELS: Record<JoystickGesture, string> = {
   TAP_CENTER: '말하기',
   LONG_CENTER: '녹음 중',
@@ -75,6 +78,7 @@ export const DEFAULT_DIRECTION_LABELS: Record<JoystickGesture, string> = {
   DIR_LEFT: '예',
   DIR_UPLEFT: '왼쪽 위',
 };
+/* i18n-exempt-end */
 
 /** 8방향 화살표 심볼 */
 export const DIRECTION_ARROWS: Record<JoystickGesture, string> = {

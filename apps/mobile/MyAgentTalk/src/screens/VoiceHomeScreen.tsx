@@ -27,7 +27,7 @@ interface Props {
   route: any;
 }
 
-const MOCK_AGENTS = ['머스크', '르네즈미', '잡스'];
+const MOCK_AGENTS = ['머스크', '르네즈미', '잡스']; // i18n-exempt: 데모 페르소나 고유명사 — 번역 대상 아님 (실서버 연동 시 서버 제공 이름으로 대체)
 const AGENT_COLORS = [colors.accent, colors.segData, colors.segTask];
 
 export default function VoiceHomeScreen({ navigation, route }: Props) {
@@ -66,8 +66,8 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
     if (gesture === 'TAP_CENTER') { setRecording(!isRecording); return; }
     if (gesture === 'LONG_CENTER') { setRecording(true); void startSession(); return; }
     switch (actionFor(gesture)) {
-      case 'yes': addTranscript('user', '네, 먼저 처리해주세요.', false); break;
-      case 'no': addTranscript('user', '아니요, 괜찮습니다.', false); break;
+      case 'yes': addTranscript('user', t('voice.yesReply'), false); break;
+      case 'no': addTranscript('user', t('voice.noReply'), false); break;
       case 'cancel': setRecording(false); break;
       case 'keyboard': navigation.navigate('Chat', {}); break; // 텍스트 전환 — 요구 6
       case 'record_stop': setRecording(false); break;
@@ -144,10 +144,10 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
     if (!st.setSegmentHistory) return;
     // 데모: 최근 발화 → 결과 세그먼트 3종 생성
     st.setSegmentHistory([
-      { id: 'seg-msg-1', type: 'information', label: '첫 답변', isNew: false, summary: last.text },
-      { id: 'seg-msg-2', type: 'data', label: '정리', isNew: true, summary: `${last.text} (요약)` },
+      { id: 'seg-msg-1', type: 'information', label: t('voice.segFirstAnswer'), isNew: false, summary: last.text },
+      { id: 'seg-msg-2', type: 'data', label: t('voice.segSummary'), isNew: true, summary: t('voice.summaryOf', { text: last.text }) },
     ]);
-  }, [transcripts]);
+  }, [transcripts, t]);
 
   return (
     <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
@@ -155,7 +155,7 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.agentStrip}
-          accessibilityLabel={`현재 에이전트: ${agentName}`}
+          accessibilityLabel={t('voice.currentAgent', { name: agentName })}
         >
           <View style={[styles.agentDot, { backgroundColor: agentColor }]} />
           <Text style={styles.agentName}>{agentName}</Text>
@@ -176,21 +176,21 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
                 : styles.statusIdle,
             ]}
           >
-            {isDemo && <Text style={styles.statusText}>데모</Text>}
+            {isDemo && <Text style={styles.statusText}>{t('voice.demoBadge')}</Text>}
             {!isDemo && (
               <Text style={styles.statusText}>
                 {connectionStatus === 'connected'
-                  ? '연결됨'
+                  ? t('chat.live')
                   : connectionStatus === 'connecting'
-                  ? '연결 중…'
-                  : '대기'}
+                  ? t('chat.connecting')
+                  : t('voice.idle')}
               </Text>
             )}
           </View>
           <TouchableOpacity
             onPress={() => navigation.navigate('Settings')}
             style={styles.settingsButton}
-            accessibilityLabel="설정"
+            accessibilityLabel={t('common.settings')}
           >
             <Text style={styles.settingsIcon}>⚙</Text>
           </TouchableOpacity>
@@ -201,7 +201,7 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
       <View style={styles.transcriptArea}>
         <RealtimeTranscript transcripts={transcripts} isRecording={isRecording} />
         {sessionId && !isDemo && (
-          <Text style={styles.sessionMeta}>세션 {sessionId.slice(0, 8)}</Text>
+          <Text style={styles.sessionMeta}>{t('voice.sessionId', { id: sessionId.slice(0, 8) })}</Text>
         )}
       </View>
 

@@ -105,5 +105,5 @@ export function flattenFolderTree(tree: FolderNodeLite, depth = 0): FlatFolder[]
 /** 새 노트 폴더 제안 — 현재 선택 폴더 유지, 루트면 '/대화' 대신 '/노트'. */
 export function defaultFolderForNewNote(current: string | null | undefined): string {
   const folder = (current ?? '').trim();
-  return folder && folder !== '/' ? folder : '/노트';
+  return folder && folder !== '/' ? folder : '/노트'; // i18n-exempt: 서버 저장 경로 식별자(폴더명 데이터) — 번역 시 저장 데이터와 불일치. 볼트 폴더 i18n은 서버 소관(별도 카드)
 }

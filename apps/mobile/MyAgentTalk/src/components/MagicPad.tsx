@@ -21,6 +21,7 @@ import {
   type GestureResponderHandlers,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useTranslation } from 'react-i18next';
 import { JoystickGesture } from '../types';
 import { colors, typography, iconSize } from '../theme';
 import { getDirection, DIRECTION_ARROWS, DEFAULT_DIRECTION_LABELS, GESTURE_CONFIG } from '../lib/gesture';
@@ -59,20 +60,16 @@ const HYBRID_THUMB_RADIUS = Math.round(ANCHOR_SIZE / 2); // 스틱 썸 활성 �
 
 type Phase = 'idle' | 'press' | 'swipe' | 'drag' | 'scroll';
 
-export function swipeLabelKo(action: SwipeAction): string {
-  // 엔진 라벨과 같은 한국어 물리 직관어 — 확정 피드백(화면 dispatcher와 무관)
-  switch (action) {
-    case 'record_stop': return '녹음 종료';
-    case 'cancel': return '취소';
-    case 'prev_segment': return '이전 결과';
-    case 'next_segment': return '다음 결과';
-  }
+export function swipeLabelKo(action: SwipeAction, t: (key: string) => string): string {
+  // 엔진 라벨과 같은 물리 직관어 — 확정 피드백(화면 dispatcher와 무관). joystick.actions 사전 재사용.
+  return t(`joystick.actions.${action}`);
 }
 
 export default function MagicPad({
   variant, onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease,
   isRecording, directionLabels,
 }: Props) {
+  const { t } = useTranslation();
   const [pulseAnim] = useState(() => new Animated.Value(0.5));
   const [hint, setHint] = useState<{ arrow?: string; text: string } | null>(null);
   const [trail, setTrail] = useState<{ x: number; y: number }[]>([]); // 스와이프 궤적 (페이드 렌더)
@@ -85,11 +82,11 @@ export default function MagicPad({
   const phaseRef = useRef<Phase>('idle');
   const lastTapAtRef = useRef(0); // 더블탭 판정용 — 이전 탭 종료 시각
 
-  // 최신 콜백/props를 ref에 유지 — PanResponder는 1회 생성(JoystickMic 패턴)
-  const cbs = useRef({ onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels });
+  // 최신 콜백/props/t를 ref에 유지 — PanResponder는 1회 생성(JoystickMic 패턴). t는 언어 전환 반영용
+  const cbs = useRef({ onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels, t });
   useEffect(() => {
-    cbs.current = { onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels };
-  }, [onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels]);
+    cbs.current = { onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels, t };
+  }, [onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels, t]);
 
   // 아이들 펄스 (패드에 띄워진 마이크 앵커)
   useEffect(() => {
@@ -136,7 +133,7 @@ export default function MagicPad({
         if (!inThumb && tr.startsAsDrag()) {
           // 우하단 그립 = 드래그(미세조정) 전용 계층
           phaseRef.current = 'drag';
-          setHint({ text: '미세조정 — 좌우로 이동' });
+          setHint({ text: cbs.current.t('joystick.dragFineTune') });
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           return;
         }
@@ -195,7 +192,7 @@ export default function MagicPad({
           phaseRef.current = 'swipe';
           setHint({
             arrow: DIRECTION_ARROWS[res.gesture],
-            text: swipeLabelKo(swipeActionFor(res.gesture)),
+            text: swipeLabelKo(swipeActionFor(res.gesture), cbs.current.t),
           });
           return;
         }
@@ -209,7 +206,7 @@ export default function MagicPad({
             cbs.current.onDragStep(delta);
             Haptics.selectionAsync();
           }
-          setHint({ text: '스크롤 — 좌우로 결과 이동' });
+          setHint({ text: cbs.current.t('joystick.scrollHint') });
           return;
         }
         if (distance >= PAD_CONFIG.microMoveThreshold) {
@@ -221,7 +218,7 @@ export default function MagicPad({
             const labels = { ...DEFAULT_DIRECTION_LABELS, ...cbs.current.directionLabels };
             setHint({
               arrow: DIRECTION_ARROWS[dir],
-              text: isSwipe ? swipeLabelKo(swipeActionFor(dir)) : labels[dir] ?? DEFAULT_DIRECTION_LABELS[dir],
+              text: isSwipe ? swipeLabelKo(swipeActionFor(dir), cbs.current.t) : labels[dir] ?? DEFAULT_DIRECTION_LABELS[dir],
             });
             // 스냅된 방향이 바뀔 때만 Light (요구 5 — 방향 피드백)
             if (hintDirRef.current !== dir) {
@@ -310,7 +307,7 @@ export default function MagicPad({
 
         {/* 우하단 그립 영역 힌트 */}
         <View style={styles.gripZone} pointerEvents="none">
-          <Text style={styles.gripLabel}>그립</Text>
+          <Text style={styles.gripLabel}>{t('joystick.grip')}</Text>
         </View>
 
         {/* hybrid = 중앙 스틱 썸 오버레이 */}
