@@ -7,11 +7,14 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PaperProvider, MD3LightTheme } from 'react-native-paper';
 import { StyleSheet } from 'react-native';
 
 import { colors } from './src/theme';
 import {
   DialogueListScreen,
+  ChatScreen,
+  LoginScreen,
   VoiceHomeScreen,
   ResultCanvasScreen,
   CardThreadScreen,
@@ -21,7 +24,9 @@ import {
 
 // 네비게이션 타입
 export type RootStackParamList = {
-  DialogueList: undefined;
+  Login: undefined;
+  DialogueList: { demo?: boolean } | undefined;
+  Chat: { sessionId?: string; agentId?: string; agentName?: string };
   VoiceHome: { dialogueId?: string };
   ResultCanvas: { dialogueId?: string };
   CardThread: { refType?: string; refTitle?: string };
@@ -47,51 +52,85 @@ const AppTheme = {
   },
 };
 
+// react-native-paper 테마 — 에이전트톡 토큰을 MD3에 매핑 (기성 컴포넌트에 기존 디자인 시스템 입히기)
+const PaperTheme = {
+  ...MD3LightTheme,
+  colors: {
+    ...MD3LightTheme.colors,
+    primary: colors.accent,
+    onPrimary: colors.onPrimary,
+    background: colors.bg,
+    onBackground: colors.text1,
+    surface: colors.surface,
+    onSurface: colors.text1,
+    surfaceVariant: colors.surfaceRaise,
+    onSurfaceVariant: colors.text2,
+    outline: colors.border,
+    outlineVariant: colors.border,
+    error: colors.statusErr,
+    onError: '#FFFFFF',
+    secondary: colors.accent,
+    tertiary: colors.segData,
+  },
+};
+
 export default function App() {
   return (
     <GestureHandlerRootView style={styles.container}>
-      <NavigationContainer theme={AppTheme}>
-        <Stack.Navigator
-          initialRouteName="DialogueList"
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right',
-            contentStyle: { backgroundColor: colors.bg },
-          }}
-        >
-          <Stack.Screen
-            name="DialogueList"
-            component={DialogueListScreen}
-            options={{ title: '에이전트톡' }}
-          />
-          <Stack.Screen
-            name="VoiceHome"
-            component={VoiceHomeScreen}
-            options={{ title: '음성 입력' }}
-          />
-          <Stack.Screen
-            name="ResultCanvas"
-            component={ResultCanvasScreen}
-            options={{ title: '결과', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="CardThread"
-            component={CardThreadScreen}
-            options={{ title: '스레드', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="NeuronDashboard"
-            component={NeuronDashboardScreen}
-            options={{ title: '뉴런 대시보드' }}
-          />
-          <Stack.Screen
-            name="Settings"
-            component={SettingsScreen}
-            options={{ title: '설정' }}
-          />
-        </Stack.Navigator>
-        <StatusBar style="dark" />
-      </NavigationContainer>
+      <PaperProvider theme={PaperTheme}>
+        <NavigationContainer theme={AppTheme}>
+          <Stack.Navigator
+            initialRouteName="DialogueList"
+            screenOptions={{
+              headerShown: false,
+              animation: 'slide_from_right',
+              contentStyle: { backgroundColor: colors.bg },
+            }}
+          >
+            <Stack.Screen
+              name="Login"
+              component={LoginScreen}
+              options={{ title: '로그인' }}
+            />
+            <Stack.Screen
+              name="DialogueList"
+              component={DialogueListScreen}
+              options={{ title: '에이전트톡' }}
+            />
+            <Stack.Screen
+              name="Chat"
+              component={ChatScreen}
+              options={{ title: '채팅' }}
+            />
+            <Stack.Screen
+              name="VoiceHome"
+              component={VoiceHomeScreen}
+              options={{ title: '음성 입력' }}
+            />
+            <Stack.Screen
+              name="ResultCanvas"
+              component={ResultCanvasScreen}
+              options={{ title: '결과', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="CardThread"
+              component={CardThreadScreen}
+              options={{ title: '스레드', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="NeuronDashboard"
+              component={NeuronDashboardScreen}
+              options={{ title: '뉴런 대시보드' }}
+            />
+            <Stack.Screen
+              name="Settings"
+              component={SettingsScreen}
+              options={{ title: '설정' }}
+            />
+          </Stack.Navigator>
+          <StatusBar style="dark" />
+        </NavigationContainer>
+      </PaperProvider>
     </GestureHandlerRootView>
   );
 }

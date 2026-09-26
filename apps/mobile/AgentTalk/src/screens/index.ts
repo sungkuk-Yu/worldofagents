@@ -1,4 +1,6 @@
 export { default as DialogueListScreen } from './DialogueListScreen';
+export { default as ChatScreen } from './ChatScreen';
+export { default as LoginScreen } from './LoginScreen';
 export { default as VoiceHomeScreen } from './VoiceHomeScreen';
 export { default as ResultCanvasScreen } from './ResultCanvasScreen';
 export { default as CardThreadScreen } from './CardThreadScreen';

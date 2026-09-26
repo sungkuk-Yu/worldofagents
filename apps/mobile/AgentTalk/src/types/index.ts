@@ -125,3 +125,26 @@ export type SegmentHistoryEntry = {
   /** 접힘/도움말용 요약 */
   summary?: string;
 };
+
+// ── 채팅 MVP (Phase 2) ──────────────────────────────
+
+/** 채팅 화면 UI 메시지 — 백엔드 messages 행에서 정규화 */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'agent' | 'system';
+  content: string;
+  /** 백엔드 turn_index — 페이지네이션 커서 기준 */
+  turnIndex: number;
+  /** 응답 생성 뉴런 (empathy/answer 등) */
+  sourceNeuron?: string | null;
+  /** 낙관적 업데이트 중인 메시지 (서버 확인 전) */
+  pending?: boolean;
+  createdAt?: string;
+}
+
+/** 로그인 사용자 */
+export interface AuthUser {
+  id: string;
+  email?: string;
+  displayName?: string;
+}

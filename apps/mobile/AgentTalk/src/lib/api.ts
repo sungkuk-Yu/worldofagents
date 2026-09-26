@@ -14,6 +14,33 @@ export interface ApiConfig {
   token: string | null;
 }
 
+// ── 토큰 지속성 (웹: localStorage, 네이티브: 메모리 폴백) ──
+// 주의: resolveConfig()가 모듈 초기화 시 이 함수들을 호출하므로 반드시 그보다 먼저 선언한다.
+const STORAGE_NS = 'at-web-v1';
+const TOKEN_KEY = `${STORAGE_NS}.sess`;
+
+function loadPersistedToken(): string | null {
+  try {
+    if (typeof globalThis.localStorage !== 'undefined') {
+      return globalThis.localStorage.getItem(TOKEN_KEY);
+    }
+  } catch {
+    /* noop */
+  }
+  return null;
+}
+
+function persistToken(token: string | null): void {
+  try {
+    if (typeof globalThis.localStorage !== 'undefined') {
+      if (token) globalThis.localStorage.setItem(TOKEN_KEY, token);
+      else globalThis.localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    /* noop */
+  }
+}
+
 // 런타임에 EXPO_PUBLIC_API_URL 로 오버라이드 가능
 function resolveConfig(): ApiConfig {
   const apiUrl =
@@ -24,7 +51,7 @@ function resolveConfig(): ApiConfig {
     wsUrl:
       (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_WS_URL) ||
       apiUrl.replace(/^http/, 'ws') + '/ws',
-    token: null,
+    token: loadPersistedToken(),
   };
 }
 
@@ -32,7 +59,13 @@ let config = resolveConfig();
 
 export function setApiConfig(partial: Partial<ApiConfig>): ApiConfig {
   config = { ...config, ...partial };
+  if ('token' in partial) persistToken(partial.token ?? null);
   return config;
+}
+
+/** JWT 토큰 설정/해제 — 로그인 성공 시 호출 (웹에서는 localStorage로 지속) */
+export function setToken(token: string | null): ApiConfig {
+  return setApiConfig({ token });
 }
 
 export function getApiConfig(): ApiConfig {
@@ -64,6 +97,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface ApiEnvelope<T> {
   ok: boolean;
   data?: T;
+  meta?: { cursor?: string; has_more?: boolean; total?: number };
   error?: { code: string; message: string };
 }
 
@@ -74,10 +108,75 @@ export interface SessionSummary {
   last_activity_at?: string;
 }
 
+export interface AgentSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  agent_type?: string;
+  is_active?: boolean;
+}
+
+/** 백엔드 messages 행 (GET /api/sessions/:id/messages 응답 data[]) */
+export interface ServerChatMessage {
+  id: string;
+  session_id: string;
+  turn_index: number;
+  role: 'user' | 'agent' | 'system';
+  message_type: string;
+  content: string;
+  source_neuron?: string | null;
+  attachments?: unknown[];
+  created_at?: string;
+}
+
+/** POST /api/sessions/:id/messages 동기 응답 (api-design.md §3.4) */
+export interface SendMessageResult {
+  user_message_id: string;
+  empathy_message_id: string | null;
+  answer_message_id: string | null;
+  empathy_response: string | null;
+  answer_response: string | null;
+  dialogue_type: string;
+  activation_plan?: { activate: string[]; reason: string; dialogue_type: string };
+  neuron_events?: { neuron: string; status: string; stage: string; quip: string }[];
+  persona_guard_passed?: boolean;
+  engine?: string;
+}
+
+export interface AuthResult {
+  token: string;
+  user: { id: string; email?: string; display_name?: string };
+}
+
 // ── REST API ──────────────────────────────────────
 export const api = {
   /** 헬스 체크 — 연결 대상 서버 생존 여부 */
   health: () => request<{ status: string; timestamp: string; mode: string }>('/health'),
+
+  /** 회원가입 — POST /api/auth/signup (api-design.md §3.1) */
+  signup: (email: string, password: string, displayName?: string) =>
+    request<ApiEnvelope<AuthResult>>('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, display_name: displayName }),
+    }),
+
+  /** 로그인 — POST /api/auth/login */
+  login: (email: string, password: string) =>
+    request<ApiEnvelope<AuthResult>>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  /** 내 에이전트 목록 — GET /api/agents */
+  listAgents: () => request<ApiEnvelope<AgentSummary[]>>('/api/agents'),
+
+  /** 에이전트 생성 — POST /api/agents */
+  createAgent: (name: string, description?: string) =>
+    request<ApiEnvelope<AgentSummary>>('/api/agents', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+
   /** 세션 조회(또는 자동 생성) — POST /api/sessions/ensure */
   ensureSession: (agentId: string) =>
     request<ApiEnvelope<SessionSummary>>('/api/sessions/ensure', {
@@ -86,6 +185,24 @@ export const api = {
     }),
   /** 세션 목록 */
   listSessions: () => request<ApiEnvelope<SessionSummary[]>>('/api/sessions'),
+
+  /** 메시지 히스토리 — GET /api/sessions/:id/messages (turn_index 커서 페이지네이션) */
+  getMessages: (sessionId: string, opts?: { before?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.before !== undefined) params.set('before', String(opts.before));
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    return request<ApiEnvelope<ServerChatMessage[]>>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환) */
+  sendMessage: (sessionId: string, content: string) =>
+    request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content, message_type: 'text', attachments: [] }),
+    }),
 };
 
 // ── WebSocket (백엔드 protocol.ts 서버→클라이언트) ─
@@ -139,6 +256,8 @@ export interface VoiceSocketHandlers {
     msg: Extract<ServerMessage, { type: 'error' }> | Extract<ServerMessage, { type: 'session.error' }>
   ) => void;
   onStatusChange?: (status: DialogueState['connectionStatus']) => void;
+  /** 파싱된 모든 JSON 프레임 — 신규 이벤트 타입(백엔드 병행 개발)에 대한 forward-compatible 훅 */
+  onRaw?: (msg: Record<string, unknown>) => void;
 }
 
 export interface VoiceSocket {
@@ -188,6 +307,7 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
     } catch {
       return; // 비-JSON (오디오 바이너리 등) 무시
     }
+    handlers.onRaw?.(msg as unknown as Record<string, unknown>);
     switch (msg.type) {
       case 'connected':
         handlers.onConnected?.(msg);
