@@ -1,5 +1,5 @@
 import type { Locale } from '../lib/locale';
-import type { DialogueCardType, MessagesRow } from '../types/db';
+import type { DialogueCardType, DialogueType, MessagesRow } from '../types/db';
 import type { GroundingSummary } from '../lib/perplexity';
 import type { PttMode } from '../lib/pushToTalk';
 
@@ -35,7 +35,7 @@ export type ServerMessage =
   | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage }
   | { type: 'run.started'; session_id: string; run_id: string; seq?: number; quip: string }
   | { type: 'run.progress'; session_id: string; run_id: string; seq?: number; stage: 'thinking' | 'organizing' | 'finalizing' | 'rendering'; quip: string }
-  | { type: 'run.completed'; structured?: { dialogue_type: DialogueCardType; structured_payload: Record<string, unknown> }; session_id: string; run_id: string; seq?: number; message_ids: { user: string; empathy: string | null; answer: string | null }; llm: { used: boolean; model: string | null; fallback: boolean }; grounding?: GroundingSummary | null }
+  | { type: 'run.completed'; structured?: { dialogue_type: DialogueCardType; structured_payload: Record<string, unknown> }; classifier?: { type: DialogueType; stage: 1 | 2 | 3; confidence: number }; session_id: string; run_id: string; seq?: number; message_ids: { user: string; empathy: string | null; answer: string | null }; llm: { used: boolean; model: string | null; fallback: boolean }; grounding?: GroundingSummary | null }
   | { type: 'run.failed'; session_id: string; run_id: string; seq?: number; error: { code: string; message: string } }
   | { type: 'run.cancelled'; session_id: string; run_id: string; seq?: number; partial_text: string }
   | { type: 'answer.delta'; seq?: number; session_id: string; run_id: string; delta: string; index: number }

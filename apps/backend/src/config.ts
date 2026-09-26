@@ -11,7 +11,18 @@ export const config = {
   // MVP는 보존 정책만 선언한다. 자동 삭제 크론은 Phase 3, 탈퇴 시에는 즉시 파기한다.
   retention: { rawTranscriptDays: Number(process.env.RAW_TRANSCRIPT_RETENTION_DAYS || 180) },
   devMode: process.env.DEV_MODE === 'true',
-  
+
+  /** 대화 유형 판별 (t_56498848) — Stage 2 LLM 분류·Stage 4 REST 엔드 여부. Stage1/3 규칙은 상시.
+   *  테스트 토글: vi.spyOn(config.classification, 'llmEnabled', 'get') — config.perplexity 컨벤션 동일. */
+  classification: {
+    llmEnabled: process.env.CLASSIFY_LLM_DISABLED !== 'true',
+    timeoutMs: parseInt(process.env.CLASSIFY_LLM_TIMEOUT_MS || '1500', 10),
+    /** 분류 전용 저비용 모델 (미설정 시 chatLlm.model 상속). */
+    model: process.env.CLASSIFY_LLM_MODEL || '',
+    /** Stage 4 REST 엔드(POST /api/classify) — OFF 시 404. 기본 켬(인증 필요, 무료). */
+    endpointEnabled: process.env.CLASSIFY_ENDPOINT_DISABLED !== 'true',
+  },
+
   cors: {
     // t_d75ca81c: 프로덕션 웹(app.myagenttalk.com)을 기본 허용 — 모바일/PC 웹이 같은 API·DB를 연속 사용.
     origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081', 'http://localhost:5173', 'https://app.myagenttalk.com', 'https://myagenttalk.com', 'https://www.myagenttalk.com'],

@@ -237,6 +237,14 @@ export const api = {
       body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
     }),
 
+  /** 대화 유형 판별 위임 — POST /api/classify (t_56498848). 서버가 Stage1 패턴+Stage2 LLM+Stage3 폴백 순판별.
+   *  미로그인/네트워크 실패 시 throw — 호출부(DialogTypeClassifier)가 null로 변환해 Stage 3 폴백. */
+  classify: (content: string, history?: string[]) =>
+    request<ApiEnvelope<{ type: string; confidence: number; stage: 1 | 2 | 3 }>>('/api/classify', {
+      method: 'POST',
+      body: JSON.stringify({ content, history }),
+    }),
+
   /** 즐겨찾기 등록/해제 — PATCH /api/messages/:id/favorite (백엔드 t_219c4d36, boolean 필수) */
   setFavorite: (messageId: string, favorite: boolean) =>
     request<ApiEnvelope<ServerChatMessage>>(`/api/messages/${encodeURIComponent(messageId)}/favorite`, {
