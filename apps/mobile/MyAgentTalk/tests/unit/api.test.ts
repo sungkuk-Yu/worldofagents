@@ -44,6 +44,7 @@ test('티켓 인증 — 재연결마다 새 티켓, URL에는 JWT 없음', async
   const first = client.connectChatSocket('s', {}); await flush();
   assert.equal(requests.length, 1);
   assert.equal(requests[0].headers.get('Authorization'), 'Bearer stored-token');
+  assert.equal(requests[0].headers.get('Accept-Language'), 'ko'); // i18n→setApiLocale 푸시 (t_46a5431d)
   assert.ok(requests[0].url.endsWith('/api/ws-ticket'));
   assert.equal(new URL(sockets[0].url).searchParams.get('ticket'), '일회용-1');
   assert.equal(new URL(sockets[0].url).searchParams.has('token'), false);
@@ -102,7 +103,11 @@ test('티켓 발급 중 정리하면 뒤늦은 소켓 생성 없음', async (t) 
 test('WS 기본 주소의 기존 token 쿼리도 제거한다', (t) => {
   const { client } = setup(t);
   client.setApiConfig({ wsUrl: 'wss://example.test/ws?token=노출금지&ticket=이전티켓' });
-  assert.equal(client.buildWsUrl(null), 'wss://example.test/ws');
+  const url = new URL(client.buildWsUrl(null));
+  assert.equal(url.origin + url.pathname, 'wss://example.test/ws');
+  assert.equal(url.searchParams.has('token'), false);
+  assert.equal(url.searchParams.has('ticket'), false);
+  assert.equal(url.searchParams.get('locale'), 'ko'); // i18n→setApiLocale 기본값 (t_46a5431d)
 });
 
 test('초기화 중 새 토큰 설정이 저장된 과거 토큰으로 덮이지 않는다', async (t) => {

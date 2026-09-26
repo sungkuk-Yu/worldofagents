@@ -75,12 +75,20 @@ export function getApiConfig(): ApiConfig {
   return config;
 }
 
+// 백엔드 로케일 협상용 — i18n이 setApiLocale로 푸시 (정적 순환/expo-localization 로드 회피).
+let localeTag = 'ko';
+export function setApiLocale(language: string): void {
+  localeTag = language?.startsWith('en') ? 'en' : 'ko';
+}
+
 // ── REST 유틸 ─────────────────────────────────────
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   await initializeApi();
   await persistence;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    // 백엔드 로케일 협상(lib/locale.ts parseAcceptLanguage) — 현재 UI 언어를 전송해 quip/서버 문구를 일치시킨다.
+    'Accept-Language': localeTag,
     ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}),
     ...(init?.headers as Record<string, string>),
   };
@@ -551,5 +559,7 @@ export function buildWsUrl(sessionId: string | null, ticket?: string): string {
   url.searchParams.delete('ticket');
   if (sessionId) url.searchParams.set('session_id', sessionId);
   if (ticket) url.searchParams.set('ticket', ticket);
+  // 백엔드 resolveLocale: 명시 locale 파라미터 > 연결 헤더 — UI 언어를 WS에도 전달 (subscribe 생략 구간 커버)
+  url.searchParams.set('locale', localeTag);
   return url.toString();
 }
