@@ -59,10 +59,25 @@ export const config = {
     historyTurns: parseInt(process.env.CHAT_LLM_HISTORY_TURNS || '20', 10),
   },
 
+  
   /**
    * Perplexity Sonar 검색 그라운딩 (t_d54bc456) — 법률·회계·의료 전문가 카테고리
    * 답변만 호출한다(종량제 비용 제어). 키: .env PERPLEXITY_API_KEY.
    */
+  /**
+   * LLM 비상전원 (t_67eaf475) — DashScope 장애 시 자동 전환되는 Anthropic 호환 폴백.
+   * /v1/chat/completions 규격 공통 엔드포인트라 llm.ts는 프로바이더 분기 없이 풀 순회만 한다.
+   * 키: CHAT_LLM_FB_KEY (백엔드 .env). 미설정 시 폴백 미구성 = 기존 동작과 동일.
+   * 기본 모델 claude-opus-4-5.
+   */
+  chatLlmFallback: {
+    disabled: process.env.CHAT_LLM_FB_DISABLED === 'true',
+    apiKey: process.env.CHAT_LLM_FB_KEY || '',
+    baseUrl: process.env.CHAT_LLM_FB_BASE_URL || 'https://api.anthropic.com/v1',
+    model: process.env.CHAT_LLM_FB_MODEL || 'claude-opus-4-5',
+    timeoutMs: parseInt(process.env.CHAT_LLM_FB_TIMEOUT_MS || '60000', 10),
+  },
+
   perplexity: {
     enabled: process.env.PERPLEXITY_DISABLED !== 'true',
     apiKey: process.env.PERPLEXITY_API_KEY || '',

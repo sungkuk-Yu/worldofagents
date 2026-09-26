@@ -14,6 +14,7 @@ export default defineConfig({
       CHAT_LLM_DISABLED: 'true',
       CHAT_LLM_API_KEY: '',
       DASHSCOPE_API_KEY: '',
+      CHAT_LLM_FB_KEY: '',   // LLM 비상전원(t_67eaf475)도 단위 테스트에서 봉인
       PERPLEXITY_API_KEY: '',
     },
     testTimeout: 20000,

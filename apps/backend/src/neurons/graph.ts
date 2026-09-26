@@ -35,6 +35,8 @@ export interface LlmRunInfo {
   used: boolean;
   model: string | null;
   fallback: boolean;
+  /** 실제 답변을 만든 프로바이더 id (전원/비상전원 구분 — t_67eaf475). */
+  provider?: string;
   reason?: string;
   usage?: unknown;
   durationMs?: number;
@@ -183,7 +185,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
         signal: ctx.signal,
       });
       answerResponse = result.text;
-      ctx.llm = { used: true, model: result.model, fallback: false, usage: result.usage, durationMs: result.durationMs };
+      ctx.llm = { used: true, model: result.model, fallback: result.fallback, provider: result.provider, usage: result.usage, durationMs: result.durationMs };
     } catch (err) {
       if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
         throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
