@@ -6,8 +6,9 @@ import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 import { ensureSession, getOwnedSession, selectAllRows } from '../lib/helpers';
+import { SessionsRow } from '../types/db';
 import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
-import { broadcastToSession } from '../websocket/handler';
+import { broadcastToSession, sessionPresence } from '../websocket/handler';
 import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
@@ -20,6 +21,13 @@ export function parseRangeUpper(v: unknown): number | null {
   if (typeof raw !== 'number' && typeof raw !== 'string') return null;
   const upper = Number(raw);
   return Number.isFinite(upper) ? upper : null;
+}
+
+/** 세션 제목 — metadata.title (favorites.ts와 동일 규칙, 포크 시 기록). */
+function sessionTitleOf(session: SessionsRow): string | null {
+  const meta = session.metadata as Record<string, unknown> | null;
+  const title = meta && typeof meta.title === 'string' ? meta.title.trim() : '';
+  return title || null;
 }
 
 const SESSION_STATUSES = ['active', 'suspended', 'archived'] as const;
@@ -55,6 +63,99 @@ export async function sessionRoutes(app: FastifyInstance) {
       .order('turn_index', { ascending: true })
       .limit(200);
     return ok({ ...session, messages: messages || [] });
+  });
+
+  // ── 크로스 디바이스 이어보기 (t_d75ca81c — 마이그레이션 005) ──
+
+  // PUT /api/sessions/:id/read-state — 읽기 커서 갱신 (UPSERT, 멱등)
+  // 프론트는 세션 화면에 메시지를 보일 때마다(디바운스) 마지막 열람 turn_index를 올린다.
+  // 커서는 감소하지 않는다 (max 병합) — 탭 두 개가 교차 갱신해도 되감기 없음.
+  app.put('/:id/read-state', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const body = request.body as { last_read_turn_index?: unknown; device?: unknown };
+    if (typeof body?.last_read_turn_index !== 'number' || !Number.isInteger(body.last_read_turn_index) || body.last_read_turn_index < -1) {
+      throw badRequest('last_read_turn_index는 -1 이상의 정수여야 합니다.');
+    }
+    const device = typeof body.device === 'string' && body.device.trim() ? body.device.trim().toLowerCase() : null;
+    const { data: existing } = await request.db.from('session_read_state').select('*').eq('session_id', session.id).maybeSingle();
+    const nextTurn = Math.max(body.last_read_turn_index, (existing as { last_read_turn_index?: number } | null)?.last_read_turn_index ?? -1);
+    const row = {
+      session_id: session.id,
+      last_read_turn_index: nextTurn,
+      last_device: device ?? (existing as { last_device?: string | null } | null)?.last_device ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await request.db.from('session_read_state').upsert(row, { onConflict: 'session_id' }).select().single();
+    if (error || !data) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error?.message || '읽기 상태 저장에 실패했습니다.');
+    return ok(data);
+  });
+
+  // GET /api/sessions/:id/read-state — 커서 조회 (없으면 -1)
+  app.get('/:id/read-state', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const { data } = await request.db.from('session_read_state').select('*').eq('session_id', session.id).maybeSingle();
+    return ok({
+      session_id: session.id,
+      last_read_turn_index: (data as { last_read_turn_index?: number } | null)?.last_read_turn_index ?? -1,
+      last_device: (data as { last_device?: string | null } | null)?.last_device ?? null,
+      updated_at: (data as { updated_at?: string } | null)?.updated_at ?? null,
+    });
+  });
+
+  // GET /api/sessions/resume — 기기 간 "이어볼 세션" 추천 목록.
+  // 모바일에서 PC로(또는 그 반대) 넘어온 사용자가 어디서 끊겼는지 즉시 찾는다:
+  //   활성 세션 중 최근 활동 순으로, 세션별 읽지 않은 메시지 수(first_unread_turn 포함)와
+  //   현재 실시간 접속 디바이스(presence)를 곁들여 반환. has_unread가 가장 최근 것을 read_on_this_device=false와 함께 추천 대상으로 표시한다.
+  // last_read 갱신 시점이 아니라 조회 시점의 presence를 붙이므로 PC 웹에서 "모바일이 이어서 열려 있음"을 UX에 반영할 수 있다.
+  app.get('/resume', { preHandler: requireAuth }, async (request) => {
+    const { limit = '10' } = request.query as { limit?: string };
+    const max = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+    const { data: sessions, error } = await request.db
+      .from('sessions')
+      .select('*')
+      .eq('user_id', request.userId)
+      .neq('status', 'archived')
+      .order('last_activity_at', { ascending: false })
+      .limit(max);
+    if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
+
+    const sessionRows = (sessions as SessionsRow[] | null) || [];
+    const agentIds = [...new Set(sessionRows.map(s => s.agent_id))];
+    const agents = agentIds.length
+      ? ((await request.db.from('agents').select('*').in('id', agentIds)).data as { id: string; name: string }[] | null) || []
+      : [];
+    const agentNameById = new Map(agents.map(a => [a.id, a.name]));
+
+    const items = [] as Record<string, unknown>[];
+    for (const session of sessionRows) {
+      const { data: cursor } = await request.db.from('session_read_state').select('*').eq('session_id', session.id).maybeSingle();
+      const lastRead = (cursor as { last_read_turn_index?: number } | null)?.last_read_turn_index ?? -1;
+      const { data: messages } = await request.db
+        .from('messages')
+        .select('*')
+        .eq('session_id', session.id)
+        .order('turn_index', { ascending: true });
+      const rows = (messages as { turn_index: number; created_at: string }[] | null) || [];
+      const unread = rows.filter(m => m.turn_index > lastRead);
+      const latest = rows.at(-1);
+      items.push({
+        session_id: session.id,
+        agent_id: session.agent_id,
+        agent_name: agentNameById.get(session.agent_id) ?? null,
+        title: sessionTitleOf(session),
+        status: session.status,
+        last_activity_at: session.last_activity_at,
+        last_read_turn_index: lastRead,
+        latest_turn_index: latest?.turn_index ?? null,
+        latest_message_at: latest?.created_at ?? null,
+        unread_count: unread.length,
+        first_unread_turn_index: unread.length ? unread[0].turn_index : null,
+        live_devices: sessionPresence(session.id),
+      });
+    }
+    // 추천: 미읽음이 있는 것 중 최근 활동, 없으면 최근 활동 그 자체 (이미 정렬 유지).
+    const recommended = items.find(i => (i.unread_count as number) > 0) || items[0] || null;
+    return ok({ items, recommended_session_id: recommended ? recommended.session_id : null, total: items.length });
   });
 
   // POST /api/sessions/:id/fork — 포크 지점까지 복제하고 원본은 유지한다.

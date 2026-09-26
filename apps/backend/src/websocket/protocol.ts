@@ -1,6 +1,7 @@
 import type { Locale } from '../lib/locale';
 import type { DialogueCardType, MessagesRow } from '../types/db';
 import type { GroundingSummary } from '../lib/perplexity';
+import type { PttMode } from '../lib/pushToTalk';
 
 export type SavedMessage = MessagesRow;
 
@@ -11,12 +12,18 @@ export type SavedMessage = MessagesRow;
 
 export type WSChannel = 'audio' | 'transcript' | 'neuron_status' | 'task';
 
+/** 세션에 동시 접속한 디바이스 항목 (presence.update) — t_d75ca81c 크로스 디바이스 연속성. */
+export interface PresenceDevice {
+  device: string;
+  since: number;
+}
+
 // 클라이언트 → 서버
 export type ClientMessage =
   | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string }
-  | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number }
+  | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
-  | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string } }
+  | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string; mode?: PttMode; device?: string } }
   | { type: 'audio.end'; session_id: string }
   | { type: 'audio.cancel'; session_id: string }
   | { type: 'transcript'; text: string; session_id: string; is_final?: boolean }
@@ -34,11 +41,12 @@ export type ServerMessage =
   | { type: 'answer.delta'; seq?: number; session_id: string; run_id: string; delta: string; index: number }
   | { type: 'answer.done'; ai_generated: true; locale: Locale; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null }; grounding?: GroundingSummary | null }
   | { type: 'connected'; session_id: string | null; timestamp: string }
-  | { type: 'subscribed'; current_seq?: number; session_id: string; channels: WSChannel[] }
+  | { type: 'subscribed'; current_seq?: number; session_id: string; channels: WSChannel[]; devices?: PresenceDevice[] }
   | { type: 'error'; code: string; message: string }
   | { type: 'audio.started'; session_id: string; config: Record<string, unknown> }
   | { type: 'audio.received'; bytes: number; timestamp: string }
   | { type: 'audio.vad'; session_id: string; active: boolean }
+  | { type: 'presence.update'; session_id: string; devices: PresenceDevice[] }
   | { type: 'transcript.partial'; seq?: number; session_id: string; text: string; confidence: number; language: string }
   | { type: 'transcript.final'; seq?: number; session_id: string; turn_index: number; text: string; confidence: number; language: string; duration_ms: number; message_id: string | null }
   | { type: 'neuron.status'; seq?: number; session_id: string; neuron: { slug: string; name: string }; status: string; stage: string; quip: string }

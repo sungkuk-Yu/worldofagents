@@ -13,7 +13,8 @@ export const config = {
   devMode: process.env.DEV_MODE === 'true',
   
   cors: {
-    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081', 'http://localhost:5173'],
+    // t_d75ca81c: 프로덕션 웹(app.myagenttalk.com)을 기본 허용 — 모바일/PC 웹이 같은 API·DB를 연속 사용.
+    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081', 'http://localhost:5173', 'https://app.myagenttalk.com', 'https://myagenttalk.com', 'https://www.myagenttalk.com'],
   },
   
   supabase: {
@@ -89,6 +90,17 @@ export const config = {
     pongTimeoutMs: 60000,
     // 오디오 세션당 최대 청크 버퍼 (10초 ≈ 320KB @16kHz/16bit)
     maxAudioBufferMs: 10000,
+  },
+
+  /**
+   * Push-to-Talk (t_d75ca81c) — PTT는 기존 audio.start/end 캐리어 위 상태머신.
+   * 릴리스 이벤트가 도달하지 않는 runaway 세션의 서버측 안전망 두 개:
+   *  - silenceTimeoutMs: 이 시간 동안 무음이면 세그먼트 종료 판단 (기본 30s)
+   *  - maxHoldMs: 홀드 상한. buffer 순환과 무관하게 세그먼트를 강제 종료 (기본 5분)
+   */
+  pushToTalk: {
+    silenceTimeoutMs: parseInt(process.env.PTT_SILENCE_TIMEOUT_MS || '30000', 10),
+    maxHoldMs: parseInt(process.env.PTT_MAX_HOLD_MS || '300000', 10),
   },
 };
 

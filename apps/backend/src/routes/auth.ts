@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { config } from '../config';
 import { supabaseAdmin, createEphemeralAuthClient, DbClient } from '../lib/supabase';
 import { requireAuth } from '../lib/auth';
+import { deepMergePreferences } from '../lib/prefs';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 
 interface SignupBody {
@@ -149,8 +150,14 @@ export async function authRoutes(app: FastifyInstance) {
   app.patch('/me', { preHandler: requireAuth }, async (request) => {
     const body = request.body as { display_name?: string; avatar_url?: string; phone?: string; timezone?: string; language?: string; preferences?: Record<string, unknown>; profile?: Record<string, unknown> };
     const patch: Record<string, unknown> = {};
-    for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'preferences', 'profile'] as const) {
+    for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'profile'] as const) {
       if (body[key] !== undefined) patch[key] = body[key];
+    }
+    // preferences는 키 단위 딥 머지 (t_d75ca81c) — 기기별 입력 설정(조이스틱 맵 ↔ PTT 키맵)이
+    // 서로의 통째 replace로 유실되는 것을 서버에서 차단한다.
+    if (body.preferences !== undefined) {
+      const { data: current } = await request.db.from('users').select('preferences').eq('id', request.userId).maybeSingle();
+      patch.preferences = deepMergePreferences((current as { preferences?: unknown } | null)?.preferences, body.preferences);
     }
     if (!Object.keys(patch).length) return ok((await request.db.from('users').select('*').eq('id', request.userId).maybeSingle()).data);
 

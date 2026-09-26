@@ -36,6 +36,7 @@ export const emptyStore = (): DevStore => ({
     skills: [],
     skill_installations: [],
     context_patches: [],
+    session_read_state: [],
     vault_notes: [],
     boards: [],
     board_cards: [],

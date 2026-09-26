@@ -1267,3 +1267,51 @@ GET /api/favorites?limit=50&offset=0
 **멀티테넌시 보장:** 사용자 A의 볼트/보드는 B에게 절대 보이지 않는다 — 목록은 user_id 필터, 단건은 소유권 검증 후 404(존재 숨김), from-message는 소스 메시지까지 소유권 검증(A의 메시지를 B 보드 카드로 변환 불가). 회원탈퇴(DELETE /api/me) 시 vault_notes/boards는 user_id CASCADE, board_cards는 boards 경유 CASCADE로 전 파기(devstore `deleteDevUser`도 동일 시뮬레이션).
 
 **LLM 연동 계약 (선행 아님 — 문서화만):** 뉴런이 응답에서 action(할 일/노트)을 제안하면 제안 payload를 `messages.structured_payload`에 넣어 프론트가 카드/노트 생성 프리필에 쓸 수 있다. form 카드(002 structured_payload 계약)와 동일 패턴이며, 실제 생성은 사용자가 확인 후 위 from-message/일반 POST API를 호출하는 방식(MVP 이후).
+
+### 크로스 디바이스 연속성 — PTT·이어보기·presence (마이그레이션 005 — 카드 t_d75ca81c)
+
+대표님 9/26 야간 지시: "PC 웹을 모바일과 자연스럽게 연속적으로, 데이터베이스 공유하게. PC는 키 조합이 따로 있어야 할 것 같은데 마우스로 해야 하나… 디스코드처럼 음성 입력." (카드 본문 말미가 잘렸고, 키 기본값 V/홀드형 PTT는 형제 카드 t_eded715c 코멘트에서 확정 — 프론트가 구현.)
+
+**1) PTT (Push-to-Talk) — audio.start 모드 확장 (WS, breaking 없음)**
+
+기존 `audio.start → 바이너리 PCM → audio.end` 캐리어 위에 상태머신만 얹는다. 프론트가 `audio.end`(릴리스)를 보내면 즉시 전송되는 기존 흐름과 동일하므로 백엔드는 새 엔드포인트가 없다.
+
+```json
+{"type":"audio.start","session_id":"UUID","config":{"mode":"hold","device":"pc-web"}}
+{"type":"audio.started","session_id":"UUID","config":{"sample_rate":16000,"encoding":"pcm_s16le","language":"auto","mode":"hold","device":"unknown","max_hold_ms":300000,"silence_timeout_ms":30000}}
+```
+
+- `config.mode`: `hold`(기본, 누르는 동안 녹음) | `toggle`(한 번 더 눌러 종료). 미지정/오염값은 `hold`로 정규화.
+- `config.device` / 연결 쿼리 `?device=` / `subscribe.device`: 화이트리스트(`pc-web`,`mobile-web`,`ios`,`android`) 통과, 그 외 `unknown`.
+- 서버측 안전망 (`src/lib/pushToTalk.ts`): 릴리스가 도달하지 않는 세션은 홀드 상한(`PTT_MAX_HOLD_MS`, 기본 5분) 또는 장시간 무음(`PTT_SILENCE_TIMEOUT_MS`, 기본 30초, 마지막 음성 활동 기준)에서 종료되고 `audio.vad {active:false}`를 보낸다. 오디오가 이어지는 일반 세션(무음 없음)은 타임아웃과 무관하다.
+- 열린 세그먼트 위에 새 `audio.start`가 도착하면 암묵 종료(미전송 버퍼 폐기 + vad off) 후 재시작 — 중복 전송 없다.
+
+**2) 세션 이어보기 — 읽기 커서 (REST + 마이그레이션 005 `session_read_state`)**
+
+모바일에서 보던 지점을 PC 웹이 이어가려면 커서가 공유 DB에 있어야 한다(localStorage 불가). 세션 1:1 분리 테이블, `PUT`은 max 병합이라 두 탭이 교차 갱신해도 커서가 되감기지 않는다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| PUT | `/api/sessions/:id/read-state` | `{last_read_turn_index: -1 이상 정수*, device?}` — UPSERT·멱등. 커서는 감소하지 않음. 타입 위반 400, 타인 세션 404(숨김) |
+| GET | `/api/sessions/:id/read-state` | `{session_id,last_read_turn_index,last_device,updated_at}` — 미기록 시 `-1/null/null` |
+| GET | `/api/sessions/resume?limit=10` | 기기 간 이어볼 세션 추천 목록 (아래) |
+
+`resume` 응답 `{items[], recommended_session_id, total}` — 활성(비아카이브) 세션을 최근 활동 순으로, 세션별 `{agent_name,title,status,last_activity_at,last_read_turn_index,latest_turn_index,latest_message_at,unread_count,first_unread_turn_index,live_devices[]}`. `recommended_session_id`는 미읽음이 있는 것 중 최근 활동(없으면 첫 항목). `live_devices`는 조회 시점 WS presence 스냅샷 — "이 세션이 지금 모바일에서 열려 있음" UX에 사용. limit 기본 10/상한 50.
+
+**3) 디바이스 presence (WS)**
+
+같은 세션에 동시 접속한 디바이스를 서로 안다(반응형 2트랙 카드 t_eded715c의 교차 입력 흐름과 직결).
+
+- `subscribe` 응답에 `devices: [{device, since}]`를 실어 보낸다(가입자 본인 포함).
+- 이후 가입/이탈 시 세션의 다른 소켓 전원에게 `{type:"presence.update",session_id,devices}` 브로드캐스트(이벤트 로그 미기록 — `subscribed` 응답이 항상 현재를 재동기화하므로 재생 불필요). 이벤트 순서를 교란하지 않도록 신규 가입 소켓 본인에게는 `presence.update`를 보내지 않는다.
+- 같은 디바이스 라벨의 멀티탭은 하나 대표(`since`=최초 접속). `GET /api/sessions/resume`의 `sessionPresence()`가 같은 허브를 읽는다.
+
+**4) preferences 키 단위 딥 머지 (`PATCH /api/auth/me`, `PATCH /api/me` — 서버측 강화)**
+
+모바일의 조이스틱 맵(`joystickMap`)과 PC 웹의 PTT 키맵(`pttKeymap`)이 같은 `users.preferences` JSONB를 쓰는데, 종전 통째 replace는 한쪽이 다른 쪽을 지운다(08:12 카드 t_ced38e19가 프론트 read-modify-write로 우회했으나 기기 간 병행 수정 경쟁은 프론트로 막을 수 없다). 이제 **두 PATCH 경로 모두** 서버에서 JSON Merge Patch(RFC 7386 준용: 객체 재귀 병합, 배열/프리미티브 교체, `null`=키 삭제, depth 상한 8)로 병합한다. `preferences` 외 컬럼 동작은 불변. 하위 호환: 기존 클라이언트의 통째 넘김도 병합될 뿐 유실되지 않는다.
+
+**5) 공유 DB/CORS**
+
+모바일·PC 웹은 이미 같은 백엔드·Supabase를 쓰기 때문에 별도 동기화 계층은 없다. `config.cors.origin` 기본값에 프로덕션 웹 도메인(`https://app.myagenttalk.com` 등)을 추가 — `CORS_ORIGIN` 환경변수 설정 시 그것을 따른다(운영 배포 시 실제 도메인과 대조 확인 요).
+
+검증: `tests/unit/continuity.test.ts` 11건 — PTT 정규화/안전망/echo·재시작 암묵종료, 딥머지 단위+두 PATCH 경로 교차 공존, read-state 멱등/되감기방지/타인 세션 404·resume 격리, resume 미읽음 집계/전부 읽음 후 0, presence 2단 디바이스 join/leave 브로드캐스트. 전체 unit 220/220, tsc/eslint 0.

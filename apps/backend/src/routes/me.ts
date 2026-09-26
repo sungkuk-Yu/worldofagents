@@ -5,6 +5,7 @@ import { closeSessionConnections } from '../websocket/handler';
 import { supabaseAdmin } from '../lib/supabase';
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
+import { deepMergePreferences } from '../lib/prefs';
 import { ok, ApiError, ERROR_CODES } from '../lib/errors';
 import { meSkillRoutes } from './skills';
 
@@ -44,8 +45,14 @@ export async function meRoutes(app: FastifyInstance) {
   app.patch('/', { preHandler: requireAuth }, async (request) => {
     const body = request.body as { display_name?: string; avatar_url?: string; phone?: string; timezone?: string; language?: string; preferences?: Record<string, unknown>; profile?: Record<string, unknown> };
     const patch: Record<string, unknown> = {};
-    for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'preferences', 'profile'] as const) {
+    for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'profile'] as const) {
       if (body[key] !== undefined) patch[key] = body[key];
+    }
+    // preferences는 /api/auth/me와 동일하게 키 단위 딥 머지 (t_d75ca81c) —
+    // 두 PATCH 경로가 한 컬럼을 통째 replace하면 기기별 설정이 서로를 지운다.
+    if (body.preferences !== undefined) {
+      const { data: current } = await request.db.from('users').select('preferences').eq('id', request.userId).maybeSingle();
+      patch.preferences = deepMergePreferences((current as { preferences?: unknown } | null)?.preferences, body.preferences);
     }
     if (!Object.keys(patch).length) {
       const { data } = await request.db.from('users').select('*').eq('id', request.userId).maybeSingle();

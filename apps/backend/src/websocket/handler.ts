@@ -15,9 +15,10 @@ import { config } from '../config';
 import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
 import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
+import { normalizePttMode, normalizeDeviceLabel, isPttIdleTimeout, isPttHoldOverflow, PttMode } from '../lib/pushToTalk';
 import { runTextTurn } from '../lib/chatTurn';
 import { SessionsRow } from '../types/db';
-import { sendJson, ClientMessage, ServerMessage, WSChannel } from './protocol';
+import { sendJson, ClientMessage, ServerMessage, WSChannel, PresenceDevice } from './protocol';
 
 export interface WSSocket {
   send: (data: string) => void;
@@ -29,10 +30,46 @@ export interface WSSocket {
 
 // ── 세션 허브: session_id → 연결 집합 ───────────────────
 const sessionHub = new Map<string, Set<WSSocket>>();
+// ── presence: 소켓 → 연결 메타, session_id → 라벨 변경 감지용 ──
+interface SocketMeta { device: string; joinedAt: number }
+const socketMeta = new WeakMap<WSSocket, SocketMeta>();
+
+function presenceOf(sessionId: string): PresenceDevice[] {
+  const byDevice = new Map<string, number>();
+  for (const socket of sessionHub.get(sessionId) || []) {
+    const meta = socketMeta.get(socket);
+    if (!meta) continue;
+    const prev = byDevice.get(meta.device);
+    if (prev === undefined || meta.joinedAt < prev) byDevice.set(meta.device, meta.joinedAt);
+  }
+  return [...byDevice.entries()]
+    .map(([device, since]) => ({ device, since }))
+    .sort((a, b) => a.since - b.since);
+}
+
+/** 외부(REST /resume)에서 조회 — 이 세션에 실시간 접속 중인 디바이스 라벨 목록. */
+export function sessionPresence(sessionId: string): string[] {
+  return presenceOf(sessionId).map(entry => entry.device);
+}
+
+function broadcastPresence(sessionId: string, except?: WSSocket): void {
+  const message: ServerMessage = { type: 'presence.update', session_id: sessionId, devices: presenceOf(sessionId) };
+  for (const socket of sessionHub.get(sessionId) || []) {
+    if (socket !== except) sendJson(socket, message);
+  }
+}
 
 export function registerConnection(sessionId: string, socket: WSSocket): void {
   if (!sessionHub.has(sessionId)) sessionHub.set(sessionId, new Set());
-  sessionHub.get(sessionId)!.add(socket);
+  const set = sessionHub.get(sessionId)!;
+  const fresh = !set.has(socket);
+  set.add(socket);
+  if (fresh) {
+    if (!socketMeta.get(socket)) socketMeta.set(socket, { device: 'unknown', joinedAt: Date.now() });
+    // 가입자 본인에게는 알리지 않는다 — subscribed 응답의 devices로 전달된다
+    // (handshake 이벤트 순서를 presence가 교란하지 않는다, ws-contract 회귀 방지).
+    broadcastPresence(sessionId, socket);
+  }
 }
 
 export function unregisterConnection(sessionId: string, socket: WSSocket): void {
@@ -40,6 +77,7 @@ export function unregisterConnection(sessionId: string, socket: WSSocket): void 
   if (!set) return;
   set.delete(socket);
   if (set.size === 0) sessionHub.delete(sessionId);
+  else broadcastPresence(sessionId);
 }
 
 export function broadcastToSession(sessionId: string, message: ServerMessage): void {
@@ -53,6 +91,11 @@ interface AudioSession {
   buffer: AudioStreamBuffer;
   startedAt: number;
   language: string;
+  /** PTT (t_d75ca81c): hold=누르는 동안 / toggle=한 번 더 눌러 종료. 기본 hold. */
+  pttMode: PttMode;
+  device: string;
+  /** 마지막 음성 활동 시각 — 릴리스 미도달 runaway 세그먼트의 무음 타임아웃용 */
+  lastVoiceAt: number;
 }
 
 interface ConnState {
@@ -66,7 +109,7 @@ interface ConnState {
 
 export async function websocketHandler(connection: any, request: FastifyRequest) {
   const socket = connection.socket as WSSocket;
-  const query = (request.query || {}) as { session_id?: string; token?: string; ticket?: string; locale?: string };
+  const query = (request.query || {}) as { session_id?: string; token?: string; ticket?: string; locale?: string; device?: string };
 
   const state: ConnState = {
     locale: resolveLocale(query.locale, request.headers?.['accept-language']),
@@ -121,6 +164,9 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
   }
 
   logger.info(`WebSocket connected: user=${state.userId || '(anon)'}, session=${state.sessionId}`);
+
+  // 연결 쿼리의 디바이스 라벨로 presence 메타를 먼저 심는다 (joinSession 이전 포함해 항상 존재).
+  socketMeta.set(socket, { device: normalizeDeviceLabel(query.device), joinedAt: Date.now() });
 
   sendJson(socket, {
     type: 'connected',
@@ -184,14 +230,23 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
         joinSession(session.id);
       }
       switch (message.type) {
-        case 'subscribe':
+        case 'subscribe': {
           if (message.locale !== undefined) state.locale = resolveLocale(message.locale, request.headers?.['accept-language']);
           state.channels = message.channels || state.channels;
-          sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!) });
+          // 디바이스 라벨 (t_d75ca81c presence): 'pc-web' | 'mobile-web' | 'ios' | 'android' — 미지정 'unknown'.
+          // 연결 쿼리에 라벨이 없던 소켓만 subscribe로 보정한다.
+          const meta = socketMeta.get(socket) || { device: 'unknown', joinedAt: Date.now() };
+          socketMeta.set(socket, meta);
+          if (message.device !== undefined && meta.device === 'unknown') {
+            meta.device = normalizeDeviceLabel(message.device);
+            broadcastPresence(state.sessionId!);
+          }
+          sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!), devices: presenceOf(state.sessionId!) });
           if (typeof message.last_seq === 'number' && Number.isFinite(message.last_seq)) {
             for (const event of replaySince(state.sessionId!, message.last_seq)) sendJson(socket, event);
           }
           break;
+        }
 
         case 'run.cancel':
           if (!cancelRun(session!.id, message.run_id)) {
@@ -269,11 +324,21 @@ function handleAudioChunk(socket: WSSocket, state: ConnState, chunk: Buffer) {
     // 스트림 시작 전 도착 → 무시
     return;
   }
+  const now = Date.now();
+  // PTT 안전망 (t_d75ca81c): 릴리스(audio.end/cancel)가 도달하지 않는 세션 —
+  // 홀드 상한 또는 장시간 무음이면 서버가 세그먼트를 종료하고 VAD off를 알린다.
+  // (버퍼는 maxAudioBufferMs로 순환 중이지만 세션이 무한히 열려있지 않도록 한다.)
+  if (isPttHoldOverflow(state.audio, now) || (state.audio.buffer.hasSignal && isPttIdleTimeout(state.audio, now))) {
+    state.audio = null;
+    sendJson(socket, { type: 'audio.vad', session_id: state.sessionId || '', active: false });
+    return;
+  }
   if (!hasVoiceActivity(chunk)) {
     // 무음 청크 — 버퍼에는 넣되 VAD 신호 전달
     state.audio.buffer.push(chunk);
     return;
   }
+  state.audio.lastVoiceAt = now;
   state.audio.buffer.push(chunk);
   if (state.audio.buffer.durationMs % 16000 < 100) {
     // 약 1초마다 수신 확인 신호
@@ -292,11 +357,21 @@ async function handleAudioStart(socket: WSSocket, state: ConnState, message: Ext
     sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'session_id가 필요합니다.' });
     return;
   }
+  // 이전 세그먼트가 아직 열려 있으면 (PTT 릴리스 누락) 새 start가 암묵적으로 종료 처리한다 —
+  // 미전송 버퍼는 폐기(중복 전송 금지)하고 VAD off만 알린다.
+  if (state.audio) {
+    state.audio = null;
+    sendJson(socket, { type: 'audio.vad', session_id: sessionId, active: false });
+  }
   state.sessionId = sessionId;
+  const now = Date.now();
   state.audio = {
     buffer: new AudioStreamBuffer(),
-    startedAt: Date.now(),
+    startedAt: now,
     language: message.config?.language || 'auto',
+    pttMode: normalizePttMode(message.config?.mode),
+    device: normalizeDeviceLabel(message.config?.device),
+    lastVoiceAt: now,
   };
   sendJson(socket, {
     type: 'audio.started',
@@ -305,6 +380,10 @@ async function handleAudioStart(socket: WSSocket, state: ConnState, message: Ext
       sample_rate: message.config?.sample_rate || config.openai.stt.sampleRate,
       encoding: message.config?.encoding || config.openai.stt.encoding,
       language: state.audio.language,
+      mode: state.audio.pttMode,
+      device: state.audio.device,
+      max_hold_ms: config.pushToTalk.maxHoldMs,
+      silence_timeout_ms: config.pushToTalk.silenceTimeoutMs,
     },
   });
 }
