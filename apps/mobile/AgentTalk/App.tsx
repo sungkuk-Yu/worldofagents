@@ -1,3 +1,5 @@
+import { initializeLanguage } from './src/i18n';
+import { useTranslation } from 'react-i18next';
 // AgentTalk — 메인 앱 진입점
 // React Navigation 기반 네비게이션 구조
 // 디자인 시스템 v1.0 토큰 적용 (docs/design/agenttalk-figma/tokens.json)
@@ -76,16 +78,17 @@ const PaperTheme = {
 };
 
 export default function App() {
+  const { t } = useTranslation();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bootstrap = () => {
     setError(null);
-    void initializeApi().then(() => setReady(true)).catch(() => setError('로그인 정보를 불러오지 못했습니다'));
+    void Promise.all([initializeApi(), initializeLanguage()]).then(() => setReady(true)).catch(() => setError('errors.bootstrap'));
   };
   useEffect(bootstrap, []);
   if (!ready) return <PaperProvider theme={PaperTheme}><View style={styles.container}>
-    <Text>{error || '로그인 정보를 불러오는 중…'}</Text>
-    {error && <Button onPress={bootstrap}>재시도</Button>}
+    <Text>{error ? t(error) : t('login.loading')}</Text>
+    {error && <Button onPress={bootstrap}>{t('common.retry')}</Button>}
   </View></PaperProvider>;
 
   return (
@@ -103,42 +106,42 @@ export default function App() {
             <Stack.Screen
               name="Login"
               component={LoginScreen}
-              options={{ title: '로그인' }}
+              options={{ title: t('common.login') }}
             />
             <Stack.Screen
               name="DialogueList"
               component={DialogueListScreen}
-              options={{ title: '에이전트톡' }}
+              options={{ title: t('common.app') }}
             />
             <Stack.Screen
               name="Chat"
               component={ChatScreen}
-              options={{ title: '채팅' }}
+              options={{ title: t('common.chat') }}
             />
             <Stack.Screen
               name="VoiceHome"
               component={VoiceHomeScreen}
-              options={{ title: '음성 입력' }}
+              options={{ title: t('common.voice') }}
             />
             <Stack.Screen
               name="ResultCanvas"
               component={ResultCanvasScreen}
-              options={{ title: '결과', animation: 'slide_from_bottom' }}
+              options={{ title: t('common.results'), animation: 'slide_from_bottom' }}
             />
             <Stack.Screen
               name="CardThread"
               component={CardThreadScreen}
-              options={{ title: '스레드', animation: 'slide_from_bottom' }}
+              options={{ title: t('common.thread'), animation: 'slide_from_bottom' }}
             />
             <Stack.Screen
               name="NeuronDashboard"
               component={NeuronDashboardScreen}
-              options={{ title: '뉴런 대시보드' }}
+              options={{ title: t('common.neurons') }}
             />
             <Stack.Screen
               name="Settings"
               component={SettingsScreen}
-              options={{ title: '설정' }}
+              options={{ title: t('common.settings') }}
             />
           </Stack.Navigator>
           <StatusBar style="dark" />

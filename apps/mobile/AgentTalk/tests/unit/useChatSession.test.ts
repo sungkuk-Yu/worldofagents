@@ -74,11 +74,11 @@ test('send 실패 원문/메시지 보존 → retryLastSend 성공 시 sent', as
     if (calls.length === 1) throw new Error('전송 실패 모의');
     return confirm('server-user');
   });
-  assert.deepEqual(await h.render().send('  다시 보내기  '), { ok: false, error: '전송 실패 모의' });
+  assert.deepEqual(await h.render().send('  다시 보내기  '), { ok: false, error: 'errors.request' });
   let state = h.render();
   assert.equal(state.messages.length, 1);
   assert.equal(state.messages[0].status, 'failed');
-  assert.equal(state.lastError, '전송 실패 모의');
+  assert.equal(state.lastError, 'errors.request');
   assert.equal(state.typing, false);
   assert.equal(state.mode, 'live');
   assert.deepEqual(await state.retryLastSend(), { ok: true });
@@ -100,7 +100,7 @@ test('동시 REST 전송과 종료 WS 누락 — 마지막 REST 확정까지 typ
   const a = h.render().send('A'); const b = h.render().send('B');
   assert.notEqual(ids[0], ids[1]);
   h.sockets[0].onRaw?.({ type: 'neuron.status', session_id: 'session', status: 'processing', quip: '찾고 있어요' });
-  assert.equal(h.render().quip, '찾고 있어요');
+  assert.equal(h.render().quip, 'quip.default');
   resolvers[0](confirm('a')); await a;
   assert.equal(h.render().typing, true);
   resolvers[1](confirm('b')); await b;
@@ -234,7 +234,8 @@ test('진행 quip을 스트림에 유지하고 최종 행 도착 시 임시 답�
   h.sockets[0].onRaw?.({ type: 'run.started', run_id: 'r', seq: 1 });
   h.sockets[0].onRaw?.({ type: 'run.progress', run_id: 'r', seq: 2, quip: '거의 다 정리했어요', stage: 'finalizing' });
   h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 3, delta: '초안', index: 0 });
-  assert.equal(h.render().streams[0].quip, '거의 다 정리했어요');
+  assert.equal(h.render().streams[0].quip, 'quip.finalizing');
+  assert.equal(h.render().quip, 'quip.finalizing');
   h.sockets[0].onRaw?.({ type: 'message.new', run_id: 'r', seq: 4, message: { id: 'a', role: 'agent', content: '최종', source_neuron: 'answer', turn_index: 0 } });
   h.sockets[0].onRaw?.({ type: 'answer.done', run_id: 'r', seq: 5, text: '최종 교체', message_id: 'a' });
   assert.equal(h.render().streams.length, 0);

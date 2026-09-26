@@ -1,3 +1,4 @@
+import { LocalizedError } from './errorKeys';
 // AgentTalk API 클라이언트 — REST + WebSocket
 // 설계: api-design.md §3(§4(WebSocket) — 백엔드 프로토콜과 정확히 대응
 //   REST:  /api/sessions/ensure, /api/... (Fastify + JWT)
@@ -82,14 +83,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const res = await fetch(`${config.apiUrl}${path}`, { ...init, headers });
   if (!res.ok) {
-    let detail = `서버 요청 실패 (${res.status})`;
-    try {
-      const body = (await res.json()) as { message?: string; error?: { message?: string } };
-      if (body.error?.message || body.message) detail = body.error?.message || body.message!;
-    } catch {
-      /* JSON 아님 */
-    }
-    throw new Error(detail);
+    throw new LocalizedError(res.status === 401 || res.status === 403 ? 'errors.auth' : 'errors.request', { status: res.status });
   }
   return (await res.json()) as T;
 }
@@ -112,6 +106,7 @@ export interface SessionSummary {
 export interface AgentSummary {
   id: string;
   name: string;
+  preset?: { titleKey?: string; subtitleKey?: string; subtitle?: string; icon?: string };
   description?: string | null;
   agent_type?: string;
   is_active?: boolean;
@@ -294,8 +289,8 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
   async function open() {
     try {
       await initializeApi();
-    } catch (e) {
-      if (!closed) handlers.onError?.({ type: 'error', code: 'WS_AUTH_FAILED', message: `대화 연결 실패: ${String(e)}` });
+    } catch {
+      if (!closed) handlers.onError?.({ type: 'error', code: 'WS_AUTH_FAILED', message: 'errors.connection' });
       return;
     }
     let ticket: string | undefined;
@@ -303,21 +298,21 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
       try {
         // Fastify는 application/json + 빈 본문을 400으로 거부하므로 빈 객체를 명시한다.
         const env = await request<ApiEnvelope<{ ticket: string }>>('/api/ws-ticket', { method: 'POST', body: JSON.stringify({}) });
-        if (!env.ok || !env.data?.ticket) throw new Error(env.error?.message || '연결 티켓을 발급하지 못했습니다');
+        if (!env.ok || !env.data?.ticket) throw new Error('errors.connection');
         ticket = env.data.ticket;
-      } catch (e) {
+      } catch {
         // 티켓 발급 실패(인증/서버 오류)는 조용한 익명 재시도 금지 — 명시적 오류로 surfaced.
-        if (!closed) handlers.onError?.({ type: 'error', code: 'WS_AUTH_FAILED', message: `대화 연결 실패: ${String(e)}` });
+        if (!closed) handlers.onError?.({ type: 'error', code: 'WS_AUTH_FAILED', message: 'errors.connection' });
         return;
       }
     }
     if (closed) return;
     try {
       ws = new WebSocket(buildWsUrl(sessionId, ticket));
-    } catch (e) {
+    } catch {
       // 브라우저/RN에서 WebSocket 미지원 시 fail 상태로
       if (closed) return;
-      handlers.onError?.({ type: 'error', code: 'WS_UNSUPPORTED', message: String(e) });
+      handlers.onError?.({ type: 'error', code: 'WS_UNSUPPORTED', message: 'errors.connection' });
       handlers.onStatusChange?.('disconnected');
       return;
     }

@@ -1,5 +1,6 @@
+import { errorKey } from '../lib/errorKeys';
 // 에이전트톡은 사람↔에이전트 대화 앱이다. 처리중 표시는 실행별 상태를 따르며,
-// 지연 안내는 자연어 quip으로 전달한다. 데모/목업은 enterDemo의 명시적 선택만 허용한다.
+// 지연 안내는 stage에 대응하는 번역 키로 전달한다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, connectVoiceSocket, VoiceSocket } from '../lib/api';
 import {
@@ -41,7 +42,7 @@ export interface UseChatSessionReturn {
   ready: boolean;
 }
 let executionCounter = 0;
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+const errorText = errorKey;
 
 function createRuntime(onChange: (active: boolean, quip: string | null, count: number) => void) {
   const tracker = createTypingTracker(onChange, true);
@@ -49,7 +50,7 @@ function createRuntime(onChange: (active: boolean, quip: string | null, count: n
       tracker, coordinator: createTurnCoordinator(tracker), messages: [] as ChatMessage[],
       generation: 0, sid: null as string | null, demo: false, initialized: false, loadingOlder: false,
       retry: () => {},
-      runQuips: new Map<string, string>(),
+      runStages: new Map<string, string>(),
       sequence: createSequenceTracker(), streams: [] as StreamingAnswer[],
       socket: null as VoiceSocket | null, stop: () => {},
       lastFailedContent: null as { content: string; id: string } | null,
@@ -103,7 +104,7 @@ export function useChatSession(
     runtime.tracker = createTypingTracker((active, text, count) => { setTyping(active); setQuip(text); setActiveCount(count); }, true);
     runtime.coordinator = createTurnCoordinator(runtime.tracker);
     runtime.sequence = createSequenceTracker();
-    runtime.runQuips.clear();
+    runtime.runStages.clear();
     runtime.streams = [];
     // 외부 세션이 바뀌면 이전 스트림 표시를 초기화한다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -122,7 +123,7 @@ export function useChatSession(
       runtime.tracker.endAll();
       for (const [timer, resolve] of runtime.demoTimers) {
         clearTimeout(timer);
-        resolve({ ok: false, error: '대화가 종료되었습니다' });
+        resolve({ ok: false, error: 'errors.closed' });
       }
       runtime.demoTimers.clear();
     };
@@ -149,13 +150,13 @@ export function useChatSession(
           (recovery === 'all' || !page.data.some((message) => known.has(message.id)))) {
           const before = Math.min(...page.data.map((row) => row.turn_index));
           page = await api.getMessages(sid, { before, limit: PAGE_SIZE });
-          if (!page.ok || !page.data) throw new Error('대화 복구에 실패했습니다');
+          if (!page.ok || !page.data) throw new Error('errors.recovery');
           rows.push(...page.data);
           if (!page.data.length || Math.min(...page.data.map((row) => row.turn_index)) >= before) break;
         }
         env.data = rows;
       }
-      if (!env.ok || !env.data) throw new Error(env.error?.message || '대화를 불러오지 못했습니다');
+      if (!env.ok || !env.data) throw new Error('errors.history');
       if (!alive()) return;
       const rows = normalizeServerMessages(env.data);
       updateMessages((prev) => mergeIncoming(prev, rows));
@@ -185,8 +186,8 @@ export function useChatSession(
               const recovering = connectedOnce || attempt > 0;
               connectedOnce = true;
               attempt = 0;
-              if (recovering) void refresh(sid, false, 'gap').catch((e) => {
-                if (current()) setLastError(`누락된 대화를 복구하지 못했습니다: ${errorText(e)}`);
+              if (recovering) void refresh(sid, false, 'gap').catch(() => {
+                if (current()) setLastError('errors.recovery');
               });
             } else if (status === 'disconnected') reconnect();
           },
@@ -203,8 +204,8 @@ export function useChatSession(
               return;
             }
             if (!runtime.sequence.accept(raw.seq)) return;
-            if (typeof raw.run_id === 'string' && typeof raw.quip === 'string') runtime.runQuips.set(raw.run_id, raw.quip);
-            const streamEvent = typeof raw.run_id === 'string' ? { ...raw, quip: runtime.runQuips.get(raw.run_id) } : raw;
+            if (typeof raw.run_id === 'string' && type === 'run.progress') runtime.runStages.set(raw.run_id, typeof raw.stage === 'string' ? raw.stage : '');
+            const streamEvent = typeof raw.run_id === 'string' ? { ...raw, stage: runtime.runStages.get(raw.run_id) } : raw;
             runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
               updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string } : message));
@@ -215,14 +216,14 @@ export function useChatSession(
               if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
             } else if ((typeof type === 'string' && type.startsWith('run.')) || type === 'turn.status' || type === 'neuron.status' || type === 'answer.done' || type === 'answer.delta') {
               // delta도 실행 상태에 반영한다. 확정 본문은 message.new/REST/재조회에서 머지한다.
-              runtime.coordinator.observe(raw as unknown as TurnEvent, sid);
-              if (type === 'run.failed') setLastError((raw.error as { message?: string })?.message || '작업을 완료하지 못했습니다');
-              if (type === 'run.cancelled') setLastError('작업이 취소되었습니다');
+              runtime.coordinator.observe(streamEvent as unknown as TurnEvent, sid);
+              if (type === 'run.failed') setLastError('errors.run');
+              if (type === 'run.cancelled') setLastError('errors.cancelled');
             }
           },
           onError: (msg) => {
             if (!current()) return;
-            setLastError(msg.message || '연결 오류');
+            setLastError('errors.connection');
             // 명시적 서버/인증/지원 오류는 자동 재연결을 멈춘다.
             disconnected = true;
             ++socketVersion;
@@ -240,10 +241,10 @@ export function useChatSession(
         let sid = requestedSession ?? null;
         if (!sid && agentId) {
           const env = await api.ensureSession(agentId);
-          if (!env.ok || !env.data?.id) throw new Error(env.error?.message || '세션을 확보하지 못했습니다');
+          if (!env.ok || !env.data?.id) throw new Error('errors.session');
           sid = env.data.id;
         }
-        if (!sid) throw new Error('대화할 세션을 확보하지 못했습니다');
+        if (!sid) throw new Error('errors.session');
         if (!alive()) return;
         setSessionId(sid);
         runtime.sid = sid;
@@ -279,7 +280,7 @@ export function useChatSession(
     setLoadingOlder(true);
     try {
       const env = await api.getMessages(sid, { before: cursor, limit: PAGE_SIZE });
-      if (!env.ok || !env.data) throw new Error(env.error?.message || '이전 대화를 불러오지 못했습니다');
+      if (!env.ok || !env.data) throw new Error('errors.older');
       if (generation !== runtime.generation) return;
       const older = normalizeServerMessages(env.data);
       updateMessages((prev) => prependPage(prev, older));
@@ -294,7 +295,7 @@ export function useChatSession(
   const performSend = useCallback(async (content: string, retryId?: string): Promise<SendResult> => {
     const runtime = runtimeRef.current;
     const validation = validateMessageInput(content);
-    if (!validation.ok) return { ok: false, error: validation.error! };
+    if (!validation.ok) return { ok: false, error: validation.errorKey! };
     const text = validation.normalized!;
     const generation = runtime.generation;
     const coordinator = runtime.coordinator;
@@ -308,23 +309,10 @@ export function useChatSession(
     }));
     coordinator.start(execId);
     try {
-      if (runtime.demo) {
-        return await new Promise<SendResult>((resolve) => {
-          const timer = setTimeout(() => {
-            runtime.demoTimers.delete(timer);
-            updateMessages((prev) => confirmTurn(prev, optimisticId, {
-              user_message_id: optimisticId, answer_message_id: `demo-answer-${execId}`,
-              answer_response: `“${text.slice(0, 40)}” — 말씀 잘 받았어요. 지금은 직접 선택하신 데모 대화예요.`,
-            }, text, base));
-            resolve({ ok: true });
-          }, 900);
-          runtime.demoTimers.set(timer, resolve);
-        });
-      }
-      if (!sid || !runtime.initialized) throw new Error('대화 연결이 준비되지 않았습니다');
+      if (!sid || !runtime.initialized) throw new Error('errors.notReady');
       const env = await api.sendMessage(sid, text, execId);
-      if (!env.ok || !env.data) throw new Error(env.error?.message || '응답이 비어 있습니다');
-      if (generation !== runtime.generation) return { ok: false, error: '대화가 변경되었습니다' };
+      if (!env.ok || !env.data) throw new Error('errors.response');
+      if (generation !== runtime.generation) return { ok: false, error: 'errors.changed' };
       updateMessages((prev) => confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base));
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
@@ -350,7 +338,7 @@ export function useChatSession(
     const runtime = runtimeRef.current;
     const failed = runtime.lastFailedContent;
     return failed ? performSend(failed.content, failed.id)
-      : Promise.resolve({ ok: false, error: '재시도할 메시지가 없습니다' });
+      : Promise.resolve({ ok: false, error: 'errors.noRetry' });
   }, [runtimeRef, performSend]);
   const enterDemo = useCallback(() => {
     const runtime = runtimeRef.current;
@@ -363,7 +351,7 @@ export function useChatSession(
   const retryConnection = useCallback(() => runtimeRef.current.retry(), []);
   const retryMessage = useCallback((id: string) => {
     const message = runtimeRef.current.messages.find((m) => m.id === id && m.status === 'failed');
-    return message ? performSend(message.draft ?? message.content, id) : Promise.resolve<SendResult>({ ok: false, error: '재전송할 메시지가 없습니다' });
+    return message ? performSend(message.draft ?? message.content, id) : Promise.resolve<SendResult>({ ok: false, error: 'errors.noRetry' });
   }, [performSend]);
   const deleteMessage = useCallback((id: string) => {
     if (runtimeRef.current.lastFailedContent?.id === id) runtimeRef.current.lastFailedContent = null;

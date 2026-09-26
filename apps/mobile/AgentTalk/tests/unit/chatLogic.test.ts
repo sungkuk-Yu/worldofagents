@@ -145,9 +145,9 @@ test('oldestCursor — 페이지네이션 before 커서', () => {
 test('typingTracker — 소스 활성화 시 active=true, quip 전달', () => {
   const events: { active: boolean; quip: string | null }[] = [];
   const t = createTypingTracker((active, quip) => events.push({ active, quip }));
-  t.begin('rest:send', '생각 중…');
+  t.begin('rest:send', 'quip.thinking');
   assert.equal(t.active, true);
-  assert.deepEqual(events[0], { active: true, quip: '생각 중…' });
+  assert.deepEqual(events[0], { active: true, quip: 'quip.thinking' });
 });
 
 test('typingTracker — 한 소스가 먼저 끝나도 다른 활성 소스가 있으면 상태 유지 (깜빡임 방지)', () => {
@@ -155,7 +155,7 @@ test('typingTracker — 한 소스가 먼저 끝나도 다른 활성 소스가 �
   const t = createTypingTracker((active, quip) => events.push({ active, quip }));
   // REST 전송 시작 + WS 뉴런 상태가 겹치는 상황
   t.begin('rest:send', DEFAULT_QUIP);
-  t.begin('ws:answer', '자료를 찾고 있어요...');
+  t.begin('ws:answer', 'quip.organizing');
   // WS 뉴런이 먼저 idle로 끝나도 → REST pending이 남았으므로 active 유지
   t.end('ws:answer');
   assert.equal(t.active, true, 'rest 소스 남아있으면 active 유지');
@@ -179,8 +179,8 @@ test('typingTracker — quip 없는 소스는 기본 자연어 문구', () => {
 test('typingTracker — 동일 상태 중복 emit 없음 (렌더 낭비 방지)', () => {
   const events: boolean[] = [];
   const t = createTypingTracker((active) => events.push(active));
-  t.begin('a', 'q1');
-  t.begin('b', 'q1'); // quip 변화 없음 → active 변화 없음
+  t.begin('a', 'quip.organizing');
+  t.begin('b', 'quip.organizing'); // quip 변화 없음 → active 변화 없음
   assert.deepEqual(events, [true]);
   t.endAll();
   assert.deepEqual(events, [true, false]);
@@ -308,7 +308,7 @@ test('시간 그룹 — 연속 5분, 날짜 경계, 잘못된 시간', () => {
   const groups = buildTimeGroups([
     row('a', '2026-09-26T10:00:00'), row('b', '2026-09-26T10:04:00'),
     row('c', '2026-09-26T10:09:00'), row('d', '2026-09-27T00:00:00'), row('e', '오류'),
-  ], new Date('2026-09-26T12:00:00'));
+  ], 'ko', new Date('2026-09-26T12:00:00'));
   assert.deepEqual(groups.map((g) => g.label), ['10:00', null, '10:09', '09월 27일 00:00', null]);
 });
 
@@ -339,7 +339,7 @@ for (const terminal of ['completed', 'failed', 'cancelled']) {
     runs.observe({ type: 'run.started', run_id: 'a' }, 's');
     assert.equal(tracker.activeCount, 1);
     runs.observe({ type: 'run.progress', run_id: 'a', stage: 'thinking', quip: '생각을 정리하고 있어요' }, 's');
-    assert.equal(quip, '생각을 정리하고 있어요');
+    assert.equal(quip, 'quip.thinking');
     runs.observe({ type: 'answer.done', run_id: 'a' }, 's');
     assert.equal(tracker.active, true);
     runs.observe({ type: `run.${terminal}`, run_id: 'a' }, 's');

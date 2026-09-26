@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 // LoginScreen — dev 로그인/회원가입 (채팅 MVP Phase 2)
 // 백엔드: POST /api/auth/signup → 실패(중복) 시 POST /api/auth/login 자동 폴백
 // 디자인: Mintlify 패턴 — 화이트 캔버스, 미니멀 폼, 그린 CTA, 사각 입력(radii.md)
@@ -10,6 +11,7 @@ import {
 } from 'react-native';
 import { Button, Surface, Text, TextInput } from 'react-native-paper';
 import { colors, radii, spacing, typography } from '../theme';
+import { errorKey } from '../lib/errorKeys';
 import { api, setToken } from '../lib/api';
 
 interface Props {
@@ -17,16 +19,16 @@ interface Props {
 }
 
 export default function LoginScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [skipMessage, setSkipMessage] = useState<string | null>(null);
 
   const authenticate = async () => {
     const mail = email.trim();
     if (!mail || !password) {
-      setError('이메일과 비밀번호를 입력하세요.');
+      setError('errors.credentials');
       return;
     }
     setBusy(true);
@@ -44,20 +46,16 @@ export default function LoginScreen({ navigation }: Props) {
         const login = await api.login(mail, password);
         token = login?.data?.token ?? null;
       }
-      if (!token) throw new Error('토큰을 받지 못했습니다.');
+      if (!token) throw new Error('errors.token');
       await setToken(token);
       navigation.reset({ index: 0, routes: [{ name: 'DialogueList' }] });
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorKey(e));
     } finally {
       setBusy(false);
     }
   };
 
-  const skipToDemo = () => {
-    setSkipMessage('데모 모드로 진입합니다 — 백엔드 연결 시 자동 전환됩니다.');
-    navigation.reset({ index: 0, routes: [{ name: 'DialogueList', params: { demo: true } }] });
-  };
 
   return (
     <KeyboardAvoidingView
@@ -67,14 +65,14 @@ export default function LoginScreen({ navigation }: Props) {
       <View style={styles.center}>
         <Surface style={styles.card} elevation={0} testID="login-card">
           <View style={styles.logoWrap}>
-            <Text style={styles.logoText}>AT</Text>
+            <Text style={styles.logoText}>{t('common.logo')}</Text>
           </View>
-          <Text style={styles.title}>에이전트톡</Text>
-          <Text style={styles.subtitle}>dev 계정으로 로그인하고 채팅을 시작하세요</Text>
+          <Text style={styles.title}>{t('common.app')}</Text>
+          <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
 
           <TextInput
             mode="outlined"
-            label="이메일"
+            label={t('login.email')}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -87,7 +85,7 @@ export default function LoginScreen({ navigation }: Props) {
           />
           <TextInput
             mode="outlined"
-            label="비밀번호"
+            label={t('login.password')}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -99,9 +97,8 @@ export default function LoginScreen({ navigation }: Props) {
           />
 
           {error && (
-            <Text style={styles.error} testID="login-error">{error}</Text>
+            <Text style={styles.error} testID="login-error">{t(error)}</Text>
           )}
-          {skipMessage && <Text style={styles.skipMsg}>{skipMessage}</Text>}
 
           <Button
             mode="contained"
@@ -114,18 +111,10 @@ export default function LoginScreen({ navigation }: Props) {
             loading={busy}
             testID="login-submit"
           >
-            {busy ? '확인 중…' : '로그인 / 가입'}
+            {busy ? t('login.busy') : t('login.submit')}
           </Button>
 
-          <Button
-            mode="text"
-            onPress={skipToDemo}
-            textColor={colors.text2}
-            labelStyle={styles.skipLabel}
-            testID="login-skip"
-          >
-            로그인 없이 둘러보기 (데모)
-          </Button>
+
         </Surface>
       </View>
     </KeyboardAvoidingView>
@@ -153,10 +142,10 @@ const styles = StyleSheet.create({
     padding: spacing.sp6,
   },
   logoWrap: {
-    width: 52,
-    height: 52,
+    minWidth: 52,
+    minHeight: 52,
     borderRadius: radii.md,
-    backgroundColor: 'rgba(0,168,107,0.10)',
+    backgroundColor: colors.surfaceRaise,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sp4,

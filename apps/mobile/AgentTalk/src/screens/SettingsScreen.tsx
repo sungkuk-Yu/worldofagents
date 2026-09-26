@@ -1,3 +1,6 @@
+import { changeLanguage, getLanguagePreference } from '../i18n';
+import type { LanguagePreference } from '../i18n/language';
+import { useTranslation } from 'react-i18next';
 // Screen 5: 설정 (SettingsScreen)
 // 설계: agenttalk-screen-spec.md 화면 5 — 왼손잡이 모드, 햅틱, 자동 전환, 조이스틱 커스터마이징 진입
 import React from 'react';
@@ -17,6 +20,13 @@ interface Props {
 }
 
 export default function SettingsScreen({ navigation }: Props) {
+  const { t } = useTranslation();
+  const [preference, setPreference] = React.useState(getLanguagePreference);
+  const [languageError, setLanguageError] = React.useState(false);
+  const selectLanguage = async (next: LanguagePreference) => {
+    try { await changeLanguage(next); setPreference(next); setLanguageError(false); }
+    catch { setLanguageError(true); }
+  };
   const [leftHandMode, setLeftHandMode] = React.useState(false);
   const [hapticFeedback, setHapticFeedback] = React.useState(true);
   const [autoTransition, setAutoTransition] = React.useState(true);
@@ -24,23 +34,31 @@ export default function SettingsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
+        <TouchableOpacity accessibilityLabel={t('common.back')} onPress={() => navigation.goBack()} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>설정</Text>
+        <Text style={styles.headerTitle}>{t('common.settings')}</Text>
         <View style={styles.headerButton} />
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.sectionTitle}>인터페이스</Text>
+        <Text style={styles.sectionTitle}>{t('settings.language')}</Text>
+        <View style={styles.settingCard}>
+          {(['system', 'ko', 'en'] as const).map((option) => <TouchableOpacity key={option} style={styles.linkRow} accessibilityRole="radio" accessibilityState={{ checked: preference === option }} accessibilityLabel={t(`settings.${option}`)} onPress={() => void selectLanguage(option)}>
+            <Text style={[styles.settingLabel, { flexShrink: 1, color: preference === option ? colors.accent : colors.text1 }]}>{t(`settings.${option}`)}</Text>
+          </TouchableOpacity>)}
+        </View>
+        {languageError && <Text style={styles.settingDescription}>{t('errors.language')}</Text>}
+        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('settings.interface')}</Text>
 
         <View style={styles.settingCard}>
           <View style={styles.settingRow}>
             <View style={styles.settingBody}>
-              <Text style={styles.settingLabel}>왼손잡이 모드</Text>
-              <Text style={styles.settingDescription}>조이스틱 예/아니오 방향도 함께 반전됩니다</Text>
+              <Text style={styles.settingLabel}>{t('settings.leftHand')}</Text>
+              <Text style={styles.settingDescription}>{t('settings.leftHandDescription')}</Text>
             </View>
             <Switch
+              accessibilityLabel={t('settings.leftHand')}
               value={leftHandMode}
               onValueChange={setLeftHandMode}
               trackColor={{ false: colors.surfaceHover, true: colors.accent }}
@@ -50,10 +68,11 @@ export default function SettingsScreen({ navigation }: Props) {
 
           <View style={styles.settingRow}>
             <View style={styles.settingBody}>
-              <Text style={styles.settingLabel}>햅틱 피드백</Text>
-              <Text style={styles.settingDescription}>방향 감지 및 확정 시 진동</Text>
+              <Text style={styles.settingLabel}>{t('settings.haptics')}</Text>
+              <Text style={styles.settingDescription}>{t('settings.hapticsDescription')}</Text>
             </View>
             <Switch
+              accessibilityLabel={t('settings.haptics')}
               value={hapticFeedback}
               onValueChange={setHapticFeedback}
               trackColor={{ false: colors.surfaceHover, true: colors.accent }}
@@ -62,15 +81,16 @@ export default function SettingsScreen({ navigation }: Props) {
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>대화</Text>
+        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('settings.conversation')}</Text>
 
         <View style={styles.settingCard}>
           <View style={styles.settingRow}>
             <View style={styles.settingBody}>
-              <Text style={styles.settingLabel}>자동 컴포넌트 전환</Text>
-              <Text style={styles.settingDescription}>대화 유형 자동 판별 후 전환</Text>
+              <Text style={styles.settingLabel}>{t('settings.auto')}</Text>
+              <Text style={styles.settingDescription}>{t('settings.autoDescription')}</Text>
             </View>
             <Switch
+              accessibilityLabel={t('settings.auto')}
               value={autoTransition}
               onValueChange={setAutoTransition}
               trackColor={{ false: colors.surfaceHover, true: colors.accent }}
@@ -83,29 +103,29 @@ export default function SettingsScreen({ navigation }: Props) {
             onPress={() => navigation.navigate('NeuronDashboard')}
           >
             <View style={styles.settingBody}>
-              <Text style={styles.settingLabel}>뉴런 대시보드</Text>
-              <Text style={styles.settingDescription}>에이뉴런 연결 상태 모니터링</Text>
+              <Text style={styles.settingLabel}>{t('common.neurons')}</Text>
+              <Text style={styles.settingDescription}>{t('settings.neuronDescription')}</Text>
             </View>
             <Text style={styles.chevron}>→</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>조이스틱</Text>
+        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('settings.joystick')}</Text>
 
         <View style={styles.settingCard}>
           <TouchableOpacity
             style={styles.linkRow}
-            onPress={() => console.log('[Settings] 조이스틱 커스터마이징 (다음 라운드)')}
+            onPress={() => console.log('[Settings] joystick customization pending')}
           >
             <View style={styles.settingBody}>
-              <Text style={styles.settingLabel}>조이스틱 커스터마이징</Text>
-              <Text style={styles.settingDescription}>8방향 = 액션 슬롯 (프리셋: 기본/업무모드)</Text>
+              <Text style={styles.settingLabel}>{t('settings.customize')}</Text>
+              <Text style={styles.settingDescription}>{t('settings.customizeDescription')}</Text>
             </View>
             <Text style={styles.chevron}>→</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.footerText}>에이전트톡 v0.1 · 월드오브에이전트</Text>
+        <Text style={styles.footerText}>{t('settings.footer')}</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -169,6 +189,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   settingBody: {
+    minWidth: 0,
     flex: 1,
     paddingRight: spacing.sp3,
   },

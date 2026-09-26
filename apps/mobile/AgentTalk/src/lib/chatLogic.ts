@@ -1,3 +1,4 @@
+import { formatDayLabel } from '../i18n/format';
 // 채팅 MVP 순수 로직 — 서버 행 ↔ UI 메시지 정규화, 페이지네이션, 낙관적 업데이트 머지
 // (React/네트워크 의존 없음 → 단위 테스트 대상)
 // 백엔드 스펙: apps/backend/docs/api-design.md §3.4
@@ -145,7 +146,10 @@ export function oldestCursor(messages: ChatMessage[]): number | null {
 // 정체성 규칙: 처리중 표시는 100% 신뢰 가능해야 한다. REST pending 과 WS neuron.status 가
 // 겹쳐 들어와도 "활성 소스 ≥ 1개"인 동안 상태가 소실되면 안 된다 (텔레그램식 깜빡임 금지).
 
-export const DEFAULT_QUIP = '잠깐만요, 생각 중이에요…';
+export const DEFAULT_QUIP = 'quip.default';
+export function quipKeyForStage(stage?: string): string {
+  return stage && ['thinking', 'organizing', 'finalizing', 'rendering'].includes(stage) ? `quip.${stage}` : DEFAULT_QUIP;
+}
 
 export type ExecutionStatus = 'active' | 'completed' | 'failed' | 'cancelled';
 
@@ -332,7 +336,7 @@ export function createTurnCoordinator(tracker: TypingTracker) {
         if (!key && !clientId) legacyKey = null;
       } else {
         if (!key && !clientId && pending.size && !watches.has(execId)) watches.set(execId, new Set(pending));
-        tracker.begin(execId, event.quip || DEFAULT_QUIP);
+        tracker.begin(execId, quipKeyForStage(event.stage));
       }
       return execId;
     },
@@ -359,15 +363,15 @@ export function createTurnCoordinator(tracker: TypingTracker) {
   };
 }
 
-export function validateMessageInput(content: string): { ok: boolean; error?: string; normalized?: string } {
+export function validateMessageInput(content: string): { ok: boolean; errorKey?: string; errorParams?: { limit: number }; normalized?: string } {
   const normalized = content.trim();
-  if (!normalized) return { ok: false, error: '메시지를 입력해주세요' };
-  if (normalized.length > 4000) return { ok: false, error: '메시지는 4000자까지 보낼 수 있어요' };
+  if (!normalized) return { ok: false, errorKey: 'errors.empty' };
+  if (normalized.length > 4000) return { ok: false, errorKey: 'errors.tooLong', errorParams: { limit: 4000 } };
   return { ok: true, normalized };
 }
 
 /** 연속 5분 이내 메시지는 시간을 생략한다. 잘못된 시간은 라벨 없이 별도 그룹으로 취급한다. */
-export function buildTimeGroups(messages: ChatMessage[], now = new Date()): { id: string; label: string | null }[] {
+export function buildTimeGroups(messages: ChatMessage[], locale: string, now = new Date()): { id: string; label: string | null }[] {
   let previous: Date | null = null;
   return messages.map((message) => {
     const date = message.createdAt ? new Date(message.createdAt) : null;
@@ -375,9 +379,7 @@ export function buildTimeGroups(messages: ChatMessage[], now = new Date()): { id
     const sameDay = previous?.toDateString() === date.toDateString();
     const grouped = previous && sameDay && date.getTime() >= previous.getTime() && date.getTime() - previous.getTime() < 300000;
     previous = date;
-    const time = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const label = date.toDateString() === now.toDateString() ? time
-      : `${String(date.getMonth() + 1).padStart(2, '0')}월 ${String(date.getDate()).padStart(2, '0')}일 ${time}`;
+    const label = formatDayLabel(date, locale, now);
     return { id: message.id, label: grouped ? null : label };
   });
 }
@@ -425,7 +427,7 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
     next.done = true;
     if (!next.text || messages.some((m) => m.id === next.messageId)) return streams.filter((s) => s.runId !== runId);
   }
-  if (typeof event.quip === 'string') next.quip = event.quip;
+  if (event.type === 'run.progress' || typeof event.stage === 'string') next.quip = quipKeyForStage(typeof event.stage === 'string' ? event.stage : undefined);
   return [...streams.filter((s) => s.runId !== runId), next];
 }
 

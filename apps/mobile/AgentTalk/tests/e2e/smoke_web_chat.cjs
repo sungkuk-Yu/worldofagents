@@ -23,7 +23,7 @@ function check(name, cond, extra = '') {
 (async () => {
   const exe = '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
   const browser = await chromium.launch({ executablePath: exe });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ko-KR' });
 
   const consoleErrors = [];
   const pageErrors = [];

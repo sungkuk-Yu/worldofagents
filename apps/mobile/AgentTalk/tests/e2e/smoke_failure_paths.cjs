@@ -21,7 +21,7 @@ function check(name, cond, extra = '') {
 (async () => {
   const exe = '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
   const browser = await chromium.launch({ executablePath: exe });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
   const consoleErrors = [];
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
@@ -103,7 +103,7 @@ function check(name, cond, extra = '') {
   await page.unroute('**/api/sessions/*/messages');
 
   // ── B) 전체 API 차단 → 오프라인 패널 ──
-  const page2 = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page2 = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
   await page2.goto(APP, { waitUntil: 'domcontentloaded' });
   await page2.waitForTimeout(800);
   await page2.route('**/api/**', (route) => route.abort('connectionfailed'));

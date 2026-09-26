@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { formatNumber } from '../i18n/format';
 // Screen 2: 텍스트 채팅 (ChatScreen) — Phase 2 채팅 MVP
 // 설계 기준: ui-interaction-spec.md 화면 2(메인 채팅) + agenttalk-figma tokens.json v1.1
 // 정체성 (대표님 지시 2026-09-25):
@@ -38,6 +40,7 @@ interface Props {
 
 // ── 메시지 카드 (전폭 사각형 — 좌우 말풍선 아님) ──
 function MessageCard({ item, agentName, retry, remove }: { item: ChatMessage; agentName: string; retry: () => void; remove: () => void }) {
+  const { t } = useTranslation();
   if (item.role === 'system') {
     return (
       <View style={styles.systemRow}>
@@ -51,19 +54,19 @@ function MessageCard({ item, agentName, retry, remove }: { item: ChatMessage; ag
       style={[styles.msgCard, isUser ? styles.msgCardUser : styles.msgCardAgent]}
       elevation={0}
       testID={isUser ? 'message-user' : 'message-agent'}
-      accessibilityLabel={`${isUser ? '내가 보낸 메시지' : `${agentName}의 응답`}: ${item.content}`}
+      accessibilityLabel={t(isUser ? 'chat.userMessage' : 'chat.agentMessage', { agentName, content: item.content })}
     >
       {/* 카드 헤더 — 발신 주체 라벨 (메신저 관습 대신 카드 구조로 구분) */}
       <View style={styles.msgHeader}>
         <Text style={[styles.msgRole, isUser ? styles.msgRoleUser : styles.msgRoleAgent]}>
-          {isUser ? '나' : agentName}
+          {isUser ? t('chat.me') : agentName}
         </Text>
-        {isUser && <Text style={styles.pendingMark}>{item.status === 'failed' ? '전송 실패' : item.status === 'pending' ? '전송중…' : '전송됨'}</Text>}
+        {isUser && <Text style={styles.pendingMark}>{item.status === 'failed' ? t('chat.failed') : item.status === 'pending' ? t('chat.sending') : t('chat.sent')}</Text>}
       </View>
       <Text style={styles.msgText}>{item.content}</Text>
       {item.status === 'failed' && <View style={styles.msgHeader}>
-        <Button onPress={retry} textColor={colors.accent}>재전송</Button>
-        <Button onPress={remove} textColor={colors.text2}>삭제</Button>
+        <Button onPress={retry} textColor={colors.accent}>{t('chat.resend')}</Button>
+        <Button onPress={remove} textColor={colors.text2}>{t('chat.delete')}</Button>
       </View>}
     </Surface>
   );
@@ -73,6 +76,7 @@ function MessageCard({ item, agentName, retry, remove }: { item: ChatMessage; ag
 // 내부 뉴런 이름(공감 에이뉴런 등)은 사용자에게 노출하지 않음: 대화만 시끄러워짐.
 // 공감을 카드 상단의 짧은 인사말로, 답변을 본문으로 구조화 = 결과 중심 출력.
 function AgentTurnCard({ items, agentName }: { items: ChatMessage[]; agentName: string }) {
+  const { t } = useTranslation();
   const empathy = items.find((m) => m.sourceNeuron === 'empathy');
   const body = items.filter((m) => m !== empathy);
   const pending = items.some((m) => m.pending);
@@ -82,11 +86,11 @@ function AgentTurnCard({ items, agentName }: { items: ChatMessage[]; agentName: 
       style={[styles.msgCard, styles.msgCardAgent]}
       elevation={0}
       testID="message-agent"
-      accessibilityLabel={`${agentName}의 응답: ${text}`}
+      accessibilityLabel={t('chat.agentMessage', { agentName, content: text })}
     >
       <View style={styles.msgHeader}>
         <Text style={[styles.msgRole, styles.msgRoleAgent]}>{agentName}</Text>
-        {pending && <Text style={styles.pendingMark}>전송 중…</Text>}
+        {pending && <Text style={styles.pendingMark}>{t('chat.sending')}</Text>}
       </View>
       {empathy ? <Text style={styles.empathyText}>{empathy.content}</Text> : null}
       {body.map((m) => (
@@ -119,6 +123,7 @@ function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
 // ── 처리중 카드 — 자연어 quip + 잔잔한 점 3개 (스피너 대신 대화체) ──
 // 정체성 규칙: 에이전트가 일하는 동안은 이 카드가 예외 없이 계속 보인다.
 function TypingCard({ quip, agentName, count }: { quip: string | null; agentName: string; count: number }) {
+  const { t, i18n } = useTranslation();
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
     const loop = Animated.loop(
@@ -134,7 +139,7 @@ function TypingCard({ quip, agentName, count }: { quip: string | null; agentName
 
   return (
     <Surface style={[styles.msgCard, styles.msgCardAgent, styles.typingCard]} elevation={0} testID="typing-indicator"
-      accessibilityLabel={`${agentName}이(가) 응답을 준비하고 있습니다`}
+      accessibilityLabel={t('chat.preparing', { agentName })}
       accessibilityRole="progressbar"
       accessibilityLiveRegion="polite"
     >
@@ -149,15 +154,17 @@ function TypingCard({ quip, agentName, count }: { quip: string | null; agentName
           ))}
         </View>
       </View>
-      {count > 1 && <Text style={styles.typingQuip}>{count}개 작업 처리 중</Text>}
-      <Text style={styles.typingQuip}>{quip || '잠깐만요, 생각 중이에요…'}</Text>
+      {count > 1 && <Text style={styles.typingQuip}>{t('chat.tasks', { countText: formatNumber(count, i18n.language) })}</Text>}
+      <Text style={styles.typingQuip}>{t(quip || 'quip.default')}</Text>
     </Surface>
   );
 }
 
 export default function ChatScreen({ navigation, route }: Props) {
+  const { t, i18n } = useTranslation();
   const agentId: string | undefined = route?.params?.agentId;
-  const agentName: string = route?.params?.agentName || '에이전트';
+  const presetTitleKey = route?.params?.presetTitleKey;
+  const agentName: string = presetTitleKey && i18n.exists(presetTitleKey) ? t(presetTitleKey) : route?.params?.agentName || t('common.agent');
   const initialSessionId: string | undefined = route?.params?.sessionId;
 
   const {
@@ -171,7 +178,6 @@ export default function ChatScreen({ navigation, route }: Props) {
     ready,
     send,
     loadOlder,
-    enterDemo,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
   } = useChatSession({ sessionId: initialSessionId ?? null, agentId: agentId ?? null });
@@ -179,12 +185,6 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [input, setInput] = useState('');
   const [sendFailed, setSendFailed] = useState(false);
   const listRef = useRef<FlatList<TurnGroup>>(null);
-
-  // 명시적 데모 진입 (목록의 "데모로 둘러보기"에서만) — 자동 폴백 없음
-  const demoParam = Boolean(route?.params?.demo);
-  useEffect(() => {
-    if (demoParam) enterDemo();
-  }, [demoParam, enterDemo]);
 
   const submit = useCallback(() => {
     const validation = validateMessageInput(input);
@@ -215,7 +215,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [unseen, setUnseen] = useState(0);
   const previousMessages = useRef<ChatMessage[]>([]);
   const groups = useMemo(() => groupByTurn(messages), [messages]);
-  const times = useMemo(() => new Map(buildTimeGroups(messages).map((g) => [g.id, g.label])), [messages]);
+  const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     offset.current = contentOffset.y;
@@ -278,25 +278,25 @@ export default function ChatScreen({ navigation, route }: Props) {
     {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
       <Text style={styles.msgText}>{stream.text}</Text>
-      <Text style={styles.typingQuip}>{stream.done ? '응답 저장 중…' : stream.quip}</Text>
+      <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
     </Surface>)}
-  </View>, [typing, typingQuip, agentName, activeCount, streams]);
+  </View>, [typing, typingQuip, agentName, activeCount, streams, t]);
 
   const renderHeader = useCallback(() => {
     if (!hasMoreHistory || isDemo) return <View style={{ height: spacing.sp2 }} />;
     return (
       <View style={styles.loadMoreWrap}>
         <Button mode="text" onPress={() => void loadHistory()} disabled={loadingHistory} testID="load-older" textColor={colors.text2}>
-          {loadingHistory ? '불러오는 중…' : '이전 대화 보기'}
+          {loadingHistory ? t('common.loading') : t('chat.history')}
         </Button>
       </View>
     );
-  }, [hasMoreHistory, isDemo, loadHistory, loadingHistory]);
+  }, [hasMoreHistory, isDemo, loadHistory, loadingHistory, t]);
 
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
-  const subtitle = isDemo ? '직접 선택한 데모 대화' : {
-    connecting: '연결 중…', live: '연결됨', reconnecting: '다시 연결하는 중…', offline: '연결이 끊겼어요',
+  const subtitle = {
+    connecting: t('chat.connecting'), live: t('chat.live'), reconnecting: t('chat.reconnecting'), offline: t('chat.offline'),
   }[connection];
 
   return (
@@ -307,7 +307,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     >
       {/* 커스텀 헤더 — 웹 export에서 Paper Appbar 아이콘 글리프 깨짐 방지 (다른 화면과 동일한 ← 텍스트 패턴) */}
       <View style={styles.appbar} testID="chat-appbar">
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel="뒤로 가기">
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel={t('common.back')}>
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerBody}>
@@ -320,20 +320,16 @@ export default function ChatScreen({ navigation, route }: Props) {
             ● {subtitle}
           </Text>
         </View>
-        {isDemo && (
-          <Surface style={styles.demoBadge} elevation={0} testID="demo-badge">
-            <Text style={styles.demoBadgeText}>DEMO</Text>
-          </Surface>
-        )}
+
       </View>
 
       {error && (
         <View style={styles.errorBar} testID="error-bar">
-          <Text style={styles.errorText}>{error}</Text>
-          {connection === 'offline' && <><Button onPress={retryConnection} textColor={colors.accent}>재시도</Button><Button onPress={enterDemo} textColor={colors.text2}>데모로 둘러보기</Button></>}
+          <Text style={styles.errorText}>{t(error)}</Text>
+          {connection === 'offline' && <><Button onPress={retryConnection} textColor={colors.accent}>{t('common.retry')}</Button></>}
           {sendFailed && (
             <TouchableOpacity onPress={retry} style={styles.retryButton} testID="retry-send">
-              <Text style={styles.retryText}>재시도</Text>
+              <Text style={styles.retryText}>{t('common.retry')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -364,27 +360,27 @@ export default function ChatScreen({ navigation, route }: Props) {
         testID="message-list"
         ListEmptyComponent={
           error && connection === 'offline' ? <View style={styles.empty}>
-            <Text style={styles.errorText}>{error}</Text>
-            <Button onPress={retryConnection} textColor={colors.accent}>재시도</Button>
-            <Button onPress={enterDemo} textColor={colors.text2}>데모로 둘러보기</Button>
+            <Text style={styles.errorText}>{t(error)}</Text>
+            <Button onPress={retryConnection} textColor={colors.accent}>{t('common.retry')}</Button>
+
           </View> : ready && !loadingHistory ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>{`안녕하세요, ${agentName}이에요`}</Text>
-              <Text style={styles.emptySub}>무엇을 도와드릴까요? 아래에 적어 보내주시면 바로 살펴볼게요.</Text>
+              <Text style={styles.emptyTitle}>{t('chat.greeting', { agentName })}</Text>
+              <Text style={styles.emptySub}>{t('chat.help')}</Text>
             </View>
           ) : null
         }
       />
 
-      {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={styles.msgCard}>새 메시지 {unseen}개</Button>}
-      {input.trim().length > 4000 && <Text style={styles.errorText}>메시지는 4000자까지 보낼 수 있어요</Text>}
+      {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={styles.msgCard}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
+      {input.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
       {/* 하단 입력 영역 — 화이트 배경 + 초박형 상단 테두리, 그린 포커스 (Mintlify 패턴) */}
       <View style={styles.inputBar}>
         <TextInput
           mode="outlined"
           value={input}
           onChangeText={setInput}
-          placeholder="에이전트에게 메시지 보내기…"
+          placeholder={t('chat.placeholder')}
           placeholderTextColor={colors.text3}
           style={styles.textInput}
           outlineColor={colors.border}
@@ -395,7 +391,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           testID="chat-input"
           onSubmitEditing={submit}
           returnKeyType="send"
-          accessibilityLabel="메시지 입력창"
+          accessibilityLabel={t('chat.input')}
         />
         <Button
           mode="contained"
@@ -407,9 +403,9 @@ export default function ChatScreen({ navigation, route }: Props) {
           contentStyle={styles.sendContent}
           labelStyle={styles.sendLabel}
           testID="send-button"
-          accessibilityLabel="메시지 전송"
+          accessibilityLabel={t('chat.sendLabel')}
         >
-          전송
+          {t('chat.send')}
         </Button>
       </View>
     </KeyboardAvoidingView>
@@ -442,6 +438,8 @@ const styles = StyleSheet.create({
     color: colors.text1,
   },
   headerBody: {
+    minWidth: 0,
+    flexShrink: 1,
     flex: 1,
     marginLeft: spacing.sp1,
     marginRight: spacing.sp2,
@@ -523,12 +521,15 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   msgHeader: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sp2,
     marginBottom: spacing.sp1,
   },
   msgRole: {
+    minWidth: 0,
+    flexShrink: 1,
     fontSize: typography.micro.fontSize,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -540,6 +541,8 @@ const styles = StyleSheet.create({
     color: colors.text2,
   },
   neuronChip: {
+    minWidth: 0,
+    flexShrink: 1,
     backgroundColor: colors.border,
     borderRadius: radii.xs,
     paddingHorizontal: spacing.sp2,
@@ -552,6 +555,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   pendingMark: {
+    minWidth: 0,
+    flexShrink: 1,
     marginLeft: 'auto',
     fontSize: typography.micro.fontSize,
     color: colors.text3,
@@ -638,6 +643,8 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   textInput: {
+    minWidth: 0,
+    flexShrink: 1,
     flex: 1,
     backgroundColor: colors.surface,
     fontSize: typography.body.fontSize,
@@ -645,13 +652,17 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
   },
   sendButton: {
+    minWidth: 0,
+    flexShrink: 1,
     borderRadius: radii.md,
-    height: spacing.sp10 + spacing.sp1,
+    minHeight: spacing.sp10 + spacing.sp1,
   },
   sendContent: {
     paddingHorizontal: spacing.sp3,
   },
   sendLabel: {
+    minWidth: 0,
+    flexShrink: 1,
     fontSize: typography.bodyBold.fontSize,
     fontWeight: '600',
     letterSpacing: 0,
