@@ -1,3 +1,4 @@
+import { parseThread, mergeThread } from '../lib/cardLogic';
 import { errorKey } from '../lib/errorKeys';
 // 에이전트톡은 사람↔에이전트 대화 앱이다. 처리중 표시는 실행별 상태를 따르며,
 // 지연 안내는 stage에 대응하는 번역 키로 전달한다.
@@ -12,9 +13,10 @@ import {
 export const PAGE_SIZE = 30;
 export type SendResult = { ok: true } | { ok: false; error: string };
 export type Connection = 'connecting' | 'live' | 'reconnecting' | 'offline';
-export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null }
+export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean }
 export interface UseChatSessionReturn {
   sessionId: string | null;
+  rootMessage: ChatMessage | null;
   messages: ChatMessage[];
   typing: boolean;
   activeCount: number;
@@ -48,8 +50,10 @@ function createRuntime(onChange: (active: boolean, quip: string | null, count: n
   const tracker = createTypingTracker(onChange, true);
     return {
       tracker, coordinator: createTurnCoordinator(tracker), messages: [] as ChatMessage[],
+      historyCursor: null as number | null,
       generation: 0, sid: null as string | null, demo: false, initialized: false, loadingOlder: false,
       retry: () => {},
+      scopedRuns: new Set<string>(),
       runStages: new Map<string, string>(),
       sequence: createSequenceTracker(), streams: [] as StreamingAnswer[],
       socket: null as VoiceSocket | null, stop: () => {},
@@ -67,6 +71,9 @@ export function useChatSession(
     ? sessionOrOptions : { ...options, sessionId: sessionOrOptions ?? options.sessionId };
   const requestedSession = opts.sessionId;
   const agentId = opts.agentId;
+  const rootMessageId = opts.rootMessageId;
+  const deferConnection = opts.deferConnection;
+  const [rootMessage, setRootMessage] = useState<ChatMessage | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(requestedSession ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
@@ -105,12 +112,15 @@ export function useChatSession(
     runtime.coordinator = createTurnCoordinator(runtime.tracker);
     runtime.sequence = createSequenceTracker();
     runtime.runStages.clear();
+    runtime.scopedRuns.clear();
     runtime.streams = [];
     // 외부 세션이 바뀌면 이전 스트림 표시를 초기화한다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStreams([]);
     runtime.loadingOlder = false;
+    runtime.historyCursor = null;
     // 외부 세션 리소스를 바꿀 때만 UI 상태를 초기화한다.
+    setRootMessage(null);
     setLoadingOlder(false);
     setReady(false);
     setHasOlder(false);
@@ -129,6 +139,8 @@ export function useChatSession(
     };
     runtime.stop = stop;
     if (mode === 'demo') {
+      updateMessages(() => []);
+      setSessionId(null);
       setConnection('offline');
       setReady(true);
       runtime.initialized = true;
@@ -141,6 +153,13 @@ export function useChatSession(
     setConnection('connecting');
 
     async function refresh(sid: string, initial: boolean, recovery: 'latest' | 'gap' | 'all' = 'latest') {
+      if (rootMessageId) {
+        const parsed = parseThread(await api.getThread(rootMessageId), rootMessageId);
+        if (!alive()) return;
+        setRootMessage(parsed.root);
+        updateMessages((prev) => mergeThread(prev, parsed.replies, rootMessageId));
+        return;
+      }
       const env = await api.getMessages(sid, { limit: PAGE_SIZE });
       if (recovery !== 'latest' && env.ok && env.data) {
         let page = env;
@@ -158,9 +177,12 @@ export function useChatSession(
       }
       if (!env.ok || !env.data) throw new Error('errors.history');
       if (!alive()) return;
-      const rows = normalizeServerMessages(env.data);
-      updateMessages((prev) => mergeIncoming(prev, rows));
-      if (initial) setHasOlder(Boolean(env.meta?.has_more) && rows.length > 0);
+      const allRows = normalizeServerMessages(env.data);
+      updateMessages((prev) => mergeIncoming(prev, allRows.filter((m) => !m.parentMessageId)));
+      if (initial) {
+        runtime.historyCursor = oldestCursor(allRows);
+        setHasOlder(Boolean(env.meta?.has_more) && allRows.length > 0);
+      }
     }
     function connect(sid: string) {
       if (!alive()) return;
@@ -204,6 +226,16 @@ export function useChatSession(
               return;
             }
             if (!runtime.sequence.accept(raw.seq)) return;
+            const incoming = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
+            const parent = incoming?.parent_message_id ?? raw.parent_message_id;
+            if (rootMessageId) {
+              const matches = parent === rootMessageId;
+              const owned = [raw.run_id, raw.client_exec_id, raw.execution_id].some((id) => typeof id === 'string' && runtime.scopedRuns.has(id));
+              if ((matches || owned) && typeof raw.run_id === 'string') runtime.scopedRuns.add(raw.run_id);
+              if (type === 'message.new' || type === 'message.created') {
+                if (!matches) return;
+              } else if (!matches && !owned) return;
+            } else if (typeof parent === 'string' && parent) return;
             if (typeof raw.run_id === 'string' && type === 'run.progress') runtime.runStages.set(raw.run_id, typeof raw.stage === 'string' ? raw.stage : '');
             const streamEvent = typeof raw.run_id === 'string' ? { ...raw, stage: runtime.runStages.get(raw.run_id) } : raw;
             runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
@@ -265,15 +297,15 @@ export function useChatSession(
       if (runtime.initialized && runtime.sid) connect(runtime.sid);
       else void init();
     };
-    void init();
+    if (!deferConnection) void init();
     return stop;
-  }, [requestedSession, agentId, mode, runtimeRef, updateMessages]);
+  }, [requestedSession, agentId, rootMessageId, deferConnection, mode, runtimeRef, updateMessages]);
 
   const loadOlder = useCallback(async () => {
     const runtime = runtimeRef.current;
     const sid = runtime.sid;
-    if (!sid || runtime.demo || runtime.loadingOlder || !hasOlder) return;
-    const cursor = oldestCursor(runtime.messages);
+    if (rootMessageId || !sid || runtime.demo || runtime.loadingOlder || !hasOlder) return;
+    const cursor = runtime.historyCursor ?? oldestCursor(runtime.messages);
     if (cursor === null || cursor <= 0) { setHasOlder(false); return; }
     const generation = runtime.generation;
     runtime.loadingOlder = true;
@@ -282,15 +314,17 @@ export function useChatSession(
       const env = await api.getMessages(sid, { before: cursor, limit: PAGE_SIZE });
       if (!env.ok || !env.data) throw new Error('errors.older');
       if (generation !== runtime.generation) return;
-      const older = normalizeServerMessages(env.data);
-      updateMessages((prev) => prependPage(prev, older));
-      setHasOlder(env.meta?.has_more ?? older.length >= PAGE_SIZE);
+      const allRows = normalizeServerMessages(env.data);
+      const nextCursor = oldestCursor(allRows);
+      runtime.historyCursor = nextCursor;
+      updateMessages((prev) => prependPage(prev, allRows.filter((m) => !m.parentMessageId)));
+      setHasOlder(nextCursor !== null && nextCursor < cursor && (env.meta?.has_more ?? allRows.length >= PAGE_SIZE));
     } catch (e) {
       if (generation === runtime.generation) setLastError(errorText(e));
     } finally {
       if (generation === runtime.generation) { runtime.loadingOlder = false; setLoadingOlder(false); }
     }
-  }, [runtimeRef, hasOlder, updateMessages]);
+  }, [runtimeRef, hasOlder, updateMessages, rootMessageId]);
 
   const performSend = useCallback(async (content: string, retryId?: string): Promise<SendResult> => {
     const runtime = runtimeRef.current;
@@ -305,15 +339,35 @@ export function useChatSession(
     const sid = runtime.sid;
     setLastError(null);
     updateMessages((prev) => appendOptimistic(prev, {
-      id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, pending: true, status: 'pending', createdAt: new Date().toISOString(),
+      id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
     }));
     coordinator.start(execId);
+    runtime.scopedRuns.add(execId);
+    if (runtime.demo) {
+      return new Promise<SendResult>((resolve) => {
+        const timer = setTimeout(() => {
+          runtime.demoTimers.delete(timer);
+          if (generation !== runtime.generation) { resolve({ ok: false, error: 'errors.changed' }); return; }
+          updateMessages((prev) => [...prev.map((m) => m.id === optimisticId ? { ...m, pending: false, status: 'sent' as const } : m),
+            { id: `demo-${execId}`, role: 'agent', content: text, contentKey: 'chat.demoReply', contentParams: { content: text },
+              turnIndex: nextTurnIndex(runtime.messages), status: 'sent', dialogueType: 'text', createdAt: new Date().toISOString() }]);
+          coordinator.finish(execId, '', undefined, true);
+          resolve({ ok: true });
+        }, 900);
+        runtime.demoTimers.set(timer, resolve);
+      });
+    }
     try {
       if (!sid || !runtime.initialized) throw new Error('errors.notReady');
-      const env = await api.sendMessage(sid, text, execId);
+      const env = await api.sendMessage(sid, text, execId, rootMessageId ? { parent_message_id: rootMessageId } : undefined);
       if (!env.ok || !env.data) throw new Error('errors.response');
       if (generation !== runtime.generation) return { ok: false, error: 'errors.changed' };
-      updateMessages((prev) => confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base));
+      if (env.data.run_id) runtime.scopedRuns.add(env.data.run_id);
+      updateMessages((prev) => {
+        const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base);
+        const existing = new Set(prev.filter((m) => m.id !== optimisticId).map((m) => m.id));
+        return rootMessageId ? confirmed.map((m) => existing.has(m.id) ? m : { ...m, parentMessageId: rootMessageId }) : confirmed;
+      });
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
       setStreams(runtime.streams);
@@ -332,7 +386,7 @@ export function useChatSession(
       // 종료 WS가 누락되어도 REST 확정/실패는 반드시 해당 실행을 종료한다.
       coordinator.finish(execId, sid ?? '');
     }
-  }, [runtimeRef, updateMessages]);
+  }, [runtimeRef, updateMessages, rootMessageId]);
   const send = useCallback((content: string) => performSend(content), [performSend]);
   const retryLastSend = useCallback((): Promise<SendResult> => {
     const runtime = runtimeRef.current;
@@ -359,7 +413,7 @@ export function useChatSession(
   }, [updateMessages]);
   const clearError = useCallback(() => setLastError(null), []);
   return {
-    sessionId, messages, typing, quip, mode, connection, lastError, hasOlder, loadingOlder,
+    sessionId, rootMessage, messages, typing, quip, mode, connection, lastError, hasOlder, loadingOlder,
     activeCount, streams, retryConnection, retryMessage, deleteMessage,
     send, retryLastSend, loadOlder, enterDemo, clearError,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,

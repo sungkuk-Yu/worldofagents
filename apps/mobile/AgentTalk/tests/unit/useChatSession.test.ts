@@ -9,7 +9,7 @@ import { ApiEnvelope, SendMessageResult, VoiceSocketHandlers } from '../../src/l
 const react = require('react') as typeof ReactTypes;
 const apiModule = require('../../src/lib/api') as typeof import('../../src/lib/api');
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
-function harness(t: TestContext, sid: string | null = 'session') {
+function harness(t: TestContext, sid: string | null = 'session', options: import('../../src/hooks/useChatSession').UseChatSessionOptions = {}) {
   const slots: { value?: unknown; deps?: readonly unknown[]; cleanup?: () => void }[] = [];
   let index = 0;
   let effects: (() => void)[] = [];
@@ -51,7 +51,7 @@ function harness(t: TestContext, sid: string | null = 'session') {
   });
   const render = () => {
     index = 0;
-    result = useChatSession(sid);
+    result = useChatSession(sid, options);
     const queued = effects; effects = [];
     queued.forEach((effect) => effect());
     return result;
@@ -273,4 +273,110 @@ test('재연결 복구는 저장된 메시지에 닿으면 불필요한 과거 �
   h.render().retryConnection(); h.sockets[1].onStatusChange?.('connected'); await flush();
   assert.deepEqual(cursors, [undefined, 2]);
   assert.deepEqual(h.render().messages.map((m) => m.id), ['m1', 'm2']);
+});
+
+
+test('명시적 데모 전송은 번역 키 응답을 만들고 네트워크를 호출하지 않는다', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = harness(t, null, { deferConnection: true });
+  const network = t.mock.method(apiModule.api, 'sendMessage', async () => { throw new Error('네트워크 호출 금지'); });
+  h.render().enterDemo(); h.render();
+  const sending = h.render().send('hello');
+  assert.equal(h.render().typing, true);
+  t.mock.timers.tick(899);
+  assert.equal(h.render().messages.length, 1);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await sending, { ok: true });
+  const state = h.render();
+  assert.equal(state.messages[1].contentKey, 'chat.demoReply');
+  assert.deepEqual(state.messages[1].contentParams, { content: 'hello' });
+  assert.equal(state.typing, false);
+  assert.equal(network.mock.callCount(), 0);
+  assert.equal(h.sockets.length, 0);
+  assert.equal((apiModule.api.getMessages as unknown as { mock: { callCount(): number } }).mock.callCount(), 0);
+});
+
+test('스레드 조회와 전송은 부모 범위를 유지하고 타 스레드 이벤트를 제외한다', async (t) => {
+  const h = harness(t, 'session', { rootMessageId: 'root' });
+  const row = (id: string, parent?: string) => ({ id, role: 'agent', content: id, turn_index: 1, parent_message_id: parent });
+  t.mock.method(apiModule.api, 'getThread', async () => ({ ok: true, data: { root: row('root'), replies: [row('old', 'root')] } }));
+  const calls: unknown[] = [];
+  t.mock.method(apiModule.api, 'sendMessage', async (_sid: string, _text: string, _exec?: string, options?: { parent_message_id?: string }) => {
+    calls.push(options);
+    return { ...confirm('user'), data: { ...confirm('user').data!, answer_response: 'answer', answer_message_id: 'answer', run_id: 'own' } };
+  });
+  h.render(); await flush();
+  assert.equal(h.render().rootMessage?.id, 'root');
+  assert.deepEqual(h.render().messages.map((m) => m.id), ['old']);
+  h.sockets[0].onRaw?.({ type: 'message.new', seq: 1, message: row('other', 'elsewhere') });
+  h.sockets[0].onRaw?.({ type: 'run.started', seq: 2, run_id: 'elsewhere', parent_message_id: 'elsewhere' });
+  assert.equal(h.render().typing, false);
+  h.sockets[0].onRaw?.({ type: 'run.started', seq: 3, run_id: 'thread-run', parent_message_id: 'root' });
+  h.sockets[0].onRaw?.({ type: 'run.progress', seq: 4, run_id: 'thread-run', stage: 'finalizing' });
+  assert.equal(h.render().quip, 'quip.finalizing');
+  h.sockets[0].onRaw?.({ type: 'message.new', seq: 5, message: row('new', 'root') });
+  h.sockets[0].onRaw?.({ type: 'run.completed', seq: 6, run_id: 'thread-run' });
+  assert.equal(h.render().typing, false);
+  await h.render().send('reply');
+  assert.deepEqual(calls, [{ parent_message_id: 'root' }]);
+  assert.ok(h.render().messages.every((m) => m.parentMessageId === 'root'));
+  assert.ok(!h.render().messages.some((m) => m.id === 'other'));
+});
+
+test('미지원 스레드는 오류만 표시하고 데모나 전송 가능한 루트를 만들지 않는다', async (t) => {
+  const h = harness(t, 'session', { rootMessageId: 'root' });
+  t.mock.method(apiModule.api, 'getThread', async () => { throw new Error('errors.unsupported'); });
+  h.render(); await flush();
+  const state = h.render();
+  assert.equal(state.error, 'errors.unsupported');
+  assert.equal(state.rootMessage, null);
+  assert.equal(state.mode, 'live');
+  assert.deepEqual(state.messages, []);
+  assert.equal(h.sockets.length, 0);
+});
+
+test('메인 대화는 스레드 답변을 중복 표시하지 않는다', async (t) => {
+  const h = harness(t);
+  h.render(); await flush();
+  h.sockets[0].onRaw?.({ type: 'message.new', seq: 1, message: { id: 'reply', role: 'agent', content: 'reply', turn_index: 1, parent_message_id: 'root' } });
+  assert.deepEqual(h.render().messages, []);
+});
+
+test('메인 히스토리가 스레드 답변뿐인 페이지도 다음 커서를 유지한다', async (t) => {
+  const h = harness(t);
+  const cursors: (number | undefined)[] = [];
+  t.mock.method(apiModule.api, 'getMessages', async (_sid: string, opts?: { before?: number }) => {
+    cursors.push(opts?.before);
+    return { ok: true, data: opts?.before === undefined
+      ? [{ id: 'reply', role: 'agent', content: 'reply', turn_index: 5, parent_message_id: 'root' }]
+      : [{ id: 'root', role: 'agent', content: 'root', turn_index: 1 }], meta: { has_more: opts?.before === undefined } };
+  });
+  h.render(); await flush();
+  assert.deepEqual(h.render().messages, []);
+  assert.equal(h.render().hasOlder, true);
+  await h.render().loadOlder();
+  assert.deepEqual(cursors, [undefined, 5]);
+  assert.equal(h.render().messages[0].id, 'root');
+  assert.equal(h.render().hasOlder, false);
+});
+
+test('스레드 전송 실패와 재전송도 원문 및 부모 ID를 보존한다', async (t) => {
+  const h = harness(t, 'session', { rootMessageId: 'root' });
+  t.mock.method(apiModule.api, 'getThread', async () => ({ root: { id: 'root', content: 'root' }, replies: [] }));
+  let calls = 0;
+  t.mock.method(apiModule.api, 'sendMessage', async (_sid: string, _text: string, _exec?: string, options?: { parent_message_id?: string }) => {
+    assert.equal(options?.parent_message_id, 'root');
+    if (++calls === 1) throw new Error('errors.response');
+    return confirm('reply');
+  });
+  h.render(); await flush();
+  await h.render().send('  draft  ');
+  const failed = h.render().messages[0];
+  assert.equal(failed.draft, '  draft  ');
+  assert.equal(failed.status, 'failed');
+  assert.equal(h.render().typing, false);
+  await h.render().retryMessage(failed.id);
+  assert.equal(h.render().messages.length, 1);
+  assert.equal(h.render().messages[0].status, 'sent');
+  assert.equal(h.render().messages[0].parentMessageId, 'root');
 });

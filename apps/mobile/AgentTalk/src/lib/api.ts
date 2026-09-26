@@ -4,6 +4,7 @@ import { LocalizedError } from './errorKeys';
 //   REST:  /api/sessions/ensure, /api/... (Fastify + JWT)
 //   WebSocket: /ws?ticket=<일회용 티켓> (dev 모드: 토큰 없이 연결 허용)
 // 참고: 네이티브/웹 모두 동작하도록 fetch + 글로벌 WebSocket 사용.
+import type { ForkOrigin } from '../types';
 import type { DialogueState } from '../store';
 import type { TurnIdentity } from './chatLogic';
 
@@ -83,7 +84,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const res = await fetch(`${config.apiUrl}${path}`, { ...init, headers });
   if (!res.ok) {
-    throw new LocalizedError(res.status === 401 || res.status === 403 ? 'errors.auth' : 'errors.request', { status: res.status });
+    throw new LocalizedError(res.status === 401 || res.status === 403 ? 'errors.auth' : res.status === 404 || res.status === 405 ? 'errors.unsupported' : 'errors.request', { status: res.status });
   }
   return (await res.json()) as T;
 }
@@ -97,6 +98,8 @@ export interface ApiEnvelope<T> {
 }
 
 export interface SessionSummary {
+  title?: string;
+  forked_from?: ForkOrigin;
   id: string;
   agent_id: string;
   status: 'active' | 'suspended' | 'archived';
@@ -122,6 +125,9 @@ export interface ServerChatMessage {
   content: string;
   source_neuron?: string | null;
   attachments?: unknown[];
+  structured_payload?: unknown;
+  parent_message_id?: unknown;
+  thread_reply_count?: unknown;
   created_at?: string;
   dialogue_type?: string | null;
 }
@@ -190,6 +196,11 @@ export const api = {
   /** 세션 목록 */
   listSessions: () => request<ApiEnvelope<SessionSummary[]>>('/api/sessions'),
 
+  getSession: (id: string) => request<ApiEnvelope<SessionSummary>>(`/api/sessions/${encodeURIComponent(id)}`),
+  getThread: (id: string) => request<unknown>(`/api/messages/${encodeURIComponent(id)}/thread`),
+  forkSession: (id: string, body: { from_message_id?: string; new_session_title?: string }) =>
+    request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify(body) }),
+
   /** 메시지 히스토리 — GET /api/sessions/:id/messages (turn_index 커서 페이지네이션) */
   getMessages: (sessionId: string, opts?: { before?: number; limit?: number }) => {
     const params = new URLSearchParams();
@@ -202,10 +213,10 @@ export const api = {
   },
 
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환) */
-  sendMessage: (sessionId: string, content: string, clientExecId?: string) =>
+  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string }) =>
     request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
+      body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
     }),
 };
 

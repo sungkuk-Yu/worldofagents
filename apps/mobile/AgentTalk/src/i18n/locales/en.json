@@ -12,7 +12,12 @@
     "results": "Results",
     "thread": "Thread",
     "neurons": "Neuron dashboard",
-    "logo": "AT"
+    "logo": "AT",
+    "aiGenerated": "AI-generated",
+    "cancel": "Cancel",
+    "settingsIcon": "⚙",
+    "backIcon": "←",
+    "forwardIcon": "→"
   },
   "chat": {
     "me": "You",
@@ -37,7 +42,11 @@
     "preparing": "{{agentName}} is preparing a response",
     "tasks": "Working on {{countText}} requests",
     "greeting": "Hi, I’m {{agentName}}",
-    "unseen": "{{countText}} new messages"
+    "unseen": "{{countText}} new messages",
+    "demoReply": "This is the demo you chose to explore. Here is a sample reply to “{{content}}”.",
+    "demoSubtitle": "Demo conversation you chose to explore",
+    "demoBadge": "DEMO",
+    "statusIndicator": "● {{status}}"
   },
   "login": {
     "subtitle": "Sign in with your development account to start chatting.",
@@ -64,7 +73,8 @@
     "language": "Language",
     "system": "Use device language",
     "ko": "한국어",
-    "en": "English"
+    "en": "English",
+    "demo": "Explore a demo conversation"
   },
   "quip": {
     "default": "One moment, I’m on it…",
@@ -94,7 +104,12 @@
     "changed": "You’ve switched conversations.",
     "noRetry": "There’s no message to resend.",
     "agent": "We couldn’t load an agent.",
-    "language": "We couldn’t save your language preference."
+    "language": "We couldn’t save your language preference.",
+    "unsupported": "This server does not support this feature yet.",
+    "thread": "Could not load this thread. Please try again.",
+    "fork": "Could not create the new project. Please try again.",
+    "file": "Could not open this file.",
+    "unavailableAction": "This message is not available on the server for threads or new projects yet."
   },
   "dialogueList": {
     "offline": "Offline",
@@ -111,5 +126,42 @@
     "title": "Chat with {{agentName}}",
     "continue": "Continue your chat with {{agentName}}",
     "loginHint": "{{error}} — Tap to sign in"
+  },
+  "fork": {
+    "action": "Start a new project from here",
+    "short": "Fork",
+    "confirm": "Bring this conversation branch into a new, independent chat.",
+    "title": "New project title",
+    "defaultTitle": "Fork of {{title}}",
+    "lineage": "Forked from ⟨{{origin}}⟩",
+    "original": "Original conversation",
+    "badge": "Forked"
+  },
+  "cards": {
+    "thread": "Thread",
+    "replies": "{{countText}} replies",
+    "replies_one": "{{countText}} reply",
+    "replies_other": "{{countText}} replies",
+    "favorite": "Favorite",
+    "unfavorite": "Remove favorite",
+    "starIcon": "☆",
+    "starredIcon": "★",
+    "checkedIcon": "☑",
+    "uncheckedIcon": "☐",
+    "referenceIcon": "▤",
+    "noContent": "No content to display.",
+    "openFile": "Open file",
+    "fileSize": "{{size}} bytes",
+    "done": "Done",
+    "pending": "To do",
+    "info": "Information",
+    "data": "Table",
+    "file": "File",
+    "task": "Tasks",
+    "multi": "Agent collaboration",
+    "text": "Conversation",
+    "inProgress": "In progress",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
   }
 }

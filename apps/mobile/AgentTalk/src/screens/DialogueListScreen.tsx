@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import { errorKey } from '../lib/errorKeys';
+import { parseForkOrigin } from '../lib/cardLogic';
 import { formatDayLabel } from '../i18n/format';
 
 interface Props { navigation: any; route?: any }
@@ -31,6 +32,7 @@ export default function DialogueListScreen({ navigation }: Props) {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { const timer = setTimeout(() => { void refresh(); }, 0); return () => clearTimeout(timer); }, [refresh]);
+  useEffect(() => navigation.addListener('focus', () => { void refresh(); }), [navigation, refresh]);
   const startChat = async (selected?: AgentSummary) => {
     setStarting(true); setError(null);
     try {
@@ -51,7 +53,7 @@ export default function DialogueListScreen({ navigation }: Props) {
       <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
       <View style={styles.headerRight}>
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={styles.settingsButton} accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>⚙</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="settings-button" style={styles.settingsButton} accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
       </View>
     </View>
     {error && <TouchableOpacity style={styles.errorBar} onPress={() => error === 'errors.auth' ? navigation.navigate('Login') : void refresh()} testID="login-hint">
@@ -74,16 +76,19 @@ export default function DialogueListScreen({ navigation }: Props) {
         </View>
       </TouchableOpacity>} /> : <FlatList data={sessions} keyExtractor={(item) => item.id} contentContainerStyle={styles.listContent} testID="session-list"
       renderItem={({ item }) => {
+        const origin = parseForkOrigin(item.forked_from);
         const agent = agents.find((a) => a.id === item.agent_id);
         const agentName = agentTitle(agent);
         const date = item.last_activity_at ? new Date(item.last_activity_at) : null;
         return <TouchableOpacity style={[styles.dialogueCard, { borderLeftColor: colors.accent }]} testID="session-card"
-          onPress={() => navigation.navigate('Chat', { sessionId: item.id, agentId: item.agent_id, agentName: agent?.name, presetTitleKey: agent?.preset?.titleKey })}
+          onPress={() => navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetTitleKey: agent?.preset?.titleKey })}
           accessibilityLabel={t('dialogueList.continue', { agentName })}>
           <View style={styles.dialogueBody}><View style={styles.dialogueHeader}>
             <Text style={[styles.dialogueType, { color: colors.accent }]} numberOfLines={1}>{agentName}</Text>
             <Text style={styles.dialogueTime}>{date && Number.isFinite(date.getTime()) ? formatDayLabel(date, i18n.language) : null}</Text>
-          </View><Text style={styles.dialogueTitle} numberOfLines={2}>{t('dialogueList.title', { agentName })}</Text></View>
+          </View><Text style={styles.dialogueTitle} numberOfLines={2}>{item.title || t('dialogueList.title', { agentName })}</Text>
+          {origin && <><Text style={styles.dialogueType}>{t('fork.badge')}</Text><Text style={styles.emptySubtext} numberOfLines={1}>{t('fork.lineage', { origin: origin.title || sessions.find((session) => session.id === origin.session_id)?.title || t('fork.original') })}</Text></>}
+          </View>
         </TouchableOpacity>;
       }} ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyText}>{t('dialogueList.empty')}</Text><Text style={styles.emptySubtext}>{t('dialogueList.start')}</Text></View>} />}
   </SafeAreaView>;

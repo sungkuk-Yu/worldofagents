@@ -1,15 +1,16 @@
 /**
  * 실패 경로 스모크 (Codex 리뷰 검증 기준) — t_50cc173a
  * A) 전송 중 백엔드 끊김(POST abort) → 오류 바 + 입력 원문 보존 + 재시도 성공 (데모 폴백 아님)
- * B) 전체 API 차단 → 오프라인 패널(재시도/데모 명시 선택), 데모 진입 시에만 데모 동작
- * 실행: 백엔드 :3000 + 정적 :8081 기동 상태에서 node smoke_failure_paths.cjs
+ * B) 전체 API 차단 → 오프라인 패널 및 설정을 통한 데모 명시 선택, 데모 진입 시에만 데모 동작
+ * 실행: API/WS 모의 + 정적 :8081 기동 상태에서 node smoke_failure_paths.cjs
  */
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
+const { installFixtures } = require('./run_c_fixtures.cjs');
 const fs = require('fs');
 const path = require('path');
 
 const APP = process.env.APP_URL || 'http://localhost:8081';
-const OUT = process.env.OUT_DIR || '/home/holysky87/.hermes/profiles/frontdev/cache/scratch/smoke-shots';
+const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'failure-paths');
 fs.mkdirSync(OUT, { recursive: true });
 
 let passed = 0, failed = 0;
@@ -22,6 +23,7 @@ function check(name, cond, extra = '') {
   const exe = '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
   const browser = await chromium.launch({ executablePath: exe });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
+  await installFixtures(page);
   const consoleErrors = [];
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
@@ -35,9 +37,7 @@ function check(name, cond, extra = '') {
   // 로그인 → 채팅 진입
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
-  await page.getByTestId('login-hint').click().catch(async () => {
-    await page.getByTestId('new-chat-button').click();
-  });
+  if (await page.getByTestId('login-hint').isVisible()) await page.getByTestId('login-hint').click();
   await page.waitForTimeout(600);
   if (await page.getByTestId('login-card').isVisible().catch(() => false)) {
     await page.getByTestId('login-email').fill(email);
@@ -56,7 +56,7 @@ function check(name, cond, extra = '') {
       await route.abort('connectionfailed');
       return;
     }
-    await route.continue();
+    await route.fallback();
   });
 
   const probe = `실패경로 테스트 ${stamp}`;
@@ -104,6 +104,7 @@ function check(name, cond, extra = '') {
 
   // ── B) 전체 API 차단 → 오프라인 패널 ──
   const page2 = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
+  await installFixtures(page2);
   await page2.goto(APP, { waitUntil: 'domcontentloaded' });
   await page2.waitForTimeout(800);
   await page2.route('**/api/**', (route) => route.abort('connectionfailed'));
@@ -117,16 +118,18 @@ function check(name, cond, extra = '') {
 
   if (offline) {
     // 데모 명시 선택
+    await page2.getByTestId('settings-button').click();
     await page2.getByTestId('demo-button').click();
     await page2.waitForSelector('[data-testid="chat-input"]', { timeout: 8000 }).catch(() => {});
     await page2.waitForTimeout(600);
-    const demoOn = await page2.getByText('DEMO').first().isVisible().catch(() => false);
+    const demoOn = await page2.getByTestId('demo-badge').isVisible().catch(() => false);
     check('데모는 명시적 선택 시에만 진입', demoOn);
     await page2.getByTestId('chat-input').fill('데모 확인');
     await page2.getByTestId('send-button').click();
     await page2.waitForSelector('[data-testid="message-agent"]', { timeout: 8000 }).catch(() => {});
     const demoReply = await page2.getByTestId('message-agent').count();
-    check('데모 모드 응답 동작', demoReply >= 1);
+    check('데모 모드 응답 동작', demoReply >= 1 && await page2.getByTestId('message-agent').first().innerText().then((text) => text.includes('데모 확인') && text.includes('직접 선택한 데모')));
+    check('AI 생성 고지 표시', await page2.getByTestId('ai-generated-badge').first().isVisible());
     await page2.screenshot({ path: shot('13-demo-explicit') });
   }
 

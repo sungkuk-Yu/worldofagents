@@ -1,3 +1,4 @@
+import type { ForkOrigin } from './src/types';
 import { initializeLanguage } from './src/i18n';
 import { useTranslation } from 'react-i18next';
 // AgentTalk — 메인 앱 진입점
@@ -29,10 +30,10 @@ import {
 export type RootStackParamList = {
   Login: undefined;
   DialogueList: { demo?: boolean } | undefined;
-  Chat: { sessionId?: string; agentId?: string; agentName?: string };
+  Chat: { sessionId?: string; agentId?: string; agentName?: string; demo?: boolean; presetTitleKey?: string; sessionTitle?: string; forkedFrom?: ForkOrigin };
   VoiceHome: { dialogueId?: string };
   ResultCanvas: { dialogueId?: string };
-  CardThread: { refType?: string; refTitle?: string };
+  CardThread: { sessionId: string; rootMessageId: string; agentName?: string; sessionTitle?: string };
   NeuronDashboard: undefined;
   Settings: undefined;
 };

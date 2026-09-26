@@ -12,7 +12,12 @@
     "results": "결과",
     "thread": "스레드",
     "neurons": "뉴런 대시보드",
-    "logo": "AT"
+    "logo": "AT",
+    "aiGenerated": "AI 생성",
+    "cancel": "취소",
+    "settingsIcon": "⚙",
+    "backIcon": "←",
+    "forwardIcon": "→"
   },
   "chat": {
     "me": "나",
@@ -37,7 +42,11 @@
     "preparing": "{{agentName}}이(가) 응답을 준비하고 있습니다",
     "tasks": "{{countText}}개 작업 처리 중",
     "greeting": "안녕하세요, {{agentName}}이에요",
-    "unseen": "새 메시지 {{countText}}개"
+    "unseen": "새 메시지 {{countText}}개",
+    "demoReply": "직접 선택한 데모예요. “{{content}}”에 대한 예시 응답입니다.",
+    "demoSubtitle": "직접 선택한 데모 대화",
+    "demoBadge": "DEMO",
+    "statusIndicator": "● {{status}}"
   },
   "login": {
     "subtitle": "dev 계정으로 로그인하고 채팅을 시작하세요",
@@ -64,7 +73,8 @@
     "language": "언어",
     "system": "시스템 따라감",
     "ko": "한국어",
-    "en": "English"
+    "en": "English",
+    "demo": "데모 대화 둘러보기"
   },
   "quip": {
     "default": "잠깐만요, 살펴보고 있어요…",
@@ -94,7 +104,12 @@
     "changed": "대화가 변경되었습니다",
     "noRetry": "재시도할 메시지가 없습니다",
     "agent": "에이전트를 확보하지 못했습니다.",
-    "language": "언어 설정을 저장하지 못했습니다."
+    "language": "언어 설정을 저장하지 못했습니다.",
+    "unsupported": "이 서버는 아직 이 기능을 지원하지 않아요",
+    "thread": "스레드를 불러오지 못했어요. 다시 시도해 주세요.",
+    "fork": "새 프로젝트를 만들지 못했어요. 다시 시도해 주세요.",
+    "file": "파일을 열 수 없어요.",
+    "unavailableAction": "이 메시지는 아직 서버에서 스레드나 새 프로젝트로 열 수 없어요."
   },
   "dialogueList": {
     "offline": "오프라인",
@@ -111,5 +126,42 @@
     "title": "{{agentName}}와의 대화",
     "continue": "{{agentName}}와의 대화 이어서 보기",
     "loginHint": "{{error}} — 탭하여 로그인"
+  },
+  "fork": {
+    "action": "여기서 새 프로젝트 시작",
+    "short": "분기",
+    "confirm": "이 대화 갈래를 독립된 새 대화방으로 가져옵니다.",
+    "title": "새 프로젝트 제목",
+    "defaultTitle": "{{title}}에서 분기",
+    "lineage": "⟨{{origin}}⟩에서 분기됨",
+    "original": "원본 대화",
+    "badge": "분기됨"
+  },
+  "cards": {
+    "thread": "스레드",
+    "replies": "답변 {{countText}}개",
+    "replies_one": "답변 {{countText}}개",
+    "replies_other": "답변 {{countText}}개",
+    "favorite": "즐겨찾기",
+    "unfavorite": "즐겨찾기 해제",
+    "starIcon": "☆",
+    "starredIcon": "★",
+    "checkedIcon": "☑",
+    "uncheckedIcon": "☐",
+    "referenceIcon": "▤",
+    "noContent": "표시할 내용이 없어요.",
+    "openFile": "파일 열기",
+    "fileSize": "{{size}} 바이트",
+    "done": "완료",
+    "pending": "미완료",
+    "info": "정보",
+    "data": "표",
+    "file": "파일",
+    "task": "작업",
+    "multi": "에이전트 협업",
+    "text": "대화",
+    "inProgress": "진행 중",
+    "failed": "실패",
+    "cancelled": "취소됨"
   }
 }

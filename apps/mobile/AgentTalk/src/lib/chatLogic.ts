@@ -17,25 +17,35 @@ export interface ServerMessageRow {
   source_neuron?: string | null;
   created_at?: string;
   dialogue_type?: string | null;
+  structured_payload?: unknown;
+  parent_message_id?: unknown;
+  thread_reply_count?: unknown;
   run_id?: string;
 }
 
 /** 서버 행 → UI 메시지 정규화 */
-export function normalizeServerMessages(rows: ServerMessageRow[]): ChatMessage[] {
-  return (rows || [])
-    .filter((r) => r && typeof r.content === 'string' && r.content.length > 0)
-    .map((r): ChatMessage => ({
-      id: String(r.id),
-      role: r.role === 'user' ? 'user' : r.role === 'system' ? 'system' : 'agent',
-      content: r.content,
-      turnIndex: Number(r.turn_index) || 0,
-      sourceNeuron: r.source_neuron ?? null,
-      createdAt: r.created_at,
-      dialogueType: r.dialogue_type ?? null,
-      runId: r.run_id,
-      status: 'sent',
-    }))
-    .sort((a, b) => a.turnIndex - b.turnIndex);
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+export function normalizeServerMessages(rows: unknown): ChatMessage[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(isRecord).filter((r) =>
+    typeof r.id === 'string' && !!r.id &&
+    (typeof r.content === 'string' && r.content.length > 0 || isRecord(r.structured_payload))
+  ).map((r): ChatMessage => ({
+    id: r.id as string,
+    role: r.role === 'user' ? 'user' : r.role === 'system' ? 'system' : 'agent',
+    content: typeof r.content === 'string' ? r.content : '',
+    turnIndex: typeof r.turn_index === 'number' && Number.isFinite(r.turn_index) ? r.turn_index : 0,
+    sourceNeuron: typeof r.source_neuron === 'string' ? r.source_neuron : null,
+    createdAt: typeof r.created_at === 'string' ? r.created_at : undefined,
+    dialogueType: typeof r.dialogue_type === 'string' ? r.dialogue_type : null,
+    payload: isRecord(r.structured_payload) ? r.structured_payload : undefined,
+    parentMessageId: typeof r.parent_message_id === 'string' ? r.parent_message_id : undefined,
+    threadReplyCount: typeof r.thread_reply_count === 'number' && Number.isInteger(r.thread_reply_count) && r.thread_reply_count >= 0 ? r.thread_reply_count : undefined,
+    runId: typeof r.run_id === 'string' ? r.run_id : undefined,
+    status: 'sent',
+  })).sort((a, b) => a.turnIndex - b.turnIndex);
 }
 
 /**
@@ -99,6 +109,7 @@ export function confirmTurn(
       content: confirm.empathy_response,
       turnIndex: baseTurnIndex + offset,
       sourceNeuron: 'empathy',
+      runId: confirm.run_id,
     });
     offset += 1;
   }
@@ -109,6 +120,8 @@ export function confirmTurn(
       content: confirm.answer_response,
       turnIndex: baseTurnIndex + offset,
       sourceNeuron: 'answer',
+      dialogueType: confirm.dialogue_type,
+      runId: confirm.run_id,
     });
   }
   // id 중복 방어 (WS가 먼저 같은 메시지를 뿌린 경우)

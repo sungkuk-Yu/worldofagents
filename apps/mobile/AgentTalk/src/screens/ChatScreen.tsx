@@ -1,10 +1,16 @@
+import CardFrame from '../cards/CardFrame';
+import ForkDialog from '../components/ForkDialog';
+import { useCardActions } from '../hooks/useCardActions';
+import { parseForkOrigin } from '../lib/cardLogic';
+import { api } from '../lib/api';
+import type { ForkOrigin } from '../types';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../i18n/format';
 // Screen 2: 텍스트 채팅 (ChatScreen) — Phase 2 채팅 MVP
 // 설계 기준: ui-interaction-spec.md 화면 2(메인 채팅) + agenttalk-figma tokens.json v1.1
 // 정체성 (대표님 지시 2026-09-25):
 //   - 사람↔에이전트 대화 전용. 카카오톡식 좌우 말풍선·읽음확인 금지 → 전폭 사각형 카드 스택
-//   - 결과 중심: 에이전트 응답은 뉴런 출처 라벨이 있는 구조화 카드로 렌더
+//   - 결과 중심: 에이전트 응답은 유형별 기능과 공통 액션이 있는 구조화 카드로 렌더
 //   - 처리중 상태는 100% 신뢰 가능: typing=true인 동안 카드가 예외 없이 항상 표시됨
 //     (useChatSession의 소스 카운터 트래커가 REST/WS 중복 신호에도 상태 소실을 방지)
 //   - 지연은 자연어로: 스피너 대신 대화체 quip ("잠깐만요, 생각 중이에요…") + 잔잔한 점 애니메이션
@@ -38,68 +44,6 @@ interface Props {
   route: any;
 }
 
-// ── 메시지 카드 (전폭 사각형 — 좌우 말풍선 아님) ──
-function MessageCard({ item, agentName, retry, remove }: { item: ChatMessage; agentName: string; retry: () => void; remove: () => void }) {
-  const { t } = useTranslation();
-  if (item.role === 'system') {
-    return (
-      <View style={styles.systemRow}>
-        <Text style={styles.systemText}>{item.content}</Text>
-      </View>
-    );
-  }
-  const isUser = item.role === 'user';
-  return (
-    <Surface
-      style={[styles.msgCard, isUser ? styles.msgCardUser : styles.msgCardAgent]}
-      elevation={0}
-      testID={isUser ? 'message-user' : 'message-agent'}
-      accessibilityLabel={t(isUser ? 'chat.userMessage' : 'chat.agentMessage', { agentName, content: item.content })}
-    >
-      {/* 카드 헤더 — 발신 주체 라벨 (메신저 관습 대신 카드 구조로 구분) */}
-      <View style={styles.msgHeader}>
-        <Text style={[styles.msgRole, isUser ? styles.msgRoleUser : styles.msgRoleAgent]}>
-          {isUser ? t('chat.me') : agentName}
-        </Text>
-        {isUser && <Text style={styles.pendingMark}>{item.status === 'failed' ? t('chat.failed') : item.status === 'pending' ? t('chat.sending') : t('chat.sent')}</Text>}
-      </View>
-      <Text style={styles.msgText}>{item.content}</Text>
-      {item.status === 'failed' && <View style={styles.msgHeader}>
-        <Button onPress={retry} textColor={colors.accent}>{t('chat.resend')}</Button>
-        <Button onPress={remove} textColor={colors.text2}>{t('chat.delete')}</Button>
-      </View>}
-    </Surface>
-  );
-}
-
-// ── 에이전트 턴 카드 — 같은 턴의 공감+답변을 하나의 결과 카드로 (Codex 리뷰 #4) ──
-// 내부 뉴런 이름(공감 에이뉴런 등)은 사용자에게 노출하지 않음: 대화만 시끄러워짐.
-// 공감을 카드 상단의 짧은 인사말로, 답변을 본문으로 구조화 = 결과 중심 출력.
-function AgentTurnCard({ items, agentName }: { items: ChatMessage[]; agentName: string }) {
-  const { t } = useTranslation();
-  const empathy = items.find((m) => m.sourceNeuron === 'empathy');
-  const body = items.filter((m) => m !== empathy);
-  const pending = items.some((m) => m.pending);
-  const text = body.map((m) => m.content).join('\n\n');
-  return (
-    <Surface
-      style={[styles.msgCard, styles.msgCardAgent]}
-      elevation={0}
-      testID="message-agent"
-      accessibilityLabel={t('chat.agentMessage', { agentName, content: text })}
-    >
-      <View style={styles.msgHeader}>
-        <Text style={[styles.msgRole, styles.msgRoleAgent]}>{agentName}</Text>
-        {pending && <Text style={styles.pendingMark}>{t('chat.sending')}</Text>}
-      </View>
-      {empathy ? <Text style={styles.empathyText}>{empathy.content}</Text> : null}
-      {body.map((m) => (
-        <Text key={m.id} style={styles.msgText}>{m.content}</Text>
-      ))}
-    </Surface>
-  );
-}
-
 // 같은 turnIndex 의 연속 에이전트 메시지를 하나의 턴 카드로 그룹
 interface TurnGroup {
   key: string;
@@ -122,7 +66,7 @@ function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
 
 // ── 처리중 카드 — 자연어 quip + 잔잔한 점 3개 (스피너 대신 대화체) ──
 // 정체성 규칙: 에이전트가 일하는 동안은 이 카드가 예외 없이 계속 보인다.
-function TypingCard({ quip, agentName, count }: { quip: string | null; agentName: string; count: number }) {
+export function TypingCard({ quip, agentName, count }: { quip: string | null; agentName: string; count: number }) {
   const { t, i18n } = useTranslation();
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -168,7 +112,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const initialSessionId: string | undefined = route?.params?.sessionId;
 
   const {
-    messages,
+    messages, sessionId, enterDemo,
     typing,
     typingQuip,
     isDemo,
@@ -180,7 +124,31 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
-  } = useChatSession({ sessionId: initialSessionId ?? null, agentId: agentId ?? null });
+  } = useChatSession({ sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo });
+
+  useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
+  const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
+  const [origin, setOrigin] = useState<ForkOrigin | undefined>(() => parseForkOrigin(route?.params?.forkedFrom));
+  const sessionTitle = route?.params?.sessionTitle || agentName;
+  const [unavailableError, setUnavailableError] = useState<string | null>(null);
+  const { handlers, decorate, actionError } = useCardActions(
+    (message) => {
+      if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
+      navigation.navigate('CardThread', { sessionId, rootMessageId: message.id, agentName, sessionTitle });
+    },
+    (message) => {
+      if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
+      setForkMessage(message);
+    },
+  );
+  useEffect(() => {
+    let active = true;
+    if (sessionId && !isDemo) void api.getSession(sessionId).then((env) => {
+      const parsed = parseForkOrigin(env.data?.forked_from);
+      if (active && parsed) setOrigin(parsed);
+    }).catch(() => { /* 선택적 계보 필드 미지원은 기존 대화를 막지 않는다. */ });
+    return () => { active = false; };
+  }, [sessionId, isDemo]);
 
   const [input, setInput] = useState('');
   const [sendFailed, setSendFailed] = useState(false);
@@ -278,6 +246,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
       <Text style={styles.msgText}>{stream.text}</Text>
+      <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
       <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
     </Surface>)}
   </View>, [typing, typingQuip, agentName, activeCount, streams, t]);
@@ -295,7 +264,7 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
-  const subtitle = {
+  const subtitle = isDemo ? t('chat.demoSubtitle') : {
     connecting: t('chat.connecting'), live: t('chat.live'), reconnecting: t('chat.reconnecting'), offline: t('chat.offline'),
   }[connection];
 
@@ -308,21 +277,25 @@ export default function ChatScreen({ navigation, route }: Props) {
       {/* 커스텀 헤더 — 웹 export에서 Paper Appbar 아이콘 글리프 깨짐 방지 (다른 화면과 동일한 ← 텍스트 패턴) */}
       <View style={styles.appbar} testID="chat-appbar">
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} accessibilityLabel={t('common.back')}>
-          <Text style={styles.backText}>←</Text>
+          <Text style={styles.backText}>{t('common.backIcon')}</Text>
         </TouchableOpacity>
         <View style={styles.headerBody}>
-          <Text style={styles.appbarTitle} numberOfLines={1}>{agentName}</Text>
+          <Text style={styles.appbarTitle} numberOfLines={1}>{sessionTitle}</Text>
           <Text
             style={[styles.appbarSubtitle, { color: isDemo ? colors.statusWarn : connectionColor }]}
             numberOfLines={1}
             testID="chat-status-line"
           >
-            ● {subtitle}
+            {t('chat.statusIndicator', { status: subtitle })}
           </Text>
         </View>
 
       </View>
 
+      {isDemo && <Text testID="demo-badge" style={styles.pendingMark}>{t('chat.demoBadge')}</Text>}
+      {origin && <Text style={styles.pendingMark} numberOfLines={1}>{t('fork.lineage', { origin: origin.title || t('fork.original') })}</Text>}
+      {(actionError || unavailableError) && <Text accessibilityRole="alert" style={styles.errorText}>{t(actionError || unavailableError!)}</Text>}
+      {forkMessage && sessionId && <ForkDialog sessionId={sessionId} messageId={forkMessage.id} title={sessionTitle} navigation={navigation} onClose={() => setForkMessage(null)} />}
       {error && (
         <View style={styles.errorBar} testID="error-bar">
           <Text style={styles.errorText}>{t(error)}</Text>
@@ -340,10 +313,14 @@ export default function ChatScreen({ navigation, route }: Props) {
         data={groups}
         renderItem={({ item }) => <View>
           {times.get(item.key) && <Text style={styles.pendingMark}>{times.get(item.key)}</Text>}
-          {item.role === 'agent' ? <AgentTurnCard items={item.items} agentName={agentName} />
-            : <MessageCard item={item.items[0]} agentName={agentName}
-                retry={() => { void retryMessage(item.key).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, item.items[0].draft ?? item.items[0].content)); }); }}
-                remove={() => deleteMessage(item.key)} />}
+          {item.items.map((message) => <View key={message.id}>
+            <CardFrame message={decorate(message)} handlers={handlers} agentName={agentName} />
+            {message.role === 'user' && <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
+            {message.status === 'failed' && <View style={styles.msgHeader}>
+              <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
+              <Button onPress={() => deleteMessage(message.id)}>{t('chat.delete')}</Button>
+            </View>}
+          </View>)}
         </View>}
         CellRendererComponent={renderCell}
         onScrollBeginDrag={() => { prependAnchor.current = null; }}

@@ -140,6 +140,17 @@ export interface ChatMessage {
   /** 낙관적 업데이트 중인 메시지 (서버 확인 전) */
   pending?: boolean;
   createdAt?: string;
+  dialogueType?: string | null;
+  payload?: StructuredPayload;
+  parentMessageId?: string;
+  threadReplyCount?: number;
+  favorite?: boolean;
+  taskOverrides?: Record<number, boolean>;
+  contentKey?: string;
+  contentParams?: Record<string, string>;
+  status?: 'pending' | 'sent' | 'failed';
+  runId?: string;
+  draft?: string;
 }
 
 /** 로그인 사용자 */
@@ -147,4 +158,25 @@ export interface AuthUser {
   id: string;
   email?: string;
   displayName?: string;
+}
+
+
+// 서버 JSONB는 각 카드에서 사용하기 전에 다시 검증한다.
+export interface StructuredPayload {
+  title?: unknown;
+  fields?: unknown;
+  columns?: unknown;
+  rows?: unknown;
+  items?: unknown;
+  name?: unknown;
+  url?: unknown;
+  mime_type?: unknown;
+  size?: unknown;
+  agents?: unknown;
+  [key: string]: unknown;
+}
+export interface ForkOrigin {
+  session_id: string;
+  message_id?: string;
+  title?: string;
 }

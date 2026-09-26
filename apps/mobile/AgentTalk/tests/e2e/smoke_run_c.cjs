@@ -1,0 +1,67 @@
+// API/WS는 전부 모의하며 모바일 폭에서 카드, 스레드, 독립 포크를 검증한다.
+const assert = require('node:assert/strict');
+const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
+const { installFixtures } = require('./run_c_fixtures.cjs');
+const APP = process.env.APP_URL || 'http://localhost:8081';
+(async () => {
+  const browser = await chromium.launch({ executablePath: '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell' });
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
+    const state = await installFixtures(page, { rich: true });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(APP);
+    await page.getByTestId('session-card').click();
+    await page.getByText('Server value', { exact: true }).waitFor();
+    assert.equal(await page.getByTestId('ai-generated-badge').count(), 7);
+    await page.getByRole('checkbox').click();
+    await page.getByText('완료', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '즐겨찾기', exact: true }).first().click();
+    assert.equal(await page.getByRole('button', { name: '즐겨찾기 해제', exact: true }).count(), 1);
+    state.unsupportedThread = true;
+    await page.getByText('답변 1개', { exact: true }).click();
+    await page.getByTestId('thread-error').getByText('이 서버는 아직 이 기능을 지원하지 않아요', { exact: true }).waitFor();
+    await page.getByText('뒤로 가기', { exact: true }).click();
+    state.unsupportedThread = false;
+    await page.getByText('답변 1개', { exact: true }).click();
+    await page.getByText('Thread reply', { exact: true }).waitFor();
+    await page.getByPlaceholder('에이전트에게 메시지 보내기…').fill('thread-only').catch(async () => {
+      await page.locator('textarea').fill('thread-only');
+    });
+    await page.getByRole('button', { name: '전송', exact: true }).click();
+    await page.getByText('Test reply to thread-only', { exact: true }).waitFor();
+    assert.equal(state.calls.filter((c) => c.method === 'POST' && c.path.endsWith('/messages')).at(-1).body.parent_message_id, 'text');
+    await page.getByText('뒤로 가기', { exact: true }).click();
+    assert.equal(await page.getByText('Test reply to thread-only', { exact: true }).count(), 0);
+    await page.getByText('여기서 새 프로젝트 시작', { exact: true }).first().click();
+    await page.getByTestId('fork-title').fill('Independent project');
+    state.unsupportedFork = true;
+    await page.getByTestId('fork-submit').click();
+    await page.getByText('이 서버는 아직 이 기능을 지원하지 않아요', { exact: true }).waitFor();
+    assert.equal(state.sessions.length, 1);
+    state.unsupportedFork = false;
+    await page.getByTestId('fork-submit').click();
+    await page.getByText('Independent project', { exact: true }).waitFor();
+    await page.getByText('⟨Original project⟩에서 분기됨', { exact: true }).waitFor();
+    await page.getByTestId('chat-input').fill('new-room-only');
+    await page.getByTestId('send-button').click();
+    await page.getByText('Test reply to new-room-only', { exact: true }).waitFor();
+    assert.equal(state.calls.filter((c) => c.method === 'POST' && c.path.endsWith('/messages')).at(-1).path, '/api/sessions/forked/messages');
+    assert.ok(!state.messages.source.some((m) => m.content.includes('new-room-only')));
+    await page.getByLabel('뒤로 가기', { exact: true }).click();
+    await page.getByTestId('session-list').waitFor();
+    assert.equal(await page.getByTestId('session-card').count(), 2);
+    await page.getByTestId('settings-button').click();
+    await page.getByRole('radio', { name: 'English', exact: true }).click();
+    await page.getByTestId('demo-button').click();
+    await page.getByTestId('demo-badge').waitFor();
+    const before = state.calls.length;
+    await page.getByTestId('chat-input').fill('English demo');
+    await page.getByTestId('send-button').click();
+    await page.getByText('This is the demo you chose to explore. Here is a sample reply to “English demo”.', { exact: true }).waitFor();
+    assert.equal(state.calls.length, before);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.deepEqual(errors, []);
+    console.log('PASS Run C: 7 card types, actions, thread isolation/404, fork/405/independence/back stack, English demo, AI labels, mobile overflow');
+  } finally { await browser.close(); }
+})().catch((error) => { console.error(error); process.exitCode = 1; });

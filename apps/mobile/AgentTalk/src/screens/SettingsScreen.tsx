@@ -35,7 +35,7 @@ export default function SettingsScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity accessibilityLabel={t('common.back')} onPress={() => navigation.goBack()} style={styles.headerButton}>
-          <Text style={styles.headerButtonText}>←</Text>
+          <Text style={styles.headerButtonText}>{t('common.backIcon')}</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('common.settings')}</Text>
         <View style={styles.headerButton} />
@@ -106,7 +106,7 @@ export default function SettingsScreen({ navigation }: Props) {
               <Text style={styles.settingLabel}>{t('common.neurons')}</Text>
               <Text style={styles.settingDescription}>{t('settings.neuronDescription')}</Text>
             </View>
-            <Text style={styles.chevron}>→</Text>
+            <Text style={styles.chevron}>{t('common.forwardIcon')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -121,10 +121,13 @@ export default function SettingsScreen({ navigation }: Props) {
               <Text style={styles.settingLabel}>{t('settings.customize')}</Text>
               <Text style={styles.settingDescription}>{t('settings.customizeDescription')}</Text>
             </View>
-            <Text style={styles.chevron}>→</Text>
+            <Text style={styles.chevron}>{t('common.forwardIcon')}</Text>
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity testID="demo-button" style={styles.linkRow} onPress={() => navigation.navigate('Chat', { demo: true })}>
+          <Text style={styles.settingLabel}>{t('settings.demo')}</Text>
+        </TouchableOpacity>
         <Text style={styles.footerText}>{t('settings.footer')}</Text>
       </ScrollView>
     </SafeAreaView>

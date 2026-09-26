@@ -120,3 +120,27 @@ test('로그인 토큰 저장 실패는 호출자에게 전달한다', async (t)
   t.mock.method(storage, 'set', async () => { throw new Error('저장 오류'); });
   await assert.rejects(client.setToken('token'), /저장 오류/);
 });
+
+test('스레드 전송과 포크는 인코딩된 경로 및 계약 body를 사용한다', async (t) => {
+  const { client } = setup(t);
+  const requests: { url: string; body: unknown }[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return new Response(JSON.stringify({ ok: true, data: { id: 'new' } }));
+  });
+  await client.api.getThread('root/id');
+  await client.api.sendMessage('session/id', 'reply', 'exec', { parent_message_id: 'root/id' });
+  await client.api.forkSession('session/id', { from_message_id: 'root/id', new_session_title: 'New' });
+  assert.ok(requests[0].url.endsWith('/api/messages/root%2Fid/thread'));
+  assert.equal((requests[1].body as { parent_message_id: string }).parent_message_id, 'root/id');
+  assert.ok(requests[2].url.endsWith('/api/sessions/session%2Fid/fork'));
+  assert.deepEqual(requests[2].body, { from_message_id: 'root/id', new_session_title: 'New' });
+});
+test('404와 405는 미지원 번역 키를 반환한다', async (t) => {
+  const { client } = setup(t);
+  for (const status of [404, 405]) {
+    t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status }));
+    await assert.rejects(client.api.getThread('root'), /errors.unsupported/);
+    await assert.rejects(client.api.forkSession('session', {}), /errors.unsupported/);
+  }
+});
