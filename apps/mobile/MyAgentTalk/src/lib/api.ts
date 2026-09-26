@@ -278,6 +278,14 @@ export const api = {
   patchMe: (body: { display_name?: string; preferences?: Record<string, unknown> }) =>
     request<ApiEnvelope<UserProfile>>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),
 
+  /**
+   * 회원탈퇴 — DELETE /api/me (t_eb7f13e9 항목 5, 백엔드 routes/me.ts).
+   * auth.users 삭제 → FK ON DELETE CASCADE로 세션·메시지·raw_transcripts·notes·board·consents 등
+   * 전 데이터 파기(개인정보보호법 제21조). 실행 중 턴은 세션 락으로 마무리 대기 후 삭제.
+   * 응답 {ok:true,data:{deleted:true}}. 되돌릴 수 없다 — 확인 다이얼로그(WithdrawDialog) 필수.
+   */
+  deleteMe: () => request<ApiEnvelope<{ deleted: boolean }>>('/api/me', { method: 'DELETE' }),
+
   // ── 볼트(옵시디언식 노트) — 백엔드 t_3b38c9be /api/vault (마이그레이션 004) ──
   /** 노트 목록 — GET /api/vault/notes?folder=&tag=&limit=&offset= (updated_at 내림차순) */
   listNotes: (opts?: { folder?: string; tag?: string; limit?: number; offset?: number }) => {

@@ -32,6 +32,7 @@ import {
   NeuronDashboardScreen,
   SettingsScreen,
   JoystickSettingsScreen,
+  LegalDocScreen,
 } from './src/screens';
 
 // 네비게이션 타입
@@ -48,6 +49,7 @@ export type RootStackParamList = {
   NeuronDashboard: undefined;
   Settings: undefined;
   JoystickSettings: undefined;
+  LegalDoc: { kind?: 'terms' | 'privacy' };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -244,6 +246,11 @@ export default function App() {
               name="JoystickSettings"
               component={JoystickSettingsScreen}
               options={{ title: t('joystick.title') }}
+            />
+            <Stack.Screen
+              name="LegalDoc"
+              component={LegalDocScreen}
+              options={{ title: t('settings.legalSection') }}
             />
           </Stack.Navigator>
           </View>

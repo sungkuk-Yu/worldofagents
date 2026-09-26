@@ -5,14 +5,16 @@
 //   기능 불변: validateConsents = marketing 제외 4종+14세 필수, marketing 기본 false(opt-in),
 //   서버 consents 기록 동일, testID 계약 동일 (기존 단위/e2e 테스트 통과 조건).
 //   ※ 법적 유효성(구분 없는 표시가 개인정보보호법 제22조 선택동의를 훼손하는지) 내변호사 확인 중 —
-//      문제 제기 시 "작게 구분" 폴백(의도 훼손 최소선)으로 되돌린다.
+//   문제 제기 시 "작게 구분" 폴백(의도 훼손 최소선)으로 되돌린다.
+//   법률 카드 t_eb7f13e9: 약관/처리방침 링크는 example.com 임시 주소 폐기 — 앱 내 정책 문서 화면
+//   (LegalDocScreen, 내변호사 초안 원문)으로 연결. DRAFT·[대표님 확정 필요] 고지는 문서 본문에 유지.
 import React from 'react';
-import { Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
-import { legalLinks } from '../config/legalLinks';
+import type { LegalDocKind } from '../lib/legalDocLogic';
 import { ConsentState, toggleRequiredConsents, validateConsents } from '../lib/consents';
 
 // 햅틱: 동의 토글 = selection (#52 지시의 3곳 중 하나). 웹은 expo-haptics가 no-op 폴백이라 try로 방어.
@@ -25,8 +27,10 @@ const testIds = { terms: 'terms', privacy: 'privacy', voice_recording: 'voice', 
 // 구분(스타일·문구) 없음. 기능 검증은 marketing 제외(lib/consents.ts) — 표시와 로직은 독립.
 const consentOrder = ['terms', 'privacy', 'marketing', 'voice_recording', 'overseas_transfer', 'ageConfirmed'] as const;
 
-export default function ConsentGate({ value, onChange, disabled, onError }: {
+export default function ConsentGate({ value, onChange, disabled, onError, onOpenDoc }: {
   value: ConsentState; onChange: (value: ConsentState) => void; disabled: boolean; onError: (key: string) => void;
+  /** 앱 내 정책 문서 화면 진입 (t_eb7f13e9 항목 4). 미주입 시 링크 행 숨김 — 컴포넌트 단독 재사용 안전. */
+  onOpenDoc?: (kind: LegalDocKind) => void;
 }) {
   const { t } = useTranslation();
   const toggle = (next: ConsentState) => { selectionTick(); onChange(next); };
@@ -54,13 +58,13 @@ export default function ConsentGate({ value, onChange, disabled, onError }: {
       {type === 'overseas_transfer' && <Text style={styles.notice}>{t('consent.overseasNotice')}</Text>}
     </View>)}
 
-    <Text style={styles.notice}>{t('consent.documentsPending')}</Text>
-    <View style={styles.links}>
-      {(['terms', 'privacy'] as const).map((type) => <Pressable key={type} accessibilityRole="link" style={styles.link}
-        onPress={() => { void Linking.openURL(legalLinks[type]).catch(() => onError('errors.legalLink')); }}>
-        <Text style={styles.linkText}>{t(type === 'terms' ? 'consent.viewTerms' : 'consent.viewPrivacy')}</Text>
+    {onOpenDoc && <View style={styles.links}>
+      {(['terms', 'privacy'] as const).map((kind) => <Pressable key={kind} accessibilityRole="link" style={styles.link}
+        testID={`consent-link-${kind}`} onPress={() => onOpenDoc(kind)}>
+        <Text style={styles.linkText}>{t(kind === 'terms' ? 'consent.viewTerms' : 'consent.viewPrivacy')}</Text>
       </Pressable>)}
-    </View>
+    </View>}
+    <Text style={styles.notice}>{t('consent.documentsPending')}</Text>
   </View>;
 }
 const styles = StyleSheet.create({

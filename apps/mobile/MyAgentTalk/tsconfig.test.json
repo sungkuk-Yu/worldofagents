@@ -36,6 +36,8 @@
     "src/lib/kanbanLogic.ts",
     "src/lib/formLogic.ts",
     "src/lib/chartLogic.ts",
+    "src/lib/legalDocLogic.ts",
+    "src/lib/legalDocs.ts",
     "src/cards/payload.ts",
     "src/cards/preview.ts",
     "src/cards/expandStore.ts",

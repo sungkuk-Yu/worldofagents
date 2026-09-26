@@ -17,6 +17,7 @@ import {
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { getPttKey, getPttMode, setPttKey, setPttMode, subscribePrefs } from '../lib/userPrefs';
 import { capturePttKey, pttKeyLabel, PTT_DEFAULT_KEY } from '../lib/pttLogic';
+import WithdrawDialog from '../components/dialogs/WithdrawDialog';
 
 interface Props {
   navigation: any;
@@ -33,6 +34,8 @@ export default function SettingsScreen({ navigation }: Props) {
   const [leftHandMode, setLeftHandMode] = React.useState(false);
   const [hapticFeedback, setHapticFeedback] = React.useState(true);
   const [autoTransition, setAutoTransition] = React.useState(true);
+  // 회원탈퇴 다이얼로그 (t_eb7f13e9 항목 5) — 확인 없이는 어떤 파괴적 호출도 발생하지 않는다.
+  const [withdrawOpen, setWithdrawOpen] = React.useState(false);
 
   // PTT (t_eded715c) — 웹 전용: 키보드 단축키 재매핑(녹화식 캡처) + 홀드/토글 모드.
   const [capturing, setCapturing] = React.useState(false);
@@ -189,8 +192,35 @@ export default function SettingsScreen({ navigation }: Props) {
         <TouchableOpacity testID="demo-button" style={styles.linkRow} onPress={() => navigation.navigate('Chat', { demo: true })}>
           <Text style={styles.settingLabel}>{t('settings.demo')}</Text>
         </TouchableOpacity>
+
+        {/* 법률 카드 t_eb7f13e9 항목 4·5 — 정책 문서 열람 + 회원탈퇴 (개인정보보호법 제21조, AI 기본법 제31조) */}
+        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('settings.legalSection')}</Text>
+        <View style={styles.settingCard}>
+          {(['terms', 'privacy'] as const).map((kind) => <TouchableOpacity key={kind}
+            style={styles.linkRow} testID={`settings-legal-${kind}`}
+            onPress={() => navigation.navigate('LegalDoc', { kind })}>
+            <View style={styles.settingBody}>
+              <Text style={styles.settingLabel}>{t(`settings.legal.${kind}`)}</Text>
+            </View>
+            <Text style={styles.chevron}>{t('common.forwardIcon')}</Text>
+          </TouchableOpacity>)}
+        </View>
+
+        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('settings.account')}</Text>
+        <View style={styles.settingCard}>
+          <TouchableOpacity style={styles.linkRow} testID="settings-withdraw-button"
+            onPress={() => setWithdrawOpen(true)}>
+            <View style={styles.settingBody}>
+              <Text style={[styles.settingLabel, { color: colors.statusErr }]}>{t('withdraw.title')}</Text>
+              <Text style={styles.settingDescription}>{t('withdraw.description')}</Text>
+            </View>
+            <Text style={styles.chevron}>{t('common.forwardIcon')}</Text>
+          </TouchableOpacity>
+        </View>
+
         <Text style={styles.footerText}>{t('settings.footer')}</Text>
       </ScrollView>
+      {withdrawOpen && <WithdrawDialog navigation={navigation} onClose={() => setWithdrawOpen(false)} />}
     </SafeAreaView>
   );
 }

@@ -304,6 +304,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   }, [hasMoreHistory, isDemo, loadHistory, loadingHistory, t]);
 
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
+  // AI 고지 상시 표기 (t_eb7f13e9 항목 2, AI 기본법 제31조 ①): 빈 상태 안내에 이어 첫 진입 후에도
+  // 앱바 아래 한 줄로 고정. 데모 세션은 백엔드 미연결이라 배너만 동일 노출(오인 방지 고지는 유지).
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
   const subtitle = isDemo ? t('chat.demoSubtitle') : {
     connecting: t('chat.connecting'), live: t('chat.live'), reconnecting: t('chat.reconnecting'), offline: t('chat.offline'),
@@ -353,6 +355,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         </TouchableOpacity>}
       </View>
 
+      {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.
+          빈 상태의 chat.aiNotice와 달리 메시지가 쌓여도 사라지지 않는다 (AI 기본법 제31조 ①). */}
+      <Text testID="ai-disclosure" numberOfLines={1} style={styles.aiDisclosure}>{t('chat.aiDisclosure')}</Text>
       {isDemo && <Text testID="demo-badge" style={styles.pendingMark}>{t('chat.demoBadge')}</Text>}
       {origin && <Text style={styles.pendingMark} numberOfLines={1}>{t('fork.lineage', { origin: origin.title || t('fork.original') })}</Text>}
       {(actionError || unavailableError) && <Text accessibilityRole="alert" style={styles.errorText}>{t(actionError || unavailableError!)}</Text>}
@@ -648,6 +653,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     marginLeft: 'auto',
     color: colors.text3,
+  },
+  // AI 상시 고지 바 — 저대비 micro 한 줄, 메시지가 쌓여도 유지 (t_eb7f13e9 항목 2)
+  aiDisclosure: {
+    ...typography.micro,
+    color: colors.text3,
+    paddingHorizontal: spacing.sp4,
+    paddingTop: spacing.sp1,
+    paddingBottom: spacing.sp1,
+    minWidth: 0,
   },
   msgText: {
     ...typography.body,

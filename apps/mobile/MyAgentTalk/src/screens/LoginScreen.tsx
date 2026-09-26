@@ -96,7 +96,8 @@ export default function LoginScreen({ navigation }: Props) {
             onSubmitEditing={() => void authenticate()}
           />
 
-          {signup && <ConsentGate value={consents} onChange={setConsents} disabled={busy} onError={setError} />}
+          {signup && <ConsentGate value={consents} onChange={setConsents} disabled={busy} onError={setError}
+            onOpenDoc={(kind) => navigation.navigate('LegalDoc', { kind })} />}
 
           {error && (
             <Text style={styles.error} testID="login-error">{t(error)}</Text>
