@@ -23,10 +23,12 @@ trap cleanup EXIT
 
 # 1) 백엔드 — DEV_MODE + 빈 OPENAI_API_KEY(mock STT 강제). 빈 값은 dotenv이 덮어쓰지 못하게
 #    pre-export 한다(placeholder 키가 실제 Whisper 경로를 타면 PTT 스모크가 401로 깨진다).
-( cd "$REPO/apps/backend" \
-  && OPENAI_API_KEY= DEV…true PORT=$API_PORT HOST=127.0.0.1 \
-     CORS_ORIGIN="http://localhost:$APP_PORT,http://localhost:8081" \
-     node_modules/.bin/tsx src/index.ts ) >"$SCRATCH/backend.log" 2>&1 &
+( cd "$REPO/apps/backend"
+  export OPENAI_API_KEY=""
+  export DEV_MODE=true
+  export PORT=$API_PORT HOST=127.0.0.1
+  export CORS_ORIGIN="http://localhost:$APP_PORT,http://localhost:8081"
+  exec node_modules/.bin/tsx src/index.ts ) >"$SCRATCH/backend.log" 2>&1 &
 for i in $(seq 1 30); do curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null && break; sleep 1; done
 curl -sf "http://127.0.0.1:$API_PORT/health" | grep -q '"mode":"dev"' || { echo "백엔드 기동 실패: $SCRATCH/backend.log"; exit 1; }
 

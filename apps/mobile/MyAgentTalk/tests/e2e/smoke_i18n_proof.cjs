@@ -27,7 +27,7 @@ const MAIN = 'http://localhost:8097';    // dist-i18n-api (DialogueList → Sett
     };
     const L = {
       ko: { tap: '탭하여 말하기', canvas: '매출표', neuron: '연결 이벤트', nav: '뉴런' },
-      en: { tap: 'Tap to talk', canvas: 'Sales sheet', neuron: 'Connection events', nav: 'euron' },
+      en: { tap: 'Tap anywhere to speak', canvas: 'Sales sheet', neuron: 'Connection events', nav: 'euron' },
     }[lang];
     let page = await open(VOICE, [L.tap]);
     await page.screenshot({ path: shot(`${lang}-voicehome`) });
