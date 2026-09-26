@@ -2,6 +2,7 @@ import { createInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { getLocales } from 'expo-localization';
 import { AppState } from 'react-native';
+import { setApiLocale } from '../lib/api';
 import { secureStorage } from '../lib/secureStorage';
 import { LanguagePreference, resolveLanguage } from './language';
 import ko from './locales/ko.json';
@@ -15,6 +16,10 @@ void i18n.use(initReactI18next).init({
   lng: systemLanguage(), fallbackLng: 'ko', initAsync: false,
   interpolation: { escapeValue: false },
 });
+// 현재 언어를 API 레이어에 푸시 — REST Accept-Language / WS locale 파라미터 (백엔드 로케일 협상)
+const syncApiLocale = () => setApiLocale(String(i18n.language));
+i18n.on('languageChanged', syncApiLocale);
+syncApiLocale();
 export const getLanguagePreference = () => preference;
 export async function changeLanguage(next: LanguagePreference) {
   await secureStorage.set('at-language', next);

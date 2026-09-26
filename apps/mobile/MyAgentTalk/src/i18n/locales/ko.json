@@ -131,6 +131,9 @@
     "pickAction": "동작 선택",
     "actionNone": "사용 안 함",
     "saveNote": "변경은 즉시 저장되어 계정에 동기화됩니다.",
+    "dragFineTune": "미세조정 — 좌우로 이동",
+    "scrollHint": "스크롤 — 좌우로 결과 이동",
+    "grip": "그립",
     "dir": {
       "DIR_UP": "위",
       "DIR_UPRIGHT": "오른쪽 위",
@@ -154,11 +157,6 @@
       "prev_segment": "이전 결과",
       "next_segment": "다음 결과"
     }
-  },
-  "voice": {
-    "recordingHint": "듣고 있습니다… 다시 탭하여 종료",
-    "idleHint": "탭하여 말하기 · 방향으로 동작 실행",
-    "padHint": "어디나 탭하여 말하기 · 튕기고, 미끄러지고, 그립에서 끌어보세요"
   },
   "quip": {
     "default": "잠깐만요, 살펴보고 있어요…",
@@ -201,7 +199,9 @@
     "legalLink": "문서를 열지 못했습니다. 다시 시도해 주세요.",
     "board": "보드를 반영하지 못했어요. 다시 시도해 주세요.",
     "vault": "볼트를 반영하지 못했어요. 다시 시도해 주세요.",
-    "micDenied": "마이크 권한이 필요해요. 브라우저 주소창 권한 설정에서 허용해 주세요."
+    "micDenied": "마이크 권한이 필요해요. 브라우저 주소창 권한 설정에서 허용해 주세요.",
+    "storageSecure": "안전한 로그인 정보 저장소를 사용할 수 없습니다",
+    "storageLocal": "로그인 정보 저장소를 사용할 수 없습니다"
   },
   "dialogueList": {
     "offline": "오프라인",
@@ -353,6 +353,71 @@
     "overseasNotice": "수탁자: OpenAI·Alibaba(DashScope)·Supabase. 이전 항목: 대화 내용·계정 정보. 목적: AI 응답 생성 및 저장.",
     "documentsPending": "약관·처리방침은 법무 검토 중인 초안(DRAFT)이며, 앱 내 문서 화면에서 전문을 볼 수 있습니다.",
     "checkedIcon": "✓"
+  },
+  "voice": {
+    "recordingHint": "듣고 있습니다… 다시 탭하여 종료",
+    "idleHint": "탭하여 말하기 · 방향으로 동작 실행",
+    "padHint": "어디나 탭하여 말하기 · 튕기고, 미끄러지고, 그립에서 끌어보세요",
+    "transcriptPlaceholder": "에이전트에게 말해보세요",
+    "transcriptSubtext": "음성 또는 텍스트로 요청할 수 있습니다",
+    "listening": "듣고 있습니다…",
+    "tapToTalkHint": "탭하여 말하기 · 좌우로 예/아니오",
+    "listeningTapStop": "듣고 있습니다… 다시 탭하여 종료",
+    "demoBadge": "데모",
+    "idle": "대기",
+    "currentAgent": "현재 에이전트: {{name}}",
+    "sessionId": "세션 {{id}}",
+    "dirUp": "위로",
+    "yesReply": "네, 먼저 처리해주세요.",
+    "noReply": "아니요, 괜찮습니다.",
+    "segFirstAnswer": "첫 답변",
+    "segSummary": "정리",
+    "summaryOf": "{{text}} (요약)",
+    "demoTranscript1": "오늘 날씨 알려줘",
+    "demoTranscript2": "이번 주 매출 데이터 정리해줘",
+    "demoTranscript3": "보고서 파일 찾아줘",
+    "demoTranscript4": "회식비 정산 작업 실행해줘"
+  },
+  "segment": {
+    "empty": "아직 세그먼트가 없어요 — 말을 걸면 여기에 쌓입니다",
+    "a11y": "{{label}} 세그먼트{{suffix}}",
+    "currentSuffix": ", 현재",
+    "delete": "삭제",
+    "past": "이전",
+    "type": {
+      "information": "정보",
+      "data": "데이터",
+      "file": "파일",
+      "task": "작업",
+      "multi-agent": "멀티"
+    }
+  },
+  "canvas": {
+    "refTitle": "{{label}} 결과 카드",
+    "threadCount_one": "답변 {{count}}개 · 탭해서 스레드 열기 ›",
+    "threadCount_other": "답변 {{count}}개 · 탭해서 스레드 열기 ›",
+    "openThread": "카드 스레드 열기",
+    "demoWeather": "날씨",
+    "demoSales": "매출표",
+    "demoReport": "보고서"
+  },
+  "neuron": {
+    "title": "뉴런 대시보드",
+    "sectionActive": "활성 뉴런",
+    "empathy": "공감 에이뉴런",
+    "answer": "답변생성 에이뉴런",
+    "visual": "비주얼 에이뉴런",
+    "custom": "커스텀 에이뉴런",
+    "empathyDesc": "사용자 입력 즉시 공감 반응 (< 500ms)",
+    "answerDesc": "실질적 답변 생성 (고성능 LLM)",
+    "visualDesc": "시각적 결과물 렌더링 및 편집",
+    "customDesc": "스킬 마켓에서 추가된 확장 뉴런",
+    "active": "활성",
+    "inactive": "비활성",
+    "confidence": "신뢰도: {{pct}}%",
+    "processing": "처리 중…",
+    "events": "연결 이벤트",
+    "noEvents": "이벤트 기록 없음"
   },
   "legal": {
     "disclaimer": "AI가 생성한 일반 정보이며 법률·세무 자문이 아닙니다.",

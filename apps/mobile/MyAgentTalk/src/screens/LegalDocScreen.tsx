@@ -29,7 +29,7 @@ export default function LegalDocScreen({ navigation, route }: Props) {
     <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
       <View style={styles.header}>
         <View style={styles.headerSide}>
-          <Text style={styles.headerIcon} onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel={t('common.back')}>{t('common.backIcon')}</Text>
+          <Text testID="legal-back" style={styles.headerIcon} onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel={t('common.back')}>{t('common.backIcon')}</Text>
         </View>
         <Text style={styles.headerTitle} numberOfLines={1}>{t(kind === 'terms' ? 'legalDoc.terms' : 'legalDoc.privacy')}</Text>
         <View style={styles.langChips}>

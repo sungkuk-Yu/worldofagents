@@ -10,6 +10,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { Transcript } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
 
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function RealtimeTranscript({ transcripts, isRecording }: Props) {
+  const { t } = useTranslation();
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -36,8 +38,8 @@ export default function RealtimeTranscript({ transcripts, isRecording }: Props) 
         <View style={styles.placeholderIconWrap}>
           <Text style={styles.placeholderIcon}>🎙️</Text>
         </View>
-        <Text style={styles.placeholderText}>에이전트에게 말해보세요</Text>
-        <Text style={styles.placeholderSubtext}>음성 또는 텍스트로 요청할 수 있습니다</Text>
+        <Text style={styles.placeholderText}>{t('voice.transcriptPlaceholder')}</Text>
+        <Text style={styles.placeholderSubtext}>{t('voice.transcriptSubtext')}</Text>
       </View>
     );
   }
@@ -48,31 +50,31 @@ export default function RealtimeTranscript({ transcripts, isRecording }: Props) 
       style={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      {transcripts.map((t) => (
+      {transcripts.map((item) => (
         <View
-          key={t.id}
+          key={item.id}
           style={[
             styles.transcriptCard,
-            t.speaker === 'agent' ? styles.agentCard : styles.userCard,
+            item.speaker === 'agent' ? styles.agentCard : styles.userCard,
           ]}
         >
           <Text
             style={[
               styles.speakerLabel,
-              t.speaker === 'agent' ? styles.agentLabel : styles.userLabel,
+              item.speaker === 'agent' ? styles.agentLabel : styles.userLabel,
             ]}
           >
-            {t.speaker === 'agent' ? '에이전트' : '나'}
+            {item.speaker === 'agent' ? t('common.agent') : t('chat.me')}
           </Text>
           <Text
             style={[
               styles.transcriptText,
-              t.speaker === 'agent' ? styles.agentText : styles.userText,
-              !t.isFinal && styles.interimText,
+              item.speaker === 'agent' ? styles.agentText : styles.userText,
+              !item.isFinal && styles.interimText,
             ]}
           >
-            {t.text}
-            {!t.isFinal && <Text style={styles.cursor}>|</Text>}
+            {item.text}
+            {!item.isFinal && <Text style={styles.cursor}>|</Text>}
           </Text>
         </View>
       ))}
@@ -80,7 +82,7 @@ export default function RealtimeTranscript({ transcripts, isRecording }: Props) 
       {isRecording && (
         <View style={styles.recordingIndicator}>
           <ActivityIndicator size="small" color={colors.statusErr} />
-          <Text style={styles.recordingText}>듣고 있습니다…</Text>
+          <Text style={styles.recordingText}>{t('voice.listening')}</Text>
         </View>
       )}
     </ScrollView>

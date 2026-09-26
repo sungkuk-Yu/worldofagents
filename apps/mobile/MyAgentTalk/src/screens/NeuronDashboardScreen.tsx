@@ -9,26 +9,13 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { NeuronState, NeuronType } from '../types';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 
 interface Props {
   navigation: any;
 }
-
-const NEURON_LABELS: Record<NeuronType, string> = {
-  empathy: '공감 에이뉴런',
-  answer: '답변생성 에이뉴런',
-  visual: '비주얼 에이뉴런',
-  custom: '커스텀 에이뉴런',
-};
-
-const NEURON_DESCRIPTIONS: Record<NeuronType, string> = {
-  empathy: '사용자 입력 즉시 공감 반응 (< 500ms)',
-  answer: '실질적 답변 생성 (고성능 LLM)',
-  visual: '시각적 결과물 렌더링 및 편집',
-  custom: '스킬 마켓에서 추가된 확장 뉴런',
-};
 
 const NEURON_COLORS: Record<NeuronType, string> = {
   empathy: colors.segInfo,
@@ -46,6 +33,7 @@ const MOCK_NEURONS: NeuronState[] = [
 ];
 
 export default function NeuronDashboardScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [neurons, setNeurons] = useState<NeuronState[]>(MOCK_NEURONS);
 
   const toggleNeuron = (type: NeuronType) => {
@@ -62,20 +50,21 @@ export default function NeuronDashboardScreen({ navigation }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>뉴런 대시보드</Text>
+        <Text style={styles.headerTitle}>{t('neuron.title')}</Text>
         <View style={styles.headerButton} />
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.sectionTitle}>활성 뉴런</Text>
+        <Text style={styles.sectionTitle}>{t('neuron.sectionActive')}</Text>
         {neurons.map((neuron) => {
           const nc = NEURON_COLORS[neuron.type];
+          const label = t(`neuron.${neuron.type}`);
           return (
             <TouchableOpacity
               key={neuron.type}
               style={[styles.neuronCard, { borderLeftColor: neuron.active ? nc : colors.borderStrong }]}
               onPress={() => toggleNeuron(neuron.type)}
-              accessibilityLabel={`${NEURON_LABELS[neuron.type]} ${neuron.active ? '활성' : '비활성'}`}
+              accessibilityLabel={`${label} ${t(neuron.active ? 'neuron.active' : 'neuron.inactive')}`}
             >
               <View style={styles.neuronHeader}>
                 <View style={[styles.neuronIcon, { backgroundColor: withAlpha(nc, 0.12) }]}>
@@ -84,9 +73,9 @@ export default function NeuronDashboardScreen({ navigation }: Props) {
                   </Text>
                 </View>
                 <View style={styles.neuronNameWrap}>
-                  <Text style={styles.neuronName}>{NEURON_LABELS[neuron.type]}</Text>
+                  <Text style={styles.neuronName}>{label}</Text>
                   <Text style={styles.neuronDescription}>
-                    {NEURON_DESCRIPTIONS[neuron.type]}
+                    {t(`neuron.${neuron.type}Desc`)}
                   </Text>
                 </View>
                 <View
@@ -101,7 +90,7 @@ export default function NeuronDashboardScreen({ navigation }: Props) {
                       { color: neuron.active ? colors.statusOk : colors.text3 },
                     ]}
                   >
-                    {neuron.active ? '활성' : '비활성'}
+                    {t(neuron.active ? 'neuron.active' : 'neuron.inactive')}
                   </Text>
                 </View>
               </View>
@@ -109,10 +98,10 @@ export default function NeuronDashboardScreen({ navigation }: Props) {
               {neuron.active && (
                 <View style={styles.metricsRow}>
                   <Text style={[styles.metric, { color: nc }]}>
-                    신뢰도: {(neuron.confidence * 100).toFixed(0)}%
+                    {t('neuron.confidence', { pct: (neuron.confidence * 100).toFixed(0) })}
                   </Text>
                   {neuron.processing && (
-                    <Text style={styles.processingIndicator}>처리 중…</Text>
+                    <Text style={styles.processingIndicator}>{t('neuron.processing')}</Text>
                   )}
                 </View>
               )}
@@ -120,9 +109,9 @@ export default function NeuronDashboardScreen({ navigation }: Props) {
           );
         })}
 
-        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>연결 이벤트</Text>
+        <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('neuron.events')}</Text>
         <View style={styles.emptyEvents}>
-          <Text style={styles.emptyEventsText}>이벤트 기록 없음</Text>
+          <Text style={styles.emptyEventsText}>{t('neuron.noEvents')}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

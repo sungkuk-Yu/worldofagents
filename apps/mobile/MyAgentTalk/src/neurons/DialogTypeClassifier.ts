@@ -4,6 +4,8 @@
 import { DialogType } from '../types';
 
 // Stage 1: 키워드/패턴 매칭 (즉각 판별, 0ms)
+/* i18n-exempt-start — 패턴은 인식 데이터(사용자 발화 매칭 키워드)이며 UI 문구 아님.
+   판별 정확도 이슈는 백개발 소관: t_267f14da 이관 카드 생성. 언어별 패턴 확장 시 이 표를 확장. */
 const PATTERN_RULES: { patterns: string[]; type: DialogType }[] = [
   {
     patterns: ['표', '차트', '엑셀', '데이터 분석', '스프레드시트', '계산', '수식'],
@@ -22,6 +24,7 @@ const PATTERN_RULES: { patterns: string[]; type: DialogType }[] = [
     type: 'multi-agent',
   },
 ];
+/* i18n-exempt-end */
 
 export interface ClassificationResult {
   type: DialogType;

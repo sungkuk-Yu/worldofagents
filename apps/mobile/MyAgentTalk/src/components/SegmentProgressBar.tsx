@@ -3,6 +3,7 @@
 // "다음 결과로 넘어갈 수 있음"을 암시하는 상단 얇은 진행바 — 하단 히스토리 바와 동일 데이터
 import React from 'react';
 import { StyleSheet, View, Text } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { colors, spacing, typography, SegmentType, segmentMeta } from '../theme';
 
 export interface SegmentProgressItem {
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function SegmentProgressBar({ items, currentIndex }: Props) {
+  const { t } = useTranslation();
   if (items.length <= 1) {
     // 단일 결과: 현재 세그먼트 식별색으로 채운 얇은 바
     const meta = items[0]
@@ -49,7 +51,7 @@ export default function SegmentProgressBar({ items, currentIndex }: Props) {
               ]}
             />
             {isCurrent && (
-              <Text style={styles.currentLabel}>{meta.label}</Text>
+              <Text style={styles.currentLabel}>{t(`segment.type.${item.type}`)}</Text>
             )}
           </View>
         );

@@ -7,11 +7,15 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "agenttalk",
+    "locales": {
+      "ko": "./locales/ko.json"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.worldofagents.agenttalk",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "에이전트에게 음성으로 명령하려면 마이크 접근이 필요합니다."
+        "CFBundleAllowMixedLocalizations": true,
+        "NSMicrophoneUsageDescription": "Microphone access is needed to talk to your agents."
       }
     },
     "android": {
@@ -47,11 +51,19 @@
       [
         "expo-av",
         {
-          "microphonePermission": "에이전트에게 음성으로 명령하려면 마이크 접근이 필요합니다."
+          "microphonePermission": "Microphone access is needed to talk to your agents."
         }
       ],
       "expo-secure-store",
-      "expo-localization",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": ["ko", "en"],
+            "android": ["ko", "en"]
+          }
+        }
+      ],
       "expo-font"
     ]
   }
