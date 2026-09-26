@@ -97,7 +97,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
     peers, talking, talk,
-  } = useChatSession({ sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo });
+  } = useChatSession({
+    sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
+    // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
+    // 카드 훅이 아래에서 생성되므로 ref 우회로 최신 구현체를 쓴다 (WS 수신은 항상 렌더 이후).
+    onFavoriteUpdated: (messageId, favorite) => favoriteSyncRef.current?.(messageId, favorite),
+  });
 
   // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
   // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
@@ -111,7 +116,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
   // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
   const threadSheet = useRef<ThreadSheetHandle>(null);
-  const { handlers, decorate, actionError } = useCardActions(
+  const { handlers, decorate, actionError, syncFavorite } = useCardActions(
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
       inspectStore.set(message.id); // PC 컨텍스트 패널 인스펙터 — 지금 열어본 카드를 우측에 상시 비춤
@@ -124,6 +129,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     // Wave 1 #1: form 카드 제출 — 데모/미연결에서는 send가 거절되어 false 반환(카드가 잠기지 않음)
     (content) => (isDemo ? Promise.resolve({ ok: false, error: 'errors.unavailableAction' }) : send(content)),
   );
+  // favorite.updated WS 수신 → 카드 local 상태 반영 (t_b89df485). 훅 생성 후 ref에 연결한다.
+  const favoriteSyncRef = useRef<((messageId: string, favorite: boolean) => void) | null>(null);
+  favoriteSyncRef.current = syncFavorite;
   useEffect(() => {
     let active = true;
     if (sessionId && !isDemo) void api.getSession(sessionId).then((env) => {

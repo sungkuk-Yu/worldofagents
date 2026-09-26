@@ -6,6 +6,7 @@ import { consumeTicket, issueTicket } from '../../src/routes/wsTicket';
 import { websocketHandler, broadcastToSession } from '../../src/websocket/handler';
 import { currentSeq, replaySince } from '../../src/websocket/eventlog';
 import { signup, createFullStack, bearer } from '../helpers';
+import { supabaseAdmin as db } from '../../src/lib/supabase';
 
 let token: string;
 let userId: string;
@@ -138,4 +139,24 @@ it('없는 실행 취소와 타 사용자 세션 취소를 거부한다', async 
   const other = await connect({}, app.jwt.sign({ sub: 'other-user' }));
   await other.send({ type: 'run.cancel', session_id: session.id });
   expect(other.socket.events.at(-1)).toMatchObject({ code: 'FORBIDDEN' });
+});
+
+// t_b89df485 (김비서 지시): 즐겨찾기 변경의 세션 허브 브로드캐스트 — 2탭 실시간 동기화 계약
+it('favorite PATCH는 세션 소켓에 favorite.updated를 전파하고 eventlog에 채번되지 않는다', async () => {
+  const { data: msg } = await db.from('messages').insert({
+    session_id: session.id, turn_index: 99, role: 'agent', message_type: 'text',
+    content: '즐겨찾기 브로드캐스트 검증', dialogue_type: 'text', structured_payload: {},
+    attachments: [], persona_guard: {}, locale: 'ko', ai_generated: true, favorite: false,
+    created_at: '2026-09-26T01:00:00.000Z',
+  }).select().single();
+  const client = await connect({}, token);
+  await client.send({ type: 'subscribe', session_id: session.id });
+  const seqBefore = currentSeq(session.id);
+  client.socket.events.length = 0;
+  const res = await app.inject({ method: 'PATCH', url: `/api/messages/${(msg as any).id}/favorite`, headers: bearer(token), payload: { favorite: true } });
+  expect(res.statusCode).toBe(200);
+  expect(client.socket.events).toEqual([{ type: 'favorite.updated', session_id: session.id, message_id: (msg as any).id, favorite: true }]);
+  // seq 미채번 — 재접속 재생 버퍼에 섞이지 않는다 (재조회는 GET /api/favorites 책임)
+  expect(currentSeq(session.id)).toBe(seqBefore);
+  expect(replaySince(session.id, 0).some(e => e.type === 'favorite.updated')).toBe(false);
 });

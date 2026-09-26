@@ -38,6 +38,10 @@ export function useCardActions(
     if (message.pending || message.status === 'failed') { setActionError('errors.unavailableAction'); return; }
     void applyFavorite(message, !(local[message.id]?.favorite ?? message.favorite ?? false));
   };
+  /** WS favorite.updated 수신용 — 서버가 알린 값을 로컬에 반영 (낙관 롤백과 달리 PATCH 재시도 없음). */
+  const syncFavorite = (messageId: string, favorite: boolean) => {
+    setLocal((cur) => ({ ...cur, [messageId]: { ...cur[messageId], favorite } }));
+  };
   // t_a0e998cc (대표님 9/26): 카드→볼트 노트 / 카드→보드 액션과 다중 선택 "보관/볼트로" 제거 —
   // 대화 카드는 기본적으로 볼트에 올라가므로 별도 저장 액션이 불필요.
   // api.noteFromMessage / api.cardFromMessage (백엔드 from-message)는 그대로 두고 UI에서만 뺐다.
@@ -57,5 +61,5 @@ export function useCardActions(
       void Linking.openURL(safe).catch(() => setActionError('errors.file'));
     },
   };
-  return { handlers, decorate, actionError, setActionError };
+  return { handlers, decorate, actionError, setActionError, syncFavorite };
 }

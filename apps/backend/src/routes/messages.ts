@@ -35,7 +35,9 @@ export async function messageRoutes(app: FastifyInstance) {
 
   // PATCH /:id/favorite — 즐겨찾기 등록/해제 (마이그레이션 003, api-design.md 즐겨찾기 절)
   // 소유권 검증: getOwnedMessage — 내 세션 메시지가 아니면 404 (존재 자체를 숨김).
-  // WS 브로드캐스트 없음: 즐겨찾기는 개인 상태이며 다른 디바이스는 재접속 시 GET /api/favorites로 동기화 (MVP).
+  // favorite.updated 브로드캐스트 (t_b89df485 김비서 지시): 즐겨찾기는 개인 상태지만 동일 계정의
+  // 다른 디바이스 탭(2탭 연속성 시나리오)에서 즉시 반영되도록 세션 허브로 알린다. 다른 사용자에게는
+  // 세션 소유권 검증된 소켓만 연결되어 있어 유출 없음. eventlog 미기록(재접속 동기화는 GET /api/favorites).
   app.patch('/:id/favorite', { preHandler: requireAuth }, async request => {
     const { message } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
     const body = request.body as { favorite?: unknown } | null;
@@ -43,6 +45,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const { data, error } = await request.db.from('messages')
       .update({ favorite: body.favorite }).eq('id', message.id).select().single();
     if (error || !data) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error?.message || '즐겨찾기 갱신에 실패했습니다.');
+    broadcastToSession(message.session_id, { type: 'favorite.updated', session_id: message.session_id, message_id: message.id, favorite: body.favorite });
     return ok(serializeMessage(data as MessagesRow));
   });
 

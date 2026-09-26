@@ -136,6 +136,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     check('read-state — 커서 저장(last_read_turn_index 기록)', !!rs && rs.data && rs.data.last_read_turn_index >= 0
       && ['pc-web', 'mobile-web'].includes(rs.data.last_device), JSON.stringify(rs && rs.data));
 
+    // ④-b 즐겨찾기 2탭 실시간 동기화 (t_b89df485 김비서 지시): A가 ⭐ → favorite.updated WS → B 카드 갱신 <2s
+    // 카드 본문 렌더가 곧 진실: active 시 ★(cards.starredIcon), idle 시 ☆ — DOM 텍스트 카운트로 판정.
+    const starCount = (p) => p.evaluate(() => Array.from(document.querySelectorAll('[data-testid="card-favorite"]')).filter((el) => el.textContent.includes('★')).length);
+    const bStarBefore = await starCount(B);
+    await A.locator('[data-testid="card-favorite"]').first().click();
+    const synced = await B.waitForFunction(
+      (before) => Array.from(document.querySelectorAll('[data-testid="card-favorite"]')).filter((el) => el.textContent.includes('★')).length > before,
+      bStarBefore, { timeout: 3000 }
+    ).then(() => true).catch(() => false);
+    check('즐겨찾기 2탭 실시간 동기화 — A ⭐ → B 카드 <2s (favorite.updated)', synced, `before=${bStarBefore} after=${await starCount(B)}`);
+
     // ⑤ PTT — 입력창 포커스 시 V 미캡처(확정 ③)
     await B.getByTestId('chat-input').click();
     await B.getByTestId('chat-input').type('v', { delay: 30 });

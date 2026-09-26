@@ -15,7 +15,7 @@ import {
 export const PAGE_SIZE = 30;
 export type SendResult = { ok: true } | { ok: false; error: string };
 export type Connection = 'connecting' | 'live' | 'reconnecting' | 'offline';
-export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean; device?: string }
+export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean; device?: string; /** WS favorite.updated 수신 시 카드 즐겨찾기 갱신 (t_b89df485) */ onFavoriteUpdated?: (messageId: string, favorite: boolean) => void }
 export interface UseChatSessionReturn {
   sessionId: string | null;
   rootMessage: ChatMessage | null;
@@ -92,6 +92,9 @@ export function useChatSession(
   const agentId = opts.agentId;
   const rootMessageId = opts.rootMessageId;
   const deferConnection = opts.deferConnection;
+  // favorite.updated 콜백은 소켓 클로저가 최초 렌더에 고착되지 않게 ref로 최신값 유지 (t_b89df485)
+  const favoriteCbRef = useRef(opts.onFavoriteUpdated);
+  favoriteCbRef.current = opts.onFavoriteUpdated;
   const [rootMessage, setRootMessage] = useState<ChatMessage | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(requestedSession ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -250,6 +253,12 @@ export function useChatSession(
             // 연속성 이벤트 (t_d75ca81c): 허브 이벤트 로그 미기록 → seq 필터 앞에서 처리
             if (type === 'presence.update') {
               if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
+              return;
+            }
+            // 즐겨찾기 실시간 동기화 (t_b89df485 김비서 지시): 같은 계정의 다른 디바이스가 PATCH한
+            // favorite.updated를 카드 로컬 상태에 반영. seq 미채번이라 필터 앞에서 처리한다.
+            if (type === 'favorite.updated') {
+              if (typeof raw.message_id === 'string' && typeof raw.favorite === 'boolean') favoriteCbRef.current?.(raw.message_id, raw.favorite);
               return;
             }
             if (type === 'audio.started') { runtime.audioOpen = true; setTalking(true); return; }

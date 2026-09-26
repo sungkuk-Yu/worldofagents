@@ -51,6 +51,8 @@ export type ServerMessage =
   | { type: 'transcript.final'; seq?: number; session_id: string; turn_index: number; text: string; confidence: number; language: string; duration_ms: number; message_id: string | null }
   | { type: 'neuron.status'; seq?: number; session_id: string; neuron: { slug: string; name: string }; status: string; stage: string; quip: string }
   | { type: 'task.status'; session_id: string; task_id: string; status: string; progress: number; message: string }
+  /** 즐겨찾기 토글 → 세션 허브 알림 (t_b89df485 김비서 지시). seq 미채번·eventlog 미기록 — 재접속 동기화는 GET /api/favorites. */
+  | { type: 'favorite.updated'; session_id: string; message_id: string; favorite: boolean }
   | { type: 'queue.update'; seq?: number; session_id: string; pending_count: number; current_task: string | null; next_tasks: string[] }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
