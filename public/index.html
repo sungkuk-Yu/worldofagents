@@ -20,10 +20,14 @@
     --card-shadow: 0px 0px 0px 1px rgba(0,0,0,0.08), 0px 2px 2px rgba(0,0,0,0.04), 0px 8px 8px -8px rgba(0,0,0,0.04);
     --accent: #0068d6;
     --accent-bg: #ebf5ff;
+    --green: #00875A; /* 브랜드 초록 대비 강화(백색 텍스트 AA 4.55:1) — 토큰 #00A86B의 접근성 변형 */
+    --green-deep: #00714C;
+    --green-tint: #E7F6EF;
     --invert-bg: #171717;
     --invert-ink: #ededed;
     --invert-body: #a1a1a1;
     --invert-line: rgba(255,255,255,0.1);
+    --invert-accent: #3ddc97; /* invert 밴드 전용 초록 텍스트(#171717 위 AA) */
   }
   .dark {
     --ink: #ededed;
@@ -36,6 +40,9 @@
     --card-shadow: 0px 0px 0px 1px rgba(255,255,255,0.12), 0px 2px 2px rgba(0,0,0,0.4), 0px 8px 8px -8px rgba(0,0,0,0.4);
     --accent: #7cb7ff;
     --accent-bg: rgba(0,104,214,0.15);
+    --green: #3ddc97;
+    --green-deep: #3ddc97;
+    --green-tint: rgba(0,135,90,0.18);
     --invert-bg: #101010;
     --invert-ink: #ededed;
     --invert-body: #8f8f8f;
@@ -60,7 +67,7 @@
   }
   .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
   .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; letter-spacing: -0.3px; text-decoration: none; }
-  .brand .mark { width: 22px; height: 22px; border-radius: 5px; background: var(--ink); color: var(--bg);
+  .brand .mark { width: 22px; height: 22px; border-radius: 5px; background: var(--green); color: var(--bg);
     display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
   .nav-links { display: flex; gap: 24px; font-size: 14px; font-weight: 500; color: var(--body); }
   .nav-links a { text-decoration: none; } .nav-links a:hover { color: var(--ink); }
@@ -81,18 +88,19 @@
 
   .hero { padding: 112px 0 96px; }
   .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500;
-    color: var(--accent); background: var(--accent-bg); padding: 5px 12px; border-radius: 9999px; margin-bottom: 24px; }
-  h1 { font-size: clamp(2.2rem, 5.4vw, 3.4rem); font-weight: 600; letter-spacing: -0.045em; line-height: 1.1;
-    margin: 0 0 20px; max-width: 780px; }
-  .lead { font-size: 18px; color: var(--body); max-width: 640px; margin: 0 0 36px; line-height: 1.75; }
+    color: var(--green-deep); background: var(--green-tint); padding: 5px 12px; border-radius: 9999px; margin-bottom: 24px; }
+  .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  h1 { font-size: clamp(2.2rem, 5.4vw, 3.4rem); font-weight: 600; letter-spacing: -0.04em; line-height: 1.12;
+    margin: 0 0 20px; max-width: 780px; text-wrap: balance; }
+  .lead { font-size: 18px; color: var(--body); max-width: 640px; margin: 0 0 36px; line-height: 1.75; text-wrap: pretty; }
   .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
 
   section { padding: 96px 0; }
   .section-alt { background: var(--tint); box-shadow: 0 1px 0 var(--line), 0 -1px 0 var(--line); }
-  .kicker { font-size: 13px; font-weight: 500; color: var(--accent); margin-bottom: 10px; }
-  h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 600; letter-spacing: -0.03em; line-height: 1.2;
-    margin: 0 0 12px; max-width: 680px; }
-  .section-sub { color: var(--body); max-width: 640px; margin: 0 0 56px; font-size: 16px; }
+  .kicker { font-size: 12px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-deep); margin-bottom: 14px; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 600; letter-spacing: -0.03em; line-height: 1.3;
+    margin: 0 0 14px; max-width: 680px; text-wrap: balance; }
+  .section-sub { color: var(--body); max-width: 640px; margin: 0 0 56px; font-size: 16px; line-height: 1.7; text-wrap: pretty; }
 
   /* problem cards */
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -107,6 +115,7 @@
   /* neurons on inverted band */
   .invert { background: var(--invert-bg); color: var(--invert-ink); border-radius: 16px; padding: 56px 40px;
     box-shadow: 0 0 0 1px var(--invert-line); }
+  .invert .kicker { color: var(--invert-accent); }
   .invert h2 { color: var(--invert-ink); }
   .invert .section-sub { color: var(--invert-body); }
   .neuron { background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--invert-line);
@@ -126,7 +135,7 @@
   /* product band */
   .product { display: flex; align-items: center; justify-content: space-between; gap: 32px;
     background: var(--bg); border-radius: 12px; padding: 36px; box-shadow: var(--card-shadow); flex-wrap: wrap; }
-  .product .badge { font-size: 12px; font-weight: 500; color: var(--accent); background: var(--accent-bg);
+  .product .badge { font-size: 12px; font-weight: 500; color: var(--green-deep); background: var(--green-tint);
     padding: 4px 10px; border-radius: 9999px; margin-bottom: 12px; display: inline-block; }
   .product h3 { font-size: 22px; font-weight: 600; letter-spacing: -0.6px; margin: 0 0 8px; }
   .product p { font-size: 14.5px; color: var(--body); margin: 0; max-width: 560px; }
@@ -134,10 +143,11 @@
   footer { padding: 48px 0 56px; font-size: 13px; color: var(--muted); box-shadow: 0 -1px 0 var(--line); }
   .foot-top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }
   .foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); font-size: 14px; }
-  .foot-brand .mark { width: 18px; height: 18px; border-radius: 4px; background: var(--ink); color: var(--bg); font-size: 10px; display: flex; align-items: center; justify-content: center; }
+  .foot-brand .mark { width: 18px; height: 18px; border-radius: 4px; background: var(--green); color: var(--bg); font-size: 10px; display: flex; align-items: center; justify-content: center; }
   .foot-links { display: flex; gap: 20px; font-weight: 500; }
   .foot-links a { text-decoration: none; color: var(--body); } .foot-links a:hover { color: var(--ink); }
 
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn, .card, .pillar { transition: none; } }
   @media (max-width: 900px) {
     .grid-4 { grid-template-columns: 1fr 1fr; }
     .grid-3 { grid-template-columns: 1fr; }
@@ -158,6 +168,7 @@
   <div class="container nav-inner">
     <a class="brand" href="/"><span class="mark">W</span>World of Agents</a>
     <nav class="nav-links" aria-label="Main">
+      <a href="#problem">About us</a>
       <a href="#architecture">Architecture</a>
       <a href="#why">Why it's different</a>
       <a href="/myagenttalk/en/">MyAgentTalk</a>
@@ -254,7 +265,7 @@
   <div class="container">
     <div class="kicker">Why it's different</div>
     <h2>Most systems pick a model. We built the layer between them.</h2>
-    <p class="section-sub">&nbsp;</p>
+    <p class="section-sub">Four commitments that shape every layer we build.</p>
     <div class="pillars">
       <div class="pillar">
         <h3>Orchestration</h3>
@@ -301,7 +312,9 @@
         <a href="/myagenttalk/en/legal/privacy.html">Privacy</a>
       </nav>
     </div>
-    <div>© 2026 World of Agents. All rights reserved.</div>
+    <div>© 2026 World of Agents. All rights reserved.
+      <br>Since 2026 · Building the orchestration layer behind MyAgentTalk.
+    </div>
   </div>
 </footer>
 
