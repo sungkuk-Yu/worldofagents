@@ -1,5 +1,6 @@
 import type { Locale } from '../lib/locale';
 import type { DialogueCardType, MessagesRow } from '../types/db';
+import type { GroundingSummary } from '../lib/perplexity';
 
 export type SavedMessage = MessagesRow;
 
@@ -27,11 +28,11 @@ export type ServerMessage =
   | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage }
   | { type: 'run.started'; session_id: string; run_id: string; seq?: number; quip: string }
   | { type: 'run.progress'; session_id: string; run_id: string; seq?: number; stage: 'thinking' | 'organizing' | 'finalizing' | 'rendering'; quip: string }
-  | { type: 'run.completed'; structured?: { dialogue_type: DialogueCardType; structured_payload: Record<string, unknown> }; session_id: string; run_id: string; seq?: number; message_ids: { user: string; empathy: string | null; answer: string | null }; llm: { used: boolean; model: string | null; fallback: boolean } }
+  | { type: 'run.completed'; structured?: { dialogue_type: DialogueCardType; structured_payload: Record<string, unknown> }; session_id: string; run_id: string; seq?: number; message_ids: { user: string; empathy: string | null; answer: string | null }; llm: { used: boolean; model: string | null; fallback: boolean }; grounding?: GroundingSummary | null }
   | { type: 'run.failed'; session_id: string; run_id: string; seq?: number; error: { code: string; message: string } }
   | { type: 'run.cancelled'; session_id: string; run_id: string; seq?: number; partial_text: string }
   | { type: 'answer.delta'; seq?: number; session_id: string; run_id: string; delta: string; index: number }
-  | { type: 'answer.done'; ai_generated: true; locale: Locale; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null } }
+  | { type: 'answer.done'; ai_generated: true; locale: Locale; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null }; grounding?: GroundingSummary | null }
   | { type: 'connected'; session_id: string | null; timestamp: string }
   | { type: 'subscribed'; current_seq?: number; session_id: string; channels: WSChannel[] }
   | { type: 'error'; code: string; message: string }
@@ -54,6 +55,7 @@ export const NEURON_NAMES: Record<string, string> = {
   queue: '큐 에이뉴런',
   visual: '비주얼 에이뉴런',
   router: '라우터',
+  grounding: '검색그라운딩',
 };
 
 export function sendJson(socket: { send: (data: string) => void }, message: ServerMessage): void {

@@ -1043,6 +1043,19 @@ REST `POST /api/sessions/:id/messages`의 data에는 다음 structured가 추가
 
 `classifier`는 `llm | rules`이며 TurnResult와 REST의 structured에 포함한다. DB 메시지 행에는 저장하지 않는다. `run.completed.structured`는 같은 dialogue_type과 structured_payload만 포함하며 classifier는 제외한다(프로토콜 타입상 선택 필드). `message.new.message`와 REST의 messages 객체에는 저장 행의 신규 컬럼 dialogue_type과 structured_payload가 그대로 포함된다. message.new에는 조회용 router_dialogue_type을 추가하지 않는다.
 
+### 전문가 답변 Perplexity 그라운딩 (t_d54bc456)
+
+법률·회계·의료 전문가 카테고리(agent category/config, persona 이름/프롬프트/태그 또는 질문 텍스트의 classifyExpertise 판정)에서 `PERPLEXITY_API_KEY`가 설정되면 답변 뉴런 실행 전 Perplexity Sonar(`sonar-pro`, `/chat/completions`)로 실시간 웹 검색을 수행한다. 일반 카테고리는 종량제 비용을 아끼기 위해 검색을 호출하지 않으며 `grounding: null`이다. 검색은 절대 턴을 실패시키지 않는다(실패 시 `status:'failed'` + 사유 코드, 답변에 "검색 기반 아님" 정직 표기).
+
+- `neuron.status`에 `grounding` 뉴런(표시명 검색그라운딩) 추가.
+- REST 턴 응답 `data.grounding`과 WS `answer.done.grounding`·`run.completed.grounding`에 요약 객체(선택 필드, 하위호환):
+
+```json
+{"status":"grounded","engine":"perplexity-sonar","model":"sonar-pro","sources":[{"url":"https://...","title":"...","snippet":"...","date":"2026-09-24"}],"citations_total":17,"reason":"RATE_LIMITED","duration_ms":2066}
+```
+
+`status`는 `grounded|failed|skipped`, 실패/생략 시 `reason`(`RATE_LIMITED/AUTH_FAILED/TIMEOUT/NO_CITATIONS/CANCELLED/NOT_CONFIGURED` 등). `sources`는 인용 우선 정렬로 최대 3건(`PERPLEXITY_MAX_SOURCES`). grounded일 때 Sonar findings가 메인 LLM 시스템 프롬프트에 `[1][2]` 인용 지시와 함께 주입되고, 답변 행 `structured_payload.grounding`에 `engine/status/model/retrieved_at/sources/citations_total`이 저장되어 프론트의 Perplexity식 인용 카드 렌더에 사용된다. 전문가 디스클레이머(persona.ts)는 검색 여부와 무관하게 항상 appended.
+
 ### 인증과 운영 설정
 
 REST와 WS는 자체 발급 JWT를 검증하고, 백엔드는 service-role로 DB에 접근한다. 소유권은 라우트와 WS 명령 처리 시 검증한다. 사용자별 Supabase access token 교환은 Phase 3 과제다. 마이그레이션 002는 authenticated/anon의 정책을 SELECT 전용으로 제한하며 쓰기는 백엔드 service_role을 경유한다.

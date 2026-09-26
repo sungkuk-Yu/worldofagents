@@ -56,6 +56,20 @@ export const config = {
     historyTurns: parseInt(process.env.CHAT_LLM_HISTORY_TURNS || '20', 10),
   },
 
+  /**
+   * Perplexity Sonar 검색 그라운딩 (t_d54bc456) — 법률·회계·의료 전문가 카테고리
+   * 답변만 호출한다(종량제 비용 제어). 키: .env PERPLEXITY_API_KEY.
+   */
+  perplexity: {
+    enabled: process.env.PERPLEXITY_DISABLED !== 'true',
+    apiKey: process.env.PERPLEXITY_API_KEY || '',
+    baseUrl: process.env.PERPLEXITY_BASE_URL || 'https://api.perplexity.ai',
+    model: process.env.PERPLEXITY_MODEL || 'sonar-pro',
+    timeoutMs: parseInt(process.env.PERPLEXITY_TIMEOUT_MS || '20000', 10),
+    searchContextSize: (process.env.PERPLEXITY_SEARCH_CONTEXT || 'medium') as 'low' | 'medium' | 'high',
+    maxSources: parseInt(process.env.PERPLEXITY_MAX_SOURCES || '3', 10),
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || 'agenttalk-dev-secret-change-in-production',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',

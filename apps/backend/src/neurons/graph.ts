@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { withSessionLock } from '../lib/turnLock';
 import { ApiError } from '../lib/errors';
 import { chatCompletion, isLlmConfigured, LlmError, ChatMessage } from '../lib/llm';
+import { GroundingResult, GroundingSummary, searchGrounding, buildGroundingPrompt, groundingAnswerText, groundingCardPayload, isPerplexityConfigured, toGroundingSummary, GROUNDING_NOTES } from '../lib/perplexity';
 import { MessagesRow } from '../types/db';
 import { config } from '../config';
 import { DbClient } from '../lib/supabase';
@@ -72,6 +73,10 @@ export interface NeuronState {
   answerResponse: string | null;
   structured: StructuredAnswer;
   visualRequested: boolean;
+  /** 전문가 그라운딩 (t_d54bc456) — 법률·회계 카테고리 판정과 검색 활성화 조건 */
+  expertise: keyof typeof DISCLAIMERS;
+  groundEnabled: boolean;
+  grounding: GroundingResult | null;
   // 컴포즈
   finalResponse: { empathy: string | null; answer: string | null; visualsRequested: boolean };
   events: NeuronStatusEvent[];
@@ -104,6 +109,8 @@ export interface TurnResult {
   answerResponse: string | null;
   structured: StructuredAnswer;
   dialogueType: DialogueType;
+  /** 전문가 그라운딩 요약 (t_d54bc456) — 발동하지 않았으면 null */
+  grounding: GroundingSummary | null;
   /** 뉴런 활성화 계획 — 설계 문서와 동일한 객체 형태 (activate/reason) */
   activationPlan: { activate: string[]; reason: string; dialogueType: DialogueType };
   events: NeuronStatusEvent[];
@@ -144,6 +151,21 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: QUIPS.thinking[state.locale] };
   ctx.emit(start);
   let answerResponse: string;
+  // ── 전문가 그라운딩 (t_d54bc456) — 법률·회계 등 전문가 카테고리는 Perplexity
+  // 최신 웹 검색 근거 + 출처를 반드시 동반한다. 키 미설정 시 시도하지 않는다
+  // (DEV/unit 테스트는 실 키 없이도 기존 동작 그대로). ──
+  let grounding: GroundingResult | null = null;
+  if (state.groundEnabled && isPerplexityConfigured() && !ctx.signal?.aborted) {
+    ctx.emit({ neuron: 'grounding', status: 'processing', stage: 'thinking', quip: QUIPS.thinking[state.locale] });
+    grounding = await searchGrounding(state.userMessage, state.locale, { signal: ctx.signal });
+    ctx.emit({
+      neuron: 'grounding',
+      status: grounding.status === 'grounded' ? 'idle' : 'degraded',
+      stage: 'organizing',
+      quip: QUIPS.organizing[state.locale],
+    });
+  }
+  const groundingBlock = grounding && grounding.status === 'grounded' ? `\n\n${buildGroundingPrompt(grounding, state.locale)}` : '';
   if (isLlmConfigured()) {
     const history: ChatMessage[] = (config.chatLlm.historyTurns > 0 ? state.history : [])
       .filter(m => m.role === 'user' || (m.role === 'agent' && m.source_neuron === 'answer'))
@@ -151,7 +173,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
     try {
       const result = await chatCompletion({
-        messages: [{ role: 'system', content: appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.', state.locale) }, ...history, { role: 'user', content: state.userMessage }],
+        messages: [{ role: 'system', content: appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + groundingBlock, state.locale) }, ...history, { role: 'user', content: state.userMessage }],
         onDelta: d => ctx.onDelta?.(d),
         signal: ctx.signal,
       });
@@ -162,19 +184,33 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
         throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
       }
       if (!(err instanceof LlmError)) throw err;
-      answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
-      ctx.llm = { used: false, model: null, fallback: true, reason: err.code };
+      // 검색 근거가 확보됐다면 일반 템플릿 대신 그 자체를 답변으로 제시한다 (무근거 법률 답변 금지).
+      if (grounding && grounding.status === 'grounded') {
+        answerResponse = groundingAnswerText(grounding, state.locale);
+        ctx.llm = { used: false, model: grounding.model, fallback: true, reason: err.code };
+      } else {
+        answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
+        ctx.llm = { used: false, model: null, fallback: true, reason: err.code };
+      }
     }
+  } else if (grounding && grounding.status === 'grounded') {
+    answerResponse = groundingAnswerText(grounding, state.locale);
+    ctx.llm = { used: false, model: null, fallback: false, reason: 'LLM_UNCONFIGURED' };
   } else {
     answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
     ctx.llm = { used: false, model: null, fallback: false, reason: 'LLM_UNCONFIGURED' };
   }
-  const structured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
+  let structured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
+  if (grounding) {
+    structured = structured.dialogue_type === 'text' && grounding.status === 'grounded'
+      ? { ...structured, dialogue_type: 'info_card', structured_payload: { title: state.userMessage.slice(0, 50), summary: answerResponse.slice(0, 200), facts: [], grounding: groundingCardPayload(grounding) } }
+      : { ...structured, structured_payload: { ...structured.structured_payload, grounding: groundingCardPayload(grounding) } };
+  }
   // 답변 생성 이후 분류 단계에서 받은 취소는 규칙 카드로 완료한다.
   ctx.classificationCancelled = Boolean(ctx.signal?.aborted);
   const end: NeuronStatusEvent = { neuron: 'answer', status: 'idle', stage: 'finalizing', quip: QUIPS.finalizing[state.locale] };
   ctx.emit(end);
-  return { answerResponse, structured, llm: ctx.llm, events: [...state.events, start, end] };
+  return { answerResponse, structured, grounding, llm: ctx.llm, events: [...state.events, start, end] };
 }
 
 function visualNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
@@ -289,6 +325,9 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     answerResponse: Annotation,
     structured: Annotation,
     visualRequested: Annotation,
+    expertise: Annotation,
+    groundEnabled: Annotation,
+    grounding: Annotation,
     finalResponse: Annotation,
     events: Annotation,
     engine: Annotation,
@@ -346,6 +385,15 @@ export async function processTurn(
       }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false } };
       const dialogueType = classifyDialogueType(userMessage);
 
+      // 전문가 카테고리 판정 (t_d54bc456) — 그라운딩 게이트와 저장 시 디스클레이머가 공유한다.
+      const { data: agentRow, error: agentFetchError } = await db.from('agents').select('*').eq('id', agentId).maybeSingle();
+      if (agentFetchError) throw new ApiError('INTERNAL_ERROR', agentFetchError.message);
+      const expertise = classifyExpertise(agentRow?.category, agentRow?.config, persona?.name, persona?.system_prompt, persona?.tags);
+      // 그라운딩 활성 조건: 에이전트/페르소나가 전문가 카테고리이거나 질문 자체가 법률·회계·의료 질문.
+      // (종량제 — 일반 토크에는 호출하지 않는다. 대표님 지시: 법률 답변은 무조건 검색 근거와 함께.)
+      const questionExpertise = classifyExpertise(userMessage);
+      const groundEnabled = (expertise !== 'general' || questionExpertise !== 'general') && isPerplexityConfigured();
+
       // 활성 작업/큐 상태 컨텍스트 조회
       const { data: activeTasks } = await db.from('tasks').select('id').eq('session_id', sessionId).in('status', ['pending', 'in_progress']);
       const hasActiveTask = (activeTasks as any[] | null)?.length ? true : false;
@@ -388,6 +436,9 @@ export async function processTurn(
         answerResponse: null,
         structured: { dialogue_type: 'text', structured_payload: {}, classifier: 'rules' },
         visualRequested: false,
+        expertise,
+        groundEnabled,
+        grounding: null,
         finalResponse: { empathy: null, answer: null, visualsRequested: false },
         events: [],
         engine: 'simple',
@@ -511,10 +562,15 @@ export async function processTurn(
         });
         const guardResult = await guard.validate(final.answerResponse, 'answer');
         guardPassed = guardResult.passed;
-        const { data: agent, error: agentError } = await db.from('agents').select('*').eq('id', agentId).maybeSingle();
-        if (agentError) throw new ApiError('INTERNAL_ERROR', agentError.message);
-        const expertise = classifyExpertise(agent?.category, agent?.config, persona?.name, persona?.system_prompt, persona?.tags);
-        final.answerResponse = guardResult.response + (expertise === 'general' ? '' : `\n\n${DISCLAIMERS[expertise][locale]}`);
+        // 전문가 디스클레이머 + 그라운딩 정직 표기 (t_d54bc456)
+        let suffix = expertise === 'general' ? '' : `\n\n${DISCLAIMERS[expertise][locale]}`;
+        if (final.groundEnabled && final.grounding && final.grounding.status !== 'grounded' && final.grounding.reason !== 'CANCELLED') {
+          // 검색 성공했는데 인용이 없는 것과 검색 자체가 실패한 것을 구분해 정직 표기한다.
+          const key = final.grounding.reason === 'NO_CITATIONS' || final.grounding.reason === 'EMPTY_RESPONSE' ? 'NO_SOURCES' : 'UNAVAILABLE';
+          suffix += `\n${GROUNDING_NOTES[key][locale]}`;
+        }
+        // 전문가 디스클레이머 + 그라운딩 정직 표기 (t_d54bc456) — 가드에서 정화된 응답은 항상 반영한다.
+        final.answerResponse = guardResult.response + suffix;
 
         checkCancelled();
         const { data: m, error } = await db
@@ -583,6 +639,7 @@ export async function processTurn(
         answerResponse: final.answerResponse,
         structured: final.structured,
         dialogueType: final.dialogueType,
+        grounding: final.grounding ? toGroundingSummary(final.grounding) : null,
         activationPlan: {
           activate: final.activationPlan,
           reason: final.reason,

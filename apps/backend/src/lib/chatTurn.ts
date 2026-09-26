@@ -58,10 +58,11 @@ export async function runTextTurn(
       if (message) opts.emit({ type: 'message.new', ...base, message });
     }
     opts.emit({ type: 'answer.done', ...base, ai_generated: true, locale, text: result.answerResponse || '', message_id: result.answerMessageId,
-      llm: { ...result.llm, usage: result.llm.usage ?? null } });
+      llm: { ...result.llm, usage: result.llm.usage ?? null }, grounding: result.grounding });
     opts.emit({ type: 'run.completed', ...base,
       structured: { dialogue_type: result.structured.dialogue_type, structured_payload: result.structured.structured_payload },
-      message_ids: { user: result.userMessageId, empathy: result.empathyMessageId, answer: result.answerMessageId }, llm: result.llm });
+      message_ids: { user: result.userMessageId, empathy: result.empathyMessageId, answer: result.answerMessageId }, llm: result.llm,
+      grounding: result.grounding });
     completed = true;
     return result;
   } catch (err: any) {
@@ -98,6 +99,7 @@ export function textTurnResponse(result: TurnResult) {
     empathy_response: result.empathyResponse,
     answer_response: result.answerResponse,
     dialogue_type: result.dialogueType,
+    grounding: result.grounding,
     activation_plan: result.activationPlan,
     neuron_events: result.events,
     persona_guard_passed: result.guardPassed,
