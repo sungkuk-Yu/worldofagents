@@ -5,5 +5,7 @@ export { default as VoiceHomeScreen } from './VoiceHomeScreen';
 export { default as ResultCanvasScreen } from './ResultCanvasScreen';
 export { default as CardThreadScreen } from './CardThreadScreen';
 export { default as FavoritesScreen } from './FavoritesScreen';
+export { default as VaultScreen } from './VaultScreen';
+export { default as BoardScreen } from './BoardScreen';
 export { default as NeuronDashboardScreen } from './NeuronDashboardScreen';
 export { default as SettingsScreen } from './SettingsScreen';

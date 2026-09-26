@@ -97,7 +97,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
   // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
   const threadSheet = useRef<ThreadSheetHandle>(null);
-  const { handlers, decorate, actionError, keepFavorites } = useCardActions(
+  const { handlers, decorate, actionError, keepFavorites, vaultSelected, vaultResult, setVaultResult, boardResult, setBoardResult } = useCardActions(
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
       threadSheet.current?.open({ sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
@@ -108,6 +108,8 @@ export default function ChatScreen({ navigation, route }: Props) {
     },
     // Wave 1 #1: form 카드 제출 — 데모/미연결에서는 send가 거절되어 false 반환(카드가 잠기지 않음)
     (content) => (isDemo ? Promise.resolve({ ok: false, error: 'errors.unavailableAction' }) : send(content)),
+    // Wave 2: 자동 보드 생성 기본명 (i18n — hooks는 t() 없이 받으므로 화면에서 주입)
+    t('board.defaultName'),
   );
   useEffect(() => {
     let active = true;
@@ -143,6 +145,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     const ok = await keepFavorites(selectionMessages);
     if (ok) exitSelection();
   }, [keepFavorites, selectionMessages, exitSelection]);
+  /** Wave 2: 다중 선택 → 일괄 볼트 노트 저장. 1개 이상 성공 시 선택 모드 종료(토스트로 노트 이동 가능). */
+  const vaultSelectedToVault = useCallback(async () => {
+    if (!selectionMessages.length) return;
+    const saved = await vaultSelected(selectionMessages);
+    if (saved > 0) exitSelection();
+  }, [vaultSelected, selectionMessages, exitSelection]);
   const forkSelected = useCallback(() => {
     const lastAgent = [...selectionMessages].reverse().find((m) => m.role === 'agent');
     const target = lastAgent ?? selectionMessages[selectionMessages.length - 1];
@@ -412,7 +420,20 @@ export default function ChatScreen({ navigation, route }: Props) {
       {selection.active && <View style={styles.selectionBar} testID="selection-bar">
         <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selectedIds.length, i18n.language) })}</Text>
         <Button compact mode="outlined" onPress={() => void keepSelected()} disabled={isDemo} textColor={colors.accent} testID="selection-keep">{t('selection.keep')}</Button>
+        {/* Wave 2: 선택 카드 일괄 → 볼트 노트 (from-message API) */}
+        <Button compact mode="outlined" onPress={() => void vaultSelectedToVault()} disabled={isDemo} textColor={colors.accent} testID="selection-vault">{t('selection.toVault')}</Button>
         <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
+      </View>}
+      {/* Wave 2 저장 결과 토스트 — 성공 근거와 함께 노트/보드로 딥링크 (카드 본문: "토스트에 노트 링크") */}
+      {vaultResult && <View style={styles.resultToast} testID="vault-toast">
+        <Text style={styles.toastText} numberOfLines={1}>{t('vault.savedToast')}</Text>
+        <Button compact textColor={colors.accent} onPress={() => { navigation.navigate('Vault', { noteId: vaultResult.noteId }); setVaultResult(null); }} testID="vault-toast-open">{t('vault.openNote')}</Button>
+        <Button compact textColor={colors.text3} onPress={() => setVaultResult(null)} testID="vault-toast-close">✕</Button>
+      </View>}
+      {boardResult && <View style={styles.resultToast} testID="board-toast">
+        <Text style={styles.toastText} numberOfLines={1}>{t('board.cardSavedToast')}</Text>
+        <Button compact textColor={colors.accent} onPress={() => { navigation.navigate('Board', { boardId: boardResult.boardId }); setBoardResult(null); }} testID="board-toast-open">{t('board.openBoard')}</Button>
+        <Button compact textColor={colors.text3} onPress={() => setBoardResult(null)} testID="board-toast-close">✕</Button>
       </View>}
       {input.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
       {/* 하단 입력 영역 — 화이트 배경 + 초박형 상단 테두리, 그린 포커스 (Mintlify 패턴) */}
@@ -544,6 +565,9 @@ const styles = StyleSheet.create({
   selectedRow: { borderLeftWidth: 3, borderLeftColor: colors.accent, backgroundColor: colors.accentTint, borderRadius: radii.md },
   selectionBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginHorizontal: spacing.sp3, marginBottom: spacing.sp1, padding: spacing.sp2, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
   selectionCount: { ...typography.caption, color: colors.text2, flex: 1, minWidth: 0 },
+  // Wave 2 저장 결과 토스트 — 입력창 위 고정, 노트/보드 딥링크 버튼 포함
+  resultToast: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginHorizontal: spacing.sp3, marginBottom: spacing.sp1, padding: spacing.sp2, backgroundColor: colors.accentTint, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
+  toastText: { ...typography.caption, color: colors.text1, flex: 1, minWidth: 0 },
   listContent: {
     paddingHorizontal: spacing.sp3,
     paddingVertical: spacing.sp3,

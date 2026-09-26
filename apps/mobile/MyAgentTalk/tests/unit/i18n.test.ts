@@ -42,9 +42,12 @@ test('입력 오류 — 키와 파라미터를 반환한다', () => {
   assert.deepEqual(validateMessageInput('x'.repeat(4001)), { ok: false, errorKey: 'errors.tooLong', errorParams: { limit: 4000 } });
 });
 test('리소스 — 양 언어의 키와 보간 변수가 일치한다', () => {
-  const flatten = (data: Record<string, Record<string, string>>) => Object.fromEntries(Object.entries(data).flatMap(([ns, values]) => Object.entries(values).map(([key, value]) => [`${ns}.${key}`, value])));
-  const ko = flatten(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8')));
-  const en = flatten(JSON.parse(readFileSync('src/i18n/locales/en.json', 'utf8')));
+  const flatten = (data: Record<string, unknown>, prefix = ''): [string, string][] =>
+    Object.entries(data).flatMap(([key, value]) =>
+      typeof value === 'string' ? [[`${prefix}${key}`, value] as [string, string]]
+        : flatten(value as Record<string, unknown>, `${prefix}${key}.`));
+  const ko = Object.fromEntries(flatten(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8'))));
+  const en = Object.fromEntries(flatten(JSON.parse(readFileSync('src/i18n/locales/en.json', 'utf8'))));
   assert.deepEqual(Object.keys(ko).sort(), Object.keys(en).sort());
   for (const key of Object.keys(ko)) {
     assert.ok(en[key].trim(), key);

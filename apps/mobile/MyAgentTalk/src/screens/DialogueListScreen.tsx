@@ -55,6 +55,9 @@ export default function DialogueListScreen({ navigation }: Props) {
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
         {/* 즐겨찾기 컬렉션 진입 (Wave1 코멘트 — 대화목록 상단) */}
         <TouchableOpacity onPress={() => navigation.navigate('Favorites')} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><Text style={styles.settingsIcon}>{t('favorites.icon')}</Text></TouchableOpacity>
+        {/* 볼트/보드 진입 (Wave2 t_174b66d2 — "옵시디언과 칸반을 모두 적용" 대표님 지시) */}
+        <TouchableOpacity onPress={() => navigation.navigate('Vault')} testID="vault-button" style={styles.settingsButton} accessibilityLabel={t('vault.title')}><Text style={styles.settingsIcon}>{t('vault.icon')}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Board')} testID="board-button" style={styles.settingsButton} accessibilityLabel={t('board.title')}><Text style={styles.settingsIcon}>{t('board.icon')}</Text></TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="settings-button" style={styles.settingsButton} accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
       </View>
     </View>

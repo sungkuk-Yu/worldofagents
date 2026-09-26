@@ -14,6 +14,8 @@ export function useCardActions(
   openThread: CardActionHandlers['openThread'],
   forkFromHere: CardActionHandlers['forkFromHere'],
   send?: (content: string) => Promise<{ ok: boolean }>,
+  /** 새 보드 자동 생성 시 기본 이름 (i18n — 호출자가 t('board.defaultName') 전달) */
+  defaultBoardName?: string,
 ) {
   const [local, setLocal] = useState<Record<string, Pick<ChatMessage, 'favorite' | 'taskOverrides'>>>({});
   const [actionError, setActionError] = useState<string | null>(null);
@@ -43,9 +45,49 @@ export function useCardActions(
     const results = await Promise.all(messages.map((m) => applyFavorite(m, true)));
     return results.some(Boolean);
   };
+  // ── Wave 2 (t_174b66d2): 대화 → 볼트 노트 / 칸반 카드 (백엔드 from-message API) ──
+  const [vaultResult, setVaultResult] = useState<{ noteId: string } | null>(null);
+  const [boardResult, setBoardResult] = useState<{ boardId: string; cardId: string } | null>(null);
+  /** 카드 → 볼트 노트 저장. 성공 시 vaultResult(노트 딥링크용) 설정, 실패 시 errors.vault. */
+  const saveToVault = async (message: ChatMessage) => {
+    if (message.pending || message.status === 'failed') { setActionError('errors.unavailableAction'); return null; }
+    try {
+      const env = await api.noteFromMessage({ message_id: message.id });
+      if (!env.ok || !env.data) throw new Error('vault');
+      setVaultResult({ noteId: env.data.id });
+      return env.data;
+    } catch { setActionError('errors.vault'); return null; }
+  };
+  /** 카드 → 내 첫 보드에 카드 생성(없으면 '내 보드' 자동 생성). 성공 시 boardResult 설정. */
+  const addCardToBoard = async (message: ChatMessage) => {
+    if (message.pending || message.status === 'failed') { setActionError('errors.unavailableAction'); return null; }
+    try {
+      const boards = await api.listBoards();
+      let boardId = boards.data?.[0]?.id;
+      if (!boardId) {
+        const created = await api.createBoard({ name: (defaultBoardName ?? 'Board').trim() || 'Board' });
+        boardId = created.data?.id;
+      }
+      if (!boardId) throw new Error('board');
+      const env = await api.cardFromMessage(boardId, { message_id: message.id });
+      if (!env.ok || !env.data) throw new Error('board');
+      setBoardResult({ boardId, cardId: env.data.id });
+      return env.data;
+    } catch { setActionError('errors.board'); return null; }
+  };
+  /** 다중 선택 "볼트로" — 선택 카드 일괄 노트 변환 저장. 성공 개수 반환(0=전부 실패). */
+  const vaultSelected = async (messages: ChatMessage[]) => {
+    const results = await Promise.all(messages.map((m) => (m.pending || m.status === 'failed' ? Promise.resolve(null) : api.noteFromMessage({ message_id: m.id }).catch(() => null))));
+    const saved = results.filter((r) => r?.ok && r.data);
+    if (!saved.length) { setActionError('errors.vault'); return 0; }
+    if (saved[0]?.data) setVaultResult({ noteId: saved[0].data.id });
+    return saved.length;
+  };
   const handlers: CardActionHandlers = {
     openThread, forkFromHere,
     toggleFavorite,
+    saveToVault,
+    addCardToBoard,
     submitForm: async (_message, content) => {
       if (!send) return false;
       try { const result = await send(content); return result.ok; } catch { setActionError('errors.request'); return false; }
@@ -59,5 +101,5 @@ export function useCardActions(
       void Linking.openURL(safe).catch(() => setActionError('errors.file'));
     },
   };
-  return { handlers, decorate, actionError, setActionError, keepFavorites };
+  return { handlers, decorate, actionError, setActionError, keepFavorites, vaultSelected, vaultResult, setVaultResult, boardResult, setBoardResult };
 }

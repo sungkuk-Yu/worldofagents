@@ -21,6 +21,8 @@
     "src/lib/chatLogic.ts",
     "src/lib/secureStorage.ts",
     "src/lib/richtext.ts",
+    "src/lib/vaultLogic.ts",
+    "src/lib/kanbanLogic.ts",
     "src/lib/formLogic.ts",
     "src/lib/chartLogic.ts",
     "src/cards/payload.ts",

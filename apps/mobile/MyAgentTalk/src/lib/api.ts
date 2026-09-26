@@ -8,6 +8,7 @@ import { LocalizedError } from './errorKeys';
 import type { ForkOrigin } from '../types';
 import type { DialogueState } from '../store';
 import type { TurnIdentity } from './chatLogic';
+import type { BoardCardDto } from './kanbanLogic';
 
 // ── 설정 ──────────────────────────────────────────
 const DEFAULT_API_URL = 'http://localhost:3000';
@@ -243,7 +244,109 @@ export const api = {
     const qs = params.toString();
     return request<ApiEnvelope<FavoriteEntry[]>>(`/api/favorites${qs ? `?${qs}` : ''}`);
   },
+
+  // ── 볼트(옵시디언식 노트) — 백엔드 t_3b38c9be /api/vault (마이그레이션 004) ──
+  /** 노트 목록 — GET /api/vault/notes?folder=&tag=&limit=&offset= (updated_at 내림차순) */
+  listNotes: (opts?: { folder?: string; tag?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.folder) params.set('folder', opts.folder);
+    if (opts?.tag) params.set('tag', opts.tag);
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    if (opts?.offset) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    return request<ApiEnvelope<VaultNote[]>>(`/api/vault/notes${qs ? `?${qs}` : ''}`);
+  },
+
+  /** 폴더 트리 — GET /api/vault/tree (note_total 포함) */
+  getVaultTree: () => request<ApiEnvelope<{ tree: VaultTreeNode; note_total: number }>>('/api/vault/tree'),
+
+  /** 노트 검색 — GET /api/vault/search?q= (title/content 부분 일치, 스니펫 포함) */
+  searchNotes: (q: string, opts?: { folder?: string; limit?: number }) => {
+    const params = new URLSearchParams({ q });
+    if (opts?.folder) params.set('folder', opts.folder);
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    return request<ApiEnvelope<VaultSearchHit[]>>(`/api/vault/search?${params.toString()}`);
+  },
+
+  /** 노트 상세 — GET /api/vault/notes/:id */
+  getNote: (id: string) => request<ApiEnvelope<VaultNote>>(`/api/vault/notes/${encodeURIComponent(id)}`),
+
+  /** 노트 생성 — POST /api/vault/notes */
+  createNote: (body: { title: string; content?: string; folder?: string; tags?: string[]; backlinks?: VaultBacklink[] }) =>
+    request<ApiEnvelope<VaultNote>>('/api/vault/notes', { method: 'POST', body: JSON.stringify(body) }),
+
+  /** 노트 수정 — PATCH /api/vault/notes/:id (title/content/folder/tags/backlinks 부분 수정) */
+  patchNote: (id: string, body: { title?: string; content?: string; folder?: string; tags?: string[]; backlinks?: VaultBacklink[] }) =>
+    request<ApiEnvelope<VaultNote>>(`/api/vault/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  /** 노트 삭제 — DELETE /api/vault/notes/:id */
+  deleteNote: (id: string) =>
+    request<ApiEnvelope<{ deleted: boolean; id: string }>>(`/api/vault/notes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** 대화→노트 저장 — POST /api/vault/notes/from-message (from-message는 201) */
+  noteFromMessage: (body: { message_id: string; title?: string; folder?: string; tags?: string[] }) =>
+    request<ApiEnvelope<VaultNote>>('/api/vault/notes/from-message', { method: 'POST', body: JSON.stringify(body) }),
+
+  // ── 칸반 보드 — 백엔드 t_3b38c9be /api/boards·/api/cards (마이그레이션 004) ──
+  /** 보드 목록 — GET /api/boards */
+  listBoards: () => request<ApiEnvelope<KanbanBoard[]>>('/api/boards'),
+
+  /** 보드 생성 — POST /api/boards */
+  createBoard: (body: { name: string; description?: string | null }) =>
+    request<ApiEnvelope<KanbanBoard>>('/api/boards', { method: 'POST', body: JSON.stringify(body) }),
+
+  /** 보드 상세(카드 포함) — GET /api/boards/:id */
+  getBoard: (id: string) => request<ApiEnvelope<KanbanBoardDetail>>(`/api/boards/${encodeURIComponent(id)}`),
+
+  /** 보드 수정/삭제 — PATCH/DELETE /api/boards/:id */
+  patchBoard: (id: string, body: { name?: string; description?: string | null }) =>
+    request<ApiEnvelope<KanbanBoard>>(`/api/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteBoard: (id: string) =>
+    request<ApiEnvelope<{ deleted: boolean; id: string }>>(`/api/boards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** 카드 생성 — POST /api/boards/:id/cards */
+  createCard: (boardId: string, body: { title: string; body?: string; status?: string; priority?: number; assignee?: string | null; labels?: string[] }) =>
+    request<ApiEnvelope<BoardCardDto>>(`/api/boards/${encodeURIComponent(boardId)}/cards`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** 대화→카드 생성 — POST /api/boards/:id/cards/from-message */
+  cardFromMessage: (boardId: string, body: { message_id: string; title?: string; status?: string; assignee?: string | null; labels?: string[]; priority?: number }) =>
+    request<ApiEnvelope<BoardCardDto>>(`/api/boards/${encodeURIComponent(boardId)}/cards/from-message`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** 카드 수정(드래그 이동 포함) — PATCH /api/cards/:cardId */
+  patchCard: (cardId: string, body: { title?: string; body?: string; status?: string; position?: number; priority?: number; assignee?: string | null; labels?: string[] }) =>
+    request<ApiEnvelope<BoardCardDto>>(`/api/cards/${encodeURIComponent(cardId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  /** 카드 삭제 — DELETE /api/cards/:cardId */
+  deleteCard: (cardId: string) =>
+    request<ApiEnvelope<{ deleted: boolean; id: string }>>(`/api/cards/${encodeURIComponent(cardId)}`, { method: 'DELETE' }),
 };
+
+// ── 볼트/보드 DTO (백엔드 types/db.ts와 동일 셸) ────────
+export interface VaultBacklink { id?: string; title?: string }
+export interface VaultNote {
+  id: string;
+  user_id: string;
+  title: string;
+  content: string;
+  folder: string;
+  tags: string[];
+  backlinks: VaultBacklink[];
+  source_session_id: string | null;
+  source_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface VaultTreeNode { name: string; path: string; note_count: number; children: VaultTreeNode[] }
+export interface VaultSearchHit { id: string; title: string; folder: string; tags: string[]; snippet: string; updated_at: string }
+export interface KanbanBoard {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface KanbanBoardDetail extends KanbanBoard { cards: BoardCardDto[] }
 
 /** GET /api/favorites 응답 행 — 메시지 + 소속 세션 요약 (백엔드 favorites.ts 수동 조인) */
 export interface FavoriteEntry {
