@@ -35,6 +35,12 @@ function harness(t: TestContext, sid: string | null = 'session', options: import
     if (!slots[i] || !same(slots[i].deps, deps)) slots[i] = { value: callback, deps };
     return slots[i].value;
   }) as typeof react.useCallback);
+  // t_eded715c: useChatSession의 talk 브리프는 useMemo — 하네스는 useCallback과 동일 수법으로 모의
+  t.mock.method(react, 'useMemo', ((factory: () => unknown, deps?: readonly unknown[]) => {
+    const i = index++;
+    if (!slots[i] || !same(slots[i].deps, deps)) slots[i] = { value: factory(), deps };
+    return slots[i].value;
+  }) as typeof react.useMemo);
   t.mock.method(react, 'useEffect', ((effect: () => (() => void) | void, deps?: readonly unknown[]) => {
     const i = index++;
     if (!slots[i] || !same(slots[i].deps, deps)) {
@@ -170,7 +176,7 @@ test('구독 last_seq와 중복 제거, 서버 재시작 시 0으로 재구독 �
   t.mock.method(apiModule.api, 'getMessages', async () => { reads++; return { ok: true, data: [] }; });
   h.render(); await flush();
   h.sockets[0].onStatusChange?.('connected');
-  assert.deepEqual(h.sent[0][0], { type: 'subscribe', session_id: 'session', last_seq: 0 });
+  assert.deepEqual(h.sent[0][0], { type: 'subscribe', session_id: 'session', last_seq: 0, device: 'mobile-web' }); // t_eded715c presence: device 라벨 동봉
   const message = { id: 'a', role: 'agent', content: '복구', turn_index: 1 };
   h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 10, message });
   h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 10, message: { ...message, id: '중복' } });

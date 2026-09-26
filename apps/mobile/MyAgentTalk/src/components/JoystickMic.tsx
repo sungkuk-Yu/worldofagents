@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { JoystickGesture } from '../types';
-import { colors, typography, iconSize } from '../theme';
+import { colors, typography, iconSize, shadows } from '../theme';
 import {
   getDirection,
   isOutsideDeadzone,
@@ -46,9 +46,16 @@ interface Props {
   directionLabels?: Partial<Record<JoystickGesture, string>>;
 }
 
-// 버튼 크기는 화면 너비의 22% (최소 80px, 최대 140px)
+// 버튼 실측·재조정 (대표님 지시 9/26 — 자체 창작 금지, 실제 제품 레퍼런스):
+//   · 현행 실측: thumb = width×0.22 → 390px 폰에서 85.8px, 단일체(베이스 없음)
+//   · 레퍼런스: PS5 DualSense 스틱 캡 Ø21mm ≈ 390px 뷰포트 환산 논리 ~115px,
+//     모바일 게임 가상조이스틱(스위치 스타일) 관례 = 썸 너비 20~25% + 베이스 직경 썸의 ~1.5배
+//   · 재조정: thumb = clamp(width×0.24, 96, 140) (HIG 44pt 최소 타깃의 2.2배), 베이스 = 1.5×thumb 정적 링
+//   · PC 웹(3패널)에서는 140px 상한으로 화면을 압도하지 않고 하단 중앙 유지
 const screenWidth = Dimensions.get('window').width;
-const BUTTON_SIZE = Math.min(Math.max(screenWidth * 0.22, 80), 140);
+const BUTTON_SIZE = Math.min(Math.max(screenWidth * 0.24, 96), 140);
+const BASE_SIZE = Math.round(BUTTON_SIZE * 1.5); // 정적 베이스 링 (스위치 캡+스커트 비례)
+const KNOB_TRAVEL = Math.round((BASE_SIZE - BUTTON_SIZE) / 2); // 썸 이동 한계 = 베이스 안쪽 (실물 스틱 물리)
 
 export default function JoystickMic({ onGesture, onRelease, isRecording, directionLabels }: Props) {
   // RN Animated 표준 패턴 — Animated.Value 는 렌더 간 안정적인 identity 가 필요 → useState 초기화
@@ -107,11 +114,11 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
         const { dx, dy } = gs;
         const direction = getDirection(dx, dy);
 
-        // 썸 이동 (데드존 내 최대 18px)
+        // 썸 이동 — 물리 스틱처럼 베이스 링 안쪽에서만 (이동 한계 KNOB_TRAVEL)
         if (isOutsideDeadzone(dx, dy)) {
           knobAnim.setValue({
-            x: Math.max(-22, Math.min(22, dx * 0.32)),
-            y: Math.max(-22, Math.min(22, dy * 0.32)),
+            x: Math.max(-KNOB_TRAVEL, Math.min(KNOB_TRAVEL, dx * 0.42)),
+            y: Math.max(-KNOB_TRAVEL, Math.min(KNOB_TRAVEL, dy * 0.42)),
           });
         }
 
@@ -211,6 +218,9 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
       {/* 녹음 중 링 */}
       {isRecording && <View pointerEvents="none" style={styles.recordingRing} />}
 
+      {/* 정적 베이스 링 — 캡+스커트 2계층 조형 (레퍼런스: 콘솔 가상스틱 관례) */}
+      <View pointerEvents="none" style={styles.baseRing} />
+
       {/* 드래그 방향 피드백 (반투명 화살표, §1.4) */}
       {selectedGesture && selectedGesture !== 'TAP_CENTER' && selectedGesture !== 'LONG_CENTER' && (
         <Animated.View pointerEvents="none" style={styles.directionFeedback}>
@@ -261,14 +271,25 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
 
 const styles = StyleSheet.create({
   container: {
-    width: BUTTON_SIZE * 2.5,
-    height: BUTTON_SIZE * 2.5,
+    width: BASE_SIZE,
+    height: BASE_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  baseRing: {
+    position: 'absolute',
+    width: BASE_SIZE,
+    height: BASE_SIZE,
+    borderRadius: BASE_SIZE / 2,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.sh1,
+  },
   waveformWrap: {
     position: 'absolute',
-    top: -6,
+    // 베이스 링(1.5×) 하단 안쪽 — 컨테이너가 썸+스커트 크기로 축소된 데 맞춘 재배치
+    top: BASE_SIZE - 18,
     width: BUTTON_SIZE * 1.2,
   },
   pulseRing: {
@@ -281,9 +302,9 @@ const styles = StyleSheet.create({
   },
   recordingRing: {
     position: 'absolute',
-    width: BUTTON_SIZE * 1.5,
-    height: BUTTON_SIZE * 1.5,
-    borderRadius: (BUTTON_SIZE * 1.5) / 2,
+    width: BASE_SIZE + 20,
+    height: BASE_SIZE + 20,
+    borderRadius: (BASE_SIZE + 20) / 2,
     borderWidth: 3,
     borderColor: colors.statusErr,
   },
@@ -309,7 +330,7 @@ const styles = StyleSheet.create({
   },
   directionFeedback: {
     position: 'absolute',
-    top: BUTTON_SIZE * 0.5,
+    top: 8, // 썸 상단 위쪽 — 1.5× 베이스 컨테이너에 맞춰 재배치 (§1.4 화살표+라벨)
     alignItems: 'center',
     backgroundColor: 'rgba(17,24,39,0.72)',
     borderRadius: 12,

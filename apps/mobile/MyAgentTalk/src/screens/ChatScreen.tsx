@@ -2,7 +2,15 @@ import CardFrame from '../cards/CardFrame';
 import ForkDialog from '../components/ForkDialog';
 import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
 import TypingCard from '../components/TypingCard';
+import PttBannerComponent, { PttMicButton } from '../components/PttBanner';
+import DevicePresenceBadge from '../components/DevicePresenceBadge';
+import ContextPanel from '../components/ContextPanel';
 import { useCardActions } from '../hooks/useCardActions';
+import { usePushToTalk } from '../hooks/usePushToTalk';
+import { useLayout } from '../hooks/useLayout';
+import { getPttKey, getPttMode } from '../lib/userPrefs';
+import { pttKeyLabel } from '../lib/pttLogic';
+import { inspectStore } from '../lib/inspectStore';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { api } from '../lib/api';
 import type { ForkOrigin } from '../types';
@@ -88,7 +96,13 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
+    peers, talking, talk,
   } = useChatSession({ sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo });
+
+  // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
+  // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
+  const { pc, wide } = useLayout();
+  const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
 
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
   const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
@@ -100,6 +114,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const { handlers, decorate, actionError } = useCardActions(
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
+      inspectStore.set(message.id); // PC 컨텍스트 패널 인스펙터 — 지금 열어본 카드를 우측에 상시 비춤
       threadSheet.current?.open({ sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
     },
     (message) => {
@@ -295,6 +310,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   }[connection];
 
   return (
+    <View style={styles.shell}>
     <KeyboardAvoidingView
       style={[styles.container, webScreenMotion('mat-slide-from-right'), { paddingBottom: viewportInset }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -308,13 +324,17 @@ export default function ChatScreen({ navigation, route }: Props) {
         </TouchableOpacity>
         <View style={styles.headerBody}>
           <Text style={styles.appbarTitle} numberOfLines={1}>{selection.active ? t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) }) : sessionTitle}</Text>
-          {!selection.active && <Text
-            style={[styles.appbarSubtitle, { color: isDemo ? colors.statusWarn : connectionColor }]}
-            numberOfLines={1}
-            testID="chat-status-line"
-          >
-            {t('chat.statusIndicator', { status: subtitle })}
-          </Text>}
+          {!selection.active && <View style={styles.subtitleRow}>
+            <Text
+              style={[styles.appbarSubtitle, { color: isDemo ? colors.statusWarn : connectionColor }]}
+              numberOfLines={1}
+              testID="chat-status-line"
+            >
+              {t('chat.statusIndicator', { status: subtitle })}
+            </Text>
+            {/* 크로스 디바이스 presence — 같은 세션을 다른 기기가 실시간으로 보는 중 (t_eded715c) */}
+            {!isDemo && <DevicePresenceBadge peers={peers} />}
+          </View>}
         </View>
         {selection.active ? <TouchableOpacity
           onPress={() => (allSelected ? clearSelection() : selectAll())}
@@ -403,6 +423,15 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
 
       {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={styles.msgCard}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
+      {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성 */}
+      {Platform.OS === 'web' && !isDemo && (
+        <PttBannerComponent
+          active={ptt.active || talking}
+          keyLabel={pc ? pttKeyLabel(getPttKey() ?? 'KeyV') : undefined}
+          mode={getPttMode() ?? 'hold'}
+          error={ptt.error}
+        />
+      )}
       {/* 다중 선택 액션 바 — t_a0e998cc(대표님 9/26): 보관(즐겨찾기 중복)·볼트로(기본 저장) 제거, 이어가기만 남김 */}
       {selection.active && <View style={styles.selectionBar} testID="selection-bar">
         <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selectedIds.length, i18n.language) })}</Text>
@@ -411,6 +440,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       {input.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
       {/* 하단 입력 영역 — 화이트 배경 + 초박형 상단 테두리, 그린 포커스 (Mintlify 패턴) */}
       <View style={styles.inputBar}>
+        <View style={styles.inputRow}>
         <TextInput
           mode="outlined"
           value={input}
@@ -428,6 +458,15 @@ export default function ChatScreen({ navigation, route }: Props) {
           returnKeyType="send"
           accessibilityLabel={t('chat.input')}
         />
+        {/* PTT 마이크 홀드 버튼 — 모바일 웹 터치 홀드 + PC 마우스 겸용(확정 ⑤, 키보드와 병존) */}
+        {Platform.OS === 'web' && !isDemo && (
+          <PttMicButton
+            active={ptt.active || talking}
+            onPressIn={ptt.press}
+            onPressOut={ptt.release}
+            label={t('chat.pttMic')}
+          />
+        )}
         <Button
           mode="contained"
           onPress={submit}
@@ -442,10 +481,21 @@ export default function ChatScreen({ navigation, route }: Props) {
         >
           {t('chat.send')}
         </Button>
+        </View>
       </View>
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
     </KeyboardAvoidingView>
+    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지) */}
+    {wide && Platform.OS === 'web' && (
+      <ContextPanel
+        sessionId={sessionId ?? null}
+        messages={messages}
+        onOpenVault={() => navigation.navigate('Vault')}
+        onOpenFavorites={() => navigation.navigate('Favorites')}
+      />
+    )}
+    </View>
   );
 }
 
@@ -686,4 +736,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexShrink: 1,
   },
+  // ── 반응형 2트랙 (t_eded715c) ──
+  // shell: 채팅 본문 + (PC wide) 우측 컨텍스트 패널을 나란히. 모바일에서는 패널 미렌더라 단일 컬럼과 동일.
+  shell: { flex: 1, flexDirection: 'row', backgroundColor: colors.bg },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginTop: spacing.sp1 },
+  inputRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
 });

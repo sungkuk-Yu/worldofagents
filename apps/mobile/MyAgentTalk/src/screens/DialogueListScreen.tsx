@@ -4,13 +4,16 @@ import { StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, Activ
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
+import ResumeBanner from '../components/ResumeBanner';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { formatDayLabel } from '../i18n/format';
 
-interface Props { navigation: any; route?: any }
-export default function DialogueListScreen({ navigation }: Props) {
+interface Props { navigation: any; route?: any; variant?: 'full' | 'sidebar' | 'home' }
+export default function DialogueListScreen({ navigation, variant = 'full' }: Props) {
   const { t, i18n } = useTranslation();
+  const isSidebar = variant === 'sidebar';
+  const isHome = variant === 'home';
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,8 +51,8 @@ export default function DialogueListScreen({ navigation }: Props) {
     finally { setStarting(false); }
   };
   const offline = !connected && !loading;
-  return <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
-    <View style={styles.header}>
+  return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
+    {!isSidebar && <View style={styles.header}>
       <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
       <View style={styles.headerRight}>
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
@@ -58,9 +61,19 @@ export default function DialogueListScreen({ navigation }: Props) {
         {/* 볼트/보드 진입 (Wave2 t_174b66d2 — "옵시디언과 칸반을 모두 적용" 대표님 지시) */}
         <TouchableOpacity onPress={() => navigation.navigate('Vault')} testID="vault-button" style={styles.settingsButton} accessibilityLabel={t('vault.title')}><Text style={styles.settingsIcon}>{t('vault.icon')}</Text></TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('Board')} testID="board-button" style={styles.settingsButton} accessibilityLabel={t('board.title')}><Text style={styles.settingsIcon}>{t('board.icon')}</Text></TouchableOpacity>
+        {/* 음성 홈 진입 (t_5de18a91 — 3모드 입력 실사용/검증 경로. Phase 1부터 화면만 있고 진입점이 없었음) */}
+        <TouchableOpacity onPress={() => navigation.navigate('VoiceHome')} testID="voice-button" style={styles.settingsButton} accessibilityLabel={t('common.voice')}><Text style={styles.settingsIcon}>🎤</Text></TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="settings-button" style={styles.settingsButton} accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
       </View>
-    </View>
+    </View>}
+    {isSidebar && <View style={styles.sidebarHeader}>
+      <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
+      <View style={styles.headerRight}>
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="sidebar-settings-button" accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
+      </View>
+    </View>}
+    {/* 이어보기 배너 (t_eded715c): PC 홈(중앙)에서만 — 다른 기기 미읽음 세션으로 즉시 이동 */}
+    {isHome && !offline && <ResumeBanner onOpen={(item) => navigation.navigate('Chat', { sessionId: item.session_id, sessionTitle: item.title ?? undefined, agentId: item.agent_id ?? undefined, agentName: item.agent_name ?? undefined })} />}
     {error && <TouchableOpacity style={styles.errorBar} onPress={() => error === 'errors.auth' ? navigation.navigate('Login') : void refresh()} testID="login-hint">
       <Text style={styles.errorText}>{error === 'errors.auth' ? t('dialogueList.loginHint', { error: t(error) }) : t(error)}</Text>
     </TouchableOpacity>}
@@ -103,6 +116,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
+  },
+  // PC 사이드바 변형 (t_eded715c): 레일은 surface 배경 + 구분선, 헤더는 컴팩트
+  sidebarShell: { backgroundColor: colors.surface },
+  sidebarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.sp3,
+    paddingHorizontal: spacing.sp3,
+    paddingBottom: spacing.sp2,
   },
   header: {
     flexDirection: 'row',

@@ -9,3 +9,4 @@ export { default as VaultScreen } from './VaultScreen';
 export { default as BoardScreen } from './BoardScreen';
 export { default as NeuronDashboardScreen } from './NeuronDashboardScreen';
 export { default as SettingsScreen } from './SettingsScreen';
+export { default as JoystickSettingsScreen } from './JoystickSettingsScreen';

@@ -11,12 +11,16 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import JoystickMic from '../components/JoystickMic';
+import MagicPad from '../components/MagicPad';
 import RealtimeTranscript from '../components/RealtimeTranscript';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { useStore, setState, getState } from '../store';
 import { useVoiceSession } from '../hooks/useVoiceSession';
+import { useJoystickMap } from '../hooks/useJoystickMap';
+import { SwipeAction } from '../lib/joystickEngine';
 
 interface Props {
   navigation: any;
@@ -27,11 +31,15 @@ const MOCK_AGENTS = ['머스크', '르네즈미', '잡스'];
 const AGENT_COLORS = [colors.accent, colors.segData, colors.segTask];
 
 export default function VoiceHomeScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const isRecording = useStore((s) => s.isRecording);
   const transcripts = useStore((s) => s.transcripts);
   const connectionStatus = useStore((s) => s.connectionStatus);
   const isFocused = useIsFocused();
   const { sessionId, startSession, isDemo } = useVoiceSession();
+  // 사용자 매핑 — 전역 1개 맵(lib/userPrefs)에서 방향별 동작/라벨 공급 (요구 4: 전역 공통)
+  // mode: 입력 장비 3모드 — joystick(기존 스틱)/pad(매직패드)/hybrid(스틱+패드 동시) (카드 t_5de18a91)
+  const { map, mode, actionFor, directionLabels } = useJoystickMap();
 
   const [agentIndex, setAgentIndex] = React.useState(0);
 
@@ -53,38 +61,66 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
   };
 
   const handleGesture = (gesture: JoystickGesture) => {
-    switch (gesture) {
-      case 'TAP_CENTER':
-        setRecording(!isRecording);
-        break;
-      case 'LONG_CENTER':
-        // 푸시투톡: 누르는 동안 녹음 + API 세션 시작
-        setRecording(true);
-        void startSession();
-        break;
-      case 'DIR_LEFT':
-        // 예(Yes) 응답
-        addTranscript('user', '네, 먼저 처리해주세요.', false);
-        break;
-      case 'DIR_RIGHT':
-        // 아니오(No) 응답
-        addTranscript('user', '아니요, 괜찮습니다.', false);
-        break;
-      case 'DIR_DOWN':
-        // 취소
-        setRecording(false);
-        break;
-      default:
-        console.log('[VoiceHome] 커스텀 제스처:', gesture);
+    // TAP/LONG = 녹음 고정(요구 5 — 자유매핑 대상 아님). 8방향 = 사용자 맵 실행 (요구 1/3).
+    // 미할당(none)/미지원 동작은 조용히 no-op — 엔진은 기호만 emit하고 의미는 여기서 결정.
+    if (gesture === 'TAP_CENTER') { setRecording(!isRecording); return; }
+    if (gesture === 'LONG_CENTER') { setRecording(true); void startSession(); return; }
+    switch (actionFor(gesture)) {
+      case 'yes': addTranscript('user', '네, 먼저 처리해주세요.', false); break;
+      case 'no': addTranscript('user', '아니요, 괜찮습니다.', false); break;
+      case 'cancel': setRecording(false); break;
+      case 'keyboard': navigation.navigate('Chat', {}); break; // 텍스트 전환 — 요구 6
+      case 'record_stop': setRecording(false); break;
+      case 'continuous_record': setRecording(true); void startSession(); break;
+      case 'favorites': navigation.navigate('Favorites'); break;
+      case 'open_thread': case 'send': case 'prev_segment': case 'next_segment': break; // 이 화면 컨텍스트 밖 — MVP no-op
+      default: break; // none
     }
   };
 
+  const swipeSettledRef = React.useRef(false); // 같은 릴리스 내 swipe가 이미 종결 플래그
   const handleRelease = () => {
+    if (swipeSettledRef.current) { swipeSettledRef.current = false; return; }
+    // 클로저 isRecording — 탭 토글 후에도 이번 렌더 기준값이라 '녹음 중 탭 종료 → 결과 전환' 유지
     if (isRecording) {
       setRecording(false);
       // 녹음 종료 후 결과 캔버스로 전환 (세션 히스토리 생성 완료 시)
       navigation.navigate('ResultCanvas', { dialogueId });
     }
+  };
+
+  // 매직패드 더블탭 = 선택 (요구 ② 어휘) — 결과 캔버스로 이동해 세그먼트 선택 모드 진입.
+  // 첫 탭이 켠 녹음은 되돌리고, 같은 릴리스의 onRelease 중복 종결을 플래그로 소비한다.
+  const handleDoubleTap = () => {
+    swipeSettledRef.current = true;
+    setRecording(false);
+    navigation.navigate('ResultCanvas', { dialogueId });
+  };
+
+  // 매직패드 스와이프 계층 (t_5de18a91 요구 4) — 자유매핑과 독립된 물리 직관 동작
+  const handleSwipe = (action: SwipeAction) => {
+    // swipe 확정 후 같은 릴리스의 onRelease가 종결/전환을 중복 수행하지 않도록 플래그
+    swipeSettledRef.current = true;
+    switch (action) {
+      case 'record_stop':
+        setRecording(false);
+        navigation.navigate('ResultCanvas', { dialogueId });
+        break;
+      case 'cancel': setRecording(false); break;
+      case 'prev_segment': swipeSettledRef.current = false; getState().prevSegment(); break;
+      case 'next_segment': swipeSettledRef.current = false; getState().nextSegment(); break;
+    }
+  };
+
+  // 드래그 미세조정 (요구 5) — 스텝만큼 활성 세그먼트 이동
+  const handleDragStep = (delta: number) => {
+    const st = getState();
+    for (let i = 0; i < Math.abs(delta); i++) {
+      if (delta < 0) st.prevSegment(); else st.nextSegment();
+    }
+  };
+  const handleDragEnd = (cancelled: boolean) => {
+    if (cancelled) setRecording(false); // 그립 이탈 = 취소 의미
   };
 
   const switchAgent = (dir: 1 | -1) => {
@@ -169,27 +205,40 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
         )}
       </View>
 
-      {/* 중앙 조이스틱 마이크 */}
+      {/* 입력 장비 — 모드별 렌더 (joystick: 기존 스틱 / pad·hybrid: 매직패드 계층) */}
       <View style={styles.joystickArea}>
-        <JoystickMic
-          onGesture={handleGesture}
-          onRelease={handleRelease}
-          isRecording={isRecording}
-          directionLabels={{
-            DIR_LEFT: '예',
-            DIR_RIGHT: '아니오',
-            DIR_DOWN: '취소',
-            DIR_UP: '위로',
-          }}
-        />
+        {mode === 'joystick' ? (
+          <JoystickMic
+            onGesture={handleGesture}
+            onRelease={handleRelease}
+            isRecording={isRecording}
+            directionLabels={directionLabels()}
+          />
+        ) : (
+          <MagicPad
+            variant={mode === 'hybrid' ? 'hybrid' : 'pad'}
+            onGesture={handleGesture}
+            onSwipe={handleSwipe}
+            onDoubleTap={handleDoubleTap}
+            onDragStep={handleDragStep}
+            onDragEnd={handleDragEnd}
+            onRelease={handleRelease}
+            isRecording={isRecording}
+            directionLabels={directionLabels()}
+          />
+        )}
         <Text style={styles.hintText}>
-          {isRecording ? '듣고 있습니다… 다시 탭하여 종료' : '탭하여 말하기 · 좌우로 예/아니오'}
+          {isRecording
+            ? t('voice.recordingHint')
+            : mode === 'joystick'
+            ? t('voice.idleHint')
+            : t('voice.padHint')}
         </Text>
-        {/* 좌우 응답 힌트 (큐 에이뉴런 질문 대기용) */}
-        {!isRecording && (
+        {/* 방향 힌트 — 사용자 맵의 좌/우 할당 동작명 표시 (비할당이면 히든) */}
+        {!isRecording && (map.DIR_LEFT !== 'none' || map.DIR_RIGHT !== 'none') && (
           <View style={styles.gestureHints}>
-            <Text style={styles.gestureHintLeft}>← 예</Text>
-            <Text style={styles.gestureHintRight}>아니오 →</Text>
+            <Text style={styles.gestureHintLeft}>{map.DIR_LEFT === 'none' ? '' : `← ${t(`joystick.actions.${map.DIR_LEFT}`)}`}</Text>
+            <Text style={styles.gestureHintRight}>{map.DIR_RIGHT === 'none' ? '' : `${t(`joystick.actions.${map.DIR_RIGHT}`)} →`}</Text>
           </View>
         )}
       </View>
@@ -294,7 +343,9 @@ const styles = StyleSheet.create({
   },
   joystickArea: {
     alignItems: 'center',
-    paddingBottom: spacing.sp8,
+    // 대표님 지시 9/26 — 엄지 자연 위치: 입력 클러스터를 하단 중앙에 두고 안전영역(SafeAreaView inset) 위
+    // 16~24px(여기 20px) 간격. PC 웹(3패널)에서는 좌우가 넓어져도 클러스터는 중앙 정렬·패드는 380px 상한 유지.
+    paddingBottom: spacing.sp5,
     paddingTop: spacing.sp4,
   },
   hintText: {

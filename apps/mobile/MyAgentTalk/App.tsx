@@ -10,14 +10,15 @@ import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { initializeApi } from './src/lib/api';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { PaperProvider, MD3LightTheme, Text, Button, configureFonts } from 'react-native-paper';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View, Platform, useWindowDimensions } from 'react-native';
 
 import { colors, fontFamily, spacing, typography } from './src/theme';
+import { layoutModeForWidth, SIDEBAR_WIDTH } from './src/lib/layout';
 import {
   DialogueListScreen,
   ChatScreen,
@@ -30,6 +31,7 @@ import {
   BoardScreen,
   NeuronDashboardScreen,
   SettingsScreen,
+  JoystickSettingsScreen,
 } from './src/screens';
 
 // 네비게이션 타입
@@ -45,9 +47,28 @@ export type RootStackParamList = {
   Board: { boardId?: string } | undefined;
   NeuronDashboard: undefined;
   Settings: undefined;
+  JoystickSettings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+// PC 사이드바 레일 — DialogueListScreen을 'sidebar' 변형으로 재사용(목록 코드 단일화).
+// 내비게이션 패사드: 레일의 navigate는 중앙 Stack에 그대로 전달(모바일과 동일 라우트 계약).
+const RAIL_ROUTES = new Set(['Chat']); // 목록 화면은 home 변형(전폭)이 이미 목록을 렌더 — 레일 중복 제거
+function SidebarRail() {
+  const navigation = useNavigation<any>();
+  return (
+    <View style={styles.sidebarRail}>
+      <DialogueListScreen navigation={navigation} variant="sidebar" />
+    </View>
+  );
+}
+
+// PC 중앙 본문용 — 세션 목록이 좌측 레일로 갔으므로 목록 화면은 '이어보기 홈'으로 렌더.
+// (브레이크포인트 경계에서만 참조가 바뀌어 재마운트 — 리사이즈마다 상태가 날아가지 않게 안정 참조.)
+function DialogueListHomeScreen(props: any) {
+  return <DialogueListScreen {...props} variant="home" />;
+}
 
 // 라이트 테마 — 디자인 시스템 v1.1 토큰 (docs/design/agenttalk-figma/tokens.json)
 // 흰 바탕 + 그린 액센트(#00A86B) — 참고 톤: 삼성 헬스 / 네이버페이 / 토스
@@ -97,6 +118,7 @@ const PaperTheme = {
 
 export default function App() {
   const { t } = useTranslation();
+  const { width } = useWindowDimensions();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 폰트 번들 — 로드 완료 전에는 스플래시만 (폰트 없는 화면 노출 방지, 대표님 지시 2026-09-26)
@@ -127,6 +149,13 @@ export default function App() {
     setError(null);
     runBootstrap(() => false);
   };
+  // 사이드바 레일 노출 범위 — 3패널 설계는 대화 경험(목록/채팅) 전용. 보드·볼트 등 전면 화면과 충돌 금지 (t_eded715c).
+  const navRef = useNavigationContainerRef();
+  const [railVisible, setRailVisible] = useState(false);
+  const syncRail = () => {
+    const route = navRef.getCurrentRoute() as { name?: string } | undefined;
+    setRailVisible(!!route?.name && RAIL_ROUTES.has(route.name));
+  };
   if (!ready || !fontsLoaded) return <PaperProvider theme={PaperTheme}><View style={styles.splash}>
     <Text style={styles.splashBrand}>{t('common.app')}</Text>
     <ActivityIndicator color={colors.accent} testID="font-splash" />
@@ -139,7 +168,12 @@ export default function App() {
       {/* #52: 카드 스레드 바텀시트(디텐트) — BottomSheetModalProvider는 GestureHandlerRootView 하위에 */}
       <BottomSheetModalProvider>
       <PaperProvider theme={PaperTheme}>
-        <NavigationContainer theme={AppTheme}>
+        <NavigationContainer ref={navRef} theme={AppTheme} onReady={syncRail} onStateChange={syncRail}>
+          {/* 반응형 2트랙 (t_eded715c): PC 웹(≥768) = 사이드바(세션목록) + 중앙 Stack 본문.
+              모바일/네이티브는 레일 없이 Stack 단독 — 기존 단일 컬럼과 동일 경로. */}
+          <View style={styles.shellRow}>
+          {Platform.OS === 'web' && layoutModeForWidth(width) !== 'mobile' && railVisible && <SidebarRail />}
+          <View style={styles.mainColumn}>
           <Stack.Navigator
             initialRouteName="DialogueList"
             screenOptions={{
@@ -157,7 +191,7 @@ export default function App() {
             />
             <Stack.Screen
               name="DialogueList"
-              component={DialogueListScreen}
+              component={layoutModeForWidth(width) !== 'mobile' ? DialogueListHomeScreen : DialogueListScreen}
               options={{ title: t('common.app') }}
             />
             <Stack.Screen
@@ -206,7 +240,14 @@ export default function App() {
               component={SettingsScreen}
               options={{ title: t('common.settings') }}
             />
+            <Stack.Screen
+              name="JoystickSettings"
+              component={JoystickSettingsScreen}
+              options={{ title: t('joystick.title') }}
+            />
           </Stack.Navigator>
+          </View>
+          </View>
           <StatusBar style="dark" />
         </NavigationContainer>
       </PaperProvider>
@@ -218,6 +259,15 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  // 반응형 셸 (t_eded715c): 사이드바 + 중앙 본문 가로 배치 — 모바일에서는 레일 미렌더로 단컬럼과 동일.
+  shellRow: { flex: 1, flexDirection: 'row' },
+  mainColumn: { flex: 1, minWidth: 0 },
+  sidebarRail: {
+    width: SIDEBAR_WIDTH,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: colors.surface,
   },
   splash: {
     flex: 1,

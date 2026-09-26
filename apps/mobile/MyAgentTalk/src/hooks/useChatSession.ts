@@ -2,8 +2,10 @@ import { parseThread, mergeThread } from '../lib/cardLogic';
 import { errorKey } from '../lib/errorKeys';
 // 마이에이전트톡은 사람↔에이전트 대화 앱이다. 처리중 표시는 실행별 상태를 따르며,
 // 지연 안내는 stage에 대응하는 번역 키로 전달한다.
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, connectVoiceSocket, VoiceSocket } from '../lib/api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, connectVoiceSocket, VoiceSocket, PresenceDevice } from '../lib/api';
+import { detectDeviceLabel, peersOf } from '../lib/deviceLabel';
+import { readCursorFor, shouldSendCursor } from '../lib/resumeLogic';
 import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
@@ -13,7 +15,7 @@ import {
 export const PAGE_SIZE = 30;
 export type SendResult = { ok: true } | { ok: false; error: string };
 export type Connection = 'connecting' | 'live' | 'reconnecting' | 'offline';
-export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean }
+export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean; device?: string }
 export interface UseChatSessionReturn {
   sessionId: string | null;
   rootMessage: ChatMessage | null;
@@ -35,6 +37,20 @@ export interface UseChatSessionReturn {
   loadOlder: () => Promise<void>;
   enterDemo: () => void;
   clearError: () => void;
+  // ── 크로스 디바이스 연속성 (t_eded715c / 백엔드 t_d75ca81c) ──
+  /** 같은 세션을 실시간으로 보고 있는 다른 디바이스 라벨 (presence, 본인 제외) */
+  peers: string[];
+  /** 지금 이 세션이 PTT로 녹음 중인지 (audio.started 기준, 서버 안전망 종료 시 false) */
+  talking: boolean;
+  /** PTT 브리프 — audio.start→PCM 프레임→audio.end/cancel 캐리어 (데모/미연결 시 ready=false).
+   *  mode는 호출자(화면)가 userPrefs에서 읽어 전달 — 이 훅은 preferences 의존 없이 캐리어만 담당. */
+  talk: {
+    ready: boolean;
+    start: (mode?: 'hold' | 'toggle') => void;
+    frame: (pcm: ArrayBuffer) => void;
+    end: () => void;
+    cancel: () => void;
+  };
   // 기존 화면과 병행 배포를 위한 호환 필드
   typingQuip: string | null;
   isDemo: boolean;
@@ -59,6 +75,9 @@ function createRuntime(onChange: (active: boolean, quip: string | null, count: n
       socket: null as VoiceSocket | null, stop: () => {},
       lastFailedContent: null as { content: string; id: string } | null,
       demoTimers: new Map<ReturnType<typeof setTimeout>, (result: SendResult) => void>(),
+      // 연속성 (t_eded715c): 읽기 커서 PUT dedup / PTT 세그먼트 열림
+      lastSentCursor: null as number | null,
+      audioOpen: false,
     };
 }
 
@@ -86,6 +105,14 @@ export function useChatSession(
   const [ready, setReady] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [streams, setStreams] = useState<StreamingAnswer[]>([]);
+  // 연속성 상태 (t_eded715c): presence 피어 / PTT 녹음 중 표시
+  const [peers, setPeers] = useState<string[]>([]);
+  const [talking, setTalking] = useState(false);
+  // 디바이스 라벨은 첫 감지값으로 고정(연결 유지 중 라벨이 바뀌면 presence가 요동침).
+  // 화면이 opts.device를 주면 그 값을 쓰고, 없으면 창 폭/navigator 기반 순수 감지(RN import 없음).
+  const deviceRef = useRef(opts.device ?? detectDeviceLabel(
+    typeof globalThis !== 'undefined' && typeof (globalThis as { window?: { innerWidth?: number } }).window?.innerWidth === 'number'
+      ? (globalThis as unknown as { window: { innerWidth: number } }).window.innerWidth : 390));
   const runtimeRef = useRef(createRuntime((active, text, count) => {
     setTyping(active); setQuip(text); setActiveCount(count);
   }));
@@ -117,6 +144,10 @@ export function useChatSession(
     // 외부 세션이 바뀌면 이전 스트림 표시를 초기화한다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStreams([]);
+    setPeers([]);
+    setTalking(false);
+    runtime.audioOpen = false;
+    runtime.lastSentCursor = null;
     runtime.loadingOlder = false;
     runtime.historyCursor = null;
     // 외부 세션 리소스를 바꿀 때만 UI 상태를 초기화한다.
@@ -204,7 +235,7 @@ export function useChatSession(
             if (!current()) return;
             if (status === 'connected' && !disconnected) {
               setConnection('live');
-              runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: runtime.sequence.lastSeq }));
+              runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: runtime.sequence.lastSeq, device: deviceRef.current }));
               const recovering = connectedOnce || attempt > 0;
               connectedOnce = true;
               attempt = 0;
@@ -216,7 +247,24 @@ export function useChatSession(
           onRaw: (raw) => {
             if (!current() || disconnected || (raw.session_id && raw.session_id !== sid)) return;
             const type = raw.type;
+            // 연속성 이벤트 (t_d75ca81c): 허브 이벤트 로그 미기록 → seq 필터 앞에서 처리
+            if (type === 'presence.update') {
+              if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
+              return;
+            }
+            if (type === 'audio.started') { runtime.audioOpen = true; setTalking(true); return; }
+            if (type === 'audio.vad') {
+              // 서버 안전망(홀드 상한/무음 타임아웃)/릴리스 종료 → UI 녹음 상태 해제
+              if (raw.active === false) { runtime.audioOpen = false; setTalking(false); }
+              return;
+            }
+            if (type === 'transcript.final' && runtime.audioOpen && typeof raw.text === 'string' && raw.text.length === 0) {
+              // 무음 릴리스 — 서버가 세그먼트를 닫았다 (hasSignal false 경로)
+              runtime.audioOpen = false; setTalking(false);
+              return;
+            }
             if (type === 'subscribed') {
+              if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
               if (runtime.sequence.subscribed(raw.current_seq)) {
                 runtime.tracker.endAll();
                 runtime.streams = []; setStreams([]);
@@ -263,7 +311,7 @@ export function useChatSession(
             runtime.socket?.close();
             setConnection('offline');
           },
-        });
+        }, deviceRef.current);
       } catch (e) {
         if (current()) { setLastError(errorText(e)); setConnection('offline'); }
       }
@@ -300,6 +348,25 @@ export function useChatSession(
     if (!deferConnection) void init();
     return stop;
   }, [requestedSession, agentId, rootMessageId, deferConnection, mode, runtimeRef, updateMessages]);
+
+  // ── 읽기 커서 (t_d75ca81c): 화면에 메시지가 보일 때마다(max 병합 멱등) 1.5s 디바운스 PUT.
+  // 같은 디바이스도 커서를 올려야 다른 기기의 resume 미읽음 계산이 정확해진다.
+  // 실패 삼킴 — 커서는 다음 메시지 확정 시점에 다시 올라가므로 유실 없다.
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    const sid = sessionId;
+    if (mode === 'demo' || !sid || runtime.sid !== sid) return;
+    const cursor = readCursorFor(runtime.messages);
+    if (!shouldSendCursor(runtime.lastSentCursor, cursor)) return;
+    const timer = setTimeout(() => {
+      if (runtime.sid !== sid) return; // 세션 전환 시 구 커서 전송 금지
+      runtime.lastSentCursor = cursor;
+      void api.putReadState(sid, { last_read_turn_index: cursor!, device: deviceRef.current }).catch(() => {
+        runtime.lastSentCursor = null; // 실패 시 dedup 해제 — 다음 변경에 재시도
+      });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [messages, sessionId, mode, runtimeRef]);
 
   const loadOlder = useCallback(async () => {
     const runtime = runtimeRef.current;
@@ -412,10 +479,46 @@ export function useChatSession(
     updateMessages((prev) => prev.filter((m) => m.id !== id || m.status !== 'failed'));
   }, [updateMessages]);
   const clearError = useCallback(() => setLastError(null), []);
+
+  // ── PTT 캐리어 (t_d75ca81c/확정 ①②): audio.start → 바이너리 PCM → audio.end(전송)/audio.cancel(폐기).
+  // usePushToTalk 훅이 이 브리프 위에 키/터치 입력과 캡처를 얹는다.
+  const talk = useMemo(() => {
+    const runtime = runtimeRef.current;
+    const sendControl = (frame: Record<string, unknown>) => {
+      const sid = runtime.sid;
+      if (!sid || !runtime.socket?.ready) return false;
+      return runtime.socket.send(JSON.stringify({ ...frame, session_id: sid }));
+    };
+    return {
+      get ready() { return !!runtime.sid && !!runtime.socket?.ready && mode !== 'demo'; },
+      start: (pttMode?: 'hold' | 'toggle') => {
+        const sid = runtime.sid;
+        if (!sid || !runtime.socket?.ready || runtime.audioOpen) return;
+        runtime.audioOpen = true; // 낙관 열림 — audio.started 도달 전 릴리스(초단타 누름)도 end/cancel 가능하게
+        runtime.socket.send(JSON.stringify({
+          type: 'audio.start', session_id: sid,
+          config: { mode: pttMode ?? 'hold', device: deviceRef.current },
+        }));
+      },
+      frame: (pcm: ArrayBuffer) => { if (runtime.audioOpen) runtime.socket?.send(pcm); },
+      end: () => {
+        if (!runtime.audioOpen) return;
+        runtime.audioOpen = false;
+        sendControl({ type: 'audio.end' });
+      },
+      cancel: () => {
+        if (!runtime.audioOpen) return;
+        runtime.audioOpen = false;
+        sendControl({ type: 'audio.cancel' });
+      },
+    };
+  }, [runtimeRef, mode]);
+
   return {
     sessionId, rootMessage, messages, typing, quip, mode, connection, lastError, hasOlder, loadingOlder,
     activeCount, streams, retryConnection, retryMessage, deleteMessage,
     send, retryLastSend, loadOlder, enterDemo, clearError,
+    peers, talking, talk,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,
     hasMoreHistory: hasOlder, loadingHistory: loadingOlder, ready,
   };

@@ -47,6 +47,11 @@
     "demoSubtitle": "직접 선택한 데모 대화",
     "demoBadge": "DEMO",
     "statusIndicator": "● {{status}}",
+    "pttHold": "{{key}} 키를 누르는 동안 말하세요 — 놓으면 전송",
+    "pttToggle": "말하는 중… 다시 누르면 전송",
+    "pttRecording": "말하는 중… (놓으면 전송)",
+    "pttIdle": "길게 눌러 말하기",
+    "pttMic": "누르는 동안 녹음",
     "aiNotice": "AI 에이전트가 생성한 응답입니다. 중요한 결정은 전문가와 상의하세요."
   },
   "login": {
@@ -172,7 +177,8 @@
     "ageConfirmRequired": "만 14세 이상인지 확인해 주세요.",
     "legalLink": "문서를 열지 못했습니다. 다시 시도해 주세요.",
     "board": "보드를 반영하지 못했어요. 다시 시도해 주세요.",
-    "vault": "볼트를 반영하지 못했어요. 다시 시도해 주세요."
+    "vault": "볼트를 반영하지 못했어요. 다시 시도해 주세요.",
+    "micDenied": "마이크 권한이 필요해요. 브라우저 주소창 권한 설정에서 허용해 주세요."
   },
   "dialogueList": {
     "offline": "오프라인",
@@ -329,5 +335,41 @@
     "disclaimer": "AI가 생성한 일반 정보이며 법률·세무 자문이 아닙니다.",
     "serverLegal": "본 응답은 AI가 생성한 정보이며 정식 법률 자문이 아닙니다.",
     "serverAccounting": "본 응답은 AI가 생성한 정보이며 정식 세무·회계 자문이 아닙니다."
+  },
+  "resume": {
+    "title": "다른 기기에서 이어서",
+    "unread": "안 읽은 메시지 {{count}}개",
+    "liveOn": "{{devices}}에서 실시간 접속 중",
+    "open": "이어서 보기",
+    "here": "이 기기"
+  },
+  "device": {
+    "pc-web": "PC 웹",
+    "mobile-web": "모바일 웹",
+    "ios": "iOS 앱",
+    "android": "안드로이드 앱",
+    "desktop-app": "데스크톱 앱",
+    "unknown": "알 수 없는 기기"
+  },
+  "ptt": {
+    "section": "음성 입력 (Push-to-Talk)",
+    "key": "PTT 단축키",
+    "keyDescription": "지금: {{key}} 키 — 탭 후 새 키를 누르면 변경돼요 (Esc 취소)",
+    "keyCapturing": "새 키를 눌러주세요…",
+    "mode": "녹음 방식",
+    "modeDescription": "홀드: 누르는 동안 녹음 · 토글: 한 번 눌러 시작, 한 번 더 눌러 전송",
+    "modeHold": "홀드",
+    "modeToggle": "토글"
+  },
+  "context": {
+    "cards": "카드",
+    "cardEmpty": "채팅에서 카드를 열면 여기에 요약이 남아요.",
+    "cardPreviewEmpty": "이 카드는 텍스트 요약이 없어요.",
+    "cardUntitled": "이름 없는 카드",
+    "notes": "볼트 노트",
+    "notesEmpty": "노트가 아직 없어요.",
+    "favorites": "즐겨찾기",
+    "favoritesEmpty": "즐겨찾기한 카드가 아직 없어요.",
+    "seeAll": "전체"
   }
 }

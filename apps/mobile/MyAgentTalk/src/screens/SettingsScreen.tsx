@@ -12,8 +12,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Platform,
 } from 'react-native';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
+import { getPttKey, getPttMode, setPttKey, setPttMode, subscribePrefs } from '../lib/userPrefs';
+import { capturePttKey, pttKeyLabel, PTT_DEFAULT_KEY } from '../lib/pttLogic';
 
 interface Props {
   navigation: any;
@@ -30,6 +33,27 @@ export default function SettingsScreen({ navigation }: Props) {
   const [leftHandMode, setLeftHandMode] = React.useState(false);
   const [hapticFeedback, setHapticFeedback] = React.useState(true);
   const [autoTransition, setAutoTransition] = React.useState(true);
+
+  // PTT (t_eded715c) — 웹 전용: 키보드 단축키 재매핑(녹화식 캡처) + 홀드/토글 모드.
+  const [capturing, setCapturing] = React.useState(false);
+  const [, forceRender] = React.useState(0);
+  React.useEffect(() => subscribePrefs(() => forceRender((n) => n + 1)), []);
+  React.useEffect(() => {
+    if (!capturing || typeof window === 'undefined') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') { setCapturing(false); return; }
+      const code = capturePttKey(e);
+      if (code) void setPttKey(code);
+      setCapturing(false);
+    };
+    // capture 단계 — 어떤 입력 포커스보다 먼저 잡아 재매핑 중 다른 핸들러에 새는 일 방지
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [capturing]);
+  const pttKey = getPttKey() ?? PTT_DEFAULT_KEY;
+  const pttMode = getPttMode() ?? 'hold';
 
   return (
     <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
@@ -115,7 +139,8 @@ export default function SettingsScreen({ navigation }: Props) {
         <View style={styles.settingCard}>
           <TouchableOpacity
             style={styles.linkRow}
-            onPress={() => console.log('[Settings] joystick customization pending')}
+            testID="joystick-customize-button"
+            onPress={() => navigation.navigate('JoystickSettings')}
           >
             <View style={styles.settingBody}>
               <Text style={styles.settingLabel}>{t('settings.customize')}</Text>
@@ -124,6 +149,42 @@ export default function SettingsScreen({ navigation }: Props) {
             <Text style={styles.chevron}>{t('common.forwardIcon')}</Text>
           </TouchableOpacity>
         </View>
+
+        {Platform.OS === 'web' && <>
+          <Text style={[styles.sectionTitle, { marginTop: spacing.sp6 }]}>{t('ptt.section')}</Text>
+          <View style={styles.settingCard}>
+            <TouchableOpacity
+              style={styles.linkRow}
+              testID="ptt-key-button"
+              accessibilityRole="button"
+              onPress={() => setCapturing(true)}
+            >
+              <View style={styles.settingBody}>
+                <Text style={styles.settingLabel}>{t('ptt.key')}</Text>
+                <Text style={styles.settingDescription}>{capturing ? t('ptt.keyCapturing') : t('ptt.keyDescription', { key: pttKeyLabel(pttKey) })}</Text>
+              </View>
+              <Text style={[styles.chevron, { ...typography.bodyBold, color: colors.accent }]}>{capturing ? '…' : pttKeyLabel(pttKey)}</Text>
+            </TouchableOpacity>
+            <View style={styles.settingRow}>
+              <View style={styles.settingBody}>
+                <Text style={styles.settingLabel}>{t('ptt.mode')}</Text>
+                <Text style={styles.settingDescription}>{t('ptt.modeDescription')}</Text>
+              </View>
+              {(['hold', 'toggle'] as const).map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  testID={`ptt-mode-${option}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: pttMode === option }}
+                  onPress={() => void setPttMode(option)}
+                  style={[styles.modeChip, pttMode === option && styles.modeChipActive]}
+                >
+                  <Text style={[styles.modeChipText, pttMode === option && styles.modeChipTextActive]}>{t(`ptt.mode${option === 'hold' ? 'Hold' : 'Toggle'}`)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </>}
 
         <TouchableOpacity testID="demo-button" style={styles.linkRow} onPress={() => navigation.navigate('Chat', { demo: true })}>
           <Text style={styles.settingLabel}>{t('settings.demo')}</Text>
@@ -218,6 +279,17 @@ const styles = StyleSheet.create({
     fontSize: iconSize.glyph,
     color: colors.text3,
   },
+  modeChip: {
+    paddingHorizontal: spacing.sp3,
+    paddingVertical: spacing.sp2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginLeft: spacing.sp2,
+  },
+  modeChipActive: { borderColor: colors.accent, backgroundColor: colors.accentTint },
+  modeChipText: { ...typography.caption, fontWeight: '600', color: colors.text2 },
+  modeChipTextActive: { color: colors.accent },
   footerText: {
     ...typography.micro,
     marginTop: spacing.sp8,

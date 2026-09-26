@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head><script>window.process=window.process||{env:{}};</script>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>MyAgentTalk</title>
+    <meta name="description" content="MyAgentTalk(마이에이전트톡) — 내 에이전트와 대화하는 앱" />
+    <!-- PWA: manifest + iOS 홈 화면 (웹 퍼스트 런칭 경로) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#00A86B" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="마이에이전트톡" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- 폰트: Pretendard Variable(한글, OFL) + Inter(영문, OFL).
+         로컬 woff2(assets → dist/fonts) 우선, jsDelivr CDN 폴백. expo-font가 인터폰트도 번들하지만
+         웹 초기 렌더에서 FOUT 없이 바로 잡히도록 CSS로도 선언한다. -->
+    <style>
+      @font-face {
+        font-family: 'PretendardVariable';
+        font-weight: 45 920;
+        font-style: normal;
+        font-display: block;
+        src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+      }
+      html, body, #root { font-family: 'Inter', 'PretendardVariable', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', Roboto, sans-serif; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+    <style id="expo-reset">
+      /* react-native-web 권장 리셋 */
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        overflow: hidden;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+    <style id="mat-motion">
+      /* 화면 전환 — 애플 감성 (#52): 웹은 react-native-screens no-op → CSS keyframes 폴백.
+         곡선 cubic-bezier(0.32,0.72,0,1) = Apple 계열 snappy 스프링 근사 (오버슈트 없음). */
+      @keyframes mat-slide-from-right {
+        from { transform: translateX(100%); }
+        to { transform: translateX(0); }
+      }
+      @keyframes mat-slide-from-bottom {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+      }
+      /* 동작 줄이기 (Apple HIG Motion / #52 규칙 7) — 전환·펼침 애니메이션 전부 생략 */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  <meta name="theme-color" content="#00A86B">
+<link rel="icon" href="/favicon.ico"/></head>
+  <body>
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <div id="root"></div>
+  <script src="/_expo/static/js/web/index-c74574db2ecacefee1ccca01d86080a5.js" defer></script>
+</body>
+</html>

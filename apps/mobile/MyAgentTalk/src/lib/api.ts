@@ -168,6 +168,16 @@ export interface AuthResult {
   user: { id: string; email?: string; display_name?: string };
 }
 
+/** GET/PATCH /api/auth/me 행 — users 테이블 (preferences JSONB: { joystickMap?, ... }) */
+export interface UserProfile {
+  id: string;
+  email?: string;
+  display_name?: string;
+  language?: string;
+  preferences?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
 // ── REST API ──────────────────────────────────────
 export const api = {
   /** 헬스 체크 — 연결 대상 서버 생존 여부 */
@@ -236,6 +246,22 @@ export const api = {
       body: JSON.stringify({ favorite }),
     }),
 
+  // ── 크로스 디바이스 이어보기 (백엔드 t_d75ca81c / 마이그레이션 005) ──
+  /** 읽기 커서 갱신 — PUT /api/sessions/:id/read-state (서버 max 병합 멱등, 되감기 없음) */
+  putReadState: (sessionId: string, body: { last_read_turn_index: number; device?: string }) =>
+    request<ApiEnvelope<ReadState>>(`/api/sessions/${encodeURIComponent(sessionId)}/read-state`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  /** 읽기 커서 조회 — GET /api/sessions/:id/read-state (미기록 -1) */
+  getReadState: (sessionId: string) =>
+    request<ApiEnvelope<ReadState>>(`/api/sessions/${encodeURIComponent(sessionId)}/read-state`),
+
+  /** 이어볼 세션 추천 목록 — GET /api/sessions/resume?limit= (미읽음 수/live_devices 포함) */
+  getResume: (limit = 10) =>
+    request<ApiEnvelope<ResumeResponse>>(`/api/sessions/resume?limit=${Math.min(50, Math.max(1, limit))}`),
+
   /** 내 즐겨찾기 목록 — GET /api/favorites (created_at 내림차순 + offset 페이지네이션, 기본 50) */
   listFavorites: (opts?: { limit?: number; offset?: number }) => {
     const params = new URLSearchParams();
@@ -244,6 +270,13 @@ export const api = {
     const qs = params.toString();
     return request<ApiEnvelope<FavoriteEntry[]>>(`/api/favorites${qs ? `?${qs}` : ''}`);
   },
+
+  /** 내 프로필 — GET /api/auth/me (users 행; preferences JSONB 포함) */
+  getMe: () => request<ApiEnvelope<UserProfile>>('/api/auth/me'),
+
+  /** 프로필 부분 수정 — PATCH /api/auth/me (preferences는 통째 replace — 호출측에서 read-modify-write) */
+  patchMe: (body: { display_name?: string; preferences?: Record<string, unknown> }) =>
+    request<ApiEnvelope<UserProfile>>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),
 
   // ── 볼트(옵시디언식 노트) — 백엔드 t_3b38c9be /api/vault (마이그레이션 004) ──
   /** 노트 목록 — GET /api/vault/notes?folder=&tag=&limit=&offset= (updated_at 내림차순) */
@@ -354,6 +387,25 @@ export interface FavoriteEntry {
   session: { id: string; title: string | null; agent_id: string | null; agent_name: string | null; status: string | null };
 }
 
+/** GET/PUT /api/sessions/:id/read-state 행 (t_d75ca81c) */
+export interface ReadState {
+  session_id: string;
+  last_read_turn_index: number;
+  last_device: string | null;
+  updated_at: string | null;
+}
+
+/** GET /api/sessions/resume 응답 — 항목 셸은 lib/resumeLogic에서 정규화해서 쓴다 */
+export interface ResumeResponse {
+  items: Record<string, unknown>[];
+  recommended_session_id: string | null;
+  total: number;
+}
+
+/** WS presence 디바이스 항목 (subscribed.devices / presence.update) */
+export interface PresenceDevice { device: string; since: number }
+
+
 // ── WebSocket (백엔드 protocol.ts 서버→클라이언트) ─
 export type ServerMessage = (
   | (TurnIdentity & { type: 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled'; session_id: string; run_id: string; quip?: string; stage?: string; error?: { code: string; message: string }; partial_text?: string })
@@ -363,7 +415,8 @@ export type ServerMessage = (
   | { type: 'message.new'; session_id: string; message: ServerChatMessage }
   | (ServerChatMessage & { type: 'message.new' })
   | { type: 'connected'; session_id: string | null; timestamp: string }
-  | { type: 'subscribed'; session_id: string; channels: string[]; current_seq?: number }
+  | { type: 'subscribed'; session_id: string; channels: string[]; current_seq?: number; devices?: PresenceDevice[] }
+  | { type: 'presence.update'; session_id: string; devices: PresenceDevice[] }
   | { type: 'error'; code: string; message: string }
   | { type: 'transcript.partial'; session_id: string; text: string; confidence: number; language: string }
   | {
@@ -425,7 +478,7 @@ export interface VoiceSocket {
  * 음성 세션 WebSocket 연결.
  * dev 모드에서는 토큰 없이도 연결 허용 (백엔드 config.devMode).
  */
-export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSocketHandlers): VoiceSocket {
+export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSocketHandlers, device?: string): VoiceSocket {
   let ws: WebSocket | null = null;
   let closed = false;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -453,7 +506,7 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
     }
     if (closed) return;
     try {
-      ws = new WebSocket(buildWsUrl(sessionId, ticket));
+      ws = new WebSocket(buildWsUrl(sessionId, ticket, device));
     } catch {
       // 브라우저/RN에서 WebSocket 미지원 시 fail 상태로
       if (closed) return;
@@ -545,11 +598,13 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
 
 export const connectChatSocket = connectVoiceSocket;
 
-export function buildWsUrl(sessionId: string | null, ticket?: string): string {
+export function buildWsUrl(sessionId: string | null, ticket?: string, device?: string): string {
   const url = new URL(config.wsUrl);
   url.searchParams.delete('token');
   url.searchParams.delete('ticket');
   if (sessionId) url.searchParams.set('session_id', sessionId);
   if (ticket) url.searchParams.set('ticket', ticket);
+  // 디바이스 라벨 (t_d75ca81c presence): 연결 쿼리로 심는다 — 화이트리스트 밖은 서버가 unknown 정규화
+  if (device) url.searchParams.set('device', device);
   return url.toString();
 }
