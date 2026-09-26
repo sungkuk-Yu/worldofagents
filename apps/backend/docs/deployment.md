@@ -1,4 +1,4 @@
-# 에이전트톡 백엔드 배포 가이드 (Phase 1)
+# 마이에이전트톡 백엔드 배포 가이드 (Phase 1)
 
 > 대상: `apps/backend` — Fastify + Supabase + LangGraph + WebSocket
 > 작성일: 2026-09-25
@@ -60,7 +60,7 @@ STREAM_CHAT_API_SECRET=
 # ── Temporal (작업 워크플로우, 미사용 시 공란) ──
 TEMPORAL_ADDRESS=
 TEMPORAL_NAMESPACE=
-TEMPORAL_TASK_QUEUE=agenttalk-tasks
+TEMPORAL_TASK_QUEUE=myagenttalk-tasks
 ```
 
 **중요:** `DEV_MODE=true`이거나 `SUPABASE_URL`이 없으면 **인메모리 devstore**로 동작한다.
@@ -102,9 +102,9 @@ npm run dev            # tsx watch src/index.ts
 ### 프로세스 관리 (systemd 예시)
 
 ```ini
-# /etc/systemd/system/agenttalk-backend.service
+# /etc/systemd/system/myagenttalk-backend.service
 [Unit]
-Description=AgentTalk Backend
+Description=MyAgentTalk Backend
 After=network.target
 
 [Service]
@@ -118,7 +118,7 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now agenttalk-backend
+sudo systemctl enable --now myagenttalk-backend
 ```
 
 ## 6. 헬스 체크
@@ -162,6 +162,6 @@ node tests/smoke_dev.mjs https://api.example.com
 ## 9. 롤백
 
 1. 이전 배포 dist 백업으로 교체 또는 `git revert`
-2. `sudo systemctl restart agenttalk-backend`
+2. `sudo systemctl restart myagenttalk-backend`
 3. `/health` 확인
 4. 스키마 변경이 포함된 경우: `supabase db diff`로 사전 검토 후 `db push`

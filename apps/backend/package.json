@@ -1,7 +1,7 @@
 {
-  "name": "agenttalk-backend",
+  "name": "myagenttalk-backend",
   "version": "1.0.0",
-  "description": "AgentTalk Backend API Server",
+  "description": "MyAgentTalk Backend API Server",
   "main": "src/index.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",

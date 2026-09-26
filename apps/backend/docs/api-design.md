@@ -1,4 +1,4 @@
-# 에이전트톡(AgentTalk) 백엔드 API 설계서
+# 마이에이전트톡(MyAgentTalk) 백엔드 API 설계서
 
 > **작성일:** 2026-09-25
 > **문서 유형:** API 설계서 (REST + WebSocket + Stream Chat 이벤트)
@@ -34,7 +34,7 @@
 
 ## 1. 개요
 
-에이전트톡 백엔드는 다음 세 계층으로 구성된다:
+마이에이전트톡 백엔드는 다음 세 계층으로 구성된다:
 
 | 계층 | 역할 | 기술 |
 |------|------|------|
@@ -55,8 +55,8 @@
 ### 2.1 Base URL
 
 ```
-Production:  https://api.agenttalk.io/v1
-Staging:     https://api-staging.agenttalk.io/v1
+Production:  https://api.myagenttalk.io/v1
+Staging:     https://api-staging.myagenttalk.io/v1
 Development: http://localhost:54321/v1  (Supabase local)
 ```
 

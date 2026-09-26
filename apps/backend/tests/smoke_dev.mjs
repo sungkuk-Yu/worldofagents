@@ -1,5 +1,5 @@
 /**
- * 에이전트톡 백엔드 스모크 테스트 (DEV_MODE 대상)
+ * 마이에이전트톡 백엔드 스모크 테스트 (DEV_MODE 대상)
  *
  * 사용법:
  *   cd apps/backend
@@ -44,7 +44,7 @@ async function req(method, path, { token, body } = {}) {
 }
 
 async function main() {
-  console.log(`\n=== 에이전트톡 백엔드 스모크 (@ ${BASE}) ===\n`);
+  console.log(`\n=== 마이에이전트톡 백엔드 스모크 (@ ${BASE}) ===\n`);
   const email = `smoke_${Date.now()}@test.io`;
 
   // 1. 회원가입
