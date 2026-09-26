@@ -1,15 +1,21 @@
-// 가입 동의 게이트 — 대표님 지시 레이아웃 (김비서 코멘트 #48 → 9/26 후퇴 반영):
-//   ① 전체 동의 = 분리된 강조 블록(divider 위아래) ② 필수 개별 항목 목록
-//   ③ 선택 동의(마케팅) = 맨 아래 + 저대비 caption·미노출에 가까움 (opt-in — 개인정보보호법 제22조 선택 동의).
-//   토글 로직/검증/testID 계약 불변 (기존 단위테스트 통과 조건), marketing 기본값 false (lib/consents.ts).
+// 가입 동의 게이트 — 대표님 지시 레이아웃 최종본 (코멘트 #83, #67·#82 통합):
+//   ① 전체 동의 = 분리된 강조 블록 ② 6개 항목(약관/개인정보/마케팅/음성/국외이전/14세)을
+//      하나의 자연스러운 목록으로 섞어 배치 — 마케팅 행의 "[선택]" 문구·저대비 스타일 제거,
+//      글자크기·색·행간 필수 항목과 동일 (스크롤하면 그냥 지나가는 목록).
+//   기능 불변: validateConsents = marketing 제외 4종+14세 필수, marketing 기본 false(opt-in),
+//   서버 consents 기록 동일, testID 계약 동일 (기존 단위/e2e 테스트 통과 조건).
+//   ※ 법적 유효성(구분 없는 표시가 개인정보보호법 제22조 선택동의를 훼손하는지) 내변호사 확인 중 —
+//      문제 제기 시 "작게 구분" 폴백(의도 훼손 최소선)으로 되돌린다.
+//   법률 카드 t_eb7f13e9: 약관/처리방침 링크는 example.com 임시 주소 폐기 — 앱 내 정책 문서 화면
+//   (LegalDocScreen, 내변호사 초안 원문)으로 연결. DRAFT·[대표님 확정 필요] 고지는 문서 본문에 유지.
 import React from 'react';
-import { Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
-import { legalLinks } from '../config/legalLinks';
-import { ConsentState, consentTypes, toggleRequiredConsents, validateConsents } from '../lib/consents';
+import type { LegalDocKind } from '../lib/legalDocLogic';
+import { ConsentState, toggleRequiredConsents, validateConsents } from '../lib/consents';
 
 // 햅틱: 동의 토글 = selection (#52 지시의 3곳 중 하나). 웹은 expo-haptics가 no-op 폴백이라 try로 방어.
 const selectionTick = () => {
@@ -17,11 +23,14 @@ const selectionTick = () => {
 };
 
 const testIds = { terms: 'terms', privacy: 'privacy', voice_recording: 'voice', overseas_transfer: 'overseas', marketing: 'marketing', ageConfirmed: 'age14' } as const;
-// 필수 항목 표시 순서 — 마케팅(선택)은 상단 별도 영역이므로 목록에서 제외
-const requiredTypes = [...consentTypes.filter((type) => type !== 'marketing'), 'ageConfirmed' as const];
+// #83 최종본: 마케팅(선택)을 필수 항목들 사이에 섞은 단일 목록 — 약관/개인정보/마케팅/음성/국외이전/14세.
+// 구분(스타일·문구) 없음. 기능 검증은 marketing 제외(lib/consents.ts) — 표시와 로직은 독립.
+const consentOrder = ['terms', 'privacy', 'marketing', 'voice_recording', 'overseas_transfer', 'ageConfirmed'] as const;
 
-export default function ConsentGate({ value, onChange, disabled, onError }: {
+export default function ConsentGate({ value, onChange, disabled, onError, onOpenDoc }: {
   value: ConsentState; onChange: (value: ConsentState) => void; disabled: boolean; onError: (key: string) => void;
+  /** 앱 내 정책 문서 화면 진입 (t_eb7f13e9 항목 4). 미주입 시 링크 행 숨김 — 컴포넌트 단독 재사용 안전. */
+  onOpenDoc?: (kind: LegalDocKind) => void;
 }) {
   const { t } = useTranslation();
   const toggle = (next: ConsentState) => { selectionTick(); onChange(next); };
@@ -42,24 +51,20 @@ export default function ConsentGate({ value, onChange, disabled, onError }: {
 
     <View style={styles.divider} />
 
-    {/* ② 필수 개별 항목 — 전체 동의 아래 기존 목록 */}
-    {requiredTypes.map((type) => <View key={type}>
+    {/* ② 단일 자연 목록 — 마케팅(선택)을 필수 사이에 섞음, 스타일 구분 없음 (#83) */}
+    {consentOrder.map((type) => <View key={type}>
       {checkbox(`consent.${type}`, value[type], () => toggle({ ...value, [type]: !value[type] }), `consent-${testIds[type]}`)}
       {type === 'voice_recording' && <Text style={styles.notice}>{t('consent.voiceNotice')}</Text>}
       {type === 'overseas_transfer' && <Text style={styles.notice}>{t('consent.overseasNotice')}</Text>}
     </View>)}
 
-    {/* ③ 선택 동의(마케팅) — 9/26 후퇴 지시: 맨 아래 + 저대비 최소 박스, 기본 미체크(opt-in) */}
-    <View style={styles.divider} />
-    {checkbox('consent.marketing', value.marketing, () => toggle({ ...value, marketing: !value.marketing }), `consent-${testIds.marketing}`,
-      { row: styles.optionalRow, box: styles.optionalBox, label: styles.optionalLabel })}
-    <Text style={styles.notice}>{t('consent.documentsPending')}</Text>
-    <View style={styles.links}>
-      {(['terms', 'privacy'] as const).map((type) => <Pressable key={type} accessibilityRole="link" style={styles.link}
-        onPress={() => { void Linking.openURL(legalLinks[type]).catch(() => onError('errors.legalLink')); }}>
-        <Text style={styles.linkText}>{t(type === 'terms' ? 'consent.viewTerms' : 'consent.viewPrivacy')}</Text>
+    {onOpenDoc && <View style={styles.links}>
+      {(['terms', 'privacy'] as const).map((kind) => <Pressable key={kind} accessibilityRole="link" style={styles.link}
+        testID={`consent-link-${kind}`} onPress={() => onOpenDoc(kind)}>
+        <Text style={styles.linkText}>{t(kind === 'terms' ? 'consent.viewTerms' : 'consent.viewPrivacy')}</Text>
       </Pressable>)}
-    </View>
+    </View>}
+    <Text style={styles.notice}>{t('consent.documentsPending')}</Text>
   </View>;
 }
 const styles = StyleSheet.create({
@@ -69,10 +74,6 @@ const styles = StyleSheet.create({
   checked: { backgroundColor: colors.accent },
   check: { ...typography.bodyBold, color: colors.onPrimary },
   label: { ...typography.subhead, color: colors.text1, flex: 1, minWidth: 0 },
-  // 선택 동의 — 조그맣게(caption) + 저대비(text3)로 필수와 위계 분리
-  optionalRow: { minHeight: spacing.sp8, paddingVertical: spacing.sp1, gap: spacing.sp2 },
-  optionalBox: { width: spacing.sp5, height: spacing.sp5, borderColor: colors.borderStrong },
-  optionalLabel: { ...typography.caption, color: colors.text3 },
   // 전체 동의 — 분리 블록: 카드 배경 + 큰 체크박스 + 굵은 라벨
   allRow: {
     backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,

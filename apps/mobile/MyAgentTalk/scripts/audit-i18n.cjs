@@ -1,7 +1,7 @@
 // 주석을 제외한 한국어 리터럴과 정적 JSX 문구를 검사한다.
 const fs = require('node:fs');
 const ts = require('typescript');
-const files = ['App.tsx', ...['ChatScreen', 'LoginScreen', 'DialogueListScreen', 'SettingsScreen', 'FavoritesScreen'].map((name) => `src/screens/${name}.tsx`), 'src/lib/chatLogic.ts', 'src/lib/api.ts', 'src/hooks/useChatSession.ts', 'src/components/RichText.tsx', 'src/components/RichLinks.tsx', 'src/components/dialogs/FormCard.tsx', 'src/components/dialogs/ChartCard.tsx', 'src/components/dialogs/MediaCard.tsx', 'src/cards/TextCard.tsx'];
+const files = ['App.tsx', ...['ChatScreen', 'LoginScreen', 'DialogueListScreen', 'SettingsScreen', 'FavoritesScreen', 'LegalDocScreen'].map((name) => `src/screens/${name}.tsx`), 'src/lib/chatLogic.ts', 'src/lib/api.ts', 'src/hooks/useChatSession.ts', 'src/components/RichText.tsx', 'src/components/RichLinks.tsx', 'src/components/dialogs/FormCard.tsx', 'src/components/dialogs/ChartCard.tsx', 'src/components/dialogs/MediaCard.tsx', 'src/components/dialogs/WithdrawDialog.tsx', 'src/cards/TextCard.tsx'];
 let violations = 0;
 for (const file of files) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);

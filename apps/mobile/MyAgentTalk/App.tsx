@@ -30,6 +30,7 @@ import {
   BoardScreen,
   NeuronDashboardScreen,
   SettingsScreen,
+  LegalDocScreen,
 } from './src/screens';
 
 // 네비게이션 타입
@@ -45,6 +46,7 @@ export type RootStackParamList = {
   Board: { boardId?: string } | undefined;
   NeuronDashboard: undefined;
   Settings: undefined;
+  LegalDoc: { kind?: 'terms' | 'privacy' };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -205,6 +207,11 @@ export default function App() {
               name="Settings"
               component={SettingsScreen}
               options={{ title: t('common.settings') }}
+            />
+            <Stack.Screen
+              name="LegalDoc"
+              component={LegalDocScreen}
+              options={{ title: t('settings.legalSection') }}
             />
           </Stack.Navigator>
           <StatusBar style="dark" />
