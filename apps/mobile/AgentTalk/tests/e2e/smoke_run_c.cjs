@@ -1,8 +1,13 @@
 // API/WS는 전부 모의하며 모바일 폭에서 카드, 스레드, 독립 포크를 검증한다.
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8081';
+const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'run-c');
+fs.mkdirSync(OUT, { recursive: true });
+const shot = (n) => path.join(OUT, `${n}.png`);
 (async () => {
   const browser = await chromium.launch({ executablePath: '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell' });
   try {
@@ -14,6 +19,7 @@ const APP = process.env.APP_URL || 'http://localhost:8081';
     await page.getByTestId('session-card').click();
     await page.getByText('Server value', { exact: true }).waitFor();
     assert.equal(await page.getByTestId('ai-generated-badge').count(), 7);
+    await page.screenshot({ path: shot('01-card-feed') });
     await page.getByRole('checkbox').click();
     await page.getByText('완료', { exact: true }).waitFor();
     await page.getByRole('button', { name: '즐겨찾기', exact: true }).first().click();
@@ -25,6 +31,7 @@ const APP = process.env.APP_URL || 'http://localhost:8081';
     state.unsupportedThread = false;
     await page.getByText('답변 1개', { exact: true }).click();
     await page.getByText('Thread reply', { exact: true }).waitFor();
+    await page.screenshot({ path: shot('02-thread') });
     await page.getByPlaceholder('에이전트에게 메시지 보내기…').fill('thread-only').catch(async () => {
       await page.locator('textarea').fill('thread-only');
     });
@@ -48,6 +55,7 @@ const APP = process.env.APP_URL || 'http://localhost:8081';
     await page.getByText('Test reply to new-room-only', { exact: true }).waitFor();
     assert.equal(state.calls.filter((c) => c.method === 'POST' && c.path.endsWith('/messages')).at(-1).path, '/api/sessions/forked/messages');
     assert.ok(!state.messages.source.some((m) => m.content.includes('new-room-only')));
+    await page.screenshot({ path: shot('03-forked-room') });
     await page.getByLabel('뒤로 가기', { exact: true }).click();
     await page.getByTestId('session-list').waitFor();
     assert.equal(await page.getByTestId('session-card').count(), 2);
@@ -60,8 +68,10 @@ const APP = process.env.APP_URL || 'http://localhost:8081';
     await page.getByTestId('send-button').click();
     await page.getByText('This is the demo you chose to explore. Here is a sample reply to “English demo”.', { exact: true }).waitFor();
     assert.equal(state.calls.length, before);
+    await page.screenshot({ path: shot('04-english-demo') });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
     console.log('PASS Run C: 7 card types, actions, thread isolation/404, fork/405/independence/back stack, English demo, AI labels, mobile overflow');
+    console.log('스크린샷:', OUT);
   } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });
