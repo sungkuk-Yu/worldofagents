@@ -1,0 +1,121 @@
+/**
+ * 첨부 파일 스토리지 어댑터 (t_401c5bd1, 카드 B안).
+ *
+ * 프로덕션: Supabase Storage 버킷 `attachments` (공개 버킷 + 난수 uuid 파일명 = capability URL).
+ * DEV_MODE: devstore.blobs 인메모리 (object_path → bytes) — GET /api/attachments/object/<path>로 읽기.
+ *
+ * ⚠️ DbClient 래퍼(lib/supabase.ts)는 storage 네임스페이스를 노출하지 않으므로(수동 프로미션
+ * 인터페이스) 별도 저수준 admin 클라이언트를 만든다. t_486cf23b P0 교훈의 연장선에서 공유
+ * supabaseAdmin 인스턴스를 절대 건드리지 않는다. storage-js는 서비스 세션 상태를 갖지 않는다.
+ *
+ * API 표면 최소화(storage-js 2.117 실측 — probe-realstorage.mts로 제품 경로 검증):
+ *   listBuckets()/createBucket()/from(bucket).upload()/from(bucket).remove()만 쓰고,
+ *   읽기는 공개 버킷이므로 서명·download 빌더 대신 plain fetch(공개 URL)를 쓴다.
+ */
+import { createClient } from '@supabase/supabase-js';
+import { config } from '../config';
+import { getStore } from './devstore';
+import { logger } from '../utils/logger';
+
+let cached: ReturnType<typeof createClient> | null = null;
+
+function adminRaw() {
+  if (!cached) {
+    cached = createClient(config.supabase.url, config.supabase.serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
+  }
+  return cached;
+}
+
+interface BucketRow { name?: string }
+interface CallResult<T> { data: T | null; error: { message?: string } | null }
+
+let bucketReady = false;
+
+/**
+ * 버킷 `attachments` 보장 (프로덕션 전용). 동시성 주의(카드 P3-java 경계):
+ * Supabase는 createBucket 실패를 ApiError가 아니라 { error } 페이로드로 돌려
+ * '이미 존재' 구분용 status 확인이 불가 → listBuckets()로 존재를 성공 프루프로 삼고
+ * 없을 때만 생성을 시도한다(경쟁 시 한쪽이 실패해도 업로드 재시도가 구제).
+ */
+async function ensureBucket(): Promise<void> {
+  if (bucketReady) return;
+  const storage = adminRaw().storage as unknown as {
+    listBuckets: () => Promise<CallResult<BucketRow[]>>;
+    createBucket: (id: string, opts: Record<string, unknown>) => Promise<CallResult<unknown>>;
+  };
+  const has = (d: BucketRow[] | null) => Array.isArray(d) && d.some(b => b?.name === config.upload.bucket);
+  const listed = await storage.listBuckets();
+  if (listed.error) throw new Error(`attachments 버킷 조회 실패: ${listed.error.message}`);
+  if (has(listed.data)) {
+    bucketReady = true;
+    return;
+  }
+  const created = await storage.createBucket(config.upload.bucket, { public: true, fileSizeLimit: config.upload.maxBytes });
+  if (created.error && !/exist/i.test(created.error.message || '')) {
+    throw new Error(`attachments 버킷 생성 실패: ${created.error.message}`);
+  }
+  const recheck = await storage.listBuckets();
+  if (!has(recheck.data)) throw new Error('attachments 버킷 생성/확인 실패 — Storage 관리 권한 확인 필요');
+  bucketReady = true;
+  logger.info(`📦 attachments 버킷 보장 완료 (public, fileSizeLimit ${config.upload.maxBytes}B server-enforced)`);
+}
+
+/** 첨부 오브젝트 접근 URL (dev: 백엔드 경유 풀 URL(<img> 직접 로드 가능) — 프로덕션: Storage 퍼블릭 경로). */
+export function publicObjectUrl(objectPath: string): string {
+  if (config.devMode) return `http://localhost:${config.port}/api/attachments/object/${objectPath}`;
+  return `${config.supabase.url}/storage/v1/object/public/${config.upload.bucket}/${objectPath}`;
+}
+
+/**
+ * 업로드. 실패 시 버킷 보장 1회 재확인 후 1회 재시도 (중복 업로드 시 동일 objectPath는
+ * upsert:false로 거부 — uuid 경로라 경합 불가). 쿼터 차감은 라우트가 성공 후에만 수행.
+ */
+export async function uploadToAttachmentsBucket(input: { objectPath: string; bytes: Buffer; mime: string }): Promise<void> {
+  if (config.devMode) {
+    getStore().blobs.set(input.objectPath, { bytes: input.bytes, mime: input.mime });
+    return;
+  }
+  const put = () => (adminRaw().storage as unknown as {
+    from: (b: string) => {
+      upload: (p: string, f: Buffer, o: Record<string, unknown>) => Promise<CallResult<unknown>>;
+    };
+  }).from(config.upload.bucket).upload(input.objectPath, input.bytes, {
+    contentType: input.mime, upsert: false, cacheControl: '3600',
+  });
+  await ensureBucket();
+  let res = await put();
+  if (res.error) {
+    logger.warn(`attachments 업로드 실패(버킷 보장 재확인 후 1회 재시도): ${res.error.message}`);
+    bucketReady = false;
+    await ensureBucket();
+    res = await put();
+  }
+  if (res.error) throw new Error(res.error.message || 'storage upload failed');
+}
+
+/**
+ * 다운로드 (read-back 프루브용). 버킷이 공개라 관리 SDK download 빌더(storage-js 버전별 차이 큼)
+ * 대신 공개 URL fetch를 쓴다 — 프론트/브라우저가 실제로 타는 경로와 동일 검증을 제공한다.
+ */
+export async function downloadFromAttachmentsBucket(objectPath: string): Promise<Buffer | null> {
+  if (config.devMode) return getStore().blobs.get(objectPath)?.bytes ?? null;
+  const res = await fetch(publicObjectUrl(objectPath));
+  if (!res.ok) return null;
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** 파기 (수동 프루브/정리용 — 프로덕션 크론은 후속 과제, 카드 코멘트 이관). */
+export async function deleteFromAttachmentsBucket(objectPaths: string[]): Promise<void> {
+  if (config.devMode) {
+    for (const p of objectPaths) getStore().blobs.delete(p);
+    return;
+  }
+  const res = await (adminRaw().storage as unknown as {
+    from: (b: string) => {
+      remove: (p: string[]) => Promise<CallResult<unknown>>;
+    };
+  }).from(config.upload.bucket).remove(objectPaths);
+  if (res.error) logger.warn(`attachments 오브젝트 삭제 실패(크론 후속): ${res.error.message}`);
+}

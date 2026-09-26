@@ -5,6 +5,7 @@ import { requireAuth } from '../lib/auth';
 import { ApiError, ERROR_CODES, badRequest, ok } from '../lib/errors';
 import { getOwnedMessage, selectAllRows } from '../lib/helpers';
 import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
+import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession } from '../websocket/handler';
 import { DbClient } from '../lib/supabase';
 import { MessagesRow } from '../types/db';
@@ -58,6 +59,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const result = await runTextTurn(request.db, session, request.userId, body.content.trim(), {
       locale: parseAcceptLanguage(request.headers['accept-language']),
       thread: { parentMessageId: message.id, rootMessageId: rootId },
+      attachmentIds: parseAttachmentIds(body),
       emit: e => broadcastToSession(session.id, e),
     });
     const thread = await readThread(request.db, message);

@@ -17,6 +17,7 @@ import { logger } from '../utils/logger';
 import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
 import { normalizePttMode, normalizeDeviceLabel, isPttIdleTimeout, isPttHoldOverflow, PttMode } from '../lib/pushToTalk';
 import { runTextTurn } from '../lib/chatTurn';
+import { parseAttachmentIds } from '../lib/attachments';
 import { SessionsRow } from '../types/db';
 import { sendJson, ClientMessage, ServerMessage, WSChannel, PresenceDevice } from './protocol';
 
@@ -268,7 +269,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             thread = { parentMessageId: parent.id, rootMessageId: parent.root_message_id || parent.id };
           }
           // 종료 상태는 공유 실행기의 finally에서 보장한다.
-          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, emit: e => broadcastToSession(session!.id, e) });
+          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), emit: e => broadcastToSession(session!.id, e) });
           break;
         }
 

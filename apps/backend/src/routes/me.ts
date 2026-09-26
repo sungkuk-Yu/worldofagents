@@ -3,6 +3,7 @@ import { withSessionLock } from '../lib/turnLock';
 import { cancelSessionRuns, clearSessionEvents } from '../websocket/eventlog';
 import { closeSessionConnections } from '../websocket/handler';
 import { supabaseAdmin } from '../lib/supabase';
+import { deleteFromAttachmentsBucket } from '../lib/storage';
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { deepMergePreferences } from '../lib/prefs';
@@ -21,6 +22,17 @@ export async function meRoutes(app: FastifyInstance) {
       for (const session of sessions) cancelSessionRuns(session.id);
       // 실행 중인 턴이 마무리된 뒤 삭제하여 늦게 도착한 응답도 함께 파기한다.
       await Promise.all(sessions.map(session => withSessionLock(session.id, async () => undefined)));
+      // 첨부 (t_401c5bd1): 행은 uploader_id FK CASCADE로 지워지지만 Storage 바이트는 DB cascade로
+      // 사라지지 않는다 — 탈퇴=개인정보 즉시 파기 원칙에 따라 deleteUser 전에 먼저 찍는다.
+      // Storage 파기가 실패해도 계정 삭제는 막지 않는다(경고 후 속행 — 잔존분은 파기 크론이 수거).
+      try {
+        const { data: attRows } = await supabaseAdmin.from('messages_attachments')
+          .select('object_path').eq('uploader_id', request.userId);
+        const paths = ((attRows as { object_path: string }[] | null) || []).map(r => r.object_path);
+        if (paths.length) await deleteFromAttachmentsBucket(paths);
+      } catch (err) {
+        request.log.warn(`탈퇴 첨부 Storage 파기 실패(계정 삭제는 속행, 크론 수거): ${(err as Error).message}`);
+      }
       if (!supabaseAdmin.auth.admin.deleteUser) throw new Error('관리자 삭제 API 없음');
       const { error } = await supabaseAdmin.auth.admin.deleteUser(request.userId);
       if (error) throw error;

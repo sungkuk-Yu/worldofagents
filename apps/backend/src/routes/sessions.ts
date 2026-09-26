@@ -8,6 +8,7 @@ import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 import { ensureSession, getOwnedSession, selectAllRows } from '../lib/helpers';
 import { SessionsRow } from '../types/db';
 import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
+import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession, sessionPresence } from '../websocket/handler';
 import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
@@ -307,13 +308,15 @@ export async function sessionRoutes(app: FastifyInstance) {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     if (session.status === 'archived') throw new ApiError(ERROR_CODES.SESSION_ARCHIVED, '아카이브된 세션에는 메시지를 보낼 수 없습니다.');
 
-    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown> };
+    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[] };
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
+    const attachmentIds = parseAttachmentIds(body);
 
     const result = await runTextTurn(request.db, session, request.userId, content, {
       locale: parseAcceptLanguage(request.headers['accept-language']),
       sttMetadata: body.stt_metadata || null,
+      attachmentIds,
       emit: e => broadcastToSession(session.id, e),
     });
 

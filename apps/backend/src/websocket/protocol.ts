@@ -20,7 +20,7 @@ export interface PresenceDevice {
 
 // 클라이언트 → 서버
 export type ClientMessage =
-  | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string }
+  | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string; attachment_ids?: string[] }
   | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
   | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string; mode?: PttMode; device?: string } }

@@ -176,6 +176,31 @@ export interface AuthResult {
   user: { id: string; email?: string; display_name?: string };
 }
 
+// ── 첨부 (t_401c5bd1) ─────────────────────────────
+/** POST /api/upload 응답 / GET /api/attachments/message/:id 행 */
+export interface UploadResult {
+  id: string;
+  url: string;
+  object_path: string;
+  mime: string;
+  size: number;
+  sha256: string;
+  name: string | null;
+}
+
+/** 첨부 목록 행은 생성 시각이 추가된다. */
+export interface AttachmentMeta extends UploadResult {
+  created_at?: string;
+}
+
+/** 업로드/링크 실패 — code는 백엔드 ERROR_CODES(FILE_TOO_LARGE 등), status는 HTTP. */
+export class UploadError extends Error {
+  constructor(public readonly code: string, message: string, public readonly status: number) {
+    super(message);
+    this.name = 'UploadError';
+  }
+}
+
 /** GET/PATCH /api/auth/me 행 — users 테이블 (preferences JSONB: { joystickMap?, ... }) */
 export interface UserProfile {
   id: string;
@@ -240,12 +265,44 @@ export const api = {
     );
   },
 
-  /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환) */
-  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string }) =>
+  /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환)
+   *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크. */
+  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[] }) =>
     request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
     }),
+
+  /** 첨부 업로드 — POST /api/upload (multipart, t_401c5bd1). 20MB/이미지·PDF/일일 50개 서버 검증.
+   *  인자: Web=Blob / RN=이미지피커 {uri,name,type} 객체(FormData가 스트리밍).
+   *  실패 시 서버 error.code(FILE_TOO_LARGE/UNSUPPORTED_MEDIA_TYPE/UPLOAD_QUOTA_EXCEEDED/AUTH_REQUIRED)를
+   *  UploadError.code로 옮긴다 — i18n 매핑은 errors.{lowercase_key} 규칙. */
+  upload: async (file: Blob | { uri: string; name?: string; type?: string }, filename?: string): Promise<UploadResult> => {
+    await initializeApi();
+    await persistence;
+    const form = new FormData();
+    const isRnUri = typeof (file as { uri?: unknown }).uri === 'string';
+    if (isRnUri) {
+      const rn = file as { uri: string; name?: string; type?: string };
+      form.append('file', rn as never, filename || rn.name || 'upload.bin');
+    } else {
+      form.append('file', file as Blob, filename || 'upload.bin');
+    }
+    const res = await fetch(`${config.apiUrl}/api/upload`, {
+      method: 'POST',
+      headers: config.token ? { Authorization: `Bearer ${config.token}` } : undefined,
+      body: form as never,
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) {
+      throw new UploadError(body?.error?.code || 'INTERNAL_ERROR', body?.error?.message || 'upload failed', res.status);
+    }
+    return body.data as UploadResult;
+  },
+
+  /** 첨부 목록 — GET /api/attachments/message/:messageId (링크된 첨부 메타). */
+  listMessageAttachments: (messageId: string) =>
+    request<ApiEnvelope<AttachmentMeta[]>>(`/api/attachments/message/${encodeURIComponent(messageId)}`),
 
   /** 대화 유형 판별 위임 — POST /api/classify (t_56498848). 서버가 Stage1 패턴+Stage2 LLM+Stage3 폴백 순판별.
    *  미로그인/네트워크 실패 시 throw — 호출부(DialogTypeClassifier)가 null로 변환해 Stage 3 폴백. */

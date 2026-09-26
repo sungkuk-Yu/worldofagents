@@ -1315,3 +1315,52 @@ GET /api/favorites?limit=50&offset=0
 모바일·PC 웹은 이미 같은 백엔드·Supabase를 쓰기 때문에 별도 동기화 계층은 없다. `config.cors.origin` 기본값에 프로덕션 웹 도메인(`https://app.myagenttalk.com` 등)을 추가 — `CORS_ORIGIN` 환경변수 설정 시 그것을 따른다(운영 배포 시 실제 도메인과 대조 확인 요).
 
 검증: `tests/unit/continuity.test.ts` 11건 — PTT 정규화/안전망/echo·재시작 암묵종료, 딥머지 단위+두 PATCH 경로 교차 공존, read-state 멱등/되감기방지/타인 세션 404·resume 격리, resume 미읽음 집계/전부 읽음 후 0, presence 2단 디바이스 join/leave 브로드캐스트. 전체 unit 220/220, tsc/eslint 0.
+
+### 첨부 업로드 재구축 (마이그레이션 007 — 카드 t_401c5bd1)
+
+모바일에서 PC 웹으로 이어쓰는 대화에 이미지·PDF 첨부를 실어 보낸다. 프론트가 파일을 직접 Storage에 올리는 대신 **백엔드가 업로드 게이트웨이**로 수신헌증저장한다(키·RLS·쿼터·MIME 검증을 서버에 집중). 저장소는 프로젝트 기존 Supabase Storage 버킷 `attachments`(도쿄 리전, 신규 서비스 없음).
+
+**설계 (카드 B안 — 이 저장소에 신축, additive only):**
+- 두 단계: ① `POST /api/upload`(multipart) → Storage + `messages_attachments` 행(`message_id` NULL = 미링크) → ② 메시지 전송 시 본문에 `attachment_ids`를 실어 그 user 메시지에 링크. 프론트는 `api.upload(file)` 결과를 메모하다 전송 때 함께 보낸다(Wave 2 UI는 t_4497cfce 소관).
+- **파기 무결성**: 첨부는 `uploader_id` 소유. 원본 메시지가 삭제(세션 cascade 포함)되면 FK가 `message_id`를 SET NULL하고 트리거가 `deleted_at` 마킹 → 행은 **파기 큐**로 남아 Storage 크론(후속)이 오브젝트를 파기한다(추적 없으면 유실이 영구 고아가 됨). 회원탈퇴는 반대 방향: `uploader_id` FK CASCADE + `DELETE /api/me`가 deleteUser 직전 `deleteFromAttachmentsBucket`으로 Storage 바이트를 선파기 → **탈퇴=즉시 파기(개인정보보호법 제21조), 메시지 삭제≠Storage 파기(고아 방지·감사).**
+- **URL**: 공개 버킷 + 128bit 난수 uuid 파일명(capability URL) → Netlify 앱 크로스오리진 `<img src>`가 서명·리다이렉트 없이 로드. DEV_MODE는 백엔드 `GET /api/attachments/object/*`(devstore.blobs) 경유 풀 URL.
+
+**스키마** (`007_attachments.sql`):
+- `messages_attachments(id, message_id→messages SET NULL, uploader_id→users CASCADE, url, object_path UNIQUE, mime, size, sha256, name, deleted_at, created_at)`
+- `upload_quota_daily(user_id→users CASCADE, day, used, updated_at, PK(user_id,day))` + `bump_upload_quota(user,day,limit)` RPC(원자적 증가, 초과 시 -1)
+
+#### 첨부 업로드
+
+```
+POST /api/upload            # multipart/form-data, file 필드 1개 (requireAuth)
+```
+
+성공 201 `{ok:true,data:{id,url,object_path,mime,size,sha256,name}}`. 검증:
+- **413 FILE_TOO_LARGE** 파일당 `UPLOAD_MAX_BYTES`(기본 20MB) 초과.
+- **415 UNSUPPORTED_MEDIA_TYPE** MIME allowlist(`image/*`,`application/pdf`) — 선언 MIME만 신뢰하지 않고 magic-byte 스니핑으로 위장 업로드 차단(선언·실측 모두 통과해야 함).
+- **429 UPLOAD_QUOTA_EXCEEDED** 사용자당 UTC 일일 `UPLOAD_MAX_PER_DAY`(기본 50). `bump_upload_quota` RPC로 원자적(레이스 봉인), Storage 업로드 성공 후 차감.
+- **401 AUTH_REQUIRED** 비인증. 빈 파일/논멀티파트는 400.
+
+#### 첨부 링크 (전송 본문 확장)
+
+기존 텍스트 전송 3개 경로(REST `POST /api/sessions/:id/messages`, REST 답글 `POST /api/messages/:id/replies`, WS `message.send`)가 `attachment_ids: string[]`(선택, 최대 10)를 추가 받는다. 생략 시 기존 동작 불변.
+
+```json
+{"content":"이 표 봐줄래","attachment_ids":["첨부 UUID", "..."]}
+```
+
+`runTextTurn`은 사용자 메시지 저장 전에 소유권·링크가능성을 선검증(`assertAttachmentsOwned`)해, 남의/없는/이미 쓰인 ID로 고아 메시지·LLM 비용이 남는 것을 막고(404/409), 저장 후 조건부 UPDATE(`message_id IS NULL` 전용)로 이중 링크 경합을 방지한다. 링크된 첨부는 `messages.attachments` JSONB 요약을 갱신(히스토리/전송 응답에 노출)한다.
+
+#### 첨부 열람/재링크
+
+```
+GET  /api/attachments/message/:messageId   # 그 메시지에 링크된 첨부 목록 (requireAuth, 소유 메시지여야 함)
+POST /api/attachments/link                 # {message_id, attachment_ids} — 전송 후 실패 복구/재시도용 (멱등 아님: 재링크 409)
+GET  /api/attachments/object/<path>        # DEV_MODE 바이트 서빙 / prod는 Storage 공개 URL로 302 (비인증, capability 경로)
+```
+
+**격리**: 첨부는 `uploader_id` 직접 소유(002 확립 패턴 — service_role + 라우트 필터). 타인 첨부 ID는 존재 자체를 404로 숨긴다. `deleted_at` 마킹 행은 목록에서 제외.
+
+프론트 계약(`lib/api.ts`): `api.upload(file) → UploadResult`, `api.listMessageAttachments(id)`, `UploadError`(code=i18n `errors.{lowercase}`), `sendMessage(...,{attachment_ids})`. UI는 t_4497cfce.
+
+검증: `tests/unit/attachments.test.ts` 15건 + `tests/smoke_upload.mjs`(실DB Storage 왕복 sha256/DDL read-back) + DEV 부팅 서버 E2E. tsc 0.
