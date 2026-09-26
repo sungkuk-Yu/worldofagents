@@ -13,6 +13,8 @@ import { taskRoutes } from './routes/tasks';
 import { skillRoutes } from './routes/skills';
 import { neuronRoutes } from './routes/neurons';
 import { meRoutes } from './routes/me';
+import { vaultRoutes } from './routes/vault';
+import { boardRoutes, cardRoutes } from './routes/boards';
 import { websocketHandler } from './websocket/handler';
 import { logger } from './utils/logger';
 
@@ -60,12 +62,15 @@ export async function build() {
   await app.register(skillRoutes, { prefix: '/api/skills' });
   await app.register(neuronRoutes, { prefix: '/api/neurons' });
   await app.register(meRoutes, { prefix: '/api/me' });
+  await app.register(vaultRoutes, { prefix: '/api/vault' });
+  await app.register(boardRoutes, { prefix: '/api/boards' });
+  await app.register(cardRoutes, { prefix: '/api/cards' });
 
   // API 버전/목록
   app.get('/api-version', async () => {
     return {
       version: 'v1',
-      api: ['/api/messages', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me'],
+      api: ['/api/messages', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards'],
       docs: 'apps/backend/docs/api-design.md',
     };
   });

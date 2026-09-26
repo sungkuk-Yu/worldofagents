@@ -36,6 +36,9 @@ export const emptyStore = (): DevStore => ({
     skills: [],
     skill_installations: [],
     context_patches: [],
+    vault_notes: [],
+    boards: [],
+    board_cards: [],
   },
   usersByEmail: new Map(),
   sequences: {},
@@ -471,11 +474,14 @@ export function deleteDevUser(store: DevStore, userId: string): void {
   const sessions = ids('sessions', r => r.user_id === userId || agents.has(r.agent_id));
   const tasks = ids('tasks', r => sessions.has(r.session_id));
   const skills = ids('skills', r => r.author_id === userId);
+  // board_cards는 user_id가 없고 boards.id 경유 cascade다 (마이그레이션 004).
+  const boards = ids('boards', r => r.user_id === userId);
   for (const [table, rows] of Object.entries(store.tables)) {
     store.tables[table] = rows.filter(r => !(
       (table === 'users' && r.id === userId) || r.user_id === userId || r.owner_id === userId
       || agents.has(r.agent_id) || sessions.has(r.session_id) || tasks.has(r.task_id)
       || (table === 'skills' && skills.has(r.id)) || (table === 'skill_installations' && skills.has(r.skill_id))
+      || (table === 'board_cards' && boards.has(r.board_id))
     ));
   }
   for (const [email, entry] of store.usersByEmail) if (entry.user.id === userId) store.usersByEmail.delete(email);

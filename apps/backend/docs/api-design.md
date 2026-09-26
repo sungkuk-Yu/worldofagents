@@ -1153,3 +1153,51 @@ WS `message.send`에 선택 필드 `parent_message_id`를 보내면 같은 스�
 **전문가 디스클레이머** — 에이전트 태그/이름/프롬프트가 법률·세무/회계·의료 계열이면(`classifyExpertise` 순수함수) 응답 끝에 로케일별 면책 문구 append(예 ko: "본 응답은 AI가 생성한 정보이며 정식 법률 자문이 아닙니다."). 일반 에이전트는 미부착.
 
 **raw_transcripts 보존 정책** — `RAW_TRANSCRIPT_RETENTION_DAYS`(기본 180일)을 config로 선언하고 탈퇴 시 즉시 파기. 자동 삭제 크론은 Phase 3(코드 주석 명시).
+
+### 사용자별 볼트 + 칸반 (마이그레이션 004 — 카드 t_3b38c9be)
+
+대표님 지시 ①"각 사용자들의 디비로 기록" ②"옵시디언과 칸반을 모두 적용" — MyAgentTalk의 각 사용자가 **자기만의 노트 볼트(옵시디언식)**와 **자기만의 칸반 보드**를 DB에 소유·기록한다.
+
+**⚠️ tasks와의 구분 (혼동 금지):** 기존 `tasks` 테이블은 **세션 스코프의 에이전트 실행 추적용**이다(session_id FK, status: pending/in_progress/completed/blocked/cancelled). `board_cards`는 **사용자 개인 칸반 보드의 카드**로 session/task FK가 전혀 없으며 status 체계도 다르다(todo/doing/review/done). API 경로도 분리: `/api/tasks`(기존) vs `/api/boards`·`/api/cards`(신규).
+
+**스키마 (004_vault_board.sql):**
+- `vault_notes`: id, **user_id (직접 소유, FK users ON DELETE CASCADE)**, title, content(마크다운 원문 — `[[wikilink]]` 해석은 프론트 담당, 백엔드는 원문 보존), folder(기본 '/', 항상 '/' 시작 정규화), tags TEXT[], backlinks JSONB(프론트가 계산해 PATCH로 동기화 가능), source_session_id/source_message_id(대화→노트 역참조, FK 없음 — 원본 삭제되어도 노트 유지), created_at/updated_at. RLS: `vault_notes_self_read`(user_id = auth.uid()).
+- `boards`: id, **user_id (직접 소유, CASCADE)**, name, description. RLS: `boards_self_read`.
+- `board_cards`: id, **board_id (FK boards ON DELETE CASCADE — 소유권은 boards.user_id로 결정)**, title, body, status CHECK(todo/doing/review/done), priority INT(기본 0), position REAL(컬럼 내 순서 — 드래그 이동은 앞뒤 카드 사이 값), assignee TEXT NULL(에이전트 이름, users FK 아님), labels TEXT[], source_message_id UUID NULL(FK 없음). RLS: `board_cards_via_board_read`(board_id IN 내 boards).
+- 전 테이블 ENABLE ROW LEVEL SECURITY + 002 원칙 유지: authenticated/anon은 SELECT 전용, 모든 쓰기는 백엔드 service_role 경유 + 라우트 수준 소유권 검증(타 사용자 리소스는 404로 존재 숨김). updated_at 트리거는 001의 `update_updated_at()` 재사용.
+
+**공통:** 전부 `requireAuth`(Bearer JWT). 에러 코드 재사용(NOT_FOUND 404/VALIDATION_ERROR 400). 목록 정렬은 updated_at 내림차순(노트)·position 오름차순(카드).
+
+#### 노트 볼트 API (/api/vault)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/vault/notes` | 내 노트 목록. 쿼리: `folder`(정규화 후 정확 일치), `tag`, `limit`(기본 50, 최대 200), `offset`. meta: total/has_more |
+| POST | `/api/vault/notes` | 노트 생성. body: `{title*, content, folder, tags[], backlinks[]}` → 201. title 500자 초과 400 |
+| GET | `/api/vault/notes/:id` | 노트 상세 (타 사용자 404) |
+| PATCH | `/api/vault/notes/:id` | 부분 수정(title/content/folder/tags/backlinks). 미지정 필드는 보존 |
+| DELETE | `/api/vault/notes/:id` | 삭제 → `{deleted:true,id}` |
+| GET | `/api/vault/tree` | 폴더 트리. 응답: `{tree:{name,path,note_count,children[]}, note_total}` — note_count는 폴더 직속 노트 수, 중간 폴더는 비어 있어도 경로 유지 |
+| GET | `/api/vault/search?q=` | title/content 대소문자 무시 부분 검색(MVP — 사용자 본인 노트만 로드해 서버측 필터, Postgres ILIKE 동등; pg_trgm 인덱스는 후속). 쿼리: `q*`(없으면 400), `folder`, `limit`. 응답 항목: `{id,title,folder,tags,snippet,updated_at}` — snippet은 첫 매칭 주변 ±60자 |
+| POST | `/api/vault/notes/from-message` | **대화→노트 저장.** body: `{message_id*, title?, folder?, tags?}` → 201 |
+
+`from-message` 변환 규칙(규칙 기반, LLM 미사용): 메시지는 소유권 검증(getOwnedMessage — 내 세션 메시지만, 아니면 404) 후 마크다운 노트로 변환된다. content는 YAML풍 메타 헤더(`source/speaker(역할·에이전트명)/date(UTC)/dialogue_type/session_id/message_id`) + 원문 그대로. title 미지정 시 본문 첫 줄에서 파생(마크다운 기호 제거, 60자 캡), folder 기본 `/대화`, tags 기본 `['대화저장']`. 행에 source_session_id/source_message_id 기록.
+
+#### 칸반 보드 API (/api/boards, /api/cards)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/boards` | 내 보드 목록 (updated_at 내림차순) |
+| POST | `/api/boards` | 보드 생성. body: `{name*, description?}` → 201. name 200자 초과 400 |
+| GET | `/api/boards/:id` | 보드 상세 + 카드 전체. 응답: `{...board, cards[], columns:{todo:[],doing:[],review:[],done:[]}, card_total}` — 컬럼별 position 오름차순 |
+| PATCH | `/api/boards/:id` | 보드 이름/설명 수정 |
+| DELETE | `/api/boards/:id` | 보드 삭제 — 카드는 FK CASCADE(실DB), devstore도 동일 결과 시뮬레이션 |
+| POST | `/api/boards/:id/cards` | 카드 생성. body: `{title*, body?, status?, priority?, position?, assignee?, labels?}` → 201. status 오염값(예 'blocked') 400. position 미지정 시 해당 컬럼 끝 자동 배치(기존 max + 1000) |
+| POST | `/api/boards/:id/cards/from-message` | **대화→카드 생성.** body: `{message_id*, title?, status?, assignee?, labels?, priority?}` → 201. 제목은 본문 첫 줄에서 파생(체크박스 `[ ]` 제거), labels에 `from-message`+dialogue_type 자동 부여, source_message_id 기록. 메시지 소유권 검증(404) |
+| GET | `/api/cards/:cardId` | 카드 상세 (보드 경유 소유권 검증 — 타 사용자 404) |
+| PATCH | `/api/cards/:cardId` | 카드 수정 — **status/position 이동 포함.** status만 변경하면 새 컬럼 끝에 자동 배치, position 명시(드래그 삽입) 시 그 값 사용. 그 외 필드(title/body/priority/assignee/labels)는 지정 시에만 갱신되며 status 미변경 시 position 유지 |
+| DELETE | `/api/cards/:cardId` | 카드 삭제 → `{deleted:true,id}` |
+
+**멀티테넌시 보장:** 사용자 A의 볼트/보드는 B에게 절대 보이지 않는다 — 목록은 user_id 필터, 단건은 소유권 검증 후 404(존재 숨김), from-message는 소스 메시지까지 소유권 검증(A의 메시지를 B 보드 카드로 변환 불가). 회원탈퇴(DELETE /api/me) 시 vault_notes/boards는 user_id CASCADE, board_cards는 boards 경유 CASCADE로 전 파기(devstore `deleteDevUser`도 동일 시뮬레이션).
+
+**LLM 연동 계약 (선행 아님 — 문서화만):** 뉴런이 응답에서 action(할 일/노트)을 제안하면 제안 payload를 `messages.structured_payload`에 넣어 프론트가 카드/노트 생성 프리필에 쓸 수 있다. form 카드(002 structured_payload 계약)와 동일 패턴이며, 실제 생성은 사용자가 확인 후 위 from-message/일반 POST API를 호출하는 방식(MVP 이후).

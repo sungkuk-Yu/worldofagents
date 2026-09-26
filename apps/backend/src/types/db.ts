@@ -243,3 +243,64 @@ export interface ConsentsRow {
   ip_or_device: string | null;
   created_at: string;
 }
+
+// ── 사용자별 볼트 + 칸반 (마이그레이션 004, t_3b38c9be) ──────
+// ⚠️ BoardCardsRow는 TasksRow(세션 스코프, 에이전트 실행 추적용)와 별개다.
+// board_cards는 사용자 개인 칸반 보드의 카드이며 session/task FK가 없다.
+
+/** 옵시디언식 노트 볼트 행 — user_id 직접 소유 */
+export interface VaultNotesRow {
+  id: string;
+  user_id: string;
+  title: string;
+  /** 마크다운 원문 ([[wikilink]] 해석은 프론트 담당 — 백엔드는 원문 보존) */
+  content: string;
+  /** 폴더 경로 (항상 '/'로 시작, 루트는 '/') */
+  folder: string;
+  tags: string[];
+  /** 백링크 저장소 — 프론트가 계산해 PATCH로 동기화 가능 */
+  backlinks: Json;
+  /** 대화→노트 저장 시 역참조 (FK 없음 — 원본 삭제되어도 노트 유지) */
+  source_session_id: string | null;
+  source_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 사용자 개인 칸반 보드 행 */
+export interface BoardsRow {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BoardCardStatus = 'todo' | 'doing' | 'review' | 'done';
+
+/** 보드 카드 행 — 소유권은 board_id → boards.user_id로 결정 */
+export interface BoardCardsRow {
+  id: string;
+  board_id: string;
+  title: string;
+  body: string;
+  status: BoardCardStatus;
+  priority: number;
+  /** 컬럼 내 카드 순서 (드래그 이동 시 앞뒤 카드 사이 값으로 갱신) */
+  position: number;
+  /** 담당 에이전트 이름 (users FK 아님 — 자유 텍스트) */
+  assignee: string | null;
+  labels: string[];
+  source_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /api/vault/tree 노드 */
+export interface VaultTreeNode {
+  name: string;
+  path: string;
+  note_count: number;
+  children: VaultTreeNode[];
+}
