@@ -73,13 +73,65 @@
     "neuronDescription": "에이뉴런 연결 상태 모니터링",
     "joystick": "조이스틱",
     "customize": "조이스틱 커스터마이징",
-    "customizeDescription": "8방향 = 액션 슬롯 (프리셋: 기본/업무모드)",
+    "customizeDescription": "8방향 = 액션 슬롯 (프리셋: 기본/한손)",
     "footer": "마이에이전트톡 v0.1 · 월드오브에이전트",
     "language": "언어",
     "system": "시스템 따라감",
     "ko": "한국어",
     "en": "English",
     "demo": "데모 대화 둘러보기"
+  },
+  "joystick": {
+    "title": "조이스틱 커스터마이징",
+    "modeTitle": "입력 방식",
+    "modes": {
+      "joystick": "조이스틱",
+      "pad": "매직패드",
+      "hybrid": "하이브리드"
+    },
+    "modeDesc": {
+      "joystick": "고정 위치 8방향 스틱 — 관습적 조작.",
+      "pad": "넓은 평면 — 어디나 탭=말하기, 빠르게 튕기면 방향 동작, 길게 미끄러지면 확정(↑종료 ↓취소 ←→ 결과 넘기기), 더블탭=선택, 우하단 그립에서 좌우 드래그로 미세조정.",
+      "hybrid": "중앙 스틱 + 외부 매직패드 동시 — 스틱 감각은 유지하고 패드 제스처 계층을 추가."
+    },
+    "dirTitle": "방향 매핑",
+    "hint": "방향 슬롯을 탭하면 동작을 바꿀 수 있어요. 중앙(탭·길게 누르기)은 녹음 고정입니다.",
+    "presetDefault": "기본",
+    "presetOneHand": "한손",
+    "presetCustom": "사용자 설정",
+    "centerRecord": "녹음",
+    "lockedNote": "고정",
+    "pickAction": "동작 선택",
+    "actionNone": "사용 안 함",
+    "saveNote": "변경은 즉시 저장되어 계정에 동기화됩니다.",
+    "dir": {
+      "DIR_UP": "위",
+      "DIR_UPRIGHT": "오른쪽 위",
+      "DIR_RIGHT": "오른쪽",
+      "DIR_DOWNRIGHT": "오른쪽 아래",
+      "DIR_DOWN": "아래",
+      "DIR_DOWNLEFT": "왼쪽 아래",
+      "DIR_LEFT": "왼쪽",
+      "DIR_UPLEFT": "왼쪽 위"
+    },
+    "actions": {
+      "yes": "예",
+      "no": "아니오",
+      "cancel": "취소",
+      "keyboard": "키보드 열기",
+      "record_stop": "녹음 종료",
+      "continuous_record": "연속 녹음",
+      "open_thread": "스레드 열기",
+      "favorites": "즐겨찾기",
+      "send": "전송",
+      "prev_segment": "이전 결과",
+      "next_segment": "다음 결과"
+    }
+  },
+  "voice": {
+    "recordingHint": "듣고 있습니다… 다시 탭하여 종료",
+    "idleHint": "탭하여 말하기 · 방향으로 동작 실행",
+    "padHint": "어디나 탭하여 말하기 · 튕기고, 미끄러지고, 그립에서 끌어보세요"
   },
   "quip": {
     "default": "잠깐만요, 살펴보고 있어요…",
@@ -159,12 +211,9 @@
   "selection": {
     "enter": "선택",
     "count": "{{countText}}개 선택됨",
-    "keep": "보관",
     "continue": "다음 대화로 이어가기",
     "selectAll": "전체 선택",
-    "clearAll": "선택 해제",
-    "toVault": "볼트로",
-    "vaultDone": "{{countText}}개를 볼트에 저장했어요"
+    "clearAll": "선택 해제"
   },
   "vault": {
     "title": "볼트",
@@ -177,7 +226,7 @@
     "tags": "태그",
     "search": "노트 검색…",
     "empty": "노트가 없습니다",
-    "emptyHint": "오른쪽 위 '새 노트' 또는 채팅 카드의 '볼트에 저장'으로 만세요.",
+    "emptyHint": "오른쪽 위 '새 노트'로 만세요. 대화 카드는 기본적으로 볼트에 올라갑니다.",
     "untitled": "노트 제목",
     "folder": "폴더 (예: /대화)",
     "tagsPlaceholder": "태그, 콤마",
@@ -187,11 +236,7 @@
     "openSourceChat": "원본 대화 열기 →",
     "saved": "노트를 수정했어요",
     "created": "노트를 만들었어요",
-    "deleted": "노트를 삭제했어요",
-    "saveAction": "볼트에 저장",
-    "savedToast": "볼트에 저장했어요 — 노트 열기",
-    "openNote": "노트 열기",
-    "boardAction": "보드에 카드로"
+    "deleted": "노트를 삭제했어요"
   },
   "board": {
     "title": "보드",
@@ -201,13 +246,7 @@
     "create": "만들기",
     "empty": "보드가 없습니다",
     "emptyHint": "오른쪽 위 '새 보드'로 첫 보드를 만세요.",
-    "defaultName": "내 보드",
-    "col": {
-      "todo": "할 일",
-      "doing": "진행 중",
-      "review": "리뷰",
-      "done": "완료"
-    },
+    "col": { "todo": "할 일", "doing": "진행 중", "review": "리뷰", "done": "완료" },
     "addCard": "+ 카드",
     "newCardTitle": "새 카드",
     "cardTitle": "카드 제목",
@@ -216,12 +255,10 @@
     "saveCard": "저장",
     "deleteCard": "삭제",
     "fromMessage": "대화에서 생성",
-    "manual": "직접 생성",
-    "cardSavedToast": "보드에 카드를 넣었어요 — 보드 열기",
-    "openBoard": "보드 열기"
+    "manual": "직접 생성"
   },
   "cards": {
-    "thread": "스레드",
+    "threadFrom": "이 글에서 스레드 시작",
     "replies": "답변 {{countText}}개",
     "replies_one": "답변 {{countText}}개",
     "replies_other": "답변 {{countText}}개",
@@ -273,13 +310,13 @@
     "closeViewer": "닫기"
   },
   "consent": {
-    "terms": "[필수] 이용약관 동의",
-    "privacy": "[필수] 개인정보처리방침 동의",
-    "voice_recording": "[필수] 음성 녹음·전사 고지 동의",
-    "overseas_transfer": "[필수] 개인정보 국외이전 동의",
-    "marketing": "[선택] 마케팅 정보 수신 동의",
-    "ageConfirmed": "[필수] 만 14세 이상입니다",
-    "allRequired": "필수 항목 전체 동의 (만 14세 확인 포함, 마케팅 제외)",
+    "terms": "이용약관 동의",
+    "privacy": "개인정보처리방침 동의",
+    "voice_recording": "음성 녹음·전사 고지 동의",
+    "overseas_transfer": "개인정보 국외이전 동의",
+    "marketing": "마케팅 정보 수신 동의",
+    "ageConfirmed": "만 14세 이상입니다",
+    "allRequired": "전체 동의 (만 14세 확인 포함)",
     "missing": "모든 필수 동의와 만 14세 이상 확인을 완료해야 가입할 수 있습니다.",
     "viewTerms": "이용약관 전체 보기",
     "viewPrivacy": "개인정보처리방침 전체 보기",

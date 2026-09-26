@@ -107,7 +107,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByTestId('focus-highlight').first().waitFor({ timeout: 5000 });
     await page.screenshot({ path: shot('07-deeplink-highlight') });
 
-    // ⑦ 다중 선택 + 보관/이어가기 (대표님 9/26) — 앱바 '선택' 진입, 복수 선택, 보관=일괄 PATCH, 이어가기=포크 진입
+    // ⑦ 다중 선택 — 앱바 '선택' 진입, 복수 선택, 이어가기=포크 진입 (t_a0e998cc: 보관·볼트로 버튼 제거 — 즐겨찾기는 카드 ⭐로 충분)
     // 딥링크 채팅 → 즐겨찾기 → 대화목록으로 두 번 백 후 원본 채팅 재진입
     await page.getByTestId('chat-appbar').getByText('←', { exact: true }).click();
     await page.getByTestId('favorites-back').click();
@@ -115,20 +115,19 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByTestId('rich-link').first().waitFor();
     await page.getByTestId('selection-enter').click();
     await page.getByTestId('selection-toggle-all').waitFor();
-    // 전체 선택 → 앱바 카운트 → 보관 = 즐겨찾기 아닌 카드 전량 PATCH (이미 별인 카드는 no-op)
+    // 전체 선택 → 앱바 카운트 노출
     await page.getByTestId('selection-toggle-all').click();
     assert.ok((await page.getByText('개 선택됨', { exact: false }).count()) > 0, '앱바 카운트 노출');
-    const patchBefore = state.calls.filter((c) => c.method === 'PATCH' && c.path.endsWith('/favorite')).length;
-    await page.getByTestId('selection-keep').click();
-    await page.waitForTimeout(500);
-    const patchAfter = state.calls.filter((c) => c.method === 'PATCH' && c.path.endsWith('/favorite')).length;
-    assert.ok(patchAfter - patchBefore >= 3, `보관 → 일괄 PATCH (delta ${patchAfter - patchBefore})`);
-    assert.equal(await page.getByTestId('selection-bar').count(), 0, '보관 후 선택 종료');
+    // t_a0e998cc — 보관/볼트로 제거, 카드 액션에서도 볼트/보드 저장 버튼 제거 확인
+    assert.equal(await page.getByTestId('selection-keep').count(), 0, '보관 버튼 제거');
+    assert.equal(await page.getByTestId('selection-vault').count(), 0, '볼트로 버튼 제거');
+    assert.equal(await page.getByTestId('card-vault-save').count(), 0, '카드 볼트 저장 버튼 제거');
+    assert.equal(await page.getByTestId('card-board-add').count(), 0, '카드 보드 추가 버튼 제거');
+    assert.ok((await page.getByTestId('card-thread-start').count()) > 0, '카드 스레드 시작 액션 유지');
     await page.screenshot({ path: shot('08-selection') });
-    // 선택 해제 토글 확인 + 이어가기 = 선택 후 포크 다이얼로그 진입
+    // 앱바 '✕'(선택 모드 종료) → 재진입 → 개별 행 선택 → 이어가기 = 포크 다이얼로그 진입
+    await page.getByTestId('chat-appbar').getByText('✕', { exact: true }).click();
     await page.getByTestId('selection-enter').click();
-    await page.getByTestId('selection-toggle-all').click(); // 전체 선택
-    await page.getByTestId('selection-toggle-all').click(); // 라벨이 '선택 해제'로 전환되며 전체 해제
     const rows = page.locator('[data-testid^="select-"]');
     await rows.nth(0).click();
     await page.getByTestId('selection-continue').click();

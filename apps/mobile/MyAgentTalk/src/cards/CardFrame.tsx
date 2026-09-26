@@ -26,20 +26,15 @@ const expandAnimation = (skip: boolean) => {
   });
 };
 
-export function CardActions({ message, handlers, withFavorite = true, compact }: CardProps & { withFavorite?: boolean; compact?: boolean }) {
+export function CardActions({ message, handlers, withFavorite = true }: CardProps & { withFavorite?: boolean }) {
   const { t, i18n } = useTranslation();
   return <View style={s.actions}>
     {message.role === 'agent' && message.aiGenerated !== false && <Text style={s.micro} testID="ai-generated-badge">{t('common.aiGenerated')}</Text>}
-    <TouchableOpacity style={s.action} onPress={() => handlers.openThread(message)}>
-      <Text style={s.link}>{message.threadReplyCount === undefined ? t('cards.thread') : t('cards.replies', { count: message.threadReplyCount, countText: formatNumber(message.threadReplyCount, i18n.language) })}</Text>
+    {/* t_a0e998cc (대표님 9/26): 볼트/보드 저장·보관 액션 제거 — 카드는 기본적으로 볼트에 올라가고
+        즐겨찾기가 있으므로 별도 보관은 불필요. 카드 액션은 "이 글에서 스레드 시작"만 남긴다. */}
+    <TouchableOpacity style={s.action} onPress={() => handlers.openThread(message)} testID="card-thread-start">
+      <Text style={s.link}>{message.threadReplyCount === undefined ? t('cards.threadFrom') : t('cards.replies', { count: message.threadReplyCount, countText: formatNumber(message.threadReplyCount, i18n.language) })}</Text>
     </TouchableOpacity>
-    {/* Wave 2 (t_174b66d2): 대화 → 볼트/칸반 — 백엔드 from-message API (에이전트 카드, compact=스레드 행 제외) */}
-    {message.role === 'agent' && !compact && handlers.saveToVault && <TouchableOpacity style={s.action} accessibilityRole="button" accessibilityLabel={t('vault.saveAction')} onPress={() => { void handlers.saveToVault!(message); }} testID="card-vault-save">
-      <Text style={s.link}>{t('vault.saveAction')}</Text>
-    </TouchableOpacity>}
-    {message.role === 'agent' && !compact && handlers.addCardToBoard && <TouchableOpacity style={s.action} accessibilityRole="button" accessibilityLabel={t('vault.boardAction')} onPress={() => { void handlers.addCardToBoard!(message); }} testID="card-board-add">
-      <Text style={s.link}>{t('vault.boardAction')}</Text>
-    </TouchableOpacity>}
     {withFavorite && <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
       <Text style={s.link}>{t(message.favorite ? 'cards.starredIcon' : 'cards.starIcon')}</Text>
     </TouchableOpacity>}

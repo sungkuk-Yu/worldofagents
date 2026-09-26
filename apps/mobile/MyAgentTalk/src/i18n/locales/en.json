@@ -73,13 +73,65 @@
     "neuronDescription": "Monitor neuron connections.",
     "joystick": "Joystick",
     "customize": "Customize joystick",
-    "customizeDescription": "Assign actions to eight directions. Presets: Default and Work.",
+    "customizeDescription": "Assign actions to eight directions. Presets: Default and One-hand.",
     "footer": "MyAgentTalk v0.1 · World of Agents",
     "language": "Language",
     "system": "Use device language",
     "ko": "한국어",
     "en": "English",
     "demo": "Explore a demo conversation"
+  },
+  "joystick": {
+    "title": "Customize joystick",
+    "modeTitle": "Input style",
+    "modes": {
+      "joystick": "Joystick",
+      "pad": "Magic pad",
+      "hybrid": "Hybrid"
+    },
+    "modeDesc": {
+      "joystick": "Fixed-position 8-way stick — the familiar control.",
+      "pad": "A wide surface — tap anywhere to speak, flick for a direction action, long swipe to commit (↑stop ↓cancel ←→ browse results), double-tap to select, drag left/right from the bottom-right grip for fine tuning.",
+      "hybrid": "Center stick + outer magic pad — keep the stick feel, add the pad gesture layers."
+    },
+    "dirTitle": "Direction mapping",
+    "hint": "Tap a direction slot to change its action. The center (tap / long press) is locked to recording.",
+    "presetDefault": "Default",
+    "presetOneHand": "One-hand",
+    "presetCustom": "Custom",
+    "centerRecord": "Record",
+    "lockedNote": "Locked",
+    "pickAction": "Choose action",
+    "actionNone": "Not used",
+    "saveNote": "Changes save instantly and sync to your account.",
+    "dir": {
+      "DIR_UP": "Up",
+      "DIR_UPRIGHT": "Up right",
+      "DIR_RIGHT": "Right",
+      "DIR_DOWNRIGHT": "Down right",
+      "DIR_DOWN": "Down",
+      "DIR_DOWNLEFT": "Down left",
+      "DIR_LEFT": "Left",
+      "DIR_UPLEFT": "Up left"
+    },
+    "actions": {
+      "yes": "Yes",
+      "no": "No",
+      "cancel": "Cancel",
+      "keyboard": "Open keyboard",
+      "record_stop": "Stop recording",
+      "continuous_record": "Continuous record",
+      "open_thread": "Open thread",
+      "favorites": "Favorites",
+      "send": "Send",
+      "prev_segment": "Previous result",
+      "next_segment": "Next result"
+    }
+  },
+  "voice": {
+    "recordingHint": "Listening… tap again to stop",
+    "idleHint": "Tap to speak · drag a direction to act",
+    "padHint": "Tap anywhere to speak · flick, swipe, or drag from the grip"
   },
   "quip": {
     "default": "One moment, I’m on it…",
@@ -159,12 +211,9 @@
   "selection": {
     "enter": "Select",
     "count": "{{countText}} selected",
-    "keep": "Keep",
     "continue": "Continue in a new chat",
     "selectAll": "Select all",
-    "clearAll": "Deselect",
-    "toVault": "To vault",
-    "vaultDone": "Saved {{countText}} to the vault"
+    "clearAll": "Deselect"
   },
   "vault": {
     "title": "Vault",
@@ -177,7 +226,7 @@
     "tags": "Tags",
     "search": "Search notes…",
     "empty": "No notes yet",
-    "emptyHint": "Create one with 'New note' or 'Save to vault' on a chat card.",
+    "emptyHint": "Create one with 'New note' — chat cards go to the vault automatically.",
     "untitled": "Note title",
     "folder": "Folder (e.g. /chat)",
     "tagsPlaceholder": "tags, comma",
@@ -187,11 +236,7 @@
     "openSourceChat": "Open source chat →",
     "saved": "Note updated",
     "created": "Note created",
-    "deleted": "Note deleted",
-    "saveAction": "Save to vault",
-    "savedToast": "Saved to vault — open note",
-    "openNote": "Open note",
-    "boardAction": "Add card to board"
+    "deleted": "Note deleted"
   },
   "board": {
     "title": "Boards",
@@ -200,14 +245,8 @@
     "namePlaceholder": "Board name",
     "create": "Create",
     "empty": "No boards yet",
-    "emptyHint": "Create your first board with 'New board'.",
-    "defaultName": "My board",
-    "col": {
-      "todo": "To do",
-      "doing": "In progress",
-      "review": "Review",
-      "done": "Done"
-    },
+    "emptyHint": "Create your first board with 'New board' (top right).",
+    "col": { "todo": "To do", "doing": "In progress", "review": "Review", "done": "Done" },
     "addCard": "+ Card",
     "newCardTitle": "New card",
     "cardTitle": "Card title",
@@ -216,12 +255,10 @@
     "saveCard": "Save",
     "deleteCard": "Delete",
     "fromMessage": "From a chat",
-    "manual": "Manual",
-    "cardSavedToast": "Card added to board — open board",
-    "openBoard": "Open board"
+    "manual": "Manual"
   },
   "cards": {
-    "thread": "Thread",
+    "threadFrom": "Start a thread from here",
     "replies": "{{countText}} replies",
     "replies_one": "{{countText}} reply",
     "replies_other": "{{countText}} replies",
@@ -273,13 +310,13 @@
     "closeViewer": "Close"
   },
   "consent": {
-    "terms": "[Required] I agree to the Terms of Service",
-    "privacy": "[Required] I agree to the Privacy Policy",
-    "voice_recording": "[Required] I acknowledge voice recording and transcription",
-    "overseas_transfer": "[Required] I consent to overseas transfers of personal data",
-    "marketing": "[Optional] I agree to receive marketing messages",
-    "ageConfirmed": "[Required] I am at least 14 years old",
-    "allRequired": "Agree to all required items (including age confirmation, excluding marketing)",
+    "terms": "I agree to the Terms of Service",
+    "privacy": "I agree to the Privacy Policy",
+    "voice_recording": "I acknowledge voice recording and transcription",
+    "overseas_transfer": "I consent to overseas transfers of personal data",
+    "marketing": "I agree to receive marketing messages",
+    "ageConfirmed": "I am at least 14 years old",
+    "allRequired": "Agree to all items (including age confirmation)",
     "missing": "Complete all required consents and confirm you are at least 14 to create an account.",
     "viewTerms": "View full Terms of Service",
     "viewPrivacy": "View full Privacy Policy",

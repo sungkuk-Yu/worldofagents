@@ -5,10 +5,10 @@
  *   백엔드: DEV_MODE=true PORT=3020 CORS_ORIGIN=http://localhost:8099 tsx src/index.ts
  *   정적서버: python3 -m http.server 8099 --bind 127.0.0.1 -d dist-wave2 (+window.process shim)
  *   APP_URL=http://localhost:8099 node tests/e2e/smoke_wave2.cjs
- * 검증 흐름 (완료 기준 대응):
- *   ① 가입 A → 채팅 전송 → 카드 '볼트에 저장' → 토스트 → 노트 열기(마크다운 렌더)
+ * 검증 흐름 (완료 기준 대응; t_a0e998cc — 카드의 볼트/보드 저장 액션 제거로 갱신):
+ *   ① 노트 화면에서 '새 노트' 생성 → 원문·frontmatter 렌더 → 원본 대화 링크 확인
  *   ② [[wikilink]] 노트 생성 → 링크 탭 이동 → 백링크 표시
- *   ③ 보드 생성 → '보드에 카드로' → 카드 시트 → 드래그(웹 pointer) → 이동 → 새로고침 후 영속 확인
+ *   ③ 보드 생성 → API from-message 카드 → 드래그(웹 pointer) → 이동 → 새로고침 후 영속 확인
  *   ④ 사용자 구분: 가입 B → 볼트/보드 빈 상태 (A의 데이터 안 보임)
  */
 const assert = require('node:assert/strict');
@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const APP = process.env.APP_URL || 'http://localhost:8099';
+const API = process.env.API_URL || 'http://localhost:3020';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'wave2');
 fs.mkdirSync(OUT, { recursive: true });
 const shot = (n) => path.join(OUT, `${n}.png`);
@@ -46,7 +47,7 @@ async function signup(page, email, cred) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
 
-    // ── 1) 계정 A: 가입 → 채팅 → 카드 '볼트에 저장' ──
+    // ── 1) 계정 A: 가입 → 채팅 → 카드 액션 정리(t_a0e998cc) → '이 글에서 스레드 시작' → 스레드 시트 ──
     await signup(page, `w2a-${stamp}@myagenttalk.dev`, `w2pw-${stamp}`);
     await page.getByTestId('new-chat-button').click();
     await page.waitForSelector('[data-testid="chat-input"]', { timeout: 20000 });
@@ -54,20 +55,50 @@ async function signup(page, email, cred) {
     await page.getByTestId('send-button').click();
     await page.waitForSelector('[data-testid="message-agent"]', { timeout: 30000 });
     await page.waitForTimeout(600);
-    check('카드 액션에 볼트/보드 버튼 노출', (await page.getByTestId('card-vault-save').count()) > 0 && (await page.getByTestId('card-board-add').count()) > 0);
-    await page.getByTestId('card-vault-save').first().click();
-    await page.getByTestId('vault-toast').waitFor({ timeout: 10000 });
-    check('볼트 저장 토스트', true);
-    await page.screenshot({ path: shot('01-vault-toast') });
-    await page.getByTestId('vault-toast-open').click();
-    await page.waitForSelector('[data-testid="vault-note"]', { timeout: 10000 });
-    const noteText = await page.getByTestId('vault-note').innerText();
-    check('노트 상세 — from-message frontmatter 렌더', noteText.includes('대화에서 저장'));
-    await page.screenshot({ path: shot('02-vault-note-from-chat') });
-    check('원본 대화 열기 링크(source_message_id)', (await page.getByTestId('vault-open-source').count()) > 0);
+    check('카드에서 볼트/보드 저장 버튼 제거', (await page.getByTestId('card-vault-save').count()) === 0 && (await page.getByTestId('card-board-add').count()) === 0);
+    check('카드에 스레드 시작 액션 노출', (await page.getByTestId('card-thread-start').count()) > 0);
+    await page.getByTestId('card-thread-start').first().click();
+    await page.getByTestId('thread-sheet').waitFor({ timeout: 10000 });
+    check('이 글에서 스레드 시작 → 스레드 시트 오픈', true);
+    await page.screenshot({ path: shot('01-thread-start') });
 
-    // ── 2) [[wikilink]] 노트 B 생성 → 링크 탭 이동 → 백링크 ──
-    await page.getByTestId('vault-back').click();
+    // from-message 노트(백엔드 API는 유지 — UI 진입만 제거): 페이지 토큰으로 직접 호출해 노트 생성/딥링크 검증
+    await page.goto(APP, { waitUntil: 'networkidle' });
+    await page.waitForSelector('[data-testid="session-card"]', { timeout: 15000 });
+    await page.getByTestId('session-card').first().click();
+    await page.waitForSelector('[data-testid="message-agent"]', { timeout: 20000 });
+    const noteFromApi = await page.evaluate(async (base) => {
+      const token = localStorage.getItem('at-web-v1.sess');
+      if (!token) return null;
+      const H = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+      const sessions = await (await fetch(`${base}/api/sessions`, { headers: H })).json();
+      const sid = sessions.data[0].id;
+      const msgs = await (await fetch(`${base}/api/sessions/${sid}/messages`, { headers: H })).json();
+      const agentMsg = msgs.data.find((m) => (m.content || '').includes('웨이브2 스모크')) || msgs.data.find((m) => m.role === 'agent') || msgs.data[msgs.data.length - 1];
+      const res = await (await fetch(`${base}/api/vault/notes/from-message`, { method: 'POST', headers: H, body: JSON.stringify({ message_id: agentMsg.id }) })).json();
+      return (res.data && res.data.id) || null;
+    }, API).catch(() => null);
+    await page.getByTestId('chat-appbar').getByText('←', { exact: true }).click(); // 대화목록 복귀 (vault/board 버튼은 리스트 앱바에 있음)
+    if (noteFromApi) {
+      await page.getByTestId('vault-button').click();
+      await page.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
+      await page.getByTestId('vault-search').fill(`웨이브2 스모크`);
+      await page.waitForSelector('[data-testid="vault-results"]', { timeout: 10000 });
+      await page.locator('[data-testid^="vault-hit-"]').first().click();
+      await page.waitForSelector('[data-testid="vault-note"]', { timeout: 10000 });
+      const noteText = await page.getByTestId('vault-note').innerText();
+      check('from-message API 노트 — 상세 렌더', noteText.includes('웨이브2 스모크'));
+      check('원본 대화 열기 링크(source_message_id)', (await page.getByTestId('vault-open-source').count()) > 0);
+      await page.screenshot({ path: shot('02-vault-note-from-api') });
+      await page.getByTestId('vault-back').click();
+      // hits 상태는 목록으로 복귀해도 유지됨 — 이후 검색이 스테일 결과를 클릭하지 않도록 초기화
+      await page.getByTestId('vault-search').fill('');
+      await page.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
+    } else {
+      check('from-message API 노트 — 상세 렌더', false, 'API 호출 실패(백엔드 :3020 미기동?)');
+      await page.getByTestId('vault-button').click();
+      await page.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
+    }
     await page.getByTestId('vault-new').click();
     await page.getByTestId('vault-title-input').fill(`메모 B ${stamp}`);
     await page.getByTestId('vault-tags-input').fill('스모크');
@@ -115,24 +146,36 @@ async function signup(page, email, cred) {
     check('보드 생성 + 4컬럼 렌더', (await page.getByTestId('board-column-done').count()) > 0);
     await page.screenshot({ path: shot('05-board-columns') });
 
-    // 채팅 → 카드 '보드에 카드로' → 토스트 딥링크로 보드 복귀
+    // 대화→카드(from-message API; t_a0e998cc로 UI 버튼 제거 — API로 직접 생성 후 보드에서 검증)
     await page.goto(APP, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-testid="session-card"]', { timeout: 15000 });
     await page.getByTestId('session-card').first().click();
     await page.waitForSelector('[data-testid="message-agent"]', { timeout: 20000 });
-    await page.getByTestId('card-board-add').first().click();
-    await page.getByTestId('board-toast').waitFor({ timeout: 10000 });
-    check('보드 저장 토스트', true);
-    await page.screenshot({ path: shot('06-board-toast') });
-    await page.getByTestId('board-toast-open').click();
+    const cardFromApi = await page.evaluate(async (base) => {
+      const token = localStorage.getItem('at-web-v1.sess');
+      if (!token) return null;
+      const H = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+      const boards = await (await fetch(`${base}/api/boards`, { headers: H })).json();
+      const boardId = boards.data[0].id;
+      const sessions = await (await fetch(`${base}/api/sessions`, { headers: H })).json();
+      const msgs = await (await fetch(`${base}/api/sessions/${sessions.data[0].id}/messages`, { headers: H })).json();
+      const agentMsg = msgs.data.find((m) => (m.content || '').includes('from-message') || (m.content || '').includes('웨이브2')) || msgs.data.find((m) => m.role === 'agent') || msgs.data[msgs.data.length - 1];
+      const res = await (await fetch(`${base}/api/boards/${boardId}/cards/from-message`, { method: 'POST', headers: H, body: JSON.stringify({ message_id: agentMsg.id }) })).json();
+      return (res.data && res.data.id) || null;
+    }, API).catch(() => null);
+    check('from-message API 카드 생성', !!cardFromApi);
+    await page.goto(APP, { waitUntil: 'networkidle' });
+    await page.waitForSelector('[data-testid="board-button"]', { timeout: 15000 });
+    await page.getByTestId('board-button').click();
+    await page.waitForSelector('[data-testid="board-list"]', { timeout: 10000 });
+    await page.locator('[data-testid^="board-open-"]').first().click();
     await page.waitForSelector('[data-testid="board-columns"]', { timeout: 15000 });
 
-    // from-message 카드 특정 (라벨 텍스트로 testid 파생) + todo 끝에 수동 카드 추가
-    const fromCard = page.locator('[data-testid^="board-card-"]', { hasText: 'from-message' }).first();
+    // from-message 카드 특정 + todo 끝에 수동 카드 추가
+    const fromCard = page.locator('[data-testid="board-card-' + cardFromApi + '"]').first();
     await fromCard.waitFor({ timeout: 10000 });
-    const fromTestId = await fromCard.evaluate((el) => el.getAttribute('data-testid'));
-    const cardId = fromTestId.replace('board-card-', '');
-    check('대화->카드 생성(from-message 라벨)', !!cardId);
+    const cardId = cardFromApi;
+    check('대화->카드 표시(보드 렌더)', true);
     await page.getByTestId('board-add-doing').click();
     await page.waitForTimeout(900);
     const manualCard = page.locator('[data-testid^="board-card-"]', { hasText: '새 카드' }).first();
@@ -178,17 +221,19 @@ async function signup(page, email, cred) {
     check('카드 시트 편집 저장(담당 칩)', (await page.locator('[data-testid="board-card-' + cardId + '"]', { hasText: '그림자비서' }).count()) === 1);
     await page.screenshot({ path: shot('09-card-sheet') });
 
-    // 다중 선택 → '볼트로' 일괄 저장 (루트로 리셋 후 세션 재진입 — detail/list 갈래 무시)
+    // 다중 선택 — t_a0e998cc: 보관/볼트로 제거 확인 후 이어가기(포크)만 남아 동작함
     await page.goto(APP, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-testid="session-card"]', { timeout: 15000 });
     await page.getByTestId('session-card').first().click();
     await page.waitForSelector('[data-testid="message-agent"]', { timeout: 20000 });
     await page.getByTestId('selection-enter').click();
     await page.getByTestId('selection-toggle-all').click();
-    await page.getByTestId('selection-vault').click();
-    await page.getByTestId('vault-toast').waitFor({ timeout: 10000 });
-    check('다중 선택 → 볼트로 일괄 저장', true);
-    await page.screenshot({ path: shot('10-selection-vault') });
+    check('다중 선택 바에서 보관/볼트로 제거', (await page.getByTestId('selection-keep').count()) === 0 && (await page.getByTestId('selection-vault').count()) === 0);
+    await page.getByTestId('selection-continue').click();
+    await page.getByTestId('fork-title').waitFor({ timeout: 10000 });
+    check('이어가기 → 포크 다이얼로그 유지', true);
+    await page.screenshot({ path: shot('10-selection-continue') });
+    await page.getByRole('button', { name: '취소', exact: true }).click();
 
     // ── 4) 사용자 구분: 계정 B — A의 데이터 비가시 ──
     const ctxB = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
