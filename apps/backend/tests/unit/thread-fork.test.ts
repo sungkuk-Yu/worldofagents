@@ -105,7 +105,8 @@ it('세 턴의 중간을 포크하면 메시지 트리·기억·컨텍스트가 
   const result = await fork(session.id, reply.answer_message_id);
   expect(result.copied).toEqual({ messages: 6, memories: 2, transcripts: 2, context_patches: originalPatches.length });
   expect(result.session).toMatchObject({ user_id: userId, agent_id: session.agent_id, persona_id: session.persona_id,
-    metadata: { title: '새 분기' }, forked_from: { session_id: session.id, message_id: reply.answer_message_id, turn_index: 5 } });
+    // t_8ef66bb0/A4: 포크는 캐논 sessions.title 컬럼에 기록하고 metadata.title도 하위 호환 유지
+    title: '새 분기', metadata: { title: '새 분기' }, forked_from: { session_id: session.id, message_id: reply.answer_message_id, turn_index: 5 } });
   expect(result.session.forked_from.forked_at).toEqual(expect.any(String));
   const copied = (await get(`/api/sessions/${result.session.id}/messages`)).json().data;
   expect(copied).toHaveLength(6);

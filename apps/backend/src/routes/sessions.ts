@@ -23,8 +23,9 @@ export function parseRangeUpper(v: unknown): number | null {
   return Number.isFinite(upper) ? upper : null;
 }
 
-/** 세션 제목 — metadata.title (favorites.ts와 동일 규칙, 포크 시 기록). */
+/** 세션 제목 — 006 캐논 sessions.title 컬럼 우선, 없으면 metadata.title 폴백 (포크 시 기록). */
 function sessionTitleOf(session: SessionsRow): string | null {
+  if (typeof session.title === 'string' && session.title.trim()) return session.title.trim();
   const meta = session.metadata as Record<string, unknown> | null;
   const title = meta && typeof meta.title === 'string' ? meta.title.trim() : '';
   return title || null;
@@ -187,6 +188,9 @@ export async function sessionRoutes(app: FastifyInstance) {
       const { data: session, error: createError } = await db.from('sessions').insert({
         user_id: original.user_id, agent_id: original.agent_id, persona_id: original.persona_id,
         status: 'active', stream_channel_id: null, created_at: now, last_activity_at: now,
+        // 006(A4): 캐논 title 컬럼 — new_session_title 우선, 없으면 원본 제목 승계 (metadata.title는 하위 호환 유지).
+        title: (body.new_session_title as string | undefined)?.trim()
+          ?? (typeof original.title === 'string' && original.title.trim() ? original.title.trim() : null),
         metadata: { ...(original.metadata as Record<string, unknown>),
           ...(body.new_session_title ? { title: (body.new_session_title as string).trim() } : {}) },
         forked_from: { session_id: original.id, message_id: point.id, turn_index: point.turn_index, forked_at: now },

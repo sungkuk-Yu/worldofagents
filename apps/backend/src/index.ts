@@ -18,6 +18,8 @@ import { vaultRoutes } from './routes/vault';
 import { boardRoutes, cardRoutes } from './routes/boards';
 import { websocketHandler } from './websocket/handler';
 import { logger } from './utils/logger';
+import { ensureDefaultNeurons } from './neurons/registry';
+import { supabaseAdmin } from './lib/supabase';
 
 export const app = Fastify({
   logger: true,
@@ -85,6 +87,26 @@ export async function build() {
 
 export async function start(): Promise<void> {
   await build();
+  // 시드 보장 (t_8ef66bb0 / 실패로그 A5): 프로덕션은 neurons 기본값이 devstore 시드에
+  // 의존하지 않으므로 부팅 시 supabaseAdmin(실DB) 경로로 upsert를 보장한다.
+  // skills 카탈로그는 supabase/migrations/006_prod_seed.sql(김비서 적용) 소관 — 코드는 neurons만.
+  // 실패해도 서버 기동을 막지 않는다(warn 후 계속): 006 미적용 초기에 DB 준비 지연과 무관해야 함.
+  // 성공 로그는 '햇빛' 금지 원칙에 따라 실제 read-back(count>0)으로 검증하고 남긴다.
+  if (!config.devMode) {
+    try {
+      await ensureDefaultNeurons(supabaseAdmin);
+      const { data: seeded, error } = await supabaseAdmin.from('neurons').select('slug').eq('status', 'active');
+      if (error) {
+        logger.warn(`neurons 부팅 시드 검증 실패(DB 오류, 서버는 계속): ${error.message}`);
+      } else if (!seeded || seeded.length === 0) {
+        logger.warn('neurons 부팅 시드 검증 실패(active 0행 — 006 미적용/쓰기 거부 의심, 서버는 계속)');
+      } else {
+        logger.info(`🧬 neurons 기본 시드 보장 완료 (devstore 무관, 실DB active ${seeded.length}행 read-back 확인)`);
+      }
+    } catch (err) {
+      logger.warn(`neurons 부팅 시드 실패(서버는 계속): ${(err as Error).message}`);
+    }
+  }
   await app.listen({ port: config.port, host: config.host });
   logger.info(`🚀 MyAgentTalk Backend running on ${config.host}:${config.port} (mode: ${config.devMode ? 'dev' : 'prod'})`);
 }

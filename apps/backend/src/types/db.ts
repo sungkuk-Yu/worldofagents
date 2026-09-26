@@ -55,6 +55,8 @@ export interface SessionsRow {
   status: 'active' | 'suspended' | 'archived';
   stream_channel_id: string | null;
   metadata: Json;
+  // 006_prod_seed.sql (t_8ef66bb0/A4): 세션 목록 제목 캐논 컬럼 — 없으면 metadata.title로 폴백.
+  title?: string | null;
   created_at: string;
   last_activity_at: string;
 }
