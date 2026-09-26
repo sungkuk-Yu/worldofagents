@@ -7,6 +7,7 @@
 //   - dev 모드(백엔드 없음)에서는 자동 데모 모드: 3초 후 가짜 트랜스크립트 스트림
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getState, useStore, setState } from '../store';
+import i18n from '../i18n';
 import { api, connectVoiceSocket, setApiConfig, VoiceSocket, ServerMessage } from '../lib/api';
 import { orchestrator } from '../neurons';
 
@@ -29,12 +30,8 @@ export interface UseVoiceSessionReturn {
   isDemo: boolean;
 }
 
-const DEMO_TRANSCRIPTS = [
-  '오늘 날씨 알려줘',
-  '이번 주 매출 데이터 정리해줘',
-  '보고서 파일 찾아줘',
-  '회식비 정산 작업 실행해줘',
-];
+// 데모 스크립트 4종 — 렌더/push 시점 t()로 해석 (모듈 상수 고정 금지: 언어 전환 반영)
+const DEMO_KEYS = ['voice.demoTranscript1', 'voice.demoTranscript2', 'voice.demoTranscript3', 'voice.demoTranscript4'] as const;
 
 export function useVoiceSession(opts: UseVoiceSessionOptions = {}): UseVoiceSessionReturn {
   const connectionStatus = useStore((s) => s.connectionStatus);
@@ -132,7 +129,7 @@ export function useVoiceSession(opts: UseVoiceSessionOptions = {}): UseVoiceSess
       getState().clearTranscripts();
       demoIndex.current = 0;
       const pushNext = () => {
-        const text = DEMO_TRANSCRIPTS[demoIndex.current % DEMO_TRANSCRIPTS.length];
+        const text = i18n.t(DEMO_KEYS[demoIndex.current % DEMO_KEYS.length]);
         demoIndex.current += 1;
         getState().addTranscript({
           id: `demo-${Date.now()}`,

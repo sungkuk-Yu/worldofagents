@@ -13,6 +13,7 @@ import {
   GestureResponderEvent,
   PanResponderGestureState,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, segmentMeta } from '../theme';
 import type { SegmentHistoryEntry } from '../types';
 
@@ -36,6 +37,7 @@ export default function SegmentHistoryBar({
   onRemove,
   onSwipe,
 }: Props) {
+  const { t } = useTranslation();
   const [longPressed, setLongPressed] = useState(false);
   const deleteCountdown = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -73,7 +75,7 @@ export default function SegmentHistoryBar({
   if (history.length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>아직 세그먼트가 없어요 — 말을 걸면 여기에 쌓입니다</Text>
+        <Text style={styles.emptyText}>{t('segment.empty')}</Text>
       </View>
     );
   }
@@ -92,6 +94,7 @@ export default function SegmentHistoryBar({
       >
         {visible.map((entry, i) => {
           const meta = segmentMeta(entry.type);
+          const displayLabel = entry.label ?? t(`segment.type.${entry.type}`);
           const absoluteIndex = i + visibleOffset;
           const isCurrent = absoluteIndex === currentIndex;
           const isPast = absoluteIndex < currentIndex;
@@ -118,7 +121,7 @@ export default function SegmentHistoryBar({
                 }}
                 onLongPress={() => (isCurrent ? startLongPress(absoluteIndex) : undefined)}
                 onPressOut={cancelLongPress}
-                accessibilityLabel={`${meta.label} 세그먼트${isCurrent ? ', 현재' : ''}`}
+                accessibilityLabel={t('segment.a11y', { label: displayLabel, suffix: isCurrent ? t('segment.currentSuffix') : '' })}
                 accessibilityRole="button"
               >
                 <View
@@ -145,7 +148,7 @@ export default function SegmentHistoryBar({
                 {/* 롱프레스 삭제 배지 */}
                 {isDeleteTarget && (
                   <View style={styles.deleteBadge}>
-                    <Text style={styles.deleteBadgeText}>× 삭제</Text>
+                    <Text style={styles.deleteBadgeText}>× {t('segment.delete')}</Text>
                   </View>
                 )}
 
@@ -153,7 +156,7 @@ export default function SegmentHistoryBar({
                   numberOfLines={1}
                   style={[styles.label, isCurrent ? styles.labelCurrent : styles.labelPast]}
                 >
-                  {entry.label ?? meta.label}
+                  {displayLabel}
                 </Text>
               </TouchableOpacity>
             </React.Fragment>
@@ -168,7 +171,7 @@ export default function SegmentHistoryBar({
               <View style={[styles.iconTile, styles.overflowTile]}>
                 <Text style={styles.overflowText}>+{history.length - MAX_VISIBLE}</Text>
               </View>
-              <Text style={styles.labelPast}>이전</Text>
+              <Text style={styles.labelPast}>{t('segment.past')}</Text>
             </TouchableOpacity>
           </>
         )}

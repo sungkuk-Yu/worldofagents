@@ -116,6 +116,9 @@ export interface SegmentMeta {
   icon: string; // 유니코드 심볼 (SVG 아이콘 교체 슬롯)
 }
 
+/* i18n-exempt-start — 세그먼트 메타데이터(색상/아이콘 사전)의 라벨 필드.
+   사용자 표시 라벨은 화면 쪽에서 t('segment.type.<type>')로 처리 (이 값 렌더링하지 않음).
+   라벨 값은 ko 사본 유지 — 서버 로그·스레드 refTitle 등 비UI 참조용. */
 export const SEGMENTS: SegmentMeta[] = [
   { type: 'information', label: '정보', color: colors.segInfo, icon: 'ⓘ' },
   { type: 'data', label: '데이터', color: colors.segData, icon: '▦' },
@@ -123,6 +126,7 @@ export const SEGMENTS: SegmentMeta[] = [
   { type: 'task', label: '작업', color: colors.segTask, icon: '✓' },
   { type: 'multi-agent', label: '멀티', color: colors.segMulti, icon: '◈' },
 ] as const;
+/* i18n-exempt-end */
 
 export const segmentMeta = (type: SegmentType): SegmentMeta =>
   SEGMENTS.find((s) => s.type === type) ?? SEGMENTS[0];

@@ -29,6 +29,7 @@ import SegmentProgressBar from '../components/SegmentProgressBar';
 import JoystickMic from '../components/JoystickMic';
 import { colors, radii, spacing, typography, iconSize, SegmentType, segmentMeta, webScreenMotion } from '../theme';
 import { useStore, getState } from '../store';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   navigation: any;
@@ -42,13 +43,15 @@ const MOVE_DISTANCE = 12; // 스와이프 시작 최소 이동
 
 // 목업 초기 히스토리: 정보 → 데이터 → 파일 (컴포넌트 전환 스택 예시)
 // 스토어가 비어 있을 때만 시드 — VoiceHome이 만든 실제 세그먼트로 즉시 교체됨
-const FALLBACK_HISTORY: SegmentHistoryEntry[] = [
-  { id: 'seg-1', type: 'information', label: '날씨', isNew: false },
-  { id: 'seg-2', type: 'data', label: '매출표', isNew: false },
-  { id: 'seg-3', type: 'file', label: '보고서', isNew: true },
+// 라벨은 렌더 시점 t()로 생성 (모듈 상수 고정 시 언어 전환 반영 실패 방지)
+const makeFallbackHistory = (t: (k: string) => string): SegmentHistoryEntry[] => [
+  { id: 'seg-1', type: 'information', label: t('canvas.demoWeather'), isNew: false },
+  { id: 'seg-2', type: 'data', label: t('canvas.demoSales'), isNew: false },
+  { id: 'seg-3', type: 'file', label: t('canvas.demoReport'), isNew: true },
 ];
 
 export default function ResultCanvasScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const history = useStore((s) => s.segmentHistory);
   const activeIndex = useStore((s) => s.activeSegmentIndex);
 
@@ -56,7 +59,7 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
   // 렌더 중 ref 접근을 피하는useState 지연 초기화 패턴 (react-hooks/refs 대응)
   useState(() => {
     if (getState().segmentHistory.length === 0) {
-      getState().setSegmentHistory(FALLBACK_HISTORY);
+      getState().setSegmentHistory(makeFallbackHistory(t));
     }
     return true;
   });
@@ -192,10 +195,9 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
   const threadCount = useMemo(() => 1 + (activeType === 'information' ? 3 : 0), [activeType]);
 
   const openThread = () => {
-    const metaEntry = segmentMeta(activeType);
     navRef.current.navigate('CardThread', {
       refType: activeType,
-      refTitle: `${metaEntry.label} 결과 카드`,
+      refTitle: t('canvas.refTitle', { label: t(`segment.type.${activeType}`) }),
     });
   };
 
@@ -222,7 +224,7 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
           <Text style={styles.headerButtonText}>✕</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerMarker, { color: meta.color }]}>{meta.icon} {meta.label}</Text>
+          <Text style={[styles.headerMarker, { color: meta.color }]}>{meta.icon} {t(`segment.type.${activeType}`)}</Text>
         </View>
         <TouchableOpacity onPress={openThread} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>⋮</Text>
@@ -250,7 +252,7 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
         {/* 스레드 진입 칩 */}
         <TouchableOpacity style={styles.threadChip} onPress={openThread}>
           <Text style={styles.threadChipText}>
-            답변 {threadCount}개 · 탭해서 스레드 열기 ›
+            {t('canvas.threadCount', { count: threadCount })}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -268,7 +270,7 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
         <TouchableOpacity
           style={styles.fab}
           onPress={openThread}
-          accessibilityLabel="카드 스레드 열기"
+          accessibilityLabel={t('canvas.openThread')}
         >
           <Text style={styles.fabIcon}>💬</Text>
         </TouchableOpacity>
@@ -277,6 +279,12 @@ export default function ResultCanvasScreen({ navigation, route }: Props) {
             onGesture={handleGesture}
             onRelease={() => {}}
             isRecording={isRecording}
+            directionLabels={{
+              DIR_LEFT: t('cards.formYes'),
+              DIR_RIGHT: t('cards.formNo'),
+              DIR_DOWN: t('common.cancel'),
+              DIR_UP: t('voice.dirUp'),
+            }}
           />
         </View>
         <View style={styles.fabPlaceholder} />
