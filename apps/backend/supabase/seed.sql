@@ -22,6 +22,7 @@ DECLARE
     agent_shadow UUID;
     agent_assistant UUID;
     agent_dev_custom UUID;
+    agent_en UUID;
 
     persona_minji_shadow UUID;
     persona_cheolsu_assistant UUID;
@@ -448,6 +449,17 @@ INSERT INTO context_patches (session_id, key, operation, delta, source_neuron) V
     (session_2, 'conversation.summary', 'set',
      '{"text": "철수는 일정 관리와 코드 리뷰 위주로 사용."}'::jsonb,
      'system.compaction');
+
+-- 영어 프리셋: 기존 JSON 확장 지점에 로케일과 시스템 프롬프트를 저장한다.
+INSERT INTO agents (owner_id, name, description, agent_type, config)
+VALUES (user_dev, 'Legal Guide', 'An English legal information assistant', 'custom',
+        '{"locale":"en","category":"legal"}'::jsonb)
+RETURNING id INTO agent_en;
+INSERT INTO personas (agent_id, version, name, voice_config, tone_config, style_guide, relationship_type)
+VALUES (agent_en, 1, 'Legal Guide', '{"language":"en"}'::jsonb,
+        '{"formality":"formal","emoji_usage":"never","sentence_length":"medium"}'::jsonb,
+        '{"system_prompt":"You are Legal Guide. Explain legal concepts clearly and suggest consulting a qualified lawyer for individual advice.","personality_traits":["careful","clear"],"preferred_expressions":["Here is an overview"],"forbidden_expressions":[],"example_responses":[{"user_input":"What is a contract?","agent_response":"A contract is an agreement that creates enforceable obligations."}]}'::jsonb,
+        'assistant');
 
 END $$;
 

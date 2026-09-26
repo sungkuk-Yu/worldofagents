@@ -1,3 +1,4 @@
+import type { Locale } from '../lib/locale';
 import type { DialogueCardType, MessagesRow } from '../types/db';
 
 export type SavedMessage = MessagesRow;
@@ -12,7 +13,7 @@ export type WSChannel = 'audio' | 'transcript' | 'neuron_status' | 'task';
 // 클라이언트 → 서버
 export type ClientMessage =
   | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string }
-  | { type: 'subscribe'; session_id: string; channels?: WSChannel[]; last_seq?: number }
+  | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
   | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string } }
   | { type: 'audio.end'; session_id: string }
@@ -21,7 +22,7 @@ export type ClientMessage =
   | { type: 'ping'; ts?: number }
   | { type: 'pong'; ts?: number };
 
-// 서버 → 클라이언트
+// 서버 → 클라이언트 (error/session.error/run.failed의 message는 폴백, code로 프론트 i18n 번역)
 export type ServerMessage =
   | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage }
   | { type: 'run.started'; session_id: string; run_id: string; seq?: number; quip: string }
@@ -30,7 +31,7 @@ export type ServerMessage =
   | { type: 'run.failed'; session_id: string; run_id: string; seq?: number; error: { code: string; message: string } }
   | { type: 'run.cancelled'; session_id: string; run_id: string; seq?: number; partial_text: string }
   | { type: 'answer.delta'; seq?: number; session_id: string; run_id: string; delta: string; index: number }
-  | { type: 'answer.done'; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null } }
+  | { type: 'answer.done'; ai_generated: true; locale: Locale; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null } }
   | { type: 'connected'; session_id: string | null; timestamp: string }
   | { type: 'subscribed'; current_seq?: number; session_id: string; channels: WSChannel[] }
   | { type: 'error'; code: string; message: string }

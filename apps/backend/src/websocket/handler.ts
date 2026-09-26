@@ -1,3 +1,4 @@
+import { Locale, resolveLocale } from '../lib/locale';
 import { getOwnedMessage } from '../lib/helpers';
 /**
  * WebSocket 핸들러 — api-design.md §4 프로토콜 구현.
@@ -55,6 +56,7 @@ interface AudioSession {
 }
 
 interface ConnState {
+  locale: Locale;
   sessionId: string | null;
   userId: string;
   channels: WSChannel[];
@@ -64,9 +66,10 @@ interface ConnState {
 
 export async function websocketHandler(connection: any, request: FastifyRequest) {
   const socket = connection.socket as WSSocket;
-  const query = (request.query || {}) as { session_id?: string; token?: string; ticket?: string };
+  const query = (request.query || {}) as { session_id?: string; token?: string; ticket?: string; locale?: string };
 
   const state: ConnState = {
+    locale: resolveLocale(query.locale, request.headers?.['accept-language']),
     sessionId: query.session_id || null,
     userId: '',
     channels: ['audio', 'transcript', 'neuron_status', 'task'],
@@ -182,6 +185,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
       }
       switch (message.type) {
         case 'subscribe':
+          if (message.locale !== undefined) state.locale = resolveLocale(message.locale, request.headers?.['accept-language']);
           state.channels = message.channels || state.channels;
           sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!) });
           if (typeof message.last_seq === 'number' && Number.isFinite(message.last_seq)) {
@@ -209,7 +213,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             thread = { parentMessageId: parent.id, rootMessageId: parent.root_message_id || parent.id };
           }
           // 종료 상태는 공유 실행기의 finally에서 보장한다.
-          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { thread, emit: e => broadcastToSession(session!.id, e) });
+          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, emit: e => broadcastToSession(session!.id, e) });
           break;
         }
 
@@ -227,7 +231,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           break;
 
         case 'transcript':
-          await handleTr({ text: message.text, isFinal: message.is_final !== false, session: session!, userId: state.userId });
+          await handleTr({ locale: state.locale, text: message.text, isFinal: message.is_final !== false, session: session!, userId: state.userId });
           break;
 
         case 'ping':
@@ -333,6 +337,7 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
   }
 
   await handleTr({
+    locale: state.locale,
     text: result.text,
     isFinal: true,
     session,
@@ -344,6 +349,7 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
 // ── 최종 트랜스크립트 → 뉴런 파이프라인 → 브로드캐스트 ──
 
 interface TrInput {
+  locale: Locale;
   text: string;
   isFinal: boolean;
   session: SessionsRow;
@@ -351,7 +357,7 @@ interface TrInput {
   stt?: Record<string, unknown>;
 }
 
-async function handleTr({ text, isFinal, session, userId, stt }: TrInput) {
+async function handleTr({ locale, text, isFinal, session, userId, stt }: TrInput) {
   const sessionId = session.id;
   if (typeof text !== 'string' || !text.trim()) return;
   if (session.status === 'archived') throw Object.assign(new Error('아카이브된 세션입니다.'), { code: 'SESSION_ARCHIVED' });
@@ -363,12 +369,13 @@ async function handleTr({ text, isFinal, session, userId, stt }: TrInput) {
       session_id: sessionId,
       text,
       confidence: 0.8,
-      language: (stt?.language as string) || 'ko',
+      language: (stt?.language as string) || locale,
     });
     return;
   }
 
   const result = await runTextTurn(supabaseAdmin, session, userId, text, {
+    locale,
     sttMetadata: stt,
     emit: e => broadcastToSession(sessionId, e),
   });
@@ -380,7 +387,7 @@ async function handleTr({ text, isFinal, session, userId, stt }: TrInput) {
     turn_index: result.messages.user.turn_index,
     text,
     confidence: (stt?.confidence as number) || 0.95,
-    language: (stt?.language as string) || 'ko',
+    language: (stt?.language as string) || locale,
     duration_ms: (stt?.duration_ms as number) || 0,
     message_id: result.userMessageId,
   });
@@ -399,4 +406,10 @@ export function __hubInfo(): { sessions: number; connections: number } {
   let connections = 0;
   for (const set of sessionHub.values()) connections += set.size;
   return { sessions: sessionHub.size, connections };
+}
+
+/** 탈퇴한 세션의 기존 소켓도 종료한다. */
+export function closeSessionConnections(sessionId: string): void {
+  for (const socket of sessionHub.get(sessionId) || []) socket.terminate?.();
+  sessionHub.delete(sessionId);
 }

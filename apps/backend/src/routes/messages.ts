@@ -1,3 +1,5 @@
+import { serializeMessage } from '../lib/helpers';
+import { parseAcceptLanguage } from '../lib/locale';
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ApiError, badRequest, ok } from '../lib/errors';
@@ -15,14 +17,14 @@ async function readThread(db: DbClient, message: MessagesRow) {
   if (error || !root) throw new ApiError('NOT_FOUND', '스레드를 찾을 수 없습니다.');
   const replies = await selectAllRows(db, 'messages', { session_id: message.session_id, root_message_id: rootId });
   replies.sort((a, b) => a.turn_index - b.turn_index);
-  return { root: { ...root, dialogue_type: root.dialogue_type ?? null, structured_payload: root.structured_payload ?? {} }, replies, reply_count: replies.length };
+  return { root: serializeMessage(root), replies: replies.map(serializeMessage), reply_count: replies.length };
 }
 
 export async function messageRoutes(app: FastifyInstance) {
   app.get('/:id', { preHandler: requireAuth }, async request => {
     const { message } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
     const thread = await readThread(request.db, message);
-    return ok({ ...message, dialogue_type: message.dialogue_type ?? null, structured_payload: message.structured_payload ?? {},
+    return ok({ ...serializeMessage(message), dialogue_type: message.dialogue_type ?? null, structured_payload: message.structured_payload ?? {},
       thread_summary: { reply_count: thread.reply_count, last_reply_at: thread.replies.at(-1)?.created_at ?? null } });
   });
 
@@ -38,6 +40,7 @@ export async function messageRoutes(app: FastifyInstance) {
     if (typeof body?.content !== 'string' || !body.content.trim()) throw badRequest('메시지 내용(content)은 필수입니다.');
     const rootId = message.root_message_id || message.id;
     const result = await runTextTurn(request.db, session, request.userId, body.content.trim(), {
+      locale: parseAcceptLanguage(request.headers['accept-language']),
       thread: { parentMessageId: message.id, rootMessageId: rootId },
       emit: e => broadcastToSession(session.id, e),
     });

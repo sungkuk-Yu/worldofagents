@@ -1,3 +1,5 @@
+import { serializeMessage } from '../lib/helpers';
+import { parseAcceptLanguage } from '../lib/locale';
 import { randomUUID } from 'node:crypto';
 import { withSessionLock } from '../lib/turnLock';
 import { FastifyInstance } from 'fastify';
@@ -189,7 +191,7 @@ export async function sessionRoutes(app: FastifyInstance) {
 
     const rows = ((data as any[]) || []).sort((a, b) => a.turn_index - b.turn_index);
     return ok(rows.map(row => ({
-      ...row, dialogue_type: row.dialogue_type ?? null,
+      ...serializeMessage(row), dialogue_type: row.dialogue_type ?? null,
       router_dialogue_type: row.role === 'user' ? classifyDialogueType(row.content) : null,
       structured_payload: row.structured_payload ?? {},
     })), { has_more: rows.length === max, total: rows.length });
@@ -205,6 +207,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
 
     const result = await runTextTurn(request.db, session, request.userId, content, {
+      locale: parseAcceptLanguage(request.headers['accept-language']),
       sttMetadata: body.stt_metadata || null,
       emit: e => broadcastToSession(session.id, e),
     });

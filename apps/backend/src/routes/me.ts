@@ -1,3 +1,8 @@
+import { selectAllRows } from '../lib/helpers';
+import { withSessionLock } from '../lib/turnLock';
+import { cancelSessionRuns, clearSessionEvents } from '../websocket/eventlog';
+import { closeSessionConnections } from '../websocket/handler';
+import { supabaseAdmin } from '../lib/supabase';
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES } from '../lib/errors';
@@ -8,6 +13,26 @@ import { meSkillRoutes } from './skills';
  * 프로필 자체는 auth 라우트의 /me와 중복되지 않게 여기서는 확장 리소스만.
  */
 export async function meRoutes(app: FastifyInstance) {
+  // SDK 기본값은 완전 삭제이며 DEV 클라이언트도 동일한 cascade 계약을 구현한다.
+  app.delete('/', { preHandler: requireAuth }, async (request) => {
+    try {
+      const sessions = await selectAllRows(supabaseAdmin, 'sessions', { user_id: request.userId });
+      for (const session of sessions) cancelSessionRuns(session.id);
+      // 실행 중인 턴이 마무리된 뒤 삭제하여 늦게 도착한 응답도 함께 파기한다.
+      await Promise.all(sessions.map(session => withSessionLock(session.id, async () => undefined)));
+      if (!supabaseAdmin.auth.admin.deleteUser) throw new Error('관리자 삭제 API 없음');
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(request.userId);
+      if (error) throw error;
+      for (const session of sessions) {
+        clearSessionEvents(session.id);
+        closeSessionConnections(session.id);
+      }
+    } catch {
+      throw new ApiError('INTERNAL_ERROR', '회원탈퇴 처리에 실패했습니다.');
+    }
+    return ok({ deleted: true });
+  });
+
   // 내 프로필 (api-design.md §3.1 — GET /me)
   app.get('/', { preHandler: requireAuth }, async (request) => {
     const { data, error } = await request.db.from('users').select('*').eq('id', request.userId).maybeSingle();

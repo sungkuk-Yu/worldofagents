@@ -5,6 +5,7 @@
  * - Persona Guard: 응답 검증 (금지 표현, 잘못된 자기 참조, 톤 일관성)
  */
 import { PersonasRow, PersonaConfig } from '../types/db';
+import type { Locale } from './locale';
 import { DbClient } from './supabase';
 
 const DEFAULT_TONE = { formality: 'friendly', emoji_usage: 'rare', sentence_length: 'medium', honorific_level: 3 };
@@ -13,6 +14,8 @@ export function rowToPersonaConfig(row: PersonasRow, overrides?: Partial<Persona
   const style = (row.style_guide || {}) as PersonaConfig['style_guide'];
   const tone = { ...DEFAULT_TONE, ...((row.tone_config || {}) as Record<string, unknown>) } as PersonaConfig['tone'];
   return {
+    system_prompt: typeof (row.style_guide as Record<string, unknown>)?.system_prompt === 'string' ? (row.style_guide as Record<string, string>).system_prompt : undefined,
+    tags: Array.isArray((row.style_guide as Record<string, unknown>)?.tags) ? (row.style_guide as { tags: string[] }).tags : [],
     persona_id: row.id,
     name: row.name,
     voice: (row.voice_config || {}) as Record<string, unknown>,
@@ -54,6 +57,7 @@ export async function getActivePersona(db: DbClient, agentId: string): Promise<P
 export function buildPersonaPrompt(config: PersonaConfig, neuronType: string): string {
   const override = config.neuron_overrides[neuronType];
   const lines: string[] = [];
+  if (config.system_prompt) lines.push(config.system_prompt);
 
   lines.push(`당신은 "${config.name}"입니다. 사용자와 대화하는 하나의 일관된 인격입니다.`);
   lines.push('');
@@ -162,4 +166,20 @@ export function buildConversationHistory(
   maxTurns = 20
 ): { role: string; content: string }[] {
   return history.slice(-maxTurns);
+}
+
+export const DISCLAIMERS: Record<'legal' | 'accounting' | 'medical' | 'general', Record<Locale, string>> = {
+  legal: { ko: '※ 본 응답은 AI가 생성한 정보이며 정식 법률 자문이 아닙니다.', en: '※ This response is AI-generated information and is not professional legal advice.' },
+  accounting: { ko: '※ 본 응답은 AI가 생성한 정보이며 정식 세무·회계 자문이 아닙니다.', en: '※ This response is AI-generated information and is not professional tax or accounting advice.' },
+  medical: { ko: '※ 본 응답은 AI가 생성한 정보이며 전문 의료진의 진단이나 진료를 대신하지 않습니다.', en: '※ This response is AI-generated information and does not replace professional medical diagnosis or care.' },
+  general: { ko: '※ 본 응답은 AI가 생성한 정보입니다.', en: '※ This response is AI-generated information.' },
+};
+
+/** 스키마에 category가 없으면 config.category 및 페르소나 이름/프롬프트/태그로 판정한다. */
+export function classifyExpertise(...values: unknown[]): keyof typeof DISCLAIMERS {
+  const text = values.map(v => typeof v === 'string' ? v : JSON.stringify(v) || '').join(' ');
+  if (/법률|변호|legal|lawyer/i.test(text)) return 'legal';
+  if (/세무|회계|tax|account/i.test(text)) return 'accounting';
+  if (/의료|의사|진료|medical|doctor/i.test(text)) return 'medical';
+  return 'general';
 }

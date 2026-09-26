@@ -5,6 +5,9 @@ dotenv.config();
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   host: process.env.HOST || '0.0.0.0',
+  defaultLocale: process.env.DEFAULT_LOCALE === 'en' ? 'en' as const : 'ko' as const,
+  // MVP는 보존 정책만 선언한다. 자동 삭제 크론은 Phase 3, 탈퇴 시에는 즉시 파기한다.
+  retention: { rawTranscriptDays: Number(process.env.RAW_TRANSCRIPT_RETENTION_DAYS || 180) },
   devMode: process.env.DEV_MODE === 'true',
   
   cors: {

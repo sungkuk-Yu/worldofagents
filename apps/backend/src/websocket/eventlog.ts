@@ -54,3 +54,13 @@ export function cancelRun(sessionId: string, runId?: string): boolean {
   run.abort.abort();
   return true;
 }
+
+
+/** 탈퇴 시 실행을 중단하고, 실행 종료 후 재생 버퍼까지 파기한다. */
+export function cancelSessionRuns(sessionId: string): void {
+  for (const run of activeRuns.get(sessionId) || []) run.abort.abort();
+}
+export function clearSessionEvents(sessionId: string): void {
+  buffers.delete(sessionId);
+  sequences.delete(sessionId);
+}

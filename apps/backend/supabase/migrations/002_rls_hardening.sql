@@ -96,3 +96,29 @@ CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(session_id, root_mess
 CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);
 ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_user_id_agent_id_key;
 CREATE UNIQUE INDEX IF NOT EXISTS sessions_user_agent_root ON sessions(user_id, agent_id) WHERE (forked_from ->> 'session_id') IS NULL;
+
+
+-- 다국어 메시지 및 AI 생성 표시 (기존 에이전트 메시지도 표시를 보정한다)
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'ko';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS ai_generated BOOLEAN NOT NULL DEFAULT false;
+UPDATE messages SET ai_generated = true WHERE source_neuron IS NOT NULL OR role IN ('agent', 'assistant');
+
+-- 가입 동의 이력: 쓰기는 백엔드 service_role만 수행한다.
+CREATE TABLE IF NOT EXISTS consents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    consent_type TEXT NOT NULL CHECK (consent_type IN ('terms','privacy','voice_recording','overseas_transfer','marketing')),
+    version TEXT NOT NULL,
+    consented BOOLEAN NOT NULL DEFAULT true,
+    ip_or_device TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_consents_user ON consents(user_id);
+ALTER TABLE consents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "consents_self_read" ON consents;
+CREATE POLICY "consents_self_read" ON consents FOR SELECT USING (user_id = auth.uid());
+
+-- 001의 작성자 FK는 NO ACTION이어서 스킬 작성자가 탈퇴하지 못했다.
+-- 사용자 작성 스킬과 그 설치 기록도 탈퇴 시 함께 파기한다.
+ALTER TABLE skills DROP CONSTRAINT IF EXISTS skills_author_id_fkey;
+ALTER TABLE skills ADD CONSTRAINT skills_author_id_fkey FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE;

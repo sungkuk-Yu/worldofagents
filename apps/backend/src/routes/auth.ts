@@ -1,3 +1,4 @@
+import { validateSignupConsents, SignupConsent } from '../lib/consents';
 import { FastifyInstance } from 'fastify';
 import { config } from '../config';
 import { supabaseAdmin, DbClient } from '../lib/supabase';
@@ -5,6 +6,8 @@ import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 
 interface SignupBody {
+  consents?: SignupConsent[];
+  age_confirmed?: boolean;
   email: string;
   password: string;
   display_name?: string;
@@ -19,12 +22,13 @@ interface LoginBody {
 
 /** 프로필 행을 users 테이블에 upsert */
 async function upsertUserProfile(db: DbClient, user: { id: string; email?: string | null }, body?: Partial<SignupBody>) {
-  await db.from('users').upsert({
+  const { error } = await db.from('users').upsert({
     id: user.id,
     display_name: body?.display_name || user.email?.split('@')[0] || '사용자',
     timezone: body?.timezone || 'Asia/Seoul',
     language: body?.language || 'ko',
   });
+  if (error) throw new ApiError('INTERNAL_ERROR', '프로필 저장에 실패했습니다.');
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -38,17 +42,29 @@ export async function authRoutes(app: FastifyInstance) {
       throw badRequest('비밀번호는 6자 이상이어야 합니다.');
     }
 
+    const consents = validateSignupConsents(body, config.devMode);
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: body.email,
       password: body.password,
       user_metadata: { name: body.display_name },
       email_confirm: true,
     });
-    if (error || !data.user) {
+    if (error || !data?.user) {
       throw new ApiError(ERROR_CODES.VALIDATION_ERROR, error?.message || '회원가입에 실패했습니다.');
     }
 
-    await upsertUserProfile(request.db || supabaseAdmin, data.user, body);
+    try {
+      await upsertUserProfile(supabaseAdmin, data.user, body);
+      const { error: consentError } = await supabaseAdmin.from('consents').insert(consents.map(c => ({
+        user_id: data.user.id, consent_type: c.type, version: c.version,
+        consented: c.consented, ip_or_device: request.ip,
+      })));
+      if (consentError) throw new ApiError('INTERNAL_ERROR', '동의 기록 저장에 실패했습니다.');
+    } catch (err) {
+      // 동의 기록 없는 계정을 발급하지 않도록 실패한 가입을 정리한다.
+      await supabaseAdmin.auth.admin.deleteUser?.(data.user.id);
+      throw err;
+    }
 
     // 자체 JWT 발급 (빠른 인증 + 차후 OAuth 계정과 호환)
     const token = app.jwt.sign(

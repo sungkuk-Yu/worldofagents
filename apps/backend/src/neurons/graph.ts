@@ -1,3 +1,4 @@
+import { Locale, QUIPS, appendLanguageInstruction } from '../lib/locale';
 /**
  * 뉴런 오케스트레이션 그래프 — neuron-architecture-spec §5
  * LangGraph StateGraph 구성 (공감 → Router → 답변/비주얼 → Compose).
@@ -17,7 +18,7 @@ import { config } from '../config';
 import { DbClient } from '../lib/supabase';
 import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
-import { buildPersonaPrompt, PersonaGuard } from '../lib/persona';
+import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 
 export type NeuronStage = 'thinking' | 'organizing' | 'finalizing' | 'rendering';
@@ -49,6 +50,7 @@ export interface NodeContext {
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null };
 
 export interface NeuronState {
+  locale: Locale;
   // 식별
   sessionId: string;
   userId: string;
@@ -78,6 +80,7 @@ export interface NeuronState {
 }
 
 export interface ProcessTurnOptions {
+  locale?: Locale;
   thread?: { parentMessageId: string; rootMessageId: string };
   signal?: AbortSignal;
   emitEvent?: (event: NeuronStatusEvent) => void;
@@ -113,11 +116,11 @@ export interface TurnResult {
 function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
-  const response = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt);
-  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: '듣고 있어요' });
+  const response = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
+  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: QUIPS.thinking[state.locale] });
   return {
     empathyResponse: response,
-    events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: '듣고 있어요' }],
+    events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: QUIPS.thinking[state.locale] }],
   };
 }
 
@@ -126,19 +129,19 @@ function routerNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> 
     hasActiveTask: state.hasActiveTask,
     pendingQueueLength: state.pendingQueueLength,
   });
-  ctx.emit({ neuron: 'router', status: 'processing', stage: 'organizing', quip: '어떻게 처리할지 정리 중이에요' });
+  ctx.emit({ neuron: 'router', status: 'processing', stage: 'organizing', quip: QUIPS.organizing[state.locale] });
   return {
     dialogueType: plan.dialogueType,
     activationPlan: plan.activate,
     reason: plan.reason,
-    events: [...state.events, { neuron: 'router', status: 'processing', stage: 'organizing', quip: '어떻게 처리할지 정리 중이에요' }],
+    events: [...state.events, { neuron: 'router', status: 'processing', stage: 'organizing', quip: QUIPS.organizing[state.locale] }],
   };
 }
 
 async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
   if (!state.activationPlan.includes('answer')) return {};
   const prompt = state.persona ? buildPersonaPrompt(state.persona, 'answer') : '';
-  const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: '자료를 찾고 있어요...' };
+  const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: QUIPS.thinking[state.locale] };
   ctx.emit(start);
   let answerResponse: string;
   if (isLlmConfigured()) {
@@ -148,7 +151,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
     try {
       const result = await chatCompletion({
-        messages: [{ role: 'system', content: prompt + '\n\n사용자가 사용하는 언어로, 자연스럽게 답하세요. 마크다운 남용 금지.' }, ...history, { role: 'user', content: state.userMessage }],
+        messages: [{ role: 'system', content: appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.', state.locale) }, ...history, { role: 'user', content: state.userMessage }],
         onDelta: d => ctx.onDelta?.(d),
         signal: ctx.signal,
       });
@@ -159,17 +162,17 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
         throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
       }
       if (!(err instanceof LlmError)) throw err;
-      answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt);
+      answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
       ctx.llm = { used: false, model: null, fallback: true, reason: err.code };
     }
   } else {
-    answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt);
+    answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
     ctx.llm = { used: false, model: null, fallback: false, reason: 'LLM_UNCONFIGURED' };
   }
   const structured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
   // 답변 생성 이후 분류 단계에서 받은 취소는 규칙 카드로 완료한다.
   ctx.classificationCancelled = Boolean(ctx.signal?.aborted);
-  const end: NeuronStatusEvent = { neuron: 'answer', status: 'idle', stage: 'finalizing', quip: '답변을 정리했어요' };
+  const end: NeuronStatusEvent = { neuron: 'answer', status: 'idle', stage: 'finalizing', quip: QUIPS.finalizing[state.locale] };
   ctx.emit(end);
   return { answerResponse, structured, llm: ctx.llm, events: [...state.events, start, end] };
 }
@@ -177,10 +180,10 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
 function visualNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
   const requested = state.activationPlan.includes('visual');
   if (!requested) return { visualRequested: false };
-  ctx.emit({ neuron: 'visual', status: 'processing', stage: 'rendering', quip: '표/차트를 만들고 있어요...' });
+  ctx.emit({ neuron: 'visual', status: 'processing', stage: 'rendering', quip: QUIPS.rendering[state.locale] });
   return {
     visualRequested: true,
-    events: [...state.events, { neuron: 'visual', status: 'processing', stage: 'rendering', quip: '표/차트를 만들고 있어요...' }],
+    events: [...state.events, { neuron: 'visual', status: 'processing', stage: 'rendering', quip: QUIPS.rendering[state.locale] }],
   };
 }
 
@@ -196,8 +199,17 @@ function composeNode(state: NeuronState, _ctx: NodeContext): Partial<NeuronState
 
 // ── 공감 및 LLM 장애 시 폴백 템플릿 ──
 
-function buildEmpathyTemplate(message: string, dialogueType: DialogueType, _prompt: string): string {
+function buildEmpathyTemplate(message: string, dialogueType: DialogueType, _prompt: string, locale: Locale): string {
   const prefix = message.trim().slice(0, 30);
+  if (locale === 'en') {
+    const replies: Record<DialogueType, string> = {
+      data: `I'll organize the data for "${prefix}".`, file: `I'll check the file task for "${prefix}".`,
+      task: `I'll start working on "${prefix}" and keep you updated.`, question: `Let me explain "${prefix}".`,
+      command: `I'll take care of "${prefix}".`, information: `I hear you: "${prefix}". Let me help.`,
+      multi: `I'll help coordinate "${prefix}".`,
+    };
+    return replies[dialogueType];
+  }
   switch (dialogueType) {
     case 'data':
       return `"${prefix}" 자료 정리하시는군요. 바로 준비해서 보여드릴게요.`;
@@ -215,7 +227,8 @@ function buildEmpathyTemplate(message: string, dialogueType: DialogueType, _prom
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function buildAnswerTemplate(message: string, _dialogueType: DialogueType, prompt: string): string {
+function buildAnswerTemplate(message: string, _dialogueType: DialogueType, prompt: string, locale: Locale): string {
+  if (locale === 'en') return `I have reviewed "${message.trim().slice(0, 50)}". Please share your specific goals and deadline so I can help further.`;
   // DEV: LLM 없이도 동작하는 상세 답변 템플릿
   return (
     `네, "${message.trim().slice(0, 50)}"에 대해 정리해드렸어요.\n\n` +
@@ -258,6 +271,7 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
   const { StateGraph, Annotation, START, END } = require('@langchain/langgraph');
 
   const StateAnnotation = Annotation.Root({
+    locale: Annotation,
     history: Annotation,
     llm: Annotation,
     sessionId: Annotation,
@@ -312,6 +326,7 @@ export async function processTurn(
   userMessage: string,
   opts: ProcessTurnOptions = {}
 ): Promise<TurnResult> {
+  const locale = opts.locale ?? config.defaultLocale;
   const turnId = opts.turnId || randomUUID();
   opts.onTurnStatus?.('received');
   return withSessionLock(sessionId, async () => {
@@ -355,6 +370,7 @@ export async function processTurn(
       }
 
       const initial: NeuronState = {
+        locale,
         sessionId,
         userId,
         agentId,
@@ -405,6 +421,8 @@ export async function processTurn(
           root_message_id: opts.thread?.rootMessageId ?? null,
           turn_index: nextTurn,
           role: 'user',
+          locale,
+          ai_generated: false,
           message_type: opts?.sttMetadata ? 'voice' : 'text',
           content: userMessage,
           dialogue_type: null,
@@ -462,6 +480,8 @@ export async function processTurn(
             root_message_id: opts.thread?.rootMessageId ?? null,
             turn_index: nextTurn + 1,
             role: 'agent',
+            locale,
+            ai_generated: true,
             message_type: 'text',
             content: final.empathyResponse,
             dialogue_type: null,
@@ -491,7 +511,10 @@ export async function processTurn(
         });
         const guardResult = await guard.validate(final.answerResponse, 'answer');
         guardPassed = guardResult.passed;
-        final.answerResponse = guardResult.response;
+        const { data: agent, error: agentError } = await db.from('agents').select('*').eq('id', agentId).maybeSingle();
+        if (agentError) throw new ApiError('INTERNAL_ERROR', agentError.message);
+        const expertise = classifyExpertise(agent?.category, agent?.config, persona?.name, persona?.system_prompt, persona?.tags);
+        final.answerResponse = guardResult.response + (expertise === 'general' ? '' : `\n\n${DISCLAIMERS[expertise][locale]}`);
 
         checkCancelled();
         const { data: m, error } = await db
@@ -502,8 +525,10 @@ export async function processTurn(
             root_message_id: opts.thread?.rootMessageId ?? null,
             turn_index: nextTurn + (final.empathyResponse ? 2 : 1),
             role: 'agent',
+            locale,
+            ai_generated: true,
             message_type: 'text',
-            content: guardResult.response,
+            content: final.answerResponse,
             dialogue_type: final.structured.dialogue_type,
             structured_payload: final.structured.structured_payload,
             stt_metadata: null,

@@ -21,6 +21,7 @@ function randomUUID(): string {
 export const emptyStore = (): DevStore => ({
   tables: {
     users: [],
+    consents: [],
     agents: [],
     personas: [],
     sessions: [],
@@ -233,14 +234,14 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
   insert(values: DevRow | DevRow[]): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
   }
 
   upsert(values: DevRow | DevRow[], opts?: { onConflict?: string }): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
   }
 
@@ -413,6 +414,10 @@ export function createDevClient(store: DevStore): DevClient {
 
     auth: {
       admin: {
+        deleteUser: async (id) => {
+          deleteDevUser(store, id);
+          return { data: null, error: null };
+        },
         createUser: async ({ email, password, user_metadata, email_confirm: _email_confirm }) => {
           if (store.usersByEmail.has(email)) {
             return { data: null, error: { message: 'User already registered' } };
@@ -457,4 +462,21 @@ export function createDevClient(store: DevStore): DevClient {
     },
   };
   return client;
+}
+
+/** auth.users 삭제의 FK cascade를 재현한다. 공유 뉴런과 다른 사용자 데이터는 보존한다. */
+export function deleteDevUser(store: DevStore, userId: string): void {
+  const ids = (table: string, predicate: (row: DevRow) => boolean) => new Set(store.tables[table].filter(predicate).map(r => r.id));
+  const agents = ids('agents', r => r.owner_id === userId);
+  const sessions = ids('sessions', r => r.user_id === userId || agents.has(r.agent_id));
+  const tasks = ids('tasks', r => sessions.has(r.session_id));
+  const skills = ids('skills', r => r.author_id === userId);
+  for (const [table, rows] of Object.entries(store.tables)) {
+    store.tables[table] = rows.filter(r => !(
+      (table === 'users' && r.id === userId) || r.user_id === userId || r.owner_id === userId
+      || agents.has(r.agent_id) || sessions.has(r.session_id) || tasks.has(r.task_id)
+      || (table === 'skills' && skills.has(r.id)) || (table === 'skill_installations' && skills.has(r.skill_id))
+    ));
+  }
+  for (const [email, entry] of store.usersByEmail) if (entry.user.id === userId) store.usersByEmail.delete(email);
 }

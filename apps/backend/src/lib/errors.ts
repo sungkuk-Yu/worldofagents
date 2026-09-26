@@ -2,9 +2,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ApiErrorResponse, ApiResponse } from '../types/db';
 
 /**
- * API 에러 코드 — api-design.md §6 매핑.
+ * API/WS 에러 코드 — 프론트는 code로 i18n 번역하고 message는 폴백으로만 사용한다.
+ * 신규 코드는 대문자 스네이크로 아래 목록과 HTTP 매핑에 등록한다.
  */
 export const ERROR_CODES = {
+  CONSENT_REQUIRED: 'CONSENT_REQUIRED',
+  AGE_CONFIRM_REQUIRED: 'AGE_CONFIRM_REQUIRED',
   RUN_CANCELLED: 'RUN_CANCELLED',
   AUTH_REQUIRED: 'AUTH_REQUIRED',
   AUTH_EXPIRED: 'AUTH_EXPIRED',
@@ -36,6 +39,8 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 const HTTP_BY_CODE: Record<string, number> = {
+  CONSENT_REQUIRED: 400,
+  AGE_CONFIRM_REQUIRED: 400,
   RUN_CANCELLED: 499,
   AUTH_REQUIRED: 401,
   AUTH_EXPIRED: 401,

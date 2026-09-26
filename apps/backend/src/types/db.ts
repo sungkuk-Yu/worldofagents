@@ -100,6 +100,8 @@ export interface NeuronInstancesRow {
 export type DialogueCardType = 'text' | 'info_card' | 'spreadsheet' | 'file' | 'task_flow' | 'multi_agent';
 
 export interface MessagesRow {
+  locale: 'ko' | 'en';
+  ai_generated: boolean;
   parent_message_id: string | null;
   root_message_id: string | null;
   id: string;
@@ -202,6 +204,8 @@ export interface ApiErrorResponse {
 }
 
 export interface PersonaConfig {
+  system_prompt?: string;
+  tags?: string[];
   persona_id: string;
   name: string;
   voice: Record<string, unknown>;
@@ -228,3 +232,14 @@ export interface PersonaConfig {
 export type DialogueType = 'information' | 'data' | 'file' | 'task' | 'multi' | 'question' | 'command';
 
 export type NeuronStage = 'thinking' | 'organizing' | 'finalizing' | 'rendering';
+
+export type ConsentType = 'terms' | 'privacy' | 'voice_recording' | 'overseas_transfer' | 'marketing';
+export interface ConsentsRow {
+  id: string;
+  user_id: string;
+  consent_type: ConsentType;
+  version: string;
+  consented: boolean;
+  ip_or_device: string | null;
+  created_at: string;
+}

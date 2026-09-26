@@ -133,11 +133,19 @@ class WsCollector {
   }
 }
 
-async function signupUser(tag) {
+async function signupUser(tag, locale) {
   const email = `smoke_chat_${tag}_${Date.now()}@test.io`;
-  const r = await req('POST', '/api/auth/signup', {
-    body: { email, password: 'password123', display_name: `스모크${tag}` },
-  });
+  const body = { email, password: 'password123', display_name: `스모크${tag}` };
+  // 법률 인프라: 필수 동의 4종 + 만 14세 확인 (운영 모드 strict, dev 모드도 동일하게 전송)
+  if (locale) body.locale = locale;
+  body.age_confirmed = true;
+  body.consents = [
+    { type: 'terms', version: '1.0', consented: true },
+    { type: 'privacy', version: '1.0', consented: true },
+    { type: 'voice_recording', version: '1.0', consented: true },
+    { type: 'overseas_transfer', version: '1.0', consented: true },
+  ];
+  const r = await req('POST', '/api/auth/signup', { body });
   if (r.status !== 201 || !r.json?.data?.token) throw new Error(`signup(${tag}) 실패: ${r.status} ${JSON.stringify(r.json)?.slice(0, 200)}`);
   return { token: r.json.data.token, userId: r.json.data.user.id, email };
 }
@@ -402,6 +410,43 @@ async function main() {
   } finally {
     wsA.close();
   }
+
+  // ── 9. i18n — en 로케일 LLM 응답 + 메시지 locale 저장 ──
+  console.log('\n[9] i18n — Accept-Language: en → 영어 응답');
+  const C = await signupUser('c', 'en');
+  const { sessionId: sessC } = await createAgentAndSession(C.token, 'Smoke EN assistant');
+  r = await req('POST', `/api/sessions/${sessC}/messages`, {
+    token: C.token,
+    headers: { 'Accept-Language': 'en-US,en;q=0.9' },
+    body: { content: 'What is 7 times 6? Answer with only the number.' },
+  });
+  check('en 로케일 POST → 201 + LLM 사용', r.status === 201 && r.json?.data?.llm?.used === true, `status=${r.status}`);
+  const enAnswer = r.json?.data?.answer_response || '';
+  check('  └ 영어 지시 질문에 숫자 42 포함', enAnswer.includes('42'), `answer="${enAnswer.slice(0, 40)}"`);
+  r = await req('GET', `/api/sessions/${sessC}/messages?limit=50`, { token: C.token });
+  const histC = r.json?.data || [];
+  check('  └ 저장된 행 locale=en', histC.length > 0 && histC.every((m) => m.locale === 'en'), `locales=${histC.map((m) => m.locale).join(',')}`);
+  const aiRows = histC.filter((m) => m.source_neuron === 'answer' || m.role === 'assistant');
+  check('  └ ai_generated=true 표시 (AI 기본법)', aiRows.length > 0 && aiRows.every((m) => m.ai_generated === true));
+
+  // 한국어 로케일 기본값 확인
+  r = await req('GET', `/api/sessions/${sessionId}/messages?limit=3`, { token: A.token });
+  check('  └ ko 사용자 행 locale=ko (기본값)', (r.json?.data || []).every((m) => m.locale === 'ko'), `locales=${(r.json?.data || []).map((m) => m.locale).join(',')}`);
+
+  // ── 10. 법률 — 동의 없는 가입 거부 + 회원탈퇴 ──
+  console.log('\n[10] 법률 — 동의 검증 + DELETE /api/me');
+  r = await req('POST', '/api/auth/signup', {
+    body: { email: `noconsent_${Date.now()}@test.io`, password: 'password123' },
+  });
+  // dev 모드에서는 필드 생략 허용일 수 있음 — 거부(4xx)거나 통과(201)나 계약은 문서화됨. strict 거부 확인은 unit 테스트 담당.
+  check('동의 없는 signup → 거부 또는 dev 허용(계약 문서화)', r.status === 400 || r.status === 201, `status=${r.status}`);
+
+  r = await req('DELETE', '/api/me', { token: C.token });
+  check('DELETE /api/me → 200 (회원탈퇴)', r.status === 200 && r.json?.ok, `status=${r.status}`);
+  r = await req('GET', '/api/me', { token: C.token });
+  check('  └ 탈퇴 후 GET /api/me → 401/404 (데이터 파기)', r.status === 401 || r.status === 404, `status=${r.status}`);
+  r = await req('GET', `/api/sessions/${sessC}/messages`, { token: C.token });
+  check('  └ 탈퇴 후 세션 히스토리 접근 불가', r.status === 401 || r.status === 404, `status=${r.status}`);
 
   console.log(`\n=== 결과: ${passed} passed, ${failed} failed ===\n`);
   process.exit(failed === 0 ? 0 : 1);

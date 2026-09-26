@@ -126,3 +126,10 @@ export async function getOwnedMessage(db: DbClient, userId: string, messageId: s
   if (sessionError || !session) throw new ApiError(ERROR_CODES.NOT_FOUND, '메시지를 찾을 수 없습니다.');
   return { message, session };
 }
+
+
+/** 이전 메시지도 기본 로케일/AI 표시 필드를 포함해 직렬화한다. */
+export function serializeMessage(row: MessagesRow): MessagesRow {
+  return { ...row, locale: row.locale ?? 'ko', ai_generated: row.ai_generated ?? (row.source_neuron != null || row.role === 'agent'),
+    dialogue_type: row.dialogue_type ?? null, structured_payload: row.structured_payload ?? {} };
+}
