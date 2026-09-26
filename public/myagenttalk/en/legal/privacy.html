@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MyAgentTalk Privacy Policy</title>
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#171717; --body:#4d4d4d; --muted:#666; --line:rgba(0,0,0,0.08); --bg:#ffffff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Geist','Inter','Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-feature-settings:"liga"; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  a { color:#0072f5; text-decoration:none; } a:hover { text-decoration:underline; }
+  .topbar { position:sticky; top:0; z-index:10; background:rgba(255,255,255,0.9); backdrop-filter:blur(8px);
+    box-shadow:0 1px 0 var(--line); }
+  .topbar-in { max-width:1120px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; letter-spacing:-0.28px; color:var(--ink); }
+  .brand .dot { width:18px; height:18px; border-radius:4px; background:#171717; color:#fff; font-size:10px; font-weight:600; display:flex; align-items:center; justify-content:center; }
+  .back { font-size:14px; font-weight:500; color:var(--ink); }
+  main { max-width:760px; margin:0 auto; padding:56px 24px 120px; }
+  h1,h2,h3 { letter-spacing:-0.96px; font-weight:600; color:var(--ink); }
+  h1 { font-size:32px; line-height:1.25; margin:0 0 8px; }
+  h2 { font-size:20px; margin:48px 0 12px; letter-spacing:-0.4px; }
+  h3 { font-size:16px; margin:32px 0 8px; letter-spacing:-0.32px; }
+  p,li { color:var(--body); font-size:15px; }
+  blockquote { margin:16px 0; padding:14px 18px; background:#fafafa; border-radius:8px;
+    box-shadow:0 0 0 1px var(--line); color:var(--body); font-size:14px; }
+  blockquote p { margin:4px 0; }
+  table { width:100%; border-collapse:separate; border-spacing:0; margin:20px 0; font-size:14px;
+    box-shadow:0 0 0 1px var(--line); border-radius:8px; overflow:hidden; }
+  th { text-align:left; background:#fafafa; font-weight:500; color:var(--ink); }
+  th,td { padding:10px 14px; box-shadow:0 -1px 0 var(--line); color:var(--body); }
+  hr { border:0; box-shadow:0 1px 0 var(--line); margin:40px 0; }
+  code { font-family:'Geist Mono',ui-monospace,Menlo,monospace; font-size:13px; background:#f2f2f2; padding:2px 5px; border-radius:4px; }
+  ul,ol { padding-left:22px; }
+</style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-in">
+  <div class="brand"><span class="dot">M</span> MyAgentTalk</div>
+  <a class="back" href="/myagenttalk/en/">&larr; Back to landing</a>
+</div></div>
+<main>
+<h1>MyAgentTalk Privacy Policy</h1>
+
+<blockquote>
+<p><strong>⚠️ DRAFT — NOT IN EFFECT</strong>
+Prepared by: My Lawyer (hammurabi) agent | Date: 2026-09-26 | Version: v0.1-draft
+Basis: <code>docs/legal/mvp-legal-review.md</code> (commit 0b5dd10d) §1 + backend code measurement (schema 001/002, config.ts, stt.ts, llm.ts)</p>
+<p><strong>This document is an internal draft and does not constitute legal advice. Before public launch, have it reviewed by qualified counsel — in particular for U.S. state privacy laws (e.g., CCPA/CPRA notice requirements) and cross-border transfer wording.</strong> Fill in all <code>[TO BE CONFIRMED]</code> placeholders.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Company (data controller)</td>
+<td>[TO BE CONFIRMED]</td>
+</tr>
+<tr>
+<td>Privacy contact / DPO</td>
+<td>[TO BE CONFIRMED — email required]</td>
+</tr>
+<tr>
+<td>Effective date / Version</td>
+<td>[LAUNCH DATE] / v0.1</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p>[COMPANY] ("we," "us") operates <strong>MyAgentTalk</strong>, a chat service where you converse with a personalized AI agent. This Privacy Policy explains what information we collect, why, how long we keep it, where it goes, and the rights you have. It applies to the MyAgentTalk mobile app and related services.</p>
+<p><strong>The single most important thing to know:</strong> because MyAgentTalk is built on third-party AI infrastructure, <strong>the content of your conversations and any voice input you send are transmitted to and processed by AI providers outside your country</strong> (see Section 5, International Transfers). Please read that section before using the Service.</p>
+<h2>1. Information We Collect</h2>
+<p><strong>(Measured against the live codebase as of 2026-09-26.)</strong></p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>What it includes</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Account data</td>
+<td>Email address; password (stored only in encrypted, non-reversible form)</td>
+<td>Sign-up</td>
+</tr>
+<tr>
+<td>Profile data</td>
+<td>Display name; phone number (optional); timezone and language; optional profile traits you choose to enter (e.g., MBTI, interests) used to personalize your agent</td>
+<td>Sign-up / profile setup</td>
+</tr>
+<tr>
+<td>Agent configuration</td>
+<td>Names, personas, voice and tone settings you create for your agents</td>
+<td>Service use</td>
+</tr>
+<tr>
+<td><strong>Conversation content</strong></td>
+<td>The full text of messages you send and agent responses, including thread and fork history</td>
+<td>Chat use</td>
+</tr>
+<tr>
+<td><strong>Voice data</strong></td>
+<td>When you use voice input, your audio is streamed to a speech-to-text provider and converted to text. <strong>We do not store the audio itself on our servers</strong> — it is processed in memory and discarded once transcribed. The resulting transcript is treated as conversation content</td>
+<td>Voice input</td>
+</tr>
+<tr>
+<td>Usage data</td>
+<td>Session and message timestamps, feature interactions, feedback (like/dislike), device information, IP address</td>
+<td>Service use</td>
+</tr>
+<tr>
+<td>Subscription data</td>
+<td>Subscription status and payment records. We do not store card numbers — payment details are processed directly by our payment processor or app store</td>
+<td>Paid purchases</td>
+</tr>
+<tr>
+<td>Consent records</td>
+<td>Which consents you gave, at what time, and which policy version</td>
+<td>Sign-up</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What we do not collect:</strong> government identifiers (e.g., Social Security or national ID numbers), precise geolocation, biometric identifiers, or sensitive personal information. Voice audio is used solely for transcription — <strong>we do not create voiceprints or use your voice for biometric identification.</strong> We do not knowingly collect information from children under 14 (or the applicable minimum age); the Service is not directed to children.</p>
+<h2>2. How We Use Information</h2>
+<ol>
+<li>To provide and operate the Service (accounts, conversations, agent memory, personalization);</li>
+<li>To process subscriptions, payments, and refunds;</li>
+<li>To secure the Service, prevent abuse, and debug problems;</li>
+<li>To comply with legal obligations;</li>
+<li>With your separate opt-in consent, to send marketing communications (you can opt out at any time; refusing does not affect the Service).</li>
+</ol>
+<p><strong>We do not use your conversation content to train AI models</strong> — neither ours nor third parties'. Conversation content is sent to AI providers solely to generate your responses. If we ever change this, we will ask for your explicit consent first (or use de-identified/aggregated data where the law permits) and update this Policy.</p>
+<p><strong>We do not sell your personal information</strong>, and we do not share it with advertisers.</p>
+<h2>3. Legal Bases (for EEA/UK/Korea users)</h2>
+<table>
+<thead>
+<tr>
+<th>Processing</th>
+<th>Basis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Account, conversation, and core service processing</td>
+<td>Performance of the contract with you</td>
+</tr>
+<tr>
+<td>Security logs, consent records</td>
+<td>Legal obligation / legitimate interests</td>
+</tr>
+<tr>
+<td>Marketing</td>
+<td>Consent (opt-in)</td>
+</tr>
+<tr>
+<td>International transfers</td>
+<td>Consent and/or contractual necessity, plus vendor DPAs (Section 5)</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Data Retention and Deletion</h2>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Retention</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Account, profile, agent settings</td>
+<td>Until you delete your account</td>
+</tr>
+<tr>
+<td>Conversation content (messages, raw transcripts, compressed memories, context records)</td>
+<td>While your account is active — retained to power the agent's memory features. [TO BE CONFIRMED: an upper retention bound for raw transcripts of inactive accounts, e.g., N months after last activity — indefinite retention is not permitted under Korean law]</td>
+</tr>
+<tr>
+<td>Voice audio</td>
+<td>Not stored; discarded immediately after transcription</td>
+</tr>
+<tr>
+<td>Transaction / consent records</td>
+<td>As required by law (e.g., Korea's E-Commerce Act: 5 years for contract and payment records)</td>
+</tr>
+<tr>
+<td>Network access logs</td>
+<td>As required by law (Korea: 3 months)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>When you delete your account, we delete your personal data — including the full text of your conversations and raw transcripts — promptly and permanently</strong> (database rows are cascade-deleted; residual copies in backups expire on the backup rotation cycle). Deletion is irreversible. Data we must keep for legal reasons is segregated and used only for that purpose.</p>
+<h2>5. International Data Transfers — Please Read</h2>
+<p>We are based in [Korea — TO BE CONFIRMED]. To make the Service work, your data is transferred to and processed in other countries:</p>
+<table>
+<thead>
+<tr>
+<th>Recipient (Country)</th>
+<th>Data transferred</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Supabase, Inc.</strong> — data stored in <strong>Tokyo, Japan (ap-northeast-1)</strong> (verified)</td>
+<td>Account data, profile, full conversation content, agent settings, usage records</td>
+<td>Database hosting and operation</td>
+</tr>
+<tr>
+<td><strong>OpenAI</strong> — <strong>United States</strong></td>
+<td>Voice input audio (for transcription)</td>
+<td>Speech-to-text (Whisper API). OpenAI's API terms state that API inputs/outputs are not used to train models; audio is retained only briefly for processing/abuse-monitoring purposes [per OpenAI policy — reconfirm at launch]</td>
+</tr>
+<tr>
+<td><strong>Alibaba Cloud (DashScope)</strong> — Singapore [estimated — to be confirmed with Alibaba before publishing]</td>
+<td>Conversation content (prompts and recent history)</td>
+<td>AI response generation (language model API). DashScope's international terms state API data is not used for model training [reconfirm at launch]</td>
+</tr>
+</tbody>
+</table>
+<p>Transfers are made under contractual data-processing agreements with these providers. For users in Korea, separate consent to international transfer is requested at sign-up, as required by the Personal Information Protection Act (Article 28-8). <strong>You may decline international transfers — but because they are essential to the Service's core function (AI responses, voice transcription, data storage), declining means you cannot use the Service.</strong></p>
+<h2>6. Service Providers</h2>
+<p>We use the following categories of service providers, who process data only on our documented instructions: cloud database hosting (Supabase), AI inference providers (OpenAI, Alibaba Cloud), payment processors [TO BE CONFIRMED — name at launch], and email/notification services [TO BE CONFIRMED]. We do not authorize them to use your data for their own purposes.</p>
+<h2>7. Your Rights</h2>
+<p>Depending on where you live, you may have the right to <strong>access, correct, delete, restrict processing of, obtain a copy of, or object to the processing of</strong> your personal information, and to withdraw consent at any time.</p>
+<p><strong>How to exercise them:</strong>
+- <strong>Access / correction</strong>: in-app — your profile screen and full conversation history are visible to you.
+- <strong>Deletion</strong>: in-app — delete individual conversations, or delete your entire account under Settings → "Delete account" (immediate, irreversible).
+- <strong>Marketing opt-out</strong>: in-app settings or the unsubscribe link in emails.
+- <strong>Anything else, or requests on behalf of another user</strong>: email [TO BE CONFIRMED]. We will verify your identity and respond within 10 business days (30 days where law allows, e.g., CCPA's 45-day framework).</p>
+<p>We will not discriminate against you for exercising your privacy rights.</p>
+<p><strong>California residents (CCPA/CPRA):</strong> you have the right to know, delete, correct, opt out of "sale"/"sharing" (we do neither), and limit use of sensitive personal information (we collect none). <strong>Korean residents:</strong> you have rights under the PIPA including access, correction, deletion, suspension of processing, and withdrawal of consent, exercisable as above or through our privacy contact.</p>
+<h2>8. Data Security</h2>
+<p>We implement administrative, technical, and physical safeguards proportionate to the sensitivity of the data: encryption in transit (TLS) and encrypted password storage; database row-level security so users can access only their own data; least-privilege access for our personnel; and access logging. No system is perfectly secure, however, and we cannot guarantee absolute security.</p>
+<p><strong>Breach notification:</strong> if a breach of personal data occurs, we will notify affected users and relevant regulators without undue delay and in accordance with applicable law (e.g., within 72 hours to Korea's Personal Information Protection Commission where required).</p>
+<h2>9. Children's Privacy</h2>
+<p>The Service is not intended for children under 14 (or the minimum age of digital consent in your jurisdiction). We do not knowingly collect children's data; if we learn we have, we will delete it promptly. Contact us at [TO BE CONFIRMED].</p>
+<h2>10. Cookies and Analytics</h2>
+<p>The Service does not currently use advertising trackers or third-party advertising cookies. [TO BE CONFIRMED: if product analytics are added at launch, disclose them here.]</p>
+<h2>11. Changes to This Policy</h2>
+<p>We will post updates here with a new version and effective date. For material changes (especially to data categories, retention, or international transfers), we will give at least 7 days' notice in-app or by email (30 days for changes significantly affecting your rights).</p>
+<table>
+<thead>
+<tr>
+<th>Version</th>
+<th>Effective</th>
+<th>Summary of changes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v0.1</td>
+<td>[LAUNCH DATE]</td>
+<td>Initial draft</td>
+</tr>
+</tbody>
+</table>
+<h2>12. Contact Us</h2>
+<ul>
+<li>Privacy contact / DPO: [TO BE CONFIRMED]</li>
+<li>Company: [TO BE CONFIRMED]</li>
+<li>For Korean users, our Personal Information Protection Officer is [TO BE CONFIRMED]; you may also contact Korea's Privacy Infringement Center (privacy.kisa.or.kr, 118).</li>
+</ul>
+<hr />
+<p><em>This document is an internal draft, not legal advice. Retain qualified counsel to review before launch — especially the international-transfer structure (processor/위탁 vs. transfer) and retention caps (docs/legal/mvp-legal-review.md §11①).</em></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>마이에이전트톡 — 가장 잘 세팅된 전문가 에이전트</title>
+<meta name="description" content="변호사·회계사·보험심사역처럼 잘 세팅된 전문가 AI 에이전트. 음성으로 물어보고, 표·카드·파일 분석까지 한 번에. MyAgentTalk — World of Agents의 첫 제품." />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #171717;
+    --body: #4d4d4d;
+    --muted: #666666;
+    --bg: #ffffff;
+    --tint: #fafafa;
+    --line: rgba(0,0,0,0.08);
+    --ring: 0px 0px 0px 1px rgba(0,0,0,0.08);
+    --card-shadow: 0px 0px 0px 1px rgba(0,0,0,0.08), 0px 2px 2px rgba(0,0,0,0.04), 0px 8px 8px -8px rgba(0,0,0,0.04);
+    --accent: #0068d6;
+    --accent-bg: #ebf5ff;
+    --green: #00A86B;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Geist', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: "liga";
+    line-height: 1.6; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; }
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── nav ─ */
+  header.nav {
+    position: sticky; top: 0; z-index: 30;
+    background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; letter-spacing: -0.3px; text-decoration: none; }
+  .brand .mark { width: 22px; height: 22px; border-radius: 5px; background: var(--ink); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .nav-links { display: flex; gap: 24px; font-size: 14px; font-weight: 500; color: var(--body); }
+  .nav-links a { text-decoration: none; } .nav-links a:hover { color: var(--ink); }
+  .nav-right { display: flex; align-items: center; gap: 10px; }
+  .lang-switch { display: flex; font-size: 12px; font-weight: 500; box-shadow: var(--ring); border-radius: 6px; overflow: hidden; }
+  .lang-switch a { padding: 5px 10px; text-decoration: none; color: var(--muted); }
+  .lang-switch a.active { background: var(--ink); color: #fff; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 6px;
+    font-size: 14px; font-weight: 500; text-decoration: none; transition: background .15s ease, transform .15s ease; }
+  .btn-dark { background: var(--ink); color: #fff; }
+  .btn-dark:hover { background: #333; }
+  .btn-ghost { background: #fff; color: var(--ink); box-shadow: rgb(235,235,235) 0px 0px 0px 1px; }
+  .btn-ghost:hover { box-shadow: var(--ring); }
+  .btn-lg { padding: 12px 26px; font-size: 15px; border-radius: 8px; }
+
+  /* ── hero ── */
+  .hero { padding: 104px 0 72px; text-align: center; position: relative; overflow: hidden; }
+  .hero::before { content: ""; position: absolute; inset: -40% 0 auto; height: 640px; pointer-events: none;
+    background: radial-gradient(60% 55% at 50% 0%, rgba(0,168,107,0.07), rgba(0,104,214,0.05) 55%, transparent 75%); }
+  .hero > .container { position: relative; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500;
+    color: var(--accent); background: var(--accent-bg); padding: 5px 12px; border-radius: 9999px; margin-bottom: 24px; }
+  .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  h1 { font-size: clamp(2.2rem, 5.6vw, 3.6rem); font-weight: 600; letter-spacing: -0.045em; line-height: 1.08;
+    margin: 0 auto 20px; max-width: 820px; }
+  h1 em { font-style: normal; color: var(--muted); }
+  .lead { font-size: 18px; color: var(--body); max-width: 640px; margin: 0 auto 36px; line-height: 1.75; }
+  .hero-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero-note { font-size: 13px; color: var(--muted); margin-top: 16px; }
+
+  /* ── shots strip ── */
+  .shots { display: flex; gap: 16px; justify-content: center; margin-top: 64px; flex-wrap: wrap; }
+  .shot { width: 190px; border-radius: 14px 14px 0 0; overflow: hidden;
+    box-shadow: rgba(0,0,0,0.08) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 24px 48px -24px;
+    background: #fff; transform: translateY(0); }
+  .shot img { width: 100%; height: auto; display: block; }
+  .shot figcaption { font-size: 12px; color: var(--muted); text-align: center; padding: 0 0 0; display: none; }
+
+  /* ── sections ─ */
+  section { padding: 96px 0; }
+  .section-alt { background: var(--tint); box-shadow: 0 1px 0 var(--line), 0 -1px 0 var(--line); }
+  .kicker { font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--accent); margin-bottom: 10px; text-align: center; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 600; letter-spacing: -0.03em; line-height: 1.2;
+    text-align: center; margin: 0 auto 12px; max-width: 680px; }
+  .section-sub { text-align: center; color: var(--body); max-width: 620px; margin: 0 auto 56px; font-size: 16px; }
+
+  /* ── preset feed (Character.AI style) ── */
+  .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .preset {
+    background: #fff; border-radius: 12px; padding: 24px; text-align: left;
+    box-shadow: var(--card-shadow); transition: transform .2s ease, box-shadow .2s ease;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .preset:hover { transform: translateY(-3px); box-shadow: rgba(0,0,0,0.1) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 12px 24px -12px; }
+  .preset-head { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0; background: var(--tint); box-shadow: var(--ring); }
+  .preset-name { font-size: 16px; font-weight: 600; letter-spacing: -0.32px; }
+  .preset-role { font-size: 12px; color: var(--muted); }
+  .preset p { margin: 0; font-size: 14px; color: var(--body); line-height: 1.65; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+  .chip { font-size: 12px; font-weight: 400; color: var(--body); background: var(--tint);
+    box-shadow: var(--ring); padding: 4px 10px; border-radius: 9999px; }
+  .preset-more { margin-top: 24px; text-align: center; font-size: 14px; color: var(--muted); }
+
+  /* ── demo ── */
+  .demo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: end; }
+  .demo-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: var(--card-shadow); }
+  .demo-card img { width: 100%; height: auto; display: block; }
+  .demo-card .cap { padding: 16px 18px 18px; }
+  .demo-card .cap b { display: block; font-size: 14px; font-weight: 600; letter-spacing: -0.28px; margin-bottom: 4px; }
+  .demo-card .cap span { font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+  /* ── pricing ── */
+  .price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 760px; margin: 0 auto; }
+  .plan { background: #fff; border-radius: 12px; padding: 28px; text-align: left; box-shadow: var(--card-shadow); position: relative; }
+  .plan.featured { box-shadow: rgba(0,0,0,0.16) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 12px 24px -12px; }
+  .plan .flag { position: absolute; top: -11px; right: 20px; font-size: 11px; font-weight: 500; color: #fff;
+    background: var(--ink); padding: 3px 10px; border-radius: 9999px; }
+  .plan h3 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.32px; }
+  .plan .for { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .price { font-size: 32px; font-weight: 600; letter-spacing: -1.28px; margin-bottom: 2px; }
+  .price small { font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+  .price-note { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .plan ul { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .plan li { font-size: 14px; color: var(--body); display: flex; gap: 9px; align-items: flex-start; }
+  .plan li::before { content: "✓"; color: var(--green); font-weight: 600; font-size: 13px; line-height: 1.5; }
+  .plan .btn { width: 100%; justify-content: center; }
+  .pay-note { max-width: 760px; margin: 28px auto 0; font-size: 13px; color: var(--muted); text-align: center; }
+
+  /* ── cta band ── */
+  .cta-band { background: var(--ink); color: #fff; border-radius: 16px; padding: 64px 32px; text-align: center; }
+  .cta-band h2 { color: #fff; margin-bottom: 10px; }
+  .cta-band p { color: #a1a1a1; font-size: 15px; max-width: 480px; margin: 0 auto 30px; }
+  .btn-white { background: #fff; color: var(--ink); }
+  .btn-white:hover { background: #ebebeb; }
+
+  /* ── footer ── */
+  footer { padding: 48px 0 56px; font-size: 13px; color: var(--muted); }
+  .foot-top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 28px; }
+  .foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); font-size: 14px; }
+  .foot-brand .mark { width: 18px; height: 18px; border-radius: 4px; background: var(--ink); color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+  .foot-links { display: flex; gap: 20px; font-weight: 500; }
+  .foot-links a { text-decoration: none; color: var(--body); } .foot-links a:hover { color: var(--ink); }
+  .foot-legal { line-height: 1.9; }
+  .draft-flag { display: inline-block; font-size: 11px; color: var(--accent); background: var(--accent-bg); padding: 2px 8px; border-radius: 9999px; margin-left: 6px; }
+
+  /* ── scroll motion (Apple-ish) ── */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } html { scroll-behavior: auto; } }
+
+  @media (max-width: 900px) {
+    .preset-grid, .demo-grid { grid-template-columns: 1fr 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 620px) {
+    .preset-grid, .demo-grid, .price-grid { grid-template-columns: 1fr; }
+    .hero { padding: 72px 0 48px; }
+    section { padding: 64px 0; }
+    .shot { width: 150px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="/myagenttalk/"><span class="mark">M</span>MyAgentTalk</a>
+    <nav class="nav-links" aria-label="주요 메뉴">
+      <a href="#presets">전문가 프리셋</a>
+      <a href="#pricing">요금제</a>
+      <a href="/ko/" title="만든 회사">World of Agents</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang-switch" role="group" aria-label="언어">
+        <a href="/myagenttalk/" class="active" lang="ko">KO</a>
+        <a href="/myagenttalk/en/" lang="en">EN</a>
+      </div>
+      <a class="btn btn-dark" href="https://app.myagenttalk.com">지금 시작하기</a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div class="eyebrow reveal">음성 우선 · 전문가 에이전트</div>
+    <h1 class="reveal">가장 잘 세팅된 전문가 에이전트.<br><em>내 변호사에게 물어볼게.</em></h1>
+    <p class="lead reveal">
+      변호사·회계사·보험심사역처럼 처음부터 전문적으로 세팅된 AI 에이전트.
+      말로 물어보면 즉시 이해하고, 표·카드·파일 분석까지 흐름 없이 이어 답합니다.
+    </p>
+    <div class="hero-ctas reveal">
+      <a class="btn btn-dark btn-lg" href="https://app.myagenttalk.com">지금 시작하기 →</a>
+      <a class="btn btn-ghost btn-lg" href="#presets">프리셋 둘러보기</a>
+    </div>
+    <p class="hero-note reveal">설치 불필요 · 브라우저에서 바로 · 무료 플랜 포함</p>
+
+    <div class="shots reveal">
+      <figure class="shot"><img src="./assets/shot-chat.png" alt="음성 대화 화면: 녹음 중 파형과 에이전트 즉시 응답" width="782" height="1690" loading="lazy" /></figure>
+      <figure class="shot"><img src="./assets/shot-card.png" alt="결과 카드 화면: 교차검증된 날씨 인포카드" width="782" height="1690" loading="lazy" /></figure>
+      <figure class="shot"><img src="./assets/shot-file.png" alt="파일 분석 화면: PDF 요약과 핵심 포인트" width="782" height="1690" loading="lazy" /></figure>
+    </div>
+  </div>
+</section>
+
+<section class="section-alt" id="presets">
+  <div class="container">
+    <div class="kicker reveal">Expert presets</div>
+    <h2 class="reveal">대화가 곧 세팅. 전문가를 고르기만 하면 됩니다</h2>
+    <p class="section-sub reveal">각 프리셋은 분야별 지식·말투·검증 루틴이 내장된 에이전트입니다. tapped 한 번으로 대화가 시작됩니다.</p>
+    <div class="preset-grid">
+      <article class="preset reveal">
+        <div class="preset-head">
+          <div class="avatar">⚖️</div>
+          <div><div class="preset-name">내 변호사</div><div class="preset-role">법률 · 계약 · 분쟁 1차 상담</div></div>
+        </div>
+        <p>계약서 조항을 물어보면 최신 판례·법령을 검색해 출처와 함께 답합니다. 실제 사건 위임이 필요한 순간에는 그 사실을 먼저 알려드립니다.</p>
+        <div class="chips"><span class="chip">"이 특약 괜찮아?"</span><span class="chip">"퇴직금 계산"</span><span class="chip">"계약 해지 통지문"</span></div>
+      </article>
+      <article class="preset reveal">
+        <div class="preset-head">
+          <div class="avatar">🧮</div>
+          <div><div class="preset-name">내 회계사</div><div class="preset-role">세금 · 장부 · 절세 체크</div></div>
+        </div>
+        <p>종합소득세·부가세 일정과 절세 포인트를 신청 서류 기준으로 짚어줍니다. 숫자가 나오는 답은 반드시 근거 자료와 함께 제시합니다.</p>
+        <div class="chips"><span class="chip">"경비 처리 되니?"</span><span class="chip">"세금 신고 D-day"</span><span class="chip">"현금영수증 정리"</span></div>
+      </article>
+      <article class="preset reveal">
+        <div class="preset-head">
+          <div class="avatar">🛡️</div>
+          <div><div class="preset-name">내 보험심사역</div><div class="preset-role">보험 약관 · 청구 · 보장 분석</div></div>
+        </div>
+        <p>보험 약관 파일을 올리면 보장 범위와 면책 조항을 표로 풀어주고, 청구 거절 사유까지 미리 체크합니다.</p>
+        <div class="chips"><span class="chip">"이 보장 되나요?"</span><span class="chip">"약관 비교"</span><span class="chip">"청구 서류 체크"</span></div>
+      </article>
+    </div>
+    <p class="preset-more reveal">+ 세무사·노무사·약사 프리셋 준비 중 — 원하는 전문가를 요청하세요.</p>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="container">
+    <div class="kicker reveal">Live demo</div>
+    <h2 class="reveal">질문에서 결과까지, 끊김 없는 한 흐름</h2>
+    <p class="section-sub reveal">즉시 반응 → 백그라운드 심층 작업 → 표·카드·파일로 완성. 네 개의 신경이 조율되어도 사용자에게는 한 사람으로 보입니다.</p>
+    <div class="demo-grid">
+      <figure class="demo-card reveal" style="margin:0">
+        <img src="./assets/shot-chat.png" alt="음성으로 말하면 즉시 이해하고 응답하는 채팅 화면" width="782" height="1690" loading="lazy" />
+        <figcaption class="cap"><b>말로 하듯, 즉시</b><span>녹음 중에도 에이전트가 먼저 반응하고, 끊어도 이어갑니다.</span></figcaption>
+      </figure>
+      <figure class="demo-card reveal" style="margin:0">
+        <img src="./assets/shot-card.png" alt="교차검증 배지가 붙은 날씨 인포카드 화면" width="782" height="1690" loading="lazy" />
+        <figcaption class="cap"><b>결과 카드로</b><span>답은 텍스트가 아니라 읽히는 카드로. 출처·검증 상태를 함께.</span></figcaption>
+      </figure>
+      <figure class="demo-card reveal" style="margin:0">
+        <img src="./assets/shot-file.png" alt="PDF 파일 요약과 핵심 포인트 목록 화면" width="782" height="1690" loading="lazy" />
+        <figcaption class="cap"><b>파일도 그대로</b><span>계약서·청구서를 올리면 요약, 핵심 포인트, 질문까지.</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="section-alt" id="pricing">
+  <div class="container">
+    <div class="kicker reveal">Pricing</div>
+    <h2 class="reveal">무료로 시작하고, 필요할 때 업그레이드</h2>
+    <p class="section-sub reveal">출시 전 사전 안내입니다. 확정 요금은 구독 페이지에서 다시 표시됩니다.</p>
+    <div class="price-grid">
+      <div class="plan reveal">
+        <h3>Free</h3>
+        <div class="for">누구나, 세팅된 전문가 체험</div>
+        <div class="price">₩0</div>
+        <div class="price-note">영구 무료</div>
+        <ul>
+          <li>전문가 프리셋 기본 대화</li>
+          <li>음성 입력 · 결과 카드</li>
+          <li>일일 대화 한도</li>
+        </ul>
+        <a class="btn btn-ghost" href="https://app.myagenttalk.com">무료로 시작</a>
+      </div>
+      <div class="plan featured reveal">
+        <span class="flag">Pro</span>
+        <h3>Pro</h3>
+        <div class="for">본격 활용 — 파일·심층 분석</div>
+        <div class="price">요금 확정 중 <small>(출시 전 안내)</small></div>
+        <div class="price-note">월 구독 · 언제든 해지</div>
+        <ul>
+          <li>한도 없는 대화 · 우선 응답</li>
+          <li>대용량 파일 분석 · 볼트/칸반</li>
+          <li>커스텀 에이전트 세팅</li>
+        </ul>
+        <a class="btn btn-dark" href="https://app.myagenttalk.com">출시 알림 받기</a>
+      </div>
+    </div>
+    <p class="pay-note reveal">구독 결제는 앱 밖 웹 브라우저에서 안전하게 처리됩니다(외부 링크 안내 포함). 환불·해지 기준은 이용약관에 따릅니다.</p>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="cta-band reveal">
+      <h2>오늘부터, 내 전문가에게 물어보세요</h2>
+      <p>가입은 이메일 한 줄. 설치도 대기 줄도 없습니다.</p>
+      <a class="btn btn-white btn-lg" href="https://app.myagenttalk.com">지금 시작하기 →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot-top">
+      <div class="foot-brand"><span class="mark">M</span> MyAgentTalk</div>
+      <nav class="foot-links" aria-label="하단 링크">
+        <a href="#presets">프리셋</a>
+        <a href="#pricing">요금제</a>
+        <a href="./legal/terms.html">이용약관</a>
+        <a href="./legal/privacy.html">개인정보처리방침</a>
+        <a href="/ko/">World of Agents</a>
+      </nav>
+    </div>
+    <div class="foot-legal">
+      통신판매번호: [확정 필요 — 사업자 통신판매업 신고 후 기재]<br>
+      사업자: [사업주체 확정 필요] · 대표: [대표님 확정 필요] · 고객센터: [이메일 확정 필요]<br>
+      이용약관·개인정보처리방침은 v0.1 초안이며 게시 전 법무 검토를 거칩니다.<span class="draft-flag">DRAFT</span>
+      <br>© 2026 World of Agents. All rights reserved.
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Apple-ish scroll reveal — one IntersectionObserver, no libraries.
+  const io = new IntersectionObserver((es) => {
+    for (const e of es) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach((el, i) => {
+    el.style.transitionDelay = (Math.min(i % 6, 5) * 60) + 'ms';
+    io.observe(el);
+  });
+</script>
+
+</body>
+</html>

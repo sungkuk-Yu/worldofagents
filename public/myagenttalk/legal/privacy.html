@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>마이에이전트톡 개인정보처리방침</title>
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#171717; --body:#4d4d4d; --muted:#666; --line:rgba(0,0,0,0.08); --bg:#ffffff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Geist','Inter','Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-feature-settings:"liga"; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  a { color:#0072f5; text-decoration:none; } a:hover { text-decoration:underline; }
+  .topbar { position:sticky; top:0; z-index:10; background:rgba(255,255,255,0.9); backdrop-filter:blur(8px);
+    box-shadow:0 1px 0 var(--line); }
+  .topbar-in { max-width:1120px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; letter-spacing:-0.28px; color:var(--ink); }
+  .brand .dot { width:18px; height:18px; border-radius:4px; background:#171717; color:#fff; font-size:10px; font-weight:600; display:flex; align-items:center; justify-content:center; }
+  .back { font-size:14px; font-weight:500; color:var(--ink); }
+  main { max-width:760px; margin:0 auto; padding:56px 24px 120px; }
+  h1,h2,h3 { letter-spacing:-0.96px; font-weight:600; color:var(--ink); }
+  h1 { font-size:32px; line-height:1.25; margin:0 0 8px; }
+  h2 { font-size:20px; margin:48px 0 12px; letter-spacing:-0.4px; }
+  h3 { font-size:16px; margin:32px 0 8px; letter-spacing:-0.32px; }
+  p,li { color:var(--body); font-size:15px; }
+  blockquote { margin:16px 0; padding:14px 18px; background:#fafafa; border-radius:8px;
+    box-shadow:0 0 0 1px var(--line); color:var(--body); font-size:14px; }
+  blockquote p { margin:4px 0; }
+  table { width:100%; border-collapse:separate; border-spacing:0; margin:20px 0; font-size:14px;
+    box-shadow:0 0 0 1px var(--line); border-radius:8px; overflow:hidden; }
+  th { text-align:left; background:#fafafa; font-weight:500; color:var(--ink); }
+  th,td { padding:10px 14px; box-shadow:0 -1px 0 var(--line); color:var(--body); }
+  hr { border:0; box-shadow:0 1px 0 var(--line); margin:40px 0; }
+  code { font-family:'Geist Mono',ui-monospace,Menlo,monospace; font-size:13px; background:#f2f2f2; padding:2px 5px; border-radius:4px; }
+  ul,ol { padding-left:22px; }
+</style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-in">
+  <div class="brand"><span class="dot">M</span> MyAgentTalk</div>
+  <a class="back" href="/myagenttalk/">&larr; 랜딩으로</a>
+</div></div>
+<main>
+<h1>마이에이전트톡 개인정보처리방침</h1>
+
+<blockquote>
+<p><strong>⚠️ 초안(DRAFT) — 미발효 문서</strong>
+작성: 내변호사(hammurabi) 에이전트 | 작성일: 2026-09-26 | 버전: v0.1-draft
+근거: <code>docs/legal/mvp-legal-review.md</code>(커밋 0b5dd10d) §1 + 백엔드 코드 실측(스키마 001·002, config.ts, stt.ts, llm.ts)
+개인정보 보호법 제30조 요건 반영. <strong>게시 전 법무법인 검토 권고.</strong> <code>[대표님 확정 필요]</code> 항목은 확정 후 채워 넣으십시오.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>개인정보처리자(사업주체)</td>
+<td>[대표님 확정 필요]</td>
+</tr>
+<tr>
+<td>대표자</td>
+<td>[대표님 확정 필요]</td>
+</tr>
+<tr>
+<td>개인정보 보호책임자(CPO)</td>
+<td>[대표님 확정 필요 — 성명·직책]</td>
+</tr>
+<tr>
+<td>연락처</td>
+<td>[대표님 확정 필요 — 이메일 필수, 전화번호 권장]</td>
+</tr>
+<tr>
+<td>시행일 / 버전</td>
+<td>[출시일] / v0.1</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p>사업주체명은 이용자의 개인정보를 소중하게 생각하며, 「개인정보 보호법」 등 관련 법령을 준수합니다. 본 방침은 회사가 MyAgentTalk(마이에이전트톡) 서비스(이하 "서비스")를 제공하기 위해 어떤 개인정보를, 왜, 얼마나, 어떻게 처리하는지를 공개하는 문서입니다.</p>
+<h2>제1조 (처리하는 개인정보의 항목)</h2>
+<p>회사는 서비스 제공을 위해 다음 항목을 처리합니다. <strong>(코드 실측 기준 — 2026-09-26)</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>항목</th>
+<th>수집 시점</th>
+<th>처리 목적</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>이메일 주소, 비밀번호(복호화 불가 형태로 암호화 저장)</td>
+<td>회원가입</td>
+<td>계정 식별·인증, 서비스 제공(계약 체결·이행)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>닉네임(display_name), 전화번호(선택), 시간대·언어 설정</td>
+<td>회원가입·프로필 설정</td>
+<td>서비스 화면 표시, 현지화</td>
+</tr>
+<tr>
+<td>3</td>
+<td>프로필 정보(MBTI·관심사 등 이용자 특성 — 선택 입력)</td>
+<td>온보딩·프로필 설정</td>
+<td>페르소나 매칭 등 맞춤형 대화 품질 개선</td>
+</tr>
+<tr>
+<td>4</td>
+<td>에이전트·페르소나 설정(이용자가 생성한 에이전트의 이름·말투·성격 설정)</td>
+<td>서비스 이용 중</td>
+<td>이용자별 에이전트 제공</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>대화 내용 전문</strong>(이용자가 입력한 텍스트 메시지 및 에이전트 응답, 스레드·포크 구조 포함)</td>
+<td>채팅 이용</td>
+<td>대화 서비스 제공, 기억(압축 메모리) 기능, 대화 이력 재표시</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>음성 데이터(음성 입력 시 녹음 데이터)</strong> — 서버 메모리에서 문자로 전사(STT)된 후 <strong>원본 오디오는 서버에 저장하지 않음</strong>(전사 처리 완료 시 파기). 전사된 텍스트는 5번과 동일하게 처리</td>
+<td>음성 메시지 이용</td>
+<td>음성→문자 변환을 통한 대화 서비스 제공</td>
+</tr>
+<tr>
+<td>7</td>
+<td>서비스 이용 기록(접속 이력, 세션·메시지 생성 시각, 피드백), 기기 정보, IP 주소</td>
+<td>서비스 이용 중</td>
+<td>부정 이용 방지, 장애 대응, 서비스 안정성 확보</td>
+</tr>
+<tr>
+<td>8</td>
+<td>결제·구독 정보(결제 수단·구독 상태 — 카드번호 등 민감 결제정보는 PG사/앱마켓이 직접 처리하며 회사는 저장하지 않음)</td>
+<td>유료서비스 구매</td>
+<td>구독 관리, 환불 처리</td>
+</tr>
+<tr>
+<td>9</td>
+<td>동의 기록(각 동의 항목·버전·시점)</td>
+<td>회원가입 시</td>
+<td>동의 사실 입증(법령상 의무)</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>회사는 <strong>주민등록번호 등 고유식별정보, 사상·신념, 건강, 성생활 등 민감정보를 수집하지 않습니다.</strong></li>
+<li>음성 데이터는 전사(轉寫) 목적의 음성인식에만 사용되며, <strong>성문 등 생체인식정보로 활용하지 않습니다.</strong></li>
+<li>만 14세 미만 아동의 개인정보는 수집하지 않습니다(회원가입 시 만 14세 이상 확인).</li>
+</ul>
+<h2>제2조 (개인정보의 처리 목적)</h2>
+<ol>
+<li>회원 식별·인증, 회원가입 의사 확인 및 서비스 제공(계약의 체결·이행)</li>
+<li>AI 에이전트를 통한 대화 서비스 제공(응답 생성, 기억·압축, 페르소나 적용)</li>
+<li>유료서비스(구독) 결제·해지·환불 처리</li>
+<li>서비스 개선, 부정 이용 방지, 법령상 의무 이행</li>
+<li><strong>(선택 동의 시)</strong> 마케팅 정보 제공 — 동의하지 않아도 서비스 이용에 제한이 없습니다.</li>
+<li>회사는 이용자의 <strong>대화 내용을 AI 모델 학습 등 수집 목적 외로 이용하지 않습니다.</strong> 향후 서비스 개선을 위해 대화 데이터를 활용하게 되는 경우, 사전에 별도 동의를 받거나 법령상 허용되는 가명처리(제28조의2) 방식으로만 처리하고 그 사실을 공지합니다.</li>
+</ol>
+<h2>제3조 (처리 근거)</h2>
+<table>
+<thead>
+<tr>
+<th>처리</th>
+<th>법적 근거</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>계정정보·대화내용 등 서비스 제공에 필수적인 처리</td>
+<td>개인정보 보호법 제15조 제1항 제4호(계약의 체결 및 이행)</td>
+</tr>
+<tr>
+<td>국외 이전(제6조)</td>
+<td>제28조의8 — 가입 시 별도 동의(및 위탁 구성 병행)</td>
+</tr>
+<tr>
+<td>마케팅 활용</td>
+<td>제15조 제1항 제1호 — 별도 (선택) 동의</td>
+</tr>
+<tr>
+<td>동의 기록·접속 로그 보존</td>
+<td>제15조 제1항 제2호(법령상 의무 준수)</td>
+</tr>
+</tbody>
+</table>
+<h2>제4조 (개인정보의 보유·이용 기간 및 파기)</h2>
+<ol>
+<li>회사는 원칙적으로 <strong>이용자의 회원 탈퇴 또는 처리 목적 달성 시 지체 없이</strong> 개인정보를 파기합니다.</li>
+<li>구체적인 보유기간:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>정보</th>
+<th>보유기간</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>계정·프로필·에이전트 설정</td>
+<td><strong>회원 탈퇴 시 즉시 파기</strong></td>
+</tr>
+<tr>
+<td>대화 전문(messages), 원본 대화 기록(raw_transcripts), 압축 기억, 컨텍스트 기록</td>
+<td><strong>서비스 이용 중에는 기억 기능 제공을 위해 보유하며, 회원 탈퇴 시 원본 포함 전부 즉시 파기.</strong> [대표님 확정 필요: 탈퇴 전 원본 대화 기록의 별도 보존 기간 상한(예: 최종 활동 후 N개월) — 법률 검토 권고에 따라 무기한 보존은 하지 않음]</td>
+</tr>
+<tr>
+<td>음성 원본 오디오</td>
+<td>전사 완료 즉시(서버에 저장되지 않음)</td>
+</tr>
+<tr>
+<td>동의 기록</td>
+<td>관련 법령에 따른 보존 기간(계약·청약철회 기록: 전자상거래법 제6조 — 5년, 표시·광고: 6개월, 대금결제·재화 공급 기록: 5년)</td>
+</tr>
+<tr>
+<td>접속에 관한 통신사실확인자료</td>
+<td>통신비밀보호법 — 3개월</td>
+</tr>
+</tbody>
+</table>
+<ol start="3">
+<li><strong>파기 절차·방법</strong>: 전자적 파일 형태는 복원이 불가능한 기술적 방법으로 삭제하며(데이터베이스 행 삭제 및 백업 주기상 만료 시 소멸), 종이 출력물은 분쇄 또는 소각합니다. 회원 탈퇴는 앱 내 설정 화면의 "회원 탈퇴"(DELETE /api/me)로 즉시 처리되며, 탈퇴 시 계정과 연결된 전 테이블의 데이터가 연쇄 삭제(CASCADE)됩니다.</li>
+<li>법령상 보존 의무로 분리 보관하는 정보는 해당 목적 외로 이용하지 않습니다.</li>
+</ol>
+<h2>제5조 (개인정보의 제3자 제공 및 위탁)</h2>
+<ol>
+<li>회사는 원칙적으로 이용자의 동의 없이 개인정보를 제3자에게 제공하지 않습니다. 단, 법령에 근거한 수사·재판상의 요구 등 예외 사유가 있는 경우 관련 법령에 따라 제공합니다.</li>
+<li><strong>위탁</strong>: 회사는 서비스 제공을 위해 다음과 같이 처리 업무를 위탁합니다. (상세 국외이전 사항은 제6조)</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>수탁자</th>
+<th>위탁 업무</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Supabase, Inc.</td>
+<td>데이터베이스 호스팅·보관</td>
+</tr>
+<tr>
+<td>OpenAI</td>
+<td>음성 데이터의 문자 전사(STT) 처리</td>
+</tr>
+<tr>
+<td>Alibaba Cloud(DashScope)</td>
+<td>대화 응답 생성(AI 언어모델 처리)</td>
+</tr>
+</tbody>
+</table>
+<p>회사는 수탁자와 데이터처리계약(DPA)을 체결하고 처리 목적 제한·안전조치·감독 의무를 계약으로 보장합니다.</p>
+<h2>제6조 (개인정보의 국외 이전 — 중요)</h2>
+<p>서비스의 기술 구조상 <strong>이용자의 대화 내용과 음성 데이터는 국외로 이전되어 처리됩니다.</strong> 개인정보 보호법 제28조의8에 따라 이전 내용을 공개하며, 회원가입 시 국외이전에 대한 <strong>별도 동의</strong>를 받습니다.</p>
+<table>
+<thead>
+<tr>
+<th>이전받는 자(국가)</th>
+<th>이전 항목</th>
+<th>이전 목적·방법</th>
+<th>이전 시점</th>
+<th>보유·이용 기간</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Supabase, Inc.</strong>(데이터 저장 리전: <strong>일본 도쿄, ap-northeast-1</strong> — 실측 확인)</td>
+<td>계정정보, 프로필, 대화 내용 전문, 에이전트 설정, 이용 기록 등 제1조 전 항목</td>
+<td>서비스 데이터베이스 저장·운영(API 전송, 실시간)</td>
+<td>서비스 이용 시 실시간</td>
+<td>회원 탈퇴 시 파기(제4조)</td>
+</tr>
+<tr>
+<td><strong>OpenAI</strong>(미국)</td>
+<td>음성 입력 데이터(오디오 스트림)</td>
+<td>음성→문자 전사(STT) 처리(Whisper API 전송)</td>
+<td>음성 메시지 전송 시</td>
+<td>OpenAI 정책상 API 데이터는 모델 개선에 사용되지 않으며 전사 처리 목적의 일시적 보유 후 삭제 [OpenAI 약관 기준 — 재확인 필요]</td>
+</tr>
+<tr>
+<td><strong>Alibaba Cloud / DashScope</strong>(싱가포르 [추정 — 확인 필요])</td>
+<td>대화 내용(프롬프트·대화 이력)</td>
+<td>AI 응답 생성(언어모델 API 전송)</td>
+<td>메시지 전송 시 실시간</td>
+<td>Alibaba 정책상 API 데이터는 모델 학습에 사용되지 않으며 처리 목적의 일시적 보유 후 삭제 [DashScope 약관 기준 — 재확인 필요]</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ <strong>확인 필요 표시</strong>: DashScope 국제판 엔드포인트의 실제 처리 리전은 미확정(싱가포르 추정)이므로, 정식 게시 전 Alibaba에 확인하여 정확한 국가를 기재해야 합니다(법률 검토 §13-3).</p>
+</blockquote>
+<p><strong>거부 방법 및 효과</strong>: 이용자는 회원가입 시 국외이전 동의를 거부할 수 있습니다. 그러나 국외이전은 서비스의 핵심 기능(AI 응답 생성·음성 인식·데이터 저장)에 필수적이므로, <strong>거부 시 회원가입 및 서비스 이용이 제한됩니다.</strong></p>
+<h2>제7조 (이용자의 권리·의무 및 행사 방법)</h2>
+<ol>
+<li>이용자는 언제든지 다음 권리를 행사할 수 있습니다:
+   - <strong>열람</strong>: 자신의 개인정보 및 대화 이력 확인(앱 내 화면 또는 요청)
+   - <strong>정정·삭제</strong>: 프로필 정보 수정, 개별 대화·세션 삭제, 계정 정보 정정 요청
+   - <strong>처리정지·동의 철회</strong>: 마케팅 동의 철회(설정 화면), 개인정보 처리 정지 요구
+   - <strong>회원 탈퇴(파기)</strong>: 설정 화면의 회원 탈퇴 — 탈퇴 시 전 데이터 즉시 파기(제4조)
+   - 만 14세 미만 아동에 관한 권리는 법정대리인이 행사합니다(본 서비스는 만 14세 이상만 이용 가능)</li>
+<li>행사 방법: 앱 내 설정 화면에서 직접 처리하거나, 개인정보 보호책임자에게 이메일 등으로 요청하면 <strong>접수 후 10일 이내</strong>에 조치하고 결과를 통보합니다.</li>
+<li>회사는 권리 행사 시 본인(또는 정당한 대리인) 여부를 확인합니다.</li>
+<li>처리정지 요구에도 법령상 보존 의무 등 정당한 사유가 있는 경우 처리가 계속될 수 있으며, 그 사유를 통지합니다.</li>
+<li>이용자는 자신의 개인정보를 최신 상태로 유지할 의무가 있으며, 타인의 개인정보를 침해·도용해서는 안 됩니다.</li>
+</ol>
+<h2>제8조 (개인정보의 안전성 확보 조치)</h2>
+<p>회사는 개인정보 보호법 제29조에 따라 다음 조치를 시행합니다:</p>
+<ol>
+<li>관리적: 내부관리계획 수립·시행, 접근 권한 최소화(서비스 역할 키 분리), 직원 교육</li>
+<li>기술적: 비밀번호 암호화 저장, 전송 구간 암호화(TLS), 데이터베이스 행 수준 보안 정책(RLS — 이용자 본인의 데이터만 접근 가능), 접근 로그 기록</li>
+<li>물리적: 클라우드 데이터센터(Supabase) 접근 통제 — 수탁자 책임 영역</li>
+<li><strong>유출 사고 대응</strong>: 개인정보 유출을 인지한 경우 지체 없이(72시간 이내) 이용자에게 알리고 개인정보보호위원회에 신고합니다(제34조).</li>
+</ol>
+<h2>제9조 (개인정보 보호책임자 및 고충 처리)</h2>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>개인정보 보호책임자(CPO)</td>
+<td>[대표님 확정 필요 — 성명·직책]</td>
+</tr>
+<tr>
+<td>연락처</td>
+<td>[대표님 확정 필요 — 이메일·전화]</td>
+</tr>
+</tbody>
+</table>
+<p>이용자는 서비스 이용 중 발생한 개인정보 관련 고충을 위 책임자에게 신고할 수 있으며, 회사는 접수 후 신속히(10일 이내 회신 원칙) 처리합니다. 기타 기관: 개인정보침해신고센터(privacy.kisa.or.kr, 118), 개인정보 분쟁조정위원회(www.kopico.go.kr, 1833-6972), 대검찰청 사이버범죄수사단(www.spo.go.kr, 1301), 경찰청 사이버수사국(ecrm.police.go.kr, 182).</p>
+<h2>제10조 (행태정보의 수집 — 해당 시 보강)</h2>
+<p>현재 회사는 온라인 맞춤형 광고를 위한 행태정보를 수집하지 않습니다. [추후 도입 시 제3자 쿠키·SDK 고지 조항 추가 필요]</p>
+<h2>제11조 (개인정보처리방침의 변경)</h2>
+<p>본 방침이 변경되는 경우 변경일 7일 전(이용자의 권리 중대 변경 시 30일 전)부터 서비스 내 공지 또는 이메일 통지로 알립니다.</p>
+<table>
+<thead>
+<tr>
+<th>버전</th>
+<th>시행일</th>
+<th>변경 내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v0.1</td>
+<td>[출시일]</td>
+<td>최초 제정</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>본 문서는 법률 자문이 아닌 내부 초안입니다. 정식 게시 전 법무법인 검토를 권고합니다(근거: docs/legal/mvp-legal-review.md §11① — 국외이전 구성(위탁 vs 이전)·보유기간 정책은 변호사 확인 필요 영역).</em></p>
+</main>
+</body>
+</html>

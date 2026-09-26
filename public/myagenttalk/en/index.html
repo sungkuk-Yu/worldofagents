@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MyAgentTalk — The best-set-up expert agent</title>
+<meta name="description" content="An AI expert agent that arrives fully set up — lawyer, accountant, insurance assessor. Ask by voice; get answers, tables, cards and file analysis in one uninterrupted flow. MyAgentTalk, the first product by World of Agents." />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #171717;
+    --body: #4d4d4d;
+    --muted: #666666;
+    --bg: #ffffff;
+    --tint: #fafafa;
+    --line: rgba(0,0,0,0.08);
+    --ring: 0px 0px 0px 1px rgba(0,0,0,0.08);
+    --card-shadow: 0px 0px 0px 1px rgba(0,0,0,0.08), 0px 2px 2px rgba(0,0,0,0.04), 0px 8px 8px -8px rgba(0,0,0,0.04);
+    --accent: #0068d6;
+    --accent-bg: #ebf5ff;
+    --green: #00A86B;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: "liga";
+    line-height: 1.6; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; }
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  header.nav {
+    position: sticky; top: 0; z-index: 30;
+    background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; letter-spacing: -0.3px; text-decoration: none; }
+  .brand .mark { width: 22px; height: 22px; border-radius: 5px; background: var(--ink); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .nav-links { display: flex; gap: 24px; font-size: 14px; font-weight: 500; color: var(--body); }
+  .nav-links a { text-decoration: none; } .nav-links a:hover { color: var(--ink); }
+  .nav-right { display: flex; align-items: center; gap: 10px; }
+  .lang-switch { display: flex; font-size: 12px; font-weight: 500; box-shadow: var(--ring); border-radius: 6px; overflow: hidden; }
+  .lang-switch a { padding: 5px 10px; text-decoration: none; color: var(--muted); }
+  .lang-switch a.active { background: var(--ink); color: #fff; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 6px;
+    font-size: 14px; font-weight: 500; text-decoration: none; transition: background .15s ease, transform .15s ease; }
+  .btn-dark { background: var(--ink); color: #fff; }
+  .btn-dark:hover { background: #333; }
+  .btn-ghost { background: #fff; color: var(--ink); box-shadow: rgb(235,235,235) 0px 0px 0px 1px; }
+  .btn-ghost:hover { box-shadow: var(--ring); }
+  .btn-lg { padding: 12px 26px; font-size: 15px; border-radius: 8px; }
+
+  .hero { padding: 104px 0 72px; text-align: center; position: relative; overflow: hidden; }
+  .hero::before { content: ""; position: absolute; inset: -40% 0 auto; height: 640px; pointer-events: none;
+    background: radial-gradient(60% 55% at 50% 0%, rgba(0,168,107,0.07), rgba(0,104,214,0.05) 55%, transparent 75%); }
+  .hero > .container { position: relative; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500;
+    color: var(--accent); background: var(--accent-bg); padding: 5px 12px; border-radius: 9999px; margin-bottom: 24px; }
+  .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  h1 { font-size: clamp(2.2rem, 5.6vw, 3.6rem); font-weight: 600; letter-spacing: -0.045em; line-height: 1.08;
+    margin: 0 auto 20px; max-width: 820px; }
+  h1 em { font-style: normal; color: var(--muted); }
+  .lead { font-size: 18px; color: var(--body); max-width: 640px; margin: 0 auto 36px; line-height: 1.75; }
+  .hero-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero-note { font-size: 13px; color: var(--muted); margin-top: 16px; }
+
+  .shots { display: flex; gap: 16px; justify-content: center; margin-top: 64px; flex-wrap: wrap; }
+  .shot { width: 190px; border-radius: 14px 14px 0 0; overflow: hidden;
+    box-shadow: rgba(0,0,0,0.08) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 24px 48px -24px;
+    background: #fff; }
+  .shot img { width: 100%; height: auto; display: block; }
+
+  section { padding: 96px 0; }
+  .section-alt { background: var(--tint); box-shadow: 0 1px 0 var(--line), 0 -1px 0 var(--line); }
+  .kicker { font-size: 13px; font-weight: 500; color: var(--accent); margin-bottom: 10px; text-align: center; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 600; letter-spacing: -0.03em; line-height: 1.2;
+    text-align: center; margin: 0 auto 12px; max-width: 680px; }
+  .section-sub { text-align: center; color: var(--body); max-width: 620px; margin: 0 auto 56px; font-size: 16px; }
+
+  .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .preset {
+    background: #fff; border-radius: 12px; padding: 24px; text-align: left;
+    box-shadow: var(--card-shadow); transition: transform .2s ease, box-shadow .2s ease;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .preset:hover { transform: translateY(-3px); box-shadow: rgba(0,0,0,0.1) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 12px 24px -12px; }
+  .preset-head { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0; background: var(--tint); box-shadow: var(--ring); }
+  .preset-name { font-size: 16px; font-weight: 600; letter-spacing: -0.32px; }
+  .preset-role { font-size: 12px; color: var(--muted); }
+  .preset p { margin: 0; font-size: 14px; color: var(--body); line-height: 1.65; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+  .chip { font-size: 12px; color: var(--body); background: var(--tint);
+    box-shadow: var(--ring); padding: 4px 10px; border-radius: 9999px; }
+  .preset-more { margin-top: 24px; text-align: center; font-size: 14px; color: var(--muted); }
+
+  .demo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: end; }
+  .demo-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: var(--card-shadow); }
+  .demo-card img { width: 100%; height: auto; display: block; }
+  .demo-card .cap { padding: 16px 18px 18px; }
+  .demo-card .cap b { display: block; font-size: 14px; font-weight: 600; letter-spacing: -0.28px; margin-bottom: 4px; }
+  .demo-card .cap span { font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+  .price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 760px; margin: 0 auto; }
+  .plan { background: #fff; border-radius: 12px; padding: 28px; text-align: left; box-shadow: var(--card-shadow); position: relative; }
+  .plan.featured { box-shadow: rgba(0,0,0,0.16) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 12px 24px -12px; }
+  .plan .flag { position: absolute; top: -11px; right: 20px; font-size: 11px; font-weight: 500; color: #fff;
+    background: var(--ink); padding: 3px 10px; border-radius: 9999px; }
+  .plan h3 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.32px; }
+  .plan .for { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .price { font-size: 32px; font-weight: 600; letter-spacing: -1.28px; margin-bottom: 2px; }
+  .price small { font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+  .price-note { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .plan ul { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .plan li { font-size: 14px; color: var(--body); display: flex; gap: 9px; align-items: flex-start; }
+  .plan li::before { content: "✓"; color: var(--green); font-weight: 600; font-size: 13px; line-height: 1.5; }
+  .plan .btn { width: 100%; justify-content: center; }
+  .pay-note { max-width: 760px; margin: 28px auto 0; font-size: 13px; color: var(--muted); text-align: center; }
+
+  .cta-band { background: var(--ink); color: #fff; border-radius: 16px; padding: 64px 32px; text-align: center; }
+  .cta-band h2 { color: #fff; margin-bottom: 10px; }
+  .cta-band p { color: #a1a1a1; font-size: 15px; max-width: 480px; margin: 0 auto 30px; }
+  .btn-white { background: #fff; color: var(--ink); }
+  .btn-white:hover { background: #ebebeb; }
+
+  footer { padding: 48px 0 56px; font-size: 13px; color: var(--muted); }
+  .foot-top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 28px; }
+  .foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); font-size: 14px; }
+  .foot-brand .mark { width: 18px; height: 18px; border-radius: 4px; background: var(--ink); color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+  .foot-links { display: flex; gap: 20px; font-weight: 500; }
+  .foot-links a { text-decoration: none; color: var(--body); } .foot-links a:hover { color: var(--ink); }
+  .foot-legal { line-height: 1.9; }
+  .draft-flag { display: inline-block; font-size: 11px; color: var(--accent); background: var(--accent-bg); padding: 2px 8px; border-radius: 9999px; margin-left: 6px; }
+
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } html { scroll-behavior: auto; } }
+
+  @media (max-width: 900px) {
+    .preset-grid, .demo-grid { grid-template-columns: 1fr 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 620px) {
+    .preset-grid, .demo-grid, .price-grid { grid-template-columns: 1fr; }
+    .hero { padding: 72px 0 48px; }
+    section { padding: 64px 0; }
+    .shot { width: 150px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="/myagenttalk/en/"><span class="mark">M</span>MyAgentTalk</a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#presets">Expert presets</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/" title="Built by">World of Agents</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang-switch" role="group" aria-label="Language">
+        <a href="/myagenttalk/" lang="ko">KO</a>
+        <a href="/myagenttalk/en/" class="active" lang="en">EN</a>
+      </div>
+      <a class="btn btn-dark" href="https://app.myagenttalk.com">Get started</a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div class="eyebrow reveal">Voice-first · expert agents</div>
+    <h1 class="reveal">The best-set-up expert agent.<br><em>Like asking your own lawyer.</em></h1>
+    <p class="lead reveal">
+      An AI agent that arrives fully set up — lawyer, accountant, insurance assessor.
+      Ask out loud and it understands instantly, then carries the answer through tables,
+      cards and file analysis without breaking the flow.
+    </p>
+    <div class="hero-ctas reveal">
+      <a class="btn btn-dark btn-lg" href="https://app.myagenttalk.com">Get started →</a>
+      <a class="btn btn-ghost btn-lg" href="#presets">Browse presets</a>
+    </div>
+    <p class="hero-note reveal">No install · runs in the browser · free plan included</p>
+
+    <div class="shots reveal">
+      <figure class="shot"><img src="../assets/shot-chat.png" alt="Voice chat screen: live waveform while recording and the agent's instant reply" width="782" height="1690" loading="lazy" /></figure>
+      <figure class="shot"><img src="../assets/shot-card.png" alt="Result card screen: a cross-checked weather info card" width="782" height="1690" loading="lazy" /></figure>
+      <figure class="shot"><img src="../assets/shot-file.png" alt="File analysis screen: PDF summary with key points" width="782" height="1690" loading="lazy" /></figure>
+    </div>
+  </div>
+</section>
+
+<section class="section-alt" id="presets">
+  <div class="container">
+    <div class="kicker reveal">Expert presets</div>
+    <h2 class="reveal">The conversation is the setup. Just pick an expert.</h2>
+    <p class="section-sub reveal">Each preset ships with domain knowledge, tone and verification routines built in. One tap and the conversation starts.</p>
+    <div class="preset-grid">
+      <article class="preset reveal">
+        <div class="preset-head">
+          <div class="avatar">⚖️</div>
+          <div><div class="preset-name">My Lawyer</div><div class="preset-role">Legal · contracts · first-consult triage</div></div>
+        </div>
+        <p>Ask about a contract clause and it searches current case law and statutes, answering with citations. When a real retainer is needed, it says so first.</p>
+        <div class="chips"><span class="chip">"Is this clause okay?"</span><span class="chip">"Severance calc"</span><span class="chip">"Termination notice"</span></div>
+      </article>
+      <article class="preset reveal">
+        <div class="preset-head">
+          <div class="avatar">🧮</div>
+          <div><div class="preset-name">My Accountant</div><div class="preset-role">Taxes · books · deduction checks</div></div>
+        </div>
+        <p>Deadlines and saving points for income and VAT filings, based on your actual documents. Every number comes with its source.</p>
+        <div class="chips"><span class="chip">"Is this deductible?"</span><span class="chip">"Filing D-day"</span><span class="chip">"Receipt cleanup"</span></div>
+      </article>
+      <article class="preset reveal">
+        <div class="preset-head">
+          <div class="avatar">🛡️</div>
+          <div><div class="preset-name">My Insurance Assessor</div><div class="preset-role">Policy terms · claims · coverage</div></div>
+        </div>
+        <p>Upload a policy PDF and coverage and exclusions come back as a table — including the reasons claims get denied, checked in advance.</p>
+        <div class="chips"><span class="chip">"Am I covered?"</span><span class="chip">"Compare policies"</span><span class="chip">"Claim checklist"</span></div>
+      </article>
+    </div>
+    <p class="preset-more reveal">+ Tax advisor · labor attorney · pharmacist presets in the works — request the expert you need.</p>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="container">
+    <div class="kicker reveal">Live demo</div>
+    <h2 class="reveal">From question to result, one uninterrupted flow</h2>
+    <p class="section-sub reveal">Instant acknowledgment → deep work in the background → finished as tables, cards and files. Four neurons coordinate; you only ever see one person.</p>
+    <div class="demo-grid">
+      <figure class="demo-card reveal" style="margin:0">
+        <img src="../assets/shot-chat.png" alt="Chat screen where the agent reacts while you are still speaking" width="782" height="1690" loading="lazy" />
+        <figcaption class="cap"><b>Spoken, answered instantly</b><span>The agent acknowledges while you're still recording — interruptions merge, never restart.</span></figcaption>
+      </figure>
+      <figure class="demo-card reveal" style="margin:0">
+        <img src="../assets/shot-card.png" alt="Weather info card with a cross-checked badge" width="782" height="1690" loading="lazy" />
+        <figcaption class="cap"><b>Answers as cards</b><span>Results arrive as readable cards with sources and verification status attached.</span></figcaption>
+      </figure>
+      <figure class="demo-card reveal" style="margin:0">
+        <img src="../assets/shot-file.png" alt="PDF summary screen with key points" width="782" height="1690" loading="lazy" />
+        <figcaption class="cap"><b>Files, as-is</b><span>Drop in a contract or claim form — summary, key points, and follow-up questions.</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="section-alt" id="pricing">
+  <div class="container">
+    <div class="kicker reveal">Pricing</div>
+    <h2 class="reveal">Start free. Upgrade when it earns it.</h2>
+    <p class="section-sub reveal">Pre-launch preview — final prices will be shown on the subscription page.</p>
+    <div class="price-grid">
+      <div class="plan reveal">
+        <h3>Free</h3>
+        <div class="for">Everyone — try a set-up expert</div>
+        <div class="price">$0</div>
+        <div class="price-note">Free forever</div>
+        <ul>
+          <li>Core expert presets</li>
+          <li>Voice input · result cards</li>
+          <li>Daily conversation limit</li>
+        </ul>
+        <a class="btn btn-ghost" href="https://app.myagenttalk.com">Start free</a>
+      </div>
+      <div class="plan featured reveal">
+        <span class="flag">Pro</span>
+        <h3>Pro</h3>
+        <div class="for">Full use — files & deep analysis</div>
+        <div class="price">Finalizing <small>(pre-launch)</small></div>
+        <div class="price-note">Monthly · cancel anytime</div>
+        <ul>
+          <li>Unlimited chats · priority responses</li>
+          <li>Large file analysis · vault & boards</li>
+          <li>Custom agent setup</li>
+        </ul>
+        <a class="btn btn-dark" href="https://app.myagenttalk.com">Get launch notice</a>
+      </div>
+    </div>
+    <p class="pay-note reveal">Subscriptions are billed securely in the web browser, outside the app (with an external-link notice). Refunds and cancellations follow the Terms of Service.</p>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="cta-band reveal">
+      <h2>Ask your own expert today</h2>
+      <p>Sign up with one line of email. No install, no queue.</p>
+      <a class="btn btn-white btn-lg" href="https://app.myagenttalk.com">Get started →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot-top">
+      <div class="foot-brand"><span class="mark">M</span> MyAgentTalk</div>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="#presets">Presets</a>
+        <a href="#pricing">Pricing</a>
+        <a href="./legal/terms.html">Terms of Service</a>
+        <a href="./legal/privacy.html">Privacy Policy</a>
+        <a href="/">World of Agents</a>
+      </nav>
+    </div>
+    <div class="foot-legal">
+      Mail-order business registration: [TBD — to be filled after business registration]<br>
+      Business entity: [TBD] · CEO: [TBD] · Support: [email TBD]<br>
+      Terms &amp; Privacy Policy are v0.1 drafts pending legal review before publication.<span class="draft-flag">DRAFT</span>
+      <br>© 2026 World of Agents. All rights reserved.
+    </div>
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver((es) => {
+    for (const e of es) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach((el, i) => {
+    el.style.transitionDelay = (Math.min(i % 6, 5) * 60) + 'ms';
+    io.observe(el);
+  });
+</script>
+
+</body>
+</html>
