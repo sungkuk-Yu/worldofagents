@@ -55,10 +55,13 @@ function check(name, cond, extra = '') {
   await page.screenshot({ path: shot('02-login') });
 
   if (onLogin) {
+    // Run D 이후 기본 모드는 로그인 — 스모크 계정은 신규이므로 회원가입 경유 (동의 게이트 포함)
+    await page.getByTestId('auth-mode-toggle').click();
     await page.getByTestId('login-email').fill(email);
     await page.getByTestId('login-password').fill(cred);
-    await page.getByTestId('login-submit').click();
-    // 로그인 완료 → DialogueList로 reset (새 채팅 버튼이 보일 때까지)
+    await page.getByTestId('consent-all-required').click();
+    await page.getByTestId('signup-submit').click();
+    // 가입 완료 → DialogueList로 reset (새 채팅 버튼이 보일 때까지)
     await page.waitForSelector('[data-testid="new-chat-button"]', { timeout: 15000 });
     await page.waitForTimeout(1000);
   }

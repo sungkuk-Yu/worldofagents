@@ -107,6 +107,7 @@ export function TypingCard({ quip, agentName, count }: { quip: string | null; ag
 export default function ChatScreen({ navigation, route }: Props) {
   const { t, i18n } = useTranslation();
   const agentId: string | undefined = route?.params?.agentId;
+  const [presetCategory, setPresetCategory] = useState<string | undefined>(route?.params?.presetCategory);
   const presetTitleKey = route?.params?.presetTitleKey;
   const agentName: string = presetTitleKey && i18n.exists(presetTitleKey) ? t(presetTitleKey) : route?.params?.agentName || t('common.agent');
   const initialSessionId: string | undefined = route?.params?.sessionId;
@@ -134,7 +135,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const { handlers, decorate, actionError } = useCardActions(
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
-      navigation.navigate('CardThread', { sessionId, rootMessageId: message.id, agentName, sessionTitle });
+      navigation.navigate('CardThread', { sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
     },
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
@@ -146,6 +147,11 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (sessionId && !isDemo) void api.getSession(sessionId).then((env) => {
       const parsed = parseForkOrigin(env.data?.forked_from);
       if (active && parsed) setOrigin(parsed);
+      if (env.data?.agent_id) {
+        return api.listAgents().then((agents) => {
+          if (active) setPresetCategory(agents.data?.find((agent) => agent.id === env.data?.agent_id)?.preset?.category);
+        });
+      }
     }).catch(() => { /* 선택적 계보 필드 미지원은 기존 대화를 막지 않는다. */ });
     return () => { active = false; };
   }, [sessionId, isDemo]);
@@ -314,7 +320,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         renderItem={({ item }) => <View>
           {times.get(item.key) && <Text style={styles.pendingMark}>{times.get(item.key)}</Text>}
           {item.items.map((message) => <View key={message.id}>
-            <CardFrame message={decorate(message)} handlers={handlers} agentName={agentName} />
+            <CardFrame presetCategory={presetCategory} message={decorate(message)} handlers={handlers} agentName={agentName} />
             {message.role === 'user' && <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
             {message.status === 'failed' && <View style={styles.msgHeader}>
               <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
@@ -344,6 +350,7 @@ export default function ChatScreen({ navigation, route }: Props) {
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>{t('chat.greeting', { agentName })}</Text>
               <Text style={styles.emptySub}>{t('chat.help')}</Text>
+              <Text style={styles.pendingMark}>{t('chat.aiNotice')}</Text>
             </View>
           ) : null
         }

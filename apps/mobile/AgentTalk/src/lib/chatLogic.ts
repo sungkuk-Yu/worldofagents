@@ -10,6 +10,7 @@ export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'fai
 
 /** 서버 messages 행 (최소 필드 — ApiEnvelope data[] 항목) */
 export interface ServerMessageRow {
+  ai_generated?: boolean;
   id: string;
   turn_index: number;
   role: 'user' | 'agent' | 'system';
@@ -34,6 +35,7 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     (typeof r.content === 'string' && r.content.length > 0 || isRecord(r.structured_payload))
   ).map((r): ChatMessage => ({
     id: r.id as string,
+    aiGenerated: typeof r.ai_generated === 'boolean' ? r.ai_generated : undefined,
     role: r.role === 'user' ? 'user' : r.role === 'system' ? 'system' : 'agent',
     content: typeof r.content === 'string' ? r.content : '',
     turnIndex: typeof r.turn_index === 'number' && Number.isFinite(r.turn_index) ? r.turn_index : 0,

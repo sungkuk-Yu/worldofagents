@@ -42,7 +42,7 @@ export default function DialogueListScreen({ navigation }: Props) {
       const env = await api.ensureSession(agent.id);
       if (!env.ok || !env.data?.id) throw new Error('errors.session');
       setChoosing(false);
-      navigation.navigate('Chat', { sessionId: env.data.id, agentId: agent.id, agentName: agent.name, presetTitleKey: agent.preset?.titleKey });
+      navigation.navigate('Chat', { sessionId: env.data.id, agentId: agent.id, agentName: agent.name, presetCategory: agent.preset?.category, presetTitleKey: agent.preset?.titleKey });
       void refresh();
     } catch (e) { setError(errorKey(e)); }
     finally { setStarting(false); }
@@ -81,7 +81,7 @@ export default function DialogueListScreen({ navigation }: Props) {
         const agentName = agentTitle(agent);
         const date = item.last_activity_at ? new Date(item.last_activity_at) : null;
         return <TouchableOpacity style={[styles.dialogueCard, { borderLeftColor: colors.accent }]} testID="session-card"
-          onPress={() => navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetTitleKey: agent?.preset?.titleKey })}
+          onPress={() => navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetCategory: agent?.preset?.category, presetTitleKey: agent?.preset?.titleKey })}
           accessibilityLabel={t('dialogueList.continue', { agentName })}>
           <View style={styles.dialogueBody}><View style={styles.dialogueHeader}>
             <Text style={[styles.dialogueType, { color: colors.accent }]} numberOfLines={1}>{agentName}</Text>

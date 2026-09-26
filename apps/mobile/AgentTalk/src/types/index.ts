@@ -130,6 +130,7 @@ export type SegmentHistoryEntry = {
 
 /** 채팅 화면 UI 메시지 — 백엔드 messages 행에서 정규화 */
 export interface ChatMessage {
+  aiGenerated?: boolean;
   id: string;
   role: 'user' | 'agent' | 'system';
   content: string;

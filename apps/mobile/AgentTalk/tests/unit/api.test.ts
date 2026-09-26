@@ -144,3 +144,26 @@ test('404와 405는 미지원 번역 키를 반환한다', async (t) => {
     await assert.rejects(client.api.forkSession('session', {}), /errors.unsupported/);
   }
 });
+
+test('가입은 동의 5종과 연령 확인을 서버 계약으로 전송한다', async (t) => {
+  const { client, storage } = setup(t);
+  let stored = 0;
+  t.mock.method(storage, 'set', async () => { stored++; });
+  const { signupConsents, toggleRequiredConsents, emptyConsents } = await import('../../src/lib/consents');
+  const consent = signupConsents(toggleRequiredConsents(emptyConsents));
+  t.mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+    assert.deepEqual(JSON.parse(String(init?.body)), { email: 'test@example.com', password: 'password', ...consent });
+    return new Response(JSON.stringify({ ok: true, data: { token: 'new-token' } }));
+  });
+  await client.api.signup('test@example.com', 'password', consent);
+  assert.equal(stored, 0);
+});
+test('가입 동의 오류 코드는 번역 키로 변환하고 로그인으로 재시도하지 않는다', async (t) => {
+  const { client } = setup(t);
+  for (const [code, key] of [['CONSENT_REQUIRED', 'errors.consentRequired'], ['AGE_CONFIRM_REQUIRED', 'errors.ageConfirmRequired'], ['OTHER', 'errors.request']]) {
+    let calls = 0;
+    t.mock.method(globalThis, 'fetch', async () => { calls++; return new Response(JSON.stringify({ error: { code } }), { status: 400 }); });
+    await assert.rejects(client.api.signup('test@example.com', 'password', { consents: [], age_confirmed: false }), { message: key });
+    assert.equal(calls, 1);
+  }
+});

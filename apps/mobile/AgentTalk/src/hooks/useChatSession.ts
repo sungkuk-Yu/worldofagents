@@ -240,7 +240,7 @@ export function useChatSession(
             const streamEvent = typeof raw.run_id === 'string' ? { ...raw, stage: runtime.runStages.get(raw.run_id) } : raw;
             runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
-              updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string } : message));
+              updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string, aiGenerated: typeof raw.ai_generated === 'boolean' ? raw.ai_generated : message.aiGenerated } : message));
             }
             setStreams(runtime.streams);
             if (type === 'message.new' || type === 'message.created') {

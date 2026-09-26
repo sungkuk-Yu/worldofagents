@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next';
-// LoginScreen — dev 로그인/회원가입 (채팅 MVP Phase 2)
-// 백엔드: POST /api/auth/signup → 실패(중복) 시 POST /api/auth/login 자동 폴백
+// 로그인과 회원가입을 분리하여 가입 동의 검증 오류를 그대로 표시한다.
 // 디자인: Mintlify 패턴 — 화이트 캔버스, 미니멀 폼, 그린 CTA, 사각 입력(radii.md)
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
@@ -13,6 +13,8 @@ import { Button, Surface, Text, TextInput } from 'react-native-paper';
 import { colors, radii, spacing, typography } from '../theme';
 import { errorKey } from '../lib/errorKeys';
 import { api, setToken } from '../lib/api';
+import ConsentGate from '../components/ConsentGate';
+import { emptyConsents, signupConsents, validateConsents } from '../lib/consents';
 
 interface Props {
   navigation: any;
@@ -20,12 +22,18 @@ interface Props {
 
 export default function LoginScreen({ navigation }: Props) {
   const { t } = useTranslation();
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [consents, setConsents] = useState({ ...emptyConsents });
+  const signup = mode === 'signup';
+  const consentValid = validateConsents(consents);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const authenticate = async () => {
+    if (busy) return;
+    if (signup && !consentValid) { setError('errors.consentRequired'); return; }
     const mail = email.trim();
     if (!mail || !password) {
       setError('errors.credentials');
@@ -34,18 +42,10 @@ export default function LoginScreen({ navigation }: Props) {
     setBusy(true);
     setError(null);
     try {
-      // 회원가입 시도 → 이미 있으면 로그인
-      let token: string | null = null;
-      try {
-        const signup = await api.signup(mail, password);
-        token = signup?.data?.token ?? null;
-      } catch {
-        /* 중복 등 — 로그인으로 폴백 */
-      }
-      if (!token) {
-        const login = await api.login(mail, password);
-        token = login?.data?.token ?? null;
-      }
+      const result = signup
+        ? await api.signup(mail, password, signupConsents(consents))
+        : await api.login(mail, password);
+      const token = result.ok ? result.data?.token : null;
       if (!token) throw new Error('errors.token');
       await setToken(token);
       navigation.reset({ index: 0, routes: [{ name: 'DialogueList' }] });
@@ -62,7 +62,7 @@ export default function LoginScreen({ navigation }: Props) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.center}>
+      <ScrollView contentContainerStyle={styles.center} keyboardShouldPersistTaps="handled">
         <Surface style={styles.card} elevation={0} testID="login-card">
           <View style={styles.logoWrap}>
             <Text style={styles.logoText}>{t('common.logo')}</Text>
@@ -96,6 +96,8 @@ export default function LoginScreen({ navigation }: Props) {
             onSubmitEditing={() => void authenticate()}
           />
 
+          {signup && <ConsentGate value={consents} onChange={setConsents} disabled={busy} onError={setError} />}
+
           {error && (
             <Text style={styles.error} testID="login-error">{t(error)}</Text>
           )}
@@ -103,20 +105,24 @@ export default function LoginScreen({ navigation }: Props) {
           <Button
             mode="contained"
             onPress={() => void authenticate()}
-            disabled={busy}
+            disabled={busy || (signup && !consentValid)}
             buttonColor={colors.accent}
             textColor={colors.onPrimary}
             style={styles.submit}
             labelStyle={styles.submitLabel}
             loading={busy}
-            testID="login-submit"
+            testID={signup ? 'signup-submit' : 'login-submit'}
           >
-            {busy ? t('login.busy') : t('login.submit')}
+            {t(busy ? (signup ? 'login.signupBusy' : 'login.busy') : (signup ? 'login.signup' : 'login.submit'))}
+          </Button>
+          {signup && !consentValid && <Text style={styles.skipMsg} accessibilityLiveRegion="polite">{t('consent.missing')}</Text>}
+          <Button disabled={busy} textColor={colors.accent} onPress={() => { setMode(signup ? 'login' : 'signup'); setError(null); }} testID="auth-mode-toggle">
+            {t(signup ? 'login.switchLogin' : 'login.switchSignup')}
           </Button>
 
 
         </Surface>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -127,7 +133,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   center: {
-    flex: 1,
+    flexGrow: 1,
+    paddingVertical: spacing.sp6,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.sp5,

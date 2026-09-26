@@ -1,3 +1,4 @@
+import type { SignupConsents } from './consents';
 import { LocalizedError } from './errorKeys';
 // AgentTalk API 클라이언트 — REST + WebSocket
 // 설계: api-design.md §3(§4(WebSocket) — 백엔드 프로토콜과 정확히 대응
@@ -84,6 +85,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const res = await fetch(`${config.apiUrl}${path}`, { ...init, headers });
   if (!res.ok) {
+    if (res.status === 400) {
+      const body = await res.json().catch(() => null);
+      const code = body?.error?.code ?? body?.code;
+      if (code === 'CONSENT_REQUIRED') throw new LocalizedError('errors.consentRequired');
+      if (code === 'AGE_CONFIRM_REQUIRED') throw new LocalizedError('errors.ageConfirmRequired');
+    }
     throw new LocalizedError(res.status === 401 || res.status === 403 ? 'errors.auth' : res.status === 404 || res.status === 405 ? 'errors.unsupported' : 'errors.request', { status: res.status });
   }
   return (await res.json()) as T;
@@ -109,7 +116,7 @@ export interface SessionSummary {
 export interface AgentSummary {
   id: string;
   name: string;
-  preset?: { titleKey?: string; subtitleKey?: string; subtitle?: string; icon?: string };
+  preset?: { category?: string; titleKey?: string; subtitleKey?: string; subtitle?: string; icon?: string };
   description?: string | null;
   agent_type?: string;
   is_active?: boolean;
@@ -123,6 +130,7 @@ export interface ServerChatMessage {
   role: 'user' | 'agent' | 'system';
   message_type: string;
   content: string;
+  ai_generated?: boolean;
   source_neuron?: string | null;
   attachments?: unknown[];
   structured_payload?: unknown;
@@ -164,10 +172,10 @@ export const api = {
   health: () => request<{ status: string; timestamp: string; mode: string }>('/health'),
 
   /** 회원가입 — POST /api/auth/signup (api-design.md §3.1) */
-  signup: (email: string, password: string, displayName?: string) =>
+  signup: (email: string, password: string, consent: SignupConsents, displayName?: string) =>
     request<ApiEnvelope<AuthResult>>('/api/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password, display_name: displayName }),
+      body: JSON.stringify({ email, password, display_name: displayName, ...consent }),
     }),
 
   /** 로그인 — POST /api/auth/login */
@@ -225,7 +233,7 @@ export type ServerMessage = (
   | (TurnIdentity & { type: 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled'; session_id: string; run_id: string; quip?: string; stage?: string; error?: { code: string; message: string }; partial_text?: string })
   | (TurnIdentity & { type: 'turn.status'; session_id: string; status: 'received' | 'processing' | 'completed' | 'failed'; stage?: string; quip?: string })
   | (TurnIdentity & { type: 'answer.delta'; session_id: string; delta: string; index?: number })
-  | (TurnIdentity & { type: 'answer.done'; session_id: string; text?: string; message_id?: string | null })
+  | (TurnIdentity & { type: 'answer.done'; ai_generated?: boolean; session_id: string; text?: string; message_id?: string | null })
   | { type: 'message.new'; session_id: string; message: ServerChatMessage }
   | (ServerChatMessage & { type: 'message.new' })
   | { type: 'connected'; session_id: string | null; timestamp: string }

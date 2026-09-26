@@ -26,12 +26,13 @@ export default function CardThreadScreen({ navigation, route }: { navigation: an
   const { t, i18n } = useTranslation();
   const sessionId = typeof route?.params?.sessionId === 'string' ? route.params.sessionId : undefined;
   const rootMessageId = typeof route?.params?.rootMessageId === 'string' ? route.params.rootMessageId : undefined;
+  const presetCategory = route?.params?.presetCategory;
   const agentName = route?.params?.agentName || t('common.agent');
   const chat = useChatSession({ sessionId: rootMessageId ? sessionId : undefined, rootMessageId });
   const [input, setInput] = useState('');
   const [fork, setFork] = useState<ChatMessage | null>(null);
   const { handlers, decorate, actionError } = useCardActions(
-    (message) => navigation.push('CardThread', { sessionId, rootMessageId: message.id, agentName, sessionTitle: route?.params?.sessionTitle }),
+    (message) => navigation.push('CardThread', { sessionId, rootMessageId: message.id, agentName, presetCategory, sessionTitle: route?.params?.sessionTitle }),
     setFork,
   );
   const root = chat.rootMessage;
@@ -63,7 +64,7 @@ export default function CardThreadScreen({ navigation, route }: { navigation: an
             <Text style={cardStyles.micro}>{date && Number.isFinite(date.getTime()) ? formatTime(date, i18n.language) : null}</Text>
             {item.role === 'user' && <Text style={cardStyles.micro}>{t(item.status === 'failed' ? 'chat.failed' : item.pending ? 'chat.sending' : 'chat.sent')}</Text>}
           </View>
-          <CardFrame compact message={decorate(item)} handlers={handlers} agentName={agentName} />
+          <CardFrame presetCategory={presetCategory} compact message={decorate(item)} handlers={handlers} agentName={agentName} />
           {item.status === 'failed' && <View style={cardStyles.row}>
             <Button onPress={() => void chat.retryMessage(item.id)}>{t('chat.resend')}</Button>
             <Button onPress={() => chat.deleteMessage(item.id)}>{t('chat.delete')}</Button>

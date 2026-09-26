@@ -9,8 +9,11 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "forceConsistentCasingInFileNames": true
+    "types": [
+      "node"
+    ],
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
   },
   "include": [
     "tests/unit/**/*.ts",
