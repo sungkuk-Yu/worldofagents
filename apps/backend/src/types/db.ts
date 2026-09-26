@@ -118,6 +118,8 @@ export interface MessagesRow {
   attachments: Json;
   persona_guard: Json;
   user_feedback: 'like' | 'dislike' | null;
+  /** 즐겨찾기(⭐) 영속화 — 마이그레이션 003. 개인 상태이며 재접속 시 GET /api/favorites로 동기화. */
+  favorite: boolean;
   created_at: string;
 }
 
@@ -191,6 +193,9 @@ export interface ApiResponse<T = unknown> {
     cursor?: string;
     has_more?: boolean;
     total?: number;
+    /** offset 기반 페이지네이션 에코 (GET /api/favorites — 마이그레이션 003) */
+    limit?: number;
+    offset?: number;
   };
 }
 

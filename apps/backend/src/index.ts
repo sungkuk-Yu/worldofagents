@@ -8,6 +8,7 @@ import { wsTicketRoutes } from './routes/wsTicket';
 import { authRoutes } from './routes/auth';
 import { agentRoutes } from './routes/agents';
 import { messageRoutes } from './routes/messages';
+import { favoriteRoutes } from './routes/favorites';
 import { sessionRoutes } from './routes/sessions';
 import { taskRoutes } from './routes/tasks';
 import { skillRoutes } from './routes/skills';
@@ -57,6 +58,7 @@ export async function build() {
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(agentRoutes, { prefix: '/api/agents' });
   await app.register(messageRoutes, { prefix: '/api/messages' });
+  await app.register(favoriteRoutes, { prefix: '/api/favorites' });
   await app.register(sessionRoutes, { prefix: '/api/sessions' });
   await app.register(taskRoutes, { prefix: '/api/tasks' });
   await app.register(skillRoutes, { prefix: '/api/skills' });
@@ -70,7 +72,7 @@ export async function build() {
   app.get('/api-version', async () => {
     return {
       version: 'v1',
-      api: ['/api/messages', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards'],
+      api: ['/api/messages', '/api/favorites', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards'],
       docs: 'apps/backend/docs/api-design.md',
     };
   });

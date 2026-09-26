@@ -100,6 +100,7 @@ interface SelectOp {
   kind: 'select';
   filters: Filter[];
   orderBy: { field: string; ascending: boolean }[];
+  offset: number | null;
   limit: number | null;
   single: boolean;
   maybeSingle: boolean;
@@ -125,7 +126,7 @@ type PendingOperation =
   | (MutationOp & { kind: 'delete' });
 
 function freshSelect(): SelectOp {
-  return { kind: 'select', filters: [], orderBy: [], limit: null, single: false, maybeSingle: false, columns: '*' };
+  return { kind: 'select', filters: [], orderBy: [], offset: null, limit: null, single: false, maybeSingle: false, columns: '*' };
 }
 
 function cloneSelect(op: SelectOp | null): SelectOp | null {
@@ -211,6 +212,19 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
     then.limit = n;
     return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
   }
+  /** PostgREST range(from, to) — 양끝 포함 오프셋 페이지네이션 (limit/offset parity). */
+  range(from: number, to: number): DevQueryBuilder {
+    const offset = Math.max(from, 0);
+    const count = Math.max(to - offset + 1, 0);
+    const op = this.op;
+    if (op.kind === 'select') {
+      return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', offset, limit: count });
+    }
+    const then = cloneSelect(op.then) ?? freshSelect();
+    then.offset = offset;
+    then.limit = count;
+    return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
+  }
 
   single(): DevQueryBuilder {
     const op = this.op;
@@ -237,14 +251,14 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
   insert(values: DevRow | DevRow[]): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
   }
 
   upsert(values: DevRow | DevRow[], opts?: { onConflict?: string }): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
   }
 
@@ -366,6 +380,7 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
         return 0;
       });
     }
+    if (op.offset != null) rows = rows.slice(op.offset);
     if (op.limit != null) rows = rows.slice(0, op.limit);
     return rows;
   }

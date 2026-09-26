@@ -1154,6 +1154,59 @@ WS `message.send`에 선택 필드 `parent_message_id`를 보내면 같은 스�
 
 **raw_transcripts 보존 정책** — `RAW_TRANSCRIPT_RETENTION_DAYS`(기본 180일)을 config로 선언하고 탈퇴 시 즉시 파기. 자동 삭제 크론은 Phase 3(코드 주석 명시).
 
+### 즐겨찾기 영속화 (마이그레이션 003 — 카드 t_219c4d36)
+
+프론트 즐겨찾기(⭐)가 로컬 상태(`useCardActions` setLocal)뿐이라 재접속 시 유실되는 문제를 `messages.favorite` 컬럼으로 영속화한다. 대표님 지시("즐겨찾기로 등록한 카드를 즐겨찾기 카드로 찾아볼 수 있도록").
+
+**스키마** (`003_favorites.sql`):
+- `messages.favorite BOOLEAN NOT NULL DEFAULT false`
+- 부분 인덱스 `idx_messages_favorite ON messages(session_id, created_at DESC) WHERE favorite = true` — 목록 조회 경로(`favorite=true AND session_id IN (내 세션)`)에 맞춤.
+- cascade: 별도 테이블이 아니라 메시지 컬럼이므로 메시지 삭제·세션 삭제·회원탈퇴 모두 기존 FK `ON DELETE CASCADE`(001)를 그대로 따른다 — 고아 즐겨찾기 불가.
+- RLS: 002 원칙 유지(authenticated/anon은 SELECT 전용, 모든 쓰기는 백엔드 service_role 경유). "본인 세션 메시지만 update 가능"은 RLS(직접 쓰기 정책 부재) + 라우트 소유권 검증(`getOwnedMessage` → 세션 소유자 불일치 시 404) 이중 방어로 성립한다.
+
+#### 메시지 즐겨찾기 등록/해제
+
+```
+PATCH /api/messages/:id/favorite
+```
+
+**인증:** Bearer JWT 필수. **body:** `{"favorite": true|false}` — boolean이 아니면 400 `VALIDATION_ERROR`.
+
+**소유권:** 내 세션의 메시지만 갱신 가능. 타인 메시지·존재하지 않는 ID는 모두 404 `NOT_FOUND`(존재 자체를 숨김 — 소유권 403 구분 노출 없음).
+
+**응답 200:** 갱신된 메시지 행 전체(직렬화 계약 동일 — `locale`/`ai_generated`/`favorite`/`dialogue_type`/`structured_payload` 포함):
+
+```json
+{"ok":true,"data":{"id":"메시지 UUID","session_id":"세션 UUID","turn_index":2,"role":"agent","message_type":"card","content":"...","favorite":true,"dialogue_type":"info_card","structured_payload":{"title":"..."},"locale":"ko","ai_generated":true,"created_at":"2026-09-26T01:00:00.000Z"}}
+```
+
+**WS 브로드캐스트 없음** — 즐겨찾기는 개인 상태다. 다른 디바이스 동기화는 재접속 시 `GET /api/favorites`(MVP 범위).
+
+#### 내 즐겨찾기 목록
+
+```
+GET /api/favorites?limit=50&offset=0
+```
+
+**인증:** Bearer JWT 필수. **쿼리:** `limit`(기본 50, 최대 200), `offset`(기본 0). 비숫자/음수는 기본값으로 방어.
+
+**조회 범위:** 내 세션(포크 세션 포함)의 `favorite=true` 메시지. **정렬:** `created_at` 내림차순(최신 먼저) + `id` 내림차순(동일 시각 결정성). **페이지네이션:** limit+1행 조회로 `meta.has_more` 산출.
+
+**응답 200:** 항목은 `{message, session}` — 프론트 컬렉션 뷰가 "어느 대화의 어떤 카드인지" 표시할 수 있도록 세션 정보를 조인한다:
+
+```json
+{"ok":true,
+ "data":[{"message":{"id":"메시지 UUID","session_id":"세션 UUID","turn_index":2,"role":"agent","content":"...","favorite":true,"dialogue_type":"info_card","structured_payload":{"title":"요약 카드"},"locale":"ko","ai_generated":true,"created_at":"2026-09-26T01:00:00.000Z"},
+          "session":{"id":"세션 UUID","title":"법률 상담 세션","agent_id":"에이전트 UUID","agent_name":"내 그림자","status":"active"}}],
+ "meta":{"limit":50,"offset":0,"has_more":false}}
+```
+
+- `session.title`: `metadata.title`(포크 시 `new_session_title`로 기록)이며 없으면 `null` — 프론트는 폴백 제목(에이전트 이름 기반) 사용.
+- `session.agent_name`: 에이전트 행 `name`. `session.status`: `active|suspended|archived` — 아카이브 세션의 즐겨찾기도 반환한다(읽기 전용 열람; 재진입 여부 결정은 프론트).
+- 구현 노트: 세션·에이전트 조인은 PostgREST 임베드가 아니라 수동 조인(인메모리 devstore 호환). 소유권은 service_role + 라우트 수준 `user_id` 필터(002 확립 원칙).
+
+**격리:** 타 사용자의 즐겨찾기는 목록에 절대 포함되지 않는다(세션 ID 집합을 먼저 구한 뒤 `session_id IN (...)` 필터). 즐겨찾기 없음 → 빈 배열 200.
+
 ### 사용자별 볼트 + 칸반 (마이그레이션 004 — 카드 t_3b38c9be)
 
 대표님 지시 ①"각 사용자들의 디비로 기록" ②"옵시디언과 칸반을 모두 적용" — MyAgentTalk의 각 사용자가 **자기만의 노트 볼트(옵시디언식)**와 **자기만의 칸반 보드**를 DB에 소유·기록한다.
