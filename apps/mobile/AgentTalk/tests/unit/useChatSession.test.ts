@@ -16,6 +16,7 @@ function harness(t: TestContext, sid: string | null = 'session') {
   let result: UseChatSessionReturn;
   const sockets: VoiceSocketHandlers[] = [];
   const closed: boolean[] = [];
+  const sent: Record<string, unknown>[][] = [];
   const same = (a?: readonly unknown[], b?: readonly unknown[]) => !!a && !!b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   t.mock.method(react, 'useState', ((initial: unknown) => {
     const i = index++;
@@ -45,8 +46,8 @@ function harness(t: TestContext, sid: string | null = 'session') {
   t.mock.method(apiModule.api, 'getMessages', async () => ({ ok: true, data: [] }));
   t.mock.method(apiModule, 'connectVoiceSocket', (_sid: string | null, handlers: VoiceSocketHandlers) => {
     const i = sockets.length;
-    sockets.push(handlers); closed.push(false);
-    return { ready: true, send: () => true, close: () => { closed[i] = true; } };
+    sockets.push(handlers); closed.push(false); sent.push([]);
+    return { ready: true, send: (data: string | ArrayBuffer) => { sent[i].push(JSON.parse(String(data))); return true; }, close: () => { closed[i] = true; } };
   });
   const render = () => {
     index = 0;
@@ -56,7 +57,7 @@ function harness(t: TestContext, sid: string | null = 'session') {
     return result;
   };
   t.after(() => slots.forEach((slot) => slot.cleanup?.()));
-  return { render, sockets, closed, changeSession: (next: string) => { sid = next; } };
+  return { render, sockets, closed, sent, changeSession: (next: string) => { sid = next; } };
 }
 function confirm(id: string): ApiEnvelope<SendMessageResult> {
   return { ok: true, data: {
@@ -162,4 +163,113 @@ test('세션 변경 뒤 늦은 REST 응답은 새 대화에 반영하지 않는�
   resolve(confirm('old')); await sending;
   assert.deepEqual(h.render().messages, []);
   assert.equal(h.render().typing, false);
+});
+
+test('구독 last_seq와 중복 제거, 서버 재시작 시 0으로 재구독 및 전체 조회', async (t) => {
+  const h = harness(t); let reads = 0;
+  t.mock.method(apiModule.api, 'getMessages', async () => { reads++; return { ok: true, data: [] }; });
+  h.render(); await flush();
+  h.sockets[0].onStatusChange?.('connected');
+  assert.deepEqual(h.sent[0][0], { type: 'subscribe', session_id: 'session', last_seq: 0 });
+  const message = { id: 'a', role: 'agent', content: '복구', turn_index: 1 };
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 10, message });
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 10, message: { ...message, id: '중복' } });
+  assert.equal(h.render().messages.length, 1);
+  h.render().retryConnection();
+  h.sockets[1].onStatusChange?.('connected');
+  assert.equal(h.sent[1][0].last_seq, 10);
+  h.sockets[1].onRaw?.({ type: 'subscribed', session_id: 'session', current_seq: 1 });
+  await flush();
+  assert.equal(h.sent[1][1].last_seq, 0);
+  assert.ok(reads >= 3);
+  h.sockets[1].onRaw?.({ type: 'message.new', session_id: 'session', seq: 1, message: { ...message, id: '재시작' } });
+  assert.equal(h.render().messages.length, 2);
+});
+
+test('명시적 인증 오류는 자동 재연결을 멈추고 수동 재시도만 허용', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = harness(t); h.render(); await flush();
+  h.sockets[0].onError?.({ type: 'error', code: 'FORBIDDEN', message: '접근 권한이 없습니다' });
+  t.mock.timers.tick(60000);
+  assert.equal(h.sockets.length, 1);
+  assert.equal(h.render().connection, 'offline');
+  assert.equal(h.render().mode, 'live');
+  h.render().retryConnection();
+  assert.equal(h.sockets.length, 2);
+});
+
+test('두 run 역순 완료 — WS 선행 및 REST run_id로 확정 병합', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  const resolves: ((result: ApiEnvelope<SendMessageResult>) => void)[] = [];
+  t.mock.method(apiModule.api, 'sendMessage', () => new Promise<ApiEnvelope<SendMessageResult>>((resolve) => resolves.push(resolve)));
+  const a = h.render().send('첫째'); const b = h.render().send('둘째');
+  h.sockets[0].onRaw?.({ type: 'run.started', run_id: 'a', seq: 1 });
+  h.sockets[0].onRaw?.({ type: 'run.started', run_id: 'b', seq: 2 });
+  assert.equal(h.render().activeCount, 2);
+  resolves[1]({ ...confirm('ub'), data: { ...confirm('ub').data!, run_id: 'b' } }); await b;
+  assert.equal(h.render().activeCount, 1);
+  h.sockets[0].onRaw?.({ type: 'run.completed', run_id: 'b', seq: 3 });
+  assert.equal(h.render().typing, true);
+  resolves[0]({ ...confirm('ua'), data: { ...confirm('ua').data!, run_id: 'a' } }); await a;
+  assert.equal(h.render().typing, false);
+});
+
+test('메시지별 실패 재전송과 삭제, 길이 초과는 네트워크 전 차단', async (t) => {
+  const h = harness(t); h.render(); await flush(); let calls = 0;
+  t.mock.method(apiModule.api, 'sendMessage', async () => { calls++; throw new Error('실패'); });
+  assert.equal((await h.render().send('가'.repeat(4001))).ok, false);
+  assert.equal(calls, 0);
+  await h.render().send('보존할 초안');
+  const failed = h.render().messages[0];
+  await h.render().retryMessage(failed.id);
+  assert.equal(h.render().messages[0].content, '보존할 초안');
+  assert.equal(h.render().messages.length, 1);
+  assert.equal(calls, 2);
+  h.render().deleteMessage(failed.id);
+  assert.equal(h.render().messages.length, 0);
+});
+
+test('진행 quip을 스트림에 유지하고 최종 행 도착 시 임시 답변 제거', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  h.sockets[0].onRaw?.({ type: 'run.started', run_id: 'r', seq: 1 });
+  h.sockets[0].onRaw?.({ type: 'run.progress', run_id: 'r', seq: 2, quip: '거의 다 정리했어요', stage: 'finalizing' });
+  h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 3, delta: '초안', index: 0 });
+  assert.equal(h.render().streams[0].quip, '거의 다 정리했어요');
+  h.sockets[0].onRaw?.({ type: 'message.new', run_id: 'r', seq: 4, message: { id: 'a', role: 'agent', content: '최종', source_neuron: 'answer', turn_index: 0 } });
+  h.sockets[0].onRaw?.({ type: 'answer.done', run_id: 'r', seq: 5, text: '최종 교체', message_id: 'a' });
+  assert.equal(h.render().streams.length, 0);
+  assert.equal(h.render().messages[0].content, '최종 교체');
+  assert.equal(h.render().typing, true);
+  h.sockets[0].onRaw?.({ type: 'run.completed', run_id: 'r', seq: 6 });
+  assert.equal(h.render().typing, false);
+});
+
+test('seq 리셋은 모든 REST 페이지를 조회해 재시작 전후 이력을 복구한다', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  const cursors: (number | undefined)[] = [];
+  t.mock.method(apiModule.api, 'getMessages', async (_sid: string, opts?: { before?: number }) => {
+    cursors.push(opts?.before);
+    const turn = opts?.before === undefined ? 2 : opts.before - 1;
+    return { ok: true, data: [{ id: `m${turn}`, role: 'agent', content: '복구된 이력', turn_index: turn }], meta: { has_more: turn > 0 } };
+  });
+  h.sockets[0].onRaw?.({ type: 'queue.update', seq: 50 });
+  h.sockets[0].onRaw?.({ type: 'subscribed', session_id: 'session', current_seq: 0 });
+  await flush();
+  assert.deepEqual(cursors, [undefined, 2, 1]);
+  assert.deepEqual(h.render().messages.map((m) => m.id), ['m0', 'm1', 'm2']);
+});
+
+test('재연결 복구는 저장된 메시지에 닿으면 불필요한 과거 페이지 조회를 멈춘다', async (t) => {
+  const h = harness(t);
+  const row = (turn: number) => ({ id: `m${turn}`, role: 'agent', content: '이력', turn_index: turn });
+  t.mock.method(apiModule.api, 'getMessages', async () => ({ ok: true, data: [row(1)] }));
+  h.render(); await flush(); h.sockets[0].onStatusChange?.('connected');
+  const cursors: (number | undefined)[] = [];
+  t.mock.method(apiModule.api, 'getMessages', async (_sid: string, opts?: { before?: number }) => {
+    cursors.push(opts?.before);
+    return { ok: true, data: [row(opts?.before === undefined ? 2 : 1)], meta: { has_more: true } };
+  });
+  h.render().retryConnection(); h.sockets[1].onStatusChange?.('connected'); await flush();
+  assert.deepEqual(cursors, [undefined, 2]);
+  assert.deepEqual(h.render().messages.map((m) => m.id), ['m1', 'm2']);
 });

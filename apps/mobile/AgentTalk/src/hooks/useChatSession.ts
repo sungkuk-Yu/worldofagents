@@ -5,7 +5,7 @@ import { api, connectVoiceSocket, VoiceSocket } from '../lib/api';
 import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
-  prependPage, ServerMessageRow, TurnEvent,
+  prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -16,6 +16,11 @@ export interface UseChatSessionReturn {
   sessionId: string | null;
   messages: ChatMessage[];
   typing: boolean;
+  activeCount: number;
+  streams: StreamingAnswer[];
+  retryConnection: () => void;
+  retryMessage: (id: string) => Promise<SendResult>;
+  deleteMessage: (id: string) => void;
   quip: string | null;
   mode: 'live' | 'demo';
   connection: Connection;
@@ -38,11 +43,14 @@ export interface UseChatSessionReturn {
 let executionCounter = 0;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-function createRuntime(onChange: (active: boolean, quip: string | null) => void) {
-  const tracker = createTypingTracker(onChange);
+function createRuntime(onChange: (active: boolean, quip: string | null, count: number) => void) {
+  const tracker = createTypingTracker(onChange, true);
     return {
       tracker, coordinator: createTurnCoordinator(tracker), messages: [] as ChatMessage[],
       generation: 0, sid: null as string | null, demo: false, initialized: false, loadingOlder: false,
+      retry: () => {},
+      runQuips: new Map<string, string>(),
+      sequence: createSequenceTracker(), streams: [] as StreamingAnswer[],
       socket: null as VoiceSocket | null, stop: () => {},
       lastFailedContent: null as { content: string; id: string } | null,
       demoTimers: new Map<ReturnType<typeof setTimeout>, (result: SendResult) => void>(),
@@ -68,8 +76,10 @@ export function useChatSession(
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [ready, setReady] = useState(false);
-  const runtimeRef = useRef(createRuntime((active, text) => {
-    setTyping(active); setQuip(text);
+  const [activeCount, setActiveCount] = useState(0);
+  const [streams, setStreams] = useState<StreamingAnswer[]>([]);
+  const runtimeRef = useRef(createRuntime((active, text, count) => {
+    setTyping(active); setQuip(text); setActiveCount(count);
   }));
   // 동시 전송도 최신 목록을 읽도록 렌더를 기다리지 않고 원자적으로 반영한다.
   const updateMessages = useCallback((update: (prev: ChatMessage[]) => ChatMessage[]) => {
@@ -90,11 +100,16 @@ export function useChatSession(
     runtime.demo = mode === 'demo';
     runtime.initialized = false;
     runtime.sid = null;
-    runtime.tracker = createTypingTracker((active, text) => { setTyping(active); setQuip(text); });
+    runtime.tracker = createTypingTracker((active, text, count) => { setTyping(active); setQuip(text); setActiveCount(count); }, true);
     runtime.coordinator = createTurnCoordinator(runtime.tracker);
+    runtime.sequence = createSequenceTracker();
+    runtime.runQuips.clear();
+    runtime.streams = [];
+    // 외부 세션이 바뀌면 이전 스트림 표시를 초기화한다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStreams([]);
     runtime.loadingOlder = false;
     // 외부 세션 리소스를 바꿀 때만 UI 상태를 초기화한다.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingOlder(false);
     setReady(false);
     setHasOlder(false);
@@ -124,8 +139,22 @@ export function useChatSession(
     setLastError(null);
     setConnection('connecting');
 
-    async function refresh(sid: string, initial: boolean) {
+    async function refresh(sid: string, initial: boolean, recovery: 'latest' | 'gap' | 'all' = 'latest') {
       const env = await api.getMessages(sid, { limit: PAGE_SIZE });
+      if (recovery !== 'latest' && env.ok && env.data) {
+        let page = env;
+        const rows = [...env.data];
+        const known = new Set(runtime.messages.filter((message) => message.status === 'sent').map((message) => message.id));
+        while (page.meta?.has_more && page.data?.length && alive() &&
+          (recovery === 'all' || !page.data.some((message) => known.has(message.id)))) {
+          const before = Math.min(...page.data.map((row) => row.turn_index));
+          page = await api.getMessages(sid, { before, limit: PAGE_SIZE });
+          if (!page.ok || !page.data) throw new Error('대화 복구에 실패했습니다');
+          rows.push(...page.data);
+          if (!page.data.length || Math.min(...page.data.map((row) => row.turn_index)) >= before) break;
+        }
+        env.data = rows;
+      }
       if (!env.ok || !env.data) throw new Error(env.error?.message || '대화를 불러오지 못했습니다');
       if (!alive()) return;
       const rows = normalizeServerMessages(env.data);
@@ -152,10 +181,11 @@ export function useChatSession(
             if (!current()) return;
             if (status === 'connected' && !disconnected) {
               setConnection('live');
+              runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: runtime.sequence.lastSeq }));
               const recovering = connectedOnce || attempt > 0;
               connectedOnce = true;
               attempt = 0;
-              if (recovering) void refresh(sid, false).catch((e) => {
+              if (recovering) void refresh(sid, false, 'gap').catch((e) => {
                 if (current()) setLastError(`누락된 대화를 복구하지 못했습니다: ${errorText(e)}`);
               });
             } else if (status === 'disconnected') reconnect();
@@ -163,12 +193,31 @@ export function useChatSession(
           onRaw: (raw) => {
             if (!current() || disconnected || (raw.session_id && raw.session_id !== sid)) return;
             const type = raw.type;
+            if (type === 'subscribed') {
+              if (runtime.sequence.subscribed(raw.current_seq)) {
+                runtime.tracker.endAll();
+                runtime.streams = []; setStreams([]);
+                runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: 0 }));
+                void refresh(sid, false, 'all').catch((e) => { if (current()) setLastError(errorText(e)); });
+              }
+              return;
+            }
+            if (!runtime.sequence.accept(raw.seq)) return;
+            if (typeof raw.run_id === 'string' && typeof raw.quip === 'string') runtime.runQuips.set(raw.run_id, raw.quip);
+            const streamEvent = typeof raw.run_id === 'string' ? { ...raw, quip: runtime.runQuips.get(raw.run_id) } : raw;
+            runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
+            if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
+              updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string } : message));
+            }
+            setStreams(runtime.streams);
             if (type === 'message.new' || type === 'message.created') {
               const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
-              if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([row])));
-            } else if (type === 'turn.status' || type === 'neuron.status' || type === 'answer.done' || type === 'answer.delta') {
+              if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
+            } else if ((typeof type === 'string' && type.startsWith('run.')) || type === 'turn.status' || type === 'neuron.status' || type === 'answer.done' || type === 'answer.delta') {
               // delta도 실행 상태에 반영한다. 확정 본문은 message.new/REST/재조회에서 머지한다.
               runtime.coordinator.observe(raw as unknown as TurnEvent, sid);
+              if (type === 'run.failed') setLastError((raw.error as { message?: string })?.message || '작업을 완료하지 못했습니다');
+              if (type === 'run.cancelled') setLastError('작업이 취소되었습니다');
             }
           },
           onError: (msg) => {
@@ -207,6 +256,14 @@ export function useChatSession(
         if (alive()) { setLastError(errorText(e)); setConnection('offline'); setReady(true); }
       }
     }
+    runtime.retry = () => {
+      if (!alive()) return;
+      runtime.socket?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      setLastError(null); setConnection('connecting');
+      if (runtime.initialized && runtime.sid) connect(runtime.sid);
+      else void init();
+    };
     void init();
     return stop;
   }, [requestedSession, agentId, mode, runtimeRef, updateMessages]);
@@ -236,8 +293,9 @@ export function useChatSession(
 
   const performSend = useCallback(async (content: string, retryId?: string): Promise<SendResult> => {
     const runtime = runtimeRef.current;
-    const text = content.trim();
-    if (!text) return { ok: false, error: '메시지를 입력해주세요' };
+    const validation = validateMessageInput(content);
+    if (!validation.ok) return { ok: false, error: validation.error! };
+    const text = validation.normalized!;
     const generation = runtime.generation;
     const coordinator = runtime.coordinator;
     const execId = `exec-${Date.now()}-${++executionCounter}`;
@@ -246,7 +304,7 @@ export function useChatSession(
     const sid = runtime.sid;
     setLastError(null);
     updateMessages((prev) => appendOptimistic(prev, {
-      id: optimisticId, role: 'user', content: text, turnIndex: base, pending: true, status: 'pending',
+      id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, pending: true, status: 'pending', createdAt: new Date().toISOString(),
     }));
     coordinator.start(execId);
     try {
@@ -269,6 +327,8 @@ export function useChatSession(
       if (generation !== runtime.generation) return { ok: false, error: '대화가 변경되었습니다' };
       updateMessages((prev) => confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base));
       coordinator.finish(execId, sid, env.data);
+      runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
+      setStreams(runtime.streams);
       if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
       return { ok: true };
     } catch (e) {
@@ -300,9 +360,19 @@ export function useChatSession(
     setLastError(null);
     setMode('demo');
   }, [runtimeRef]);
+  const retryConnection = useCallback(() => runtimeRef.current.retry(), []);
+  const retryMessage = useCallback((id: string) => {
+    const message = runtimeRef.current.messages.find((m) => m.id === id && m.status === 'failed');
+    return message ? performSend(message.draft ?? message.content, id) : Promise.resolve<SendResult>({ ok: false, error: '재전송할 메시지가 없습니다' });
+  }, [performSend]);
+  const deleteMessage = useCallback((id: string) => {
+    if (runtimeRef.current.lastFailedContent?.id === id) runtimeRef.current.lastFailedContent = null;
+    updateMessages((prev) => prev.filter((m) => m.id !== id || m.status !== 'failed'));
+  }, [updateMessages]);
   const clearError = useCallback(() => setLastError(null), []);
   return {
     sessionId, messages, typing, quip, mode, connection, lastError, hasOlder, loadingOlder,
+    activeCount, streams, retryConnection, retryMessage, deleteMessage,
     send, retryLastSend, loadOlder, enterDemo, clearError,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,
     hasMoreHistory: hasOlder, loadingHistory: loadingOlder, ready,

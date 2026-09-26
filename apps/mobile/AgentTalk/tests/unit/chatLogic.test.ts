@@ -14,7 +14,7 @@ import {
   DEFAULT_QUIP,
   ServerMessageRow,
 } from '../../src/lib/chatLogic';
-import type { ChatMessage } from '../../src/types';
+import type { ChatMessage } from '../../src/lib/chatLogic';
 
 function row(id: string, turn: number, role: 'user' | 'agent', content: string): ServerMessageRow {
   return { id, turn_index: turn, role, content };
@@ -291,4 +291,135 @@ test('REST client_exec_id를 execution_id로 반영한 서버도 begin 멱등', 
   assert.equal(tracker.activeCount, 1);
   turns.observe({ type: 'turn.status', execution_id: 'exec-A', status: 'failed' }, 's');
   assert.equal(tracker.activeCount, 0);
+});
+
+// 새 프로토콜은 식별자 없는 레거시 진행 이벤트와 별도로 검증한다.
+import { buildTimeGroups, validateMessageInput, createSequenceTracker, reduceStreams } from '../../src/lib/chatLogic';
+
+test('입력 검증 — 공백, 4000자 경계, 원문 정규화', () => {
+  assert.equal(validateMessageInput(' \n ').ok, false);
+  assert.deepEqual(validateMessageInput('  안녕하세요 \n'), { ok: true, normalized: '안녕하세요' });
+  assert.equal(validateMessageInput('가'.repeat(4000)).ok, true);
+  assert.equal(validateMessageInput('가'.repeat(4001)).ok, false);
+});
+
+test('시간 그룹 — 연속 5분, 날짜 경계, 잘못된 시간', () => {
+  const row = (id: string, createdAt?: string): ChatMessage => ({ id, role: 'user', content: id, turnIndex: 0, createdAt });
+  const groups = buildTimeGroups([
+    row('a', '2026-09-26T10:00:00'), row('b', '2026-09-26T10:04:00'),
+    row('c', '2026-09-26T10:09:00'), row('d', '2026-09-27T00:00:00'), row('e', '오류'),
+  ], new Date('2026-09-26T12:00:00'));
+  assert.deepEqual(groups.map((g) => g.label), ['10:00', null, '10:09', '09월 27일 00:00', null]);
+});
+
+test('seq — 중복 및 역순 차단, subscribed는 재생 시작 위치를 앞당기지 않는다', () => {
+  const seq = createSequenceTracker();
+  assert.equal(seq.accept(4), true);
+  assert.equal(seq.accept(4), false);
+  assert.equal(seq.accept(3), false);
+  assert.equal(seq.subscribed(9), false);
+  assert.equal(seq.lastSeq, 4);
+  assert.equal(seq.accept(5), true);
+  assert.equal(seq.accept(undefined), true);
+});
+
+test('seq — 서버 재시작 리셋 후 낮은 번호 이벤트 허용', () => {
+  const seq = createSequenceTracker(); seq.accept(20);
+  assert.equal(seq.subscribed(2), true);
+  assert.equal(seq.lastSeq, 0);
+  assert.equal(seq.accept(1), true);
+  assert.equal(seq.accept(1), false);
+});
+
+for (const terminal of ['completed', 'failed', 'cancelled']) {
+  test(`실행 전이 — 시작/진행/${terminal}/중복 종료/늦은 진행`, () => {
+    let quip: string | null = null;
+    const tracker = createTypingTracker((_active, text) => { quip = text; });
+    const runs = createTurnCoordinator(tracker);
+    runs.observe({ type: 'run.started', run_id: 'a' }, 's');
+    assert.equal(tracker.activeCount, 1);
+    runs.observe({ type: 'run.progress', run_id: 'a', stage: 'thinking', quip: '생각을 정리하고 있어요' }, 's');
+    assert.equal(quip, '생각을 정리하고 있어요');
+    runs.observe({ type: 'answer.done', run_id: 'a' }, 's');
+    assert.equal(tracker.active, true);
+    runs.observe({ type: `run.${terminal}`, run_id: 'a' }, 's');
+    runs.observe({ type: 'run.completed', run_id: 'a' }, 's');
+    runs.observe({ type: 'run.progress', run_id: 'a' }, 's');
+    assert.equal(tracker.activeCount, 0);
+  });
+}
+
+test('동시 두 실행 — WS 선행, REST 역순 완료, 서로 다른 run은 독립 유지', () => {
+  const tracker = createTypingTracker(() => {});
+  const runs = createTurnCoordinator(tracker);
+  runs.start('local-a'); runs.start('local-b');
+  runs.observe({ type: 'run.started', run_id: 'server-a' }, 's');
+  runs.observe({ type: 'run.started', run_id: 'server-b' }, 's');
+  assert.equal(tracker.activeCount, 2);
+  runs.finish('local-b', 's', { run_id: 'server-b' });
+  assert.equal(tracker.activeCount, 1);
+  runs.observe({ type: 'run.completed', run_id: 'server-b' }, 's');
+  runs.observe({ type: 'run.progress', run_id: 'server-a', quip: '아직 처리 중이에요' }, 's');
+  assert.equal(tracker.activeCount, 1);
+  runs.finish('local-a', 's', { run_id: 'server-a' });
+  assert.equal(tracker.activeCount, 0);
+});
+
+test('REST가 먼저 끝난 뒤 WS 시작 재생도 실행을 부활시키지 않는다', () => {
+  const tracker = createTypingTracker(() => {});
+  const runs = createTurnCoordinator(tracker);
+  runs.start('local'); runs.finish('local', 's', { run_id: 'remote' });
+  runs.observe({ type: 'run.started', run_id: 'remote' }, 's');
+  assert.equal(tracker.activeCount, 0);
+});
+
+test('독립 원격 실행은 관계없는 REST 실패로 종료되지 않는다', () => {
+  const tracker = createTypingTracker(() => {}); const runs = createTurnCoordinator(tracker);
+  runs.start('local'); runs.observe({ type: 'run.started', run_id: 'remote' }, 's');
+  runs.finish('local', 's', undefined, true);
+  assert.equal(tracker.activeCount, 1);
+});
+
+test('스트리밍 — 중복 index 차단, 최종 본문 교체 및 확정 행 중복 제거', () => {
+  let streams = reduceStreams([], { type: 'answer.delta', run_id: 'a', delta: '초안', index: 0 }, []);
+  streams = reduceStreams(streams, { type: 'answer.delta', run_id: 'a', delta: '초안', index: 0 }, []);
+  assert.equal(streams[0].text, '초안');
+  streams = reduceStreams(streams, { type: 'answer.done', run_id: 'a', text: '최종 본문', message_id: 'answer' }, []);
+  assert.equal(streams[0].text, '최종 본문');
+  streams = reduceStreams(streams, { type: 'message.new', run_id: 'a', message: { id: 'answer' } }, []);
+  assert.deepEqual(streams, []);
+});
+
+test('스트리밍 — message.new 선행 후 answer.done과 늦은 delta는 중복 카드 없음', () => {
+  const messages: ChatMessage[] = [{ id: 'a', role: 'agent', sourceNeuron: 'answer', runId: 'r', content: '최종', turnIndex: 1 }];
+  assert.deepEqual(reduceStreams([], { type: 'answer.done', run_id: 'r', message_id: 'a', text: '최종' }, messages), []);
+  assert.deepEqual(reduceStreams([], { type: 'answer.delta', run_id: 'r', delta: '이전' }, messages), []);
+});
+
+test('REST 저장 행 우선 — 시간/유형/run 연결과 WS 중복 제거', () => {
+  const confirmed = confirmTurn([], 'local', { user_message_id: 'u', run_id: 'r', messages: {
+    user: { id: 'u', role: 'user', content: '질문', turn_index: 10, created_at: '2026-09-26T12:00:00Z' },
+    empathy: null, answer: { id: 'a', role: 'agent', source_neuron: 'answer', content: '응답', turn_index: 11, dialogue_type: 'text' },
+  } }, '질문', 1);
+  assert.equal(confirmed[0].turnIndex, 10);
+  assert.equal(confirmed[1].dialogueType, 'text');
+  assert.equal(confirmed[1].runId, 'r');
+  assert.equal(mergeIncoming(confirmed, confirmed).length, 2);
+});
+
+import { restoreFailedDraft } from '../../src/lib/chatLogic';
+test('실패 초안 — 공백 포함 원문 복원, 작성 중인 다른 초안도 보존', () => {
+  assert.equal(restoreFailedDraft('', '  원문  '), '  원문  ');
+  assert.equal(restoreFailedDraft('작성 중', '실패 원문'), '작성 중\n실패 원문');
+  assert.equal(restoreFailedDraft('원문', '원문'), '원문');
+});
+
+test('새 run 프로토콜의 뉴런 상태는 이중 작업이나 종료 후 잔여 작업을 만들지 않는다', () => {
+  const tracker = createTypingTracker(() => {}); const runs = createTurnCoordinator(tracker);
+  runs.observe({ type: 'run.started', run_id: 'a', quip: '살펴보고 있어요' }, 's');
+  runs.observe({ type: 'neuron.status', status: 'processing', quip: '내부 처리' }, 's');
+  assert.equal(tracker.activeCount, 1);
+  runs.observe({ type: 'run.completed', run_id: 'a' }, 's');
+  runs.observe({ type: 'neuron.status', status: 'processing' }, 's');
+  assert.equal(tracker.active, false);
 });

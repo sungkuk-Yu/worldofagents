@@ -1,7 +1,7 @@
 // AgentTalk API 클라이언트 — REST + WebSocket
 // 설계: api-design.md §3(§4(WebSocket) — 백엔드 프로토콜과 정확히 대응
 //   REST:  /api/sessions/ensure, /api/... (Fastify + JWT)
-//   WebSocket: /ws?session_id=<id>&token=<jwt> (dev 모드: 토큰 없이 연결 허용)
+//   WebSocket: /ws?ticket=<일회용 티켓> (dev 모드: 토큰 없이 연결 허용)
 // 참고: 네이티브/웹 모두 동작하도록 fetch + 글로벌 WebSocket 사용.
 import type { DialogueState } from '../store';
 import type { TurnIdentity } from './chatLogic';
@@ -15,31 +15,17 @@ export interface ApiConfig {
   token: string | null;
 }
 
-// ── 토큰 지속성 (웹: localStorage, 네이티브: 메모리 폴백) ──
-// 주의: resolveConfig()가 모듈 초기화 시 이 함수들을 호출하므로 반드시 그보다 먼저 선언한다.
-const STORAGE_NS = 'at-web-v1';
-const TOKEN_KEY = `${STORAGE_NS}.sess`;
-
-function loadPersistedToken(): string | null {
-  try {
-    if (typeof globalThis.localStorage !== 'undefined') {
-      return globalThis.localStorage.getItem(TOKEN_KEY);
-    }
-  } catch {
-    /* noop */
-  }
-  return null;
-}
-
-function persistToken(token: string | null): void {
-  try {
-    if (typeof globalThis.localStorage !== 'undefined') {
-      if (token) globalThis.localStorage.setItem(TOKEN_KEY, token);
-      else globalThis.localStorage.removeItem(TOKEN_KEY);
-    }
-  } catch {
-    /* noop */
-  }
+const TOKEN_KEY = 'at-web-v1.sess';
+let tokenVersion = 0;
+let initialization: Promise<void> | undefined;
+let persistence: Promise<void> = Promise.resolve();
+export function initializeApi(): Promise<void> {
+  return initialization ??= (async () => {
+    const version = tokenVersion;
+    const { secureStorage } = await import('./secureStorage');
+    const token = await secureStorage.get(TOKEN_KEY);
+    if (version === 0 && version === tokenVersion) config = { ...config, token };
+  })().catch((error) => { initialization = undefined; throw error; });
 }
 
 // 런타임에 EXPO_PUBLIC_API_URL 로 오버라이드 가능
@@ -52,7 +38,7 @@ function resolveConfig(): ApiConfig {
     wsUrl:
       (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_WS_URL) ||
       apiUrl.replace(/^http/, 'ws') + '/ws',
-    token: loadPersistedToken(),
+    token: null,
   };
 }
 
@@ -60,13 +46,25 @@ let config = resolveConfig();
 
 export function setApiConfig(partial: Partial<ApiConfig>): ApiConfig {
   config = { ...config, ...partial };
-  if ('token' in partial) persistToken(partial.token ?? null);
+  if ('token' in partial) {
+    tokenVersion++;
+    const token = partial.token ?? null;
+    persistence = persistence.catch(() => {}).then(async () => {
+      const { secureStorage } = await import('./secureStorage');
+      if (token) await secureStorage.set(TOKEN_KEY, token);
+      else await secureStorage.delete(TOKEN_KEY);
+    });
+    // 다음 API 호출은 저장 실패를 명시적으로 전달한다.
+    void persistence.catch(() => {});
+  }
   return config;
 }
 
 /** JWT 토큰 설정/해제 — 로그인 성공 시 호출 (웹에서는 localStorage로 지속) */
-export function setToken(token: string | null): ApiConfig {
-  return setApiConfig({ token });
+export async function setToken(token: string | null): Promise<ApiConfig> {
+  const next = setApiConfig({ token });
+  await persistence;
+  return next;
 }
 
 export function getApiConfig(): ApiConfig {
@@ -75,6 +73,8 @@ export function getApiConfig(): ApiConfig {
 
 // ── REST 유틸 ─────────────────────────────────────
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  await initializeApi();
+  await persistence;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}),
@@ -82,10 +82,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const res = await fetch(`${config.apiUrl}${path}`, { ...init, headers });
   if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
+    let detail = `서버 요청 실패 (${res.status})`;
     try {
-      const body = (await res.json()) as { message?: string };
-      if (body.message) detail = body.message;
+      const body = (await res.json()) as { message?: string; error?: { message?: string } };
+      if (body.error?.message || body.message) detail = body.error?.message || body.message!;
     } catch {
       /* JSON 아님 */
     }
@@ -128,10 +128,13 @@ export interface ServerChatMessage {
   source_neuron?: string | null;
   attachments?: unknown[];
   created_at?: string;
+  dialogue_type?: string | null;
 }
 
 /** POST /api/sessions/:id/messages 동기 응답 (api-design.md §3.4) */
 export interface SendMessageResult {
+  messages?: { user: ServerChatMessage | null; empathy: ServerChatMessage | null; answer: ServerChatMessage | null };
+  llm?: { used: boolean; model: string | null; fallback: boolean; usage?: unknown };
   turn_id?: string;
   execution_id?: string;
   run_id?: string;
@@ -212,14 +215,15 @@ export const api = {
 };
 
 // ── WebSocket (백엔드 protocol.ts 서버→클라이언트) ─
-export type ServerMessage =
+export type ServerMessage = (
+  | (TurnIdentity & { type: 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled'; session_id: string; run_id: string; quip?: string; stage?: string; error?: { code: string; message: string }; partial_text?: string })
   | (TurnIdentity & { type: 'turn.status'; session_id: string; status: 'received' | 'processing' | 'completed' | 'failed'; stage?: string; quip?: string })
-  | (TurnIdentity & { type: 'answer.delta'; session_id: string; delta: string })
-  | (TurnIdentity & { type: 'answer.done'; session_id: string })
+  | (TurnIdentity & { type: 'answer.delta'; session_id: string; delta: string; index?: number })
+  | (TurnIdentity & { type: 'answer.done'; session_id: string; text?: string; message_id?: string | null })
   | { type: 'message.new'; session_id: string; message: ServerChatMessage }
   | (ServerChatMessage & { type: 'message.new' })
   | { type: 'connected'; session_id: string | null; timestamp: string }
-  | { type: 'subscribed'; session_id: string; channels: string[] }
+  | { type: 'subscribed'; session_id: string; channels: string[]; current_seq?: number }
   | { type: 'error'; code: string; message: string }
   | { type: 'transcript.partial'; session_id: string; text: string; confidence: number; language: string }
   | {
@@ -255,7 +259,7 @@ export type ServerMessage =
   | { type: 'audio.received'; bytes: number; timestamp: string }
   | { type: 'audio.vad'; session_id: string; active: boolean }
   | { type: 'pong'; ts: number }
-  | { type: 'ping'; ts: number };
+  | { type: 'ping'; ts: number }) & { seq?: number };
 
 export interface VoiceSocketHandlers {
   onConnected?: (msg: Extract<ServerMessage, { type: 'connected' }>) => void;
@@ -286,72 +290,95 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
   let closed = false;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
 
-  const url = buildWsUrl(sessionId);
-
-  try {
-    ws = new WebSocket(url);
-  } catch (e) {
-    // 브라우저/RN에서 WebSocket 미지원 시 fail 상태로
-    handlers.onStatusChange?.('disconnected');
-    handlers.onError?.({ type: 'error', code: 'WS_UNSUPPORTED', message: String(e) });
-    return { send: () => false, close: () => {}, ready: false };
-  }
-
-  ws.onopen = () => {
-    if (closed) return;
-    handlers.onStatusChange?.('connected');
-    // 주기 ping (프로토콜 §4.6)
-    pingTimer = setInterval(() => {
-      try {
-        ws?.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
-      } catch {
-        /* noop */
-      }
-    }, 25000);
-  };
-
-  ws.onmessage = (ev: MessageEvent) => {
-    if (closed) return;
-    let msg: ServerMessage;
+  void open();
+  async function open() {
     try {
-      msg = JSON.parse(String(ev.data)) as ServerMessage;
-    } catch {
-      return; // 비-JSON (오디오 바이너리 등) 무시
+      await initializeApi();
+    } catch (e) {
+      if (!closed) handlers.onError?.({ type: 'error', code: 'WS_AUTH_FAILED', message: `대화 연결 실패: ${String(e)}` });
+      return;
     }
-    if (!msg || typeof msg !== 'object') return;
-    handlers.onRaw?.(msg as unknown as Record<string, unknown>);
-    switch (msg.type) {
-      case 'connected':
-        handlers.onConnected?.(msg);
-        break;
-      case 'transcript.partial':
-        handlers.onPartial?.(msg);
-        break;
-      case 'transcript.final':
-        handlers.onFinal?.(msg);
-        break;
-      case 'neuron.status':
-        handlers.onNeuronStatus?.(msg);
-        break;
-      case 'task.status':
-        handlers.onTaskStatus?.(msg);
-        break;
-      case 'error':
-      case 'session.error':
-        handlers.onError?.(msg);
-        break;
-      default:
-        break;
+    let ticket: string | undefined;
+    if (config.token) {
+      try {
+        // Fastify는 application/json + 빈 본문을 400으로 거부하므로 빈 객체를 명시한다.
+        const env = await request<ApiEnvelope<{ ticket: string }>>('/api/ws-ticket', { method: 'POST', body: JSON.stringify({}) });
+        if (!env.ok || !env.data?.ticket) throw new Error(env.error?.message || '연결 티켓을 발급하지 못했습니다');
+        ticket = env.data.ticket;
+      } catch (e) {
+        // 티켓 발급 실패(인증/서버 오류)는 조용한 익명 재시도 금지 — 명시적 오류로 surfaced.
+        if (!closed) handlers.onError?.({ type: 'error', code: 'WS_AUTH_FAILED', message: `대화 연결 실패: ${String(e)}` });
+        return;
+      }
     }
-  };
+    if (closed) return;
+    try {
+      ws = new WebSocket(buildWsUrl(sessionId, ticket));
+    } catch (e) {
+      // 브라우저/RN에서 WebSocket 미지원 시 fail 상태로
+      if (closed) return;
+      handlers.onError?.({ type: 'error', code: 'WS_UNSUPPORTED', message: String(e) });
+      handlers.onStatusChange?.('disconnected');
+      return;
+    }
 
-  ws.onerror = () => {
-    if (!closed) handlers.onStatusChange?.('disconnected');
-  };
-  ws.onclose = () => {
-    if (pingTimer) clearInterval(pingTimer);
-    if (!closed) handlers.onStatusChange?.('disconnected');
-  };
+    ws.onopen = () => {
+      if (closed) return;
+      handlers.onStatusChange?.('connected');
+      // 주기 ping (프로토콜 §4.6)
+      pingTimer = setInterval(() => {
+        try {
+          ws?.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
+        } catch {
+          /* 연결 정리 중 발생한 오류는 무시한다. */
+        }
+      }, 25000);
+    };
+
+    ws.onmessage = (ev: MessageEvent) => {
+      if (closed) return;
+      let msg: ServerMessage;
+      try {
+        msg = JSON.parse(String(ev.data)) as ServerMessage;
+      } catch {
+        return; // 비-JSON (오디오 바이너리 등) 무시
+      }
+      if (!msg || typeof msg !== 'object') return;
+      handlers.onRaw?.(msg as unknown as Record<string, unknown>);
+      switch (msg.type) {
+        case 'connected':
+          handlers.onConnected?.(msg);
+          break;
+        case 'transcript.partial':
+          handlers.onPartial?.(msg);
+          break;
+        case 'transcript.final':
+          handlers.onFinal?.(msg);
+          break;
+        case 'neuron.status':
+          handlers.onNeuronStatus?.(msg);
+          break;
+        case 'task.status':
+          handlers.onTaskStatus?.(msg);
+          break;
+        case 'error':
+        case 'session.error':
+          handlers.onError?.(msg);
+          break;
+        default:
+          break;
+      }
+    };
+
+    ws.onerror = () => {
+      if (!closed) handlers.onStatusChange?.('disconnected');
+    };
+    ws.onclose = () => {
+      if (pingTimer) clearInterval(pingTimer);
+      if (!closed) handlers.onStatusChange?.('disconnected');
+    };
+
+  }
 
   return {
     send: (data) => {
@@ -369,17 +396,20 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
       try {
         ws?.close();
       } catch {
-        /* noop */
+        /* 연결 정리 중 발생한 오류는 무시한다. */
       }
     },
-    ready: true,
+    get ready() { return !closed && ws?.readyState === WebSocket.OPEN; },
   };
 }
 
-function buildWsUrl(sessionId: string | null): string {
-  const base = config.wsUrl;
-  const params: string[] = [];
-  if (sessionId) params.push(`session_id=${encodeURIComponent(sessionId)}`);
-  if (config.token) params.push(`token=${encodeURIComponent(config.token)}`);
-  return params.length ? `${base}?${params.join('&')}` : base;
+export const connectChatSocket = connectVoiceSocket;
+
+export function buildWsUrl(sessionId: string | null, ticket?: string): string {
+  const url = new URL(config.wsUrl);
+  url.searchParams.delete('token');
+  url.searchParams.delete('ticket');
+  if (sessionId) url.searchParams.set('session_id', sessionId);
+  if (ticket) url.searchParams.set('ticket', ticket);
+  return url.toString();
 }

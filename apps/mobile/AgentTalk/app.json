@@ -22,7 +22,9 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.worldofagents.agenttalk",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -34,7 +36,8 @@
         {
           "microphonePermission": "에이전트에게 음성으로 명령하려면 마이크 접근이 필요합니다."
         }
-      ]
+      ],
+      "expo-secure-store"
     ]
   }
 }

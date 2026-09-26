@@ -5,7 +5,7 @@
 //   POST /api/sessions/:id/messages → data: { user_message_id, empathy_response, answer_response, ... }
 import type { ChatMessage as BaseChatMessage } from '../types';
 
-export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed' };
+export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed'; dialogueType?: string | null; runId?: string; draft?: string };
 
 /** 서버 messages 행 (최소 필드 — ApiEnvelope data[] 항목) */
 export interface ServerMessageRow {
@@ -15,6 +15,8 @@ export interface ServerMessageRow {
   content: string;
   source_neuron?: string | null;
   created_at?: string;
+  dialogue_type?: string | null;
+  run_id?: string;
 }
 
 /** 서버 행 → UI 메시지 정규화 */
@@ -28,6 +30,8 @@ export function normalizeServerMessages(rows: ServerMessageRow[]): ChatMessage[]
       turnIndex: Number(r.turn_index) || 0,
       sourceNeuron: r.source_neuron ?? null,
       createdAt: r.created_at,
+      dialogueType: r.dialogue_type ?? null,
+      runId: r.run_id,
       status: 'sent',
     }))
     .sort((a, b) => a.turnIndex - b.turnIndex);
@@ -54,6 +58,8 @@ export function appendOptimistic(existing: ChatMessage[], draft: ChatMessage): C
 
 /** POST 응답 → 확정 메시지 목록 (공감/답변 각각 별도 카드) */
 export interface TurnConfirm {
+  run_id?: string;
+  messages?: { user: ServerMessageRow | null; empathy: ServerMessageRow | null; answer: ServerMessageRow | null };
   user_message_id: string;
   empathy_message_id?: string | null;
   answer_message_id?: string | null;
@@ -69,6 +75,11 @@ export function confirmTurn(
   userContent: string,
   baseTurnIndex: number
 ): ChatMessage[] {
+  if (confirm.messages) {
+    const rows = Object.values(confirm.messages).filter((row): row is ServerMessageRow => row !== null);
+    return mergeIncoming(existing.filter((m) => m.id !== optimisticId),
+      normalizeServerMessages(rows.map((row) => ({ ...row, run_id: confirm.run_id }))));
+  }
   const withoutPending = existing.filter((m) => m.id !== optimisticId && m.id !== confirm.user_message_id);
   const confirmedUser: ChatMessage = {
     id: confirm.user_message_id || optimisticId,
@@ -139,12 +150,13 @@ export const DEFAULT_QUIP = '잠깐만요, 생각 중이에요…';
 export type ExecutionStatus = 'active' | 'completed' | 'failed' | 'cancelled';
 
 export interface TypingTracker {
+  reserve(execId: string): void;
   begin(execId: string, quip?: string | null): void;
   complete(execId: string): void;
   fail(execId: string): void;
   cancel(execId: string): void;
   bind(execId: string, turnId: string): void;
-  finishTurn(turnId: string, failed?: boolean): void;
+  finishTurn(turnId: string, failed?: boolean | ExecutionStatus): void;
   /** 레거시 호출 호환 */
   end(execId: string): void;
   endAll(): void;
@@ -153,21 +165,40 @@ export interface TypingTracker {
 }
 
 /** 사람↔에이전트 대화의 처리중 상태는 실행 수로 결정한다. 종료된 실행은 늦은 begin으로 부활하지 않는다. */
-export function createTypingTracker(onChange: (active: boolean, quip: string | null) => void): TypingTracker {
+export function createTypingTracker(onChange: (active: boolean, quip: string | null, count: number) => void, notifyCount = false): TypingTracker {
   const executions = new Map<string, { status: ExecutionStatus; quip: string }>();
   const turns = new Map<string, Set<string>>();
   const endedTurns = new Map<string, ExecutionStatus>();
+  const reserved = new Set<string>();
+  let lastCount = 0;
   let lastActive = false;
   let lastQuip: string | null = null;
   const activeEntries = () => [...executions.values()].filter((e) => e.status === 'active');
+  function countActive() {
+    let pending = 0;
+    let known = 0;
+    const grouped = new Set<string>();
+    for (const [id, entry] of executions) {
+      if (entry.status !== 'active') continue;
+      const group = [...turns].find(([, members]) => members.has(id))?.[0];
+      if (group) grouped.add(group);
+      else if (reserved.has(id)) pending++;
+      else known++;
+    }
+    // 응답 전 식별 불가능한 REST 예약은 WS 실행과 중첩 표시한다. 확정 연결은 run_id로만 한다.
+    const paired = [...grouped].filter((group) => [...turns.get(group)!].some((id) => reserved.has(id))).length;
+    return paired + Math.max(pending, grouped.size - paired + known);
+  }
   function emit() {
     const entries = activeEntries();
     const active = entries.length > 0;
     const quip = entries.length ? entries[entries.length - 1].quip : null;
-    if (active !== lastActive || quip !== lastQuip) {
+    const count = countActive();
+    if (active !== lastActive || quip !== lastQuip || (notifyCount && count !== lastCount)) {
+      lastCount = count;
       lastActive = active;
       lastQuip = quip;
-      onChange(active, quip);
+      onChange(active, quip, count);
     }
   }
   function finish(id: string, status: ExecutionStatus) {
@@ -176,9 +207,11 @@ export function createTypingTracker(onChange: (active: boolean, quip: string | n
     emit();
   }
   return {
+    reserve(id) { reserved.add(id); },
     begin(id, quip) {
       const entry = executions.get(id);
       if (entry && entry.status !== 'active') return;
+      executions.delete(id);
       executions.set(id, { status: 'active', quip: quip || DEFAULT_QUIP });
       emit();
     },
@@ -194,7 +227,8 @@ export function createTypingTracker(onChange: (active: boolean, quip: string | n
       if (ended) finish(id, ended);
     },
     finishTurn(turn, failed = false) {
-      const status = failed ? 'failed' : 'completed';
+      const status: ExecutionStatus = typeof failed === 'string' ? failed : failed ? 'failed' : 'completed';
+      if (endedTurns.has(turn)) return;
       endedTurns.set(turn, status);
       // 모든 실행의 상태를 먼저 바꾸어 중간 quip/typing 깜빡임을 방지한다.
       for (const id of turns.get(turn) ?? []) {
@@ -208,7 +242,7 @@ export function createTypingTracker(onChange: (active: boolean, quip: string | n
       emit();
     },
     get active() { return activeEntries().length > 0; },
-    get activeCount() { return activeEntries().length; },
+    get activeCount() { return countActive(); },
   };
 }
 
@@ -229,7 +263,7 @@ export interface TurnIdentity {
 
 /** 서버 ID가 없을 때만 session + turn_index를 사용한다. */
 export function turnKey(event: TurnIdentity, sessionId: string): string | null {
-  const id = event.turn_id ?? event.execution_id ?? event.run_id;
+  const id = event.run_id ?? event.turn_id ?? event.execution_id;
   if (id) return `${sessionId}:turn:${id}`;
   return event.turn_index !== undefined ? `${sessionId}:index:${event.turn_index}` : null;
 }
@@ -247,6 +281,7 @@ export function createTurnCoordinator(tracker: TypingTracker) {
   const watches = new Map<string, Set<string>>();
   const executionTurns = new Map<string, Set<string>>();
   const turnExecution = new Map<string, string>();
+  const runProtocol = new Set<string>();
   let legacyCounter = 0;
   let legacyKey: string | null = null;
   function bindIdentity(execId: string, event: TurnIdentity, sid: string) {
@@ -263,9 +298,15 @@ export function createTurnCoordinator(tracker: TypingTracker) {
     executionTurns.set(execId, turns);
   }
   return {
-    start(execId: string) { pending.add(execId); tracker.begin(execId); },
+    start(execId: string) { pending.add(execId); tracker.reserve(execId); tracker.begin(execId); },
     observe(event: TurnEvent, sid: string) {
       const key = turnKey(event, sid);
+      // 새 프로토콜의 뉴런 이벤트는 실행 식별자가 없으므로 작업을 추가하거나 종료하지 않는다.
+      if (!key && event.type === 'neuron.status' && runProtocol.size) return '';
+      if (key && event.type.startsWith('run.')) {
+        runProtocol.add(key);
+        if (legacyKey) { tracker.cancel(legacyKey); watches.delete(legacyKey); legacyKey = null; }
+      }
       const clientId = event.client_exec_id ?? [event.execution_id, event.run_id, event.turn_id]
         .find((id) => id !== undefined && pending.has(id));
       const knownExec = key ? turnExecution.get(key) : undefined;
@@ -280,16 +321,18 @@ export function createTurnCoordinator(tracker: TypingTracker) {
         tracker.bind(key, key);
         tracker.bind(clientId, key);
       }
-      const status = event.status?.toLowerCase() ?? '';
+      const status = event.type.startsWith('run.') ? event.type.slice(4) : event.status?.toLowerCase() ?? '';
+      if (key && runProtocol.has(key) && !event.type.startsWith('run.')) return execId;
       const failed = ['failed', 'error', 'failure', 'cancelled', 'canceled'].includes(status);
       const ended = failed || ['completed', 'complete', 'done', 'idle', 'success', 'finished'].includes(status) || event.type === 'answer.done';
       if (ended) {
-        if (key) tracker.finishTurn(key, failed);
-        if (failed) tracker.fail(execId); else tracker.complete(execId);
+        if (key) tracker.finishTurn(key, status === 'cancelled' || status === 'canceled' ? 'cancelled' : failed);
+        if (status === 'cancelled' || status === 'canceled') tracker.cancel(execId);
+        else if (failed) tracker.fail(execId); else tracker.complete(execId);
         if (!key && !clientId) legacyKey = null;
       } else {
-        if (!clientId && pending.size && !watches.has(execId)) watches.set(execId, new Set(pending));
-        tracker.begin(execId, event.quip || event.stage || DEFAULT_QUIP);
+        if (!key && !clientId && pending.size && !watches.has(execId)) watches.set(execId, new Set(pending));
+        tracker.begin(execId, event.quip || DEFAULT_QUIP);
       }
       return execId;
     },
@@ -314,4 +357,79 @@ export function createTurnCoordinator(tracker: TypingTracker) {
       }
     },
   };
+}
+
+export function validateMessageInput(content: string): { ok: boolean; error?: string; normalized?: string } {
+  const normalized = content.trim();
+  if (!normalized) return { ok: false, error: '메시지를 입력해주세요' };
+  if (normalized.length > 4000) return { ok: false, error: '메시지는 4000자까지 보낼 수 있어요' };
+  return { ok: true, normalized };
+}
+
+/** 연속 5분 이내 메시지는 시간을 생략한다. 잘못된 시간은 라벨 없이 별도 그룹으로 취급한다. */
+export function buildTimeGroups(messages: ChatMessage[], now = new Date()): { id: string; label: string | null }[] {
+  let previous: Date | null = null;
+  return messages.map((message) => {
+    const date = message.createdAt ? new Date(message.createdAt) : null;
+    if (!date || !Number.isFinite(date.getTime())) { previous = null; return { id: message.id, label: null }; }
+    const sameDay = previous?.toDateString() === date.toDateString();
+    const grouped = previous && sameDay && date.getTime() >= previous.getTime() && date.getTime() - previous.getTime() < 300000;
+    previous = date;
+    const time = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const label = date.toDateString() === now.toDateString() ? time
+      : `${String(date.getMonth() + 1).padStart(2, '0')}월 ${String(date.getDate()).padStart(2, '0')}일 ${time}`;
+    return { id: message.id, label: grouped ? null : label };
+  });
+}
+
+export function createSequenceTracker() {
+  let lastSeq = 0;
+  return {
+    get lastSeq() { return lastSeq; },
+    accept(seq: unknown) {
+      if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq <= 0) return seq === undefined;
+      if (seq <= lastSeq) return false;
+      lastSeq = seq;
+      return true;
+    },
+    subscribed(current: unknown) {
+      if (typeof current === 'number' && current >= 0 && current < lastSeq) { lastSeq = 0; return true; }
+      return false;
+    },
+  };
+}
+
+export interface StreamingAnswer { runId: string; text: string; messageId?: string; index: number; quip: string; done: boolean }
+export function reduceStreams(streams: StreamingAnswer[], event: Record<string, unknown>, messages: ChatMessage[]): StreamingAnswer[] {
+  const runId = event.run_id;
+  if (typeof runId !== 'string') return streams;
+  const old = streams.find((s) => s.runId === runId);
+  if (event.type === 'run.failed' || event.type === 'run.cancelled') return streams.filter((s) => s.runId !== runId);
+  if (event.type === 'message.new') {
+    const row = event.message as ServerMessageRow | undefined;
+    if (row?.source_neuron === 'answer' || row?.id === old?.messageId) return streams.filter((s) => s.runId !== runId);
+    return streams;
+  }
+  if (event.type !== 'answer.delta' && event.type !== 'answer.done' && event.type !== 'run.progress') return streams;
+  if (messages.some((m) => m.runId === runId && m.sourceNeuron === 'answer')) return streams.filter((s) => s.runId !== runId);
+  if (event.type === 'run.progress' && !old) return streams;
+  const next = { ...old ?? { runId, text: '', index: -1, quip: DEFAULT_QUIP, done: false } };
+  if (event.type === 'answer.delta') {
+    if (next.done || (typeof event.index === 'number' && event.index <= next.index)) return streams;
+    next.text += typeof event.delta === 'string' ? event.delta : '';
+    next.index = typeof event.index === 'number' ? event.index : next.index + 1;
+  }
+  if (event.type === 'answer.done') {
+    next.text = typeof event.text === 'string' ? event.text : '';
+    next.messageId = typeof event.message_id === 'string' ? event.message_id : undefined;
+    next.done = true;
+    if (!next.text || messages.some((m) => m.id === next.messageId)) return streams.filter((s) => s.runId !== runId);
+  }
+  if (typeof event.quip === 'string') next.quip = event.quip;
+  return [...streams.filter((s) => s.runId !== runId), next];
+}
+
+/** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
+export function restoreFailedDraft(current: string, failed: string): string {
+  return !current || current === failed ? failed : `${current}\n${failed}`;
 }

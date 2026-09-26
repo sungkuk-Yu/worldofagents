@@ -2,13 +2,14 @@
 // React Navigation 기반 네비게이션 구조
 // 디자인 시스템 v1.0 토큰 적용 (docs/design/agenttalk-figma/tokens.json)
 // 화면 6(대화 목록) → 7(음성 우선 홈) → 10(결과 캔버스) → 11(카드 스레드)
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { initializeApi } from './src/lib/api';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PaperProvider, MD3LightTheme } from 'react-native-paper';
-import { StyleSheet } from 'react-native';
+import { PaperProvider, MD3LightTheme, Text, Button } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
 
 import { colors } from './src/theme';
 import {
@@ -75,6 +76,18 @@ const PaperTheme = {
 };
 
 export default function App() {
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bootstrap = () => {
+    setError(null);
+    void initializeApi().then(() => setReady(true)).catch(() => setError('로그인 정보를 불러오지 못했습니다'));
+  };
+  useEffect(bootstrap, []);
+  if (!ready) return <PaperProvider theme={PaperTheme}><View style={styles.container}>
+    <Text>{error || '로그인 정보를 불러오는 중…'}</Text>
+    {error && <Button onPress={bootstrap}>재시도</Button>}
+  </View></PaperProvider>;
+
   return (
     <GestureHandlerRootView style={styles.container}>
       <PaperProvider theme={PaperTheme}>

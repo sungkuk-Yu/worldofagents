@@ -45,7 +45,7 @@ export default function LoginScreen({ navigation }: Props) {
         token = login?.data?.token ?? null;
       }
       if (!token) throw new Error('토큰을 받지 못했습니다.');
-      setToken(token);
+      await setToken(token);
       navigation.reset({ index: 0, routes: [{ name: 'DialogueList' }] });
     } catch (e) {
       setError((e as Error).message);

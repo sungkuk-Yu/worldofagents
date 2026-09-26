@@ -16,6 +16,7 @@
     "tests/unit/**/*.ts",
     "src/lib/gesture.ts",
     "src/lib/chatLogic.ts",
+    "src/lib/secureStorage.ts",
     "src/neurons/DialogTypeClassifier.ts",
     "src/neurons/NeuronOrchestrator.ts",
     "src/store/index.ts",
