@@ -1,3 +1,4 @@
+import { getOwnedMessage } from '../lib/helpers';
 /**
  * WebSocket 핸들러 — api-design.md §4 프로토콜 구현.
  * - 구독 (subscribe/subscribed)
@@ -7,13 +8,15 @@
  * - 핑/퐁 연결 유지
  */
 import { FastifyRequest } from 'fastify';
+import { consumeTicket } from '../routes/wsTicket';
+import { recordEvent, currentSeq, replaySince, cancelRun } from './eventlog';
 import { config } from '../config';
 import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
 import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
-import { processTurn } from '../neurons/graph';
-import { NEURON_NAMES, sendJson, ClientMessage, ServerMessage, WSChannel } from './protocol';
-import { rowToPersonaConfig } from '../lib/persona';
+import { runTextTurn } from '../lib/chatTurn';
+import { SessionsRow } from '../types/db';
+import { sendJson, ClientMessage, ServerMessage, WSChannel } from './protocol';
 
 export interface WSSocket {
   send: (data: string) => void;
@@ -39,9 +42,10 @@ export function unregisterConnection(sessionId: string, socket: WSSocket): void 
 }
 
 export function broadcastToSession(sessionId: string, message: ServerMessage): void {
+  const stamped = recordEvent(sessionId, message);
   const set = sessionHub.get(sessionId);
   if (!set) return;
-  for (const socket of set) sendJson(socket, message);
+  for (const socket of set) sendJson(socket, stamped);
 }
 
 interface AudioSession {
@@ -60,7 +64,7 @@ interface ConnState {
 
 export async function websocketHandler(connection: any, request: FastifyRequest) {
   const socket = connection.socket as WSSocket;
-  const query = (request.query || {}) as { session_id?: string; token?: string };
+  const query = (request.query || {}) as { session_id?: string; token?: string; ticket?: string };
 
   const state: ConnState = {
     sessionId: query.session_id || null,
@@ -70,18 +74,47 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     lastActivity: Date.now(),
   };
 
-  // ── 인증 ──
+  // 헤더 JWT 또는 일회용 티켓만 인증에 사용한다.
   try {
     await request.jwtVerify();
-    state.userId = (request.user as { sub?: string })?.sub || '';
+    const sub = (request.user as { sub?: unknown })?.sub;
+    if (typeof sub === 'string') state.userId = sub;
   } catch {
-    // DEV_MODE: 토큰 없이도 연결 허용 (테스트 편의)
+    // 티켓 인증으로 이어진다.
+  }
+  if (!state.userId && typeof query.ticket === 'string') {
+    state.userId = consumeTicket(query.ticket) || '';
+  }
+  if (!state.userId) {
     if (!config.devMode) {
       sendJson(socket, { type: 'error', code: 'AUTH_REQUIRED', message: '인증 토큰이 필요합니다.' });
       socket.terminate?.();
       return;
     }
     state.userId = query.token === 'dev-test' ? 'dev-test-user' : '';
+  }
+
+  async function assertSessionOwnership(sessionId: string | null, userId: string): Promise<SessionsRow | null> {
+    if (!userId || !sessionId) {
+      sendJson(socket, { type: 'error', code: !userId ? 'AUTH_REQUIRED' : 'VALIDATION_ERROR', message: !userId ? '인증이 필요합니다.' : 'session_id가 필요합니다.' });
+      return null;
+    }
+    const { data: session, error } = await supabaseAdmin.from('sessions').select('*').eq('id', sessionId).maybeSingle();
+    const code = error ? 'INTERNAL_ERROR' : !session ? 'SESSION_NOT_FOUND' : session.user_id !== userId ? 'FORBIDDEN' : null;
+    if (code) {
+      sendJson(socket, { type: 'error', code, message: code === 'FORBIDDEN' ? '세션 접근 권한이 없습니다.' : code === 'SESSION_NOT_FOUND' ? '세션을 찾을 수 없습니다.' : '세션 조회에 실패했습니다.' });
+      return null;
+    }
+    return session as SessionsRow;
+  }
+
+  function joinSession(sessionId: string) {
+    if (state.sessionId !== sessionId) {
+      if (state.sessionId) unregisterConnection(state.sessionId, socket);
+      state.audio = null;
+    }
+    state.sessionId = sessionId;
+    registerConnection(sessionId, socket);
   }
 
   logger.info(`WebSocket connected: user=${state.userId || '(anon)'}, session=${state.sessionId}`);
@@ -92,7 +125,11 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     timestamp: new Date().toISOString(),
   });
 
-  if (state.sessionId) registerConnection(state.sessionId, socket);
+  if (state.sessionId) {
+    const session = state.userId ? await assertSessionOwnership(state.sessionId, state.userId) : null;
+    if (session) joinSession(session.id);
+    else state.sessionId = null;
+  }
 
   // 프로토콜 레벨 ping → pong (ws 표준)
   const pingInterval = setInterval(() => {
@@ -135,20 +172,53 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     }
 
     try {
+      if (!message || typeof message !== 'object') throw Object.assign(new Error('메시지 형식이 올바르지 않습니다.'), { code: 'VALIDATION_ERROR' });
+      let session: SessionsRow | null = null;
+      if ('session_id' in message || ['subscribe', 'audio.start', 'audio.end', 'audio.cancel', 'transcript', 'message.send', 'run.cancel'].includes(message.type)) {
+        const id = 'session_id' in message ? message.session_id : state.sessionId;
+        session = await assertSessionOwnership(typeof id === 'string' ? id : state.sessionId, state.userId);
+        if (!session) return;
+        joinSession(session.id);
+      }
       switch (message.type) {
         case 'subscribe':
-          state.sessionId = message.session_id || state.sessionId;
           state.channels = message.channels || state.channels;
-          if (state.sessionId) registerConnection(state.sessionId, socket);
-          sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels });
+          sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!) });
+          if (typeof message.last_seq === 'number' && Number.isFinite(message.last_seq)) {
+            for (const event of replaySince(state.sessionId!, message.last_seq)) sendJson(socket, event);
+          }
           break;
+
+        case 'run.cancel':
+          if (!cancelRun(session!.id, message.run_id)) {
+            sendJson(socket, { type: 'error', code: 'NOT_FOUND', message: '취소할 실행이 없습니다.' });
+          }
+          break;
+
+        case 'message.send': {
+          if (typeof message.content !== 'string' || !message.content.trim()) {
+            sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: '메시지 내용(content)은 필수입니다.' });
+            break;
+          }
+          let thread;
+          if (message.parent_message_id !== undefined) {
+            if (typeof message.parent_message_id !== 'string' || !message.parent_message_id) {
+              throw Object.assign(new Error('부모 메시지 ID가 올바르지 않습니다.'), { code: 'VALIDATION_ERROR' });
+            }
+            const { message: parent } = await getOwnedMessage(supabaseAdmin, state.userId, message.parent_message_id, session!.id);
+            thread = { parentMessageId: parent.id, rootMessageId: parent.root_message_id || parent.id };
+          }
+          // 종료 상태는 공유 실행기의 finally에서 보장한다.
+          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { thread, emit: e => broadcastToSession(session!.id, e) });
+          break;
+        }
 
         case 'audio.start':
           await handleAudioStart(socket, state, message);
           break;
 
         case 'audio.end':
-          await handleAudioEnd(socket, state, message.session_id || state.sessionId);
+          await handleAudioEnd(socket, state, session!, state.userId);
           break;
 
         case 'audio.cancel':
@@ -157,7 +227,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           break;
 
         case 'transcript':
-          await handleTr({ text: message.text, isFinal: message.is_final !== false, sessionId: message.session_id || state.sessionId });
+          await handleTr({ text: message.text, isFinal: message.is_final !== false, session: session!, userId: state.userId });
           break;
 
         case 'ping':
@@ -171,6 +241,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'Unknown message type' });
       }
     } catch (err: any) {
+      if (err?.code === 'RUN_CANCELLED') return;
       logger.error({ err: err?.message }, 'WS message handler error');
       sendJson(socket, {
         type: 'session.error',
@@ -218,7 +289,6 @@ async function handleAudioStart(socket: WSSocket, state: ConnState, message: Ext
     return;
   }
   state.sessionId = sessionId;
-  registerConnection(sessionId, socket);
   state.audio = {
     buffer: new AudioStreamBuffer(),
     startedAt: Date.now(),
@@ -235,8 +305,8 @@ async function handleAudioStart(socket: WSSocket, state: ConnState, message: Ext
   });
 }
 
-async function handleAudioEnd(socket: WSSocket, state: ConnState, sessionId: string | null) {
-  const target = sessionId || state.sessionId;
+async function handleAudioEnd(socket: WSSocket, state: ConnState, session: SessionsRow, userId: string) {
+  const target = session.id;
   if (!target) {
     sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'session_id가 필요합니다.' });
     return;
@@ -265,7 +335,8 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, sessionId: str
   await handleTr({
     text: result.text,
     isFinal: true,
-    sessionId: target,
+    session,
+    userId,
     stt: { confidence: result.confidence, language: result.language, duration_ms: result.durationMs, service: result.service },
   });
 }
@@ -275,19 +346,14 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, sessionId: str
 interface TrInput {
   text: string;
   isFinal: boolean;
-  sessionId: string | null;
+  session: SessionsRow;
+  userId: string;
   stt?: Record<string, unknown>;
 }
 
-async function handleTr({ text, isFinal, sessionId, stt }: TrInput) {
-  if (!sessionId) throw Object.assign(new Error('session_id가 필요합니다.'), { code: 'VALIDATION_ERROR' });
-  if (!text.trim()) return;
-
-  const db = supabaseAdmin;
-
-  // 세션 조회 — 사용자/소유권 검증은 REST와 동일하게 JWT 기반
-  const { data: session } = await db.from('sessions').select('*').eq('id', sessionId).maybeSingle();
-  if (!session) throw Object.assign(new Error('세션을 찾을 수 없습니다.'), { code: 'SESSION_NOT_FOUND' });
+async function handleTr({ text, isFinal, session, userId, stt }: TrInput) {
+  const sessionId = session.id;
+  if (typeof text !== 'string' || !text.trim()) return;
   if (session.status === 'archived') throw Object.assign(new Error('아카이브된 세션입니다.'), { code: 'SESSION_ARCHIVED' });
 
   // 부분 트랜스크립트는 브로드캐스트만 (sentence 경계 아닌 경우)
@@ -302,32 +368,16 @@ async function handleTr({ text, isFinal, sessionId, stt }: TrInput) {
     return;
   }
 
-  // 페르소나 로드
-  const { data: persona } = await db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
-  const personaConfig = persona ? rowToPersonaConfig(persona) : null;
-
-  // 뉴런 상태 이벤트를 WS로 실시간 브로드캐스트
-  const emitEvent = (event: { neuron: string; status: string; stage: string; quip: string }) => {
-    broadcastToSession(sessionId, {
-      type: 'neuron.status',
-      session_id: sessionId,
-      neuron: { slug: event.neuron, name: NEURON_NAMES[event.neuron] || event.neuron },
-      status: event.status,
-      stage: event.stage,
-      quip: event.quip,
-    });
-  };
-
-  const result = await processTurn(db, sessionId, session.user_id as string, session.agent_id as string, personaConfig, text, {
-    emitEvent: emitEvent as any,
-    sttMetadata: stt || undefined,
+  const result = await runTextTurn(supabaseAdmin, session, userId, text, {
+    sttMetadata: stt,
+    emit: e => broadcastToSession(sessionId, e),
   });
 
   // 최종 트랜스크립트 + 응답 브로드캐스트
   broadcastToSession(sessionId, {
     type: 'transcript.final',
     session_id: sessionId,
-    turn_index: 0,
+    turn_index: result.messages.user.turn_index,
     text,
     confidence: (stt?.confidence as number) || 0.95,
     language: (stt?.language as string) || 'ko',

@@ -47,6 +47,7 @@ export interface PersonasRow {
 }
 
 export interface SessionsRow {
+  forked_from: Json;
   id: string;
   user_id: string;
   agent_id: string;
@@ -96,7 +97,11 @@ export interface NeuronInstancesRow {
   created_at: string;
 }
 
+export type DialogueCardType = 'text' | 'info_card' | 'spreadsheet' | 'file' | 'task_flow' | 'multi_agent';
+
 export interface MessagesRow {
+  parent_message_id: string | null;
+  root_message_id: string | null;
   id: string;
   session_id: string;
   stream_message_id: string | null;
@@ -104,6 +109,8 @@ export interface MessagesRow {
   role: 'user' | 'agent' | 'system';
   message_type: 'text' | 'voice' | 'image' | 'file' | 'card' | 'system';
   content: string;
+  dialogue_type?: DialogueCardType | null;
+  structured_payload: Json;
   stt_metadata: Json | null;
   source_neuron: string | null;
   attachments: Json;

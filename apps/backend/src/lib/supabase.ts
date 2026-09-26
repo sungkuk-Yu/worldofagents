@@ -43,7 +43,7 @@ export const supabaseAdmin: DbClient = buildClient(config.supabase.url, config.s
 // 익명(anon) 클라이언트 (RLS 적용)
 export const supabase: DbClient = buildClient(config.supabase.url, config.supabase.anonKey);
 
-// 사용자 JWT 기반 클라이언트 — RLS가 사용자 컨텍스트를 반영
+/** Phase 3 예정: 자체 JWT를 Supabase access token으로 교환한 뒤 사용할 RLS 클라이언트. */
 export function createUserClient(accessToken: string): DbClient {
   if (config.devMode) return supabaseAdmin;
   return buildClient(config.supabase.url, config.supabase.anonKey, { accessToken });

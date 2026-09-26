@@ -610,12 +610,12 @@ GET /sessions/:session_id/transcripts
 
 ## 4. WebSocket 프로토콜
 
-WebSocket은 Supabase Realtime 채널 위에 자체 프로토콜을 얹어 사용한다.
+WebSocket은 백엔드의 /ws 엔드포인트에서 자체 프로토콜을 제공한다. 최종 인증·재생·실행 이벤트 계약은 아래 Phase 2 변경 섹션을 따른다.
 
 ### 4.0 연결 수립
 
 ```
-wss://realtime.agenttalk.io/v1/agenttalk?token=<supabase_access_token>
+wss://<백엔드 호스트>/ws?ticket=<일회용 티켓>
 ```
 
 **클라이언트 → 서버: 구독 시작**
@@ -931,3 +931,193 @@ X-RateLimit-Reset: 1758791460
 ---
 
 *이 문서는 구현 과정에서 발견되는 사항에 따라 갱신된다. 변경 시 CHANGELOG.md에 기록.*
+
+## Phase 2 변경 (2026-09-26)
+
+REST `POST /api/sessions/:id/messages`, WS 텍스트 입력과 음성 확정 입력은 같은 턴 실행기를 사용한다. 접수 시 `run_id`를 발급하고 세션별로 직렬 처리한다. 공감 뉴런은 기존 템플릿을 유지하며 답변 뉴런만 LLM을 호출한다.
+
+### WS 텍스트 입력과 신규 이벤트
+
+인증된 세션 소유자는 다음 메시지를 보낼 수 있다.
+
+```json
+{"type":"message.send","session_id":"세션 UUID","content":"오늘 할 일을 정리해줘"}
+```
+
+### 티켓 인증과 재연결
+
+`POST /api/ws-ticket`에 `Authorization: Bearer <JWT>`를 보내면 `{"ok":true,"data":{"ticket":"32자리 hex","expires_in":30}}`을 반환한다. 발급받은 티켓으로 `/ws?ticket=<ticket>`에 연결한다. 티켓은 30초 동안 유효하며 인증 성공 즉시 소비되므로 재연결마다 새로 발급해야 한다. 헤더 JWT 인증도 유지한다.
+
+**쿼리 JWT 제거(breaking): `?token=***` prod에서 거부, 티켓 사용.** 개발 모드에서도 일반 쿼리 JWT를 인증에 사용하지 않는다. `dev-test`만 개발 전용 사용자로 인정하며 익명 연결은 기존대로 허용한다.
+
+소유권 검증을 통과한 구독에는 현재 최신 seq를 먼저 응답하고, 요청한 last_seq보다 큰 이벤트를 오래된 순서로 재생한다.
+
+```json
+{"type":"subscribe","session_id":"세션 UUID","last_seq":12}
+{"type":"subscribed","session_id":"세션 UUID","channels":["audio","transcript","neuron_status","task"],"current_seq":20}
+```
+
+`message.new`, `run.*`, `answer.delta/done`, `neuron.status`, `transcript.partial/final`, `queue.update`에는 세션별 1부터 단조 증가하는 `seq`가 붙는다. 연결이 없어도 기록하며 세션별 최근 500개만 메모리에 보관한다. `connected/subscribed/error/pong/ping`은 seq와 재생 대상에서 제외한다. 프로세스 재시작 시 번호와 버퍼는 소실된다. last_seq를 생략하면 재생하지 않는다. 버퍼 보관 범위를 벗어난 이력은 REST 메시지 조회로 복구해야 하며, 재시작 후에는 last_seq를 0으로 초기화한다. 클라이언트는 seq로 중복 수신을 제거한다.
+
+### 실행 상태와 취소
+
+`run.started → run.progress → run.completed/run.failed/run.cancelled` 순서로 전이한다. 접수 즉시 started를 발행하고 락 대기 중에는 해당 상태를 유지한다. progress의 stage는 `thinking | organizing | finalizing | rendering`이며 단계 변경 시 quip을 포함한다.
+
+```json
+{"type":"run.started","session_id":"세션 UUID","run_id":"실행 UUID","seq":1,"quip":"접수했어요. 바로 살펴볼게요"}
+{"type":"run.progress","session_id":"세션 UUID","run_id":"실행 UUID","seq":2,"stage":"thinking","quip":"잠깐만요, 생각해볼게요…"}
+{"type":"run.completed","session_id":"세션 UUID","run_id":"실행 UUID","seq":10,"message_ids":{"user":"메시지 UUID","empathy":null,"answer":null},"llm":{"used":false,"model":null,"fallback":false}}
+{"type":"run.failed","session_id":"세션 UUID","run_id":"실행 UUID","seq":11,"error":{"code":"INTERNAL_ERROR","message":"처리 중 오류가 발생했습니다."}}
+{"type":"run.cancelled","session_id":"세션 UUID","run_id":"실행 UUID","seq":12,"partial_text":"취소 전 생성된 텍스트"}
+```
+
+위 종료 이벤트 세 종류는 각 실행에서 하나만 발생한다. 소유자는 `{"type":"run.cancel","session_id":"세션 UUID","run_id":"실행 UUID"}`를 보낼 수 있다. run_id 생략 시 해당 세션의 최신 실행을 취소한다. 실행이 없으면 `error/NOT_FOUND`를 반환한다. 취소 시 사용자 메시지는 유지하고 답변은 저장하지 않는다. partial_text는 누적 스트리밍 텍스트이며 없으면 빈 문자열이다. 내부 오류 코드는 `RUN_CANCELLED`(HTTP 499)이며 WS에서는 cancelled 이후 별도 오류 이벤트를 보내지 않는다.
+
+- `message.new`: `{type, session_id, run_id, seq, message}`. message는 저장된 messages 행 전체다. 성공 시 사용자 → 공감 → 답변 순으로 전송하며 없는 응답 행은 생략한다.
+- `answer.delta`: `{type, session_id, run_id, seq, delta, index}`. index는 실행별 0부터 증가한다.
+- `answer.done`: `{type, session_id, run_id, seq, text, message_id, llm: {used, model, fallback, usage}}`. PersonaGuard를 적용한 최종 텍스트다. 답변이 없으면 text는 빈 문자열, message_id는 null이다.
+
+성공 시 `message.new`들 → `answer.done` → `run.completed` 순서다. 뉴런 상태와 트랜스크립트 이벤트도 유지한다. LLM 장애 시 템플릿 폴백 또는 PersonaGuard에 의해 텍스트가 달라질 수 있으므로 누적 델타를 answer.done.text로 교체한다.
+
+### REST 응답
+
+`POST /api/sessions/:id/messages`의 기존 필드는 유지하며 다음을 추가한다.
+
+```json
+{
+  "run_id":"실행 UUID",
+  "turn_id":"실행 UUID",
+  "llm":{"used":true,"model":"모델명","fallback":false,"usage":{"total_tokens":100},"durationMs":500},
+  "messages":{"user":{"id":"사용자 메시지 UUID"},"empathy":{"id":"공감 메시지 UUID"},"answer":{"id":"답변 메시지 UUID"}}
+}
+```
+
+`turn_id`는 `run_id`와 동일한 값을 갖는 하위호환 alias다.
+
+위 `messages`의 각 객체는 실제 응답에서 저장 행 전체를 포함한다. 공감·답변이 없으면 해당 값은 null이다. LLM 미설정 시 `used: false, fallback: false, reason: LLM_UNCONFIGURED`, 호출 실패 시 `used: false, fallback: true, reason: 오류 코드`다.
+
+`GET /api/sessions/:id/messages`의 `dialogue_type`은 저장된 카드 유형이며, 사용자 라우터 분류는 `router_dialogue_type`으로 반환한다. 상세 계약은 아래 기능성 payload 절을 따른다. `after`와 `before`는 유효한 정수 턴 번호에만 적용하며 `meta.has_more`를 유지한다.
+
+압축 범위는 INT4RANGE 문자열 `[lower,upper)`로 저장한다. 상한은 마지막 메시지의 turn_index + 1이며 기존 객체 범위도 읽을 수 있다.
+
+### 메시지 기능성 payload 계약
+
+카드 유형은 라우터의 `DialogueType`과 별개인 `DialogueCardType`이다. 답변 메시지의 `dialogue_type`은 아래 6종 중 하나이며 `structured_payload`는 JSON 객체다. 아래는 유형별 JSON 예시다.
+
+| dialogue_type | 용도 | structured_payload 예시 |
+| --- | --- | --- |
+| `text` | 일반 텍스트 | `{}` |
+| `info_card` | 요약과 정보 | `{"title":"날씨","summary":"맑음","facts":[{"label":"기온","value":"20도"}]}` |
+| `spreadsheet` | 표 | `{"title":"재고","columns":["품목","수량"],"rows":[["사과","2"]]}` |
+| `file` | 파일 목록 | `{"files":[{"name":"보고서","kind":"pdf","url":null,"meta":{}}]}` |
+| `task_flow` | 작업 체크리스트 | `{"title":"배포","items":[{"title":"검증","status":"pending","detail":null}]}` |
+| `multi_agent` | 협업 에이전트 목록 | `{"agents":[{"name":"분석 담당","role":"자료 분석"}]}` |
+
+표의 columns는 문자열 배열, rows는 문자열의 2차원 배열이다. 정보 카드의 facts는 label/value 문자열 쌍이며 규칙 폴백에서는 생략할 수 있다. 작업 항목의 status는 `pending`, detail은 문자열 또는 null이다. 파일 url은 문자열 또는 null, meta는 객체다. 파일·협업 규칙 폴백은 각각 `files: []`, `agents: []`를 반환하며 실제 파일이나 에이전트 생성을 의미하지 않는다.
+
+답변 뉴런은 텍스트 생성 완료 후 `data/file/task/multi` 요청에 한해서 같은 설정 모델로 비스트리밍 구조화 추출을 시도한다(최대 512 토큰). `information/command/question`은 LLM 추출을 생략한다. LLM 미설정, 호출 오류, JSON 파싱 실패, 잘못된 카드 유형 또는 객체가 아닌 payload는 규칙으로 폴백한다. MVP에서는 payload 내부의 유형별 필드까지 엄격하게 검증하지 않는다.
+
+규칙은 data의 마크다운 표를 spreadsheet로, 파싱 실패 시 info_card로 변환한다. task는 체크리스트·번호 목록을 pending 항목으로 만들며 목록이 없으면 요청 제목으로 한 항목을 만든다. question은 요청 앞 50자와 답변 앞 200자로 info_card를 만들고 information/command는 text를 반환한다. multi 요청도 답변 뉴런을 활성화한다. 분류 단계 취소는 규칙 결과로 답변 저장을 완료하고, 답변 텍스트 생성 중 취소는 기존 `run.cancelled` 계약을 유지한다.
+
+`answer.delta`는 기존 순수 텍스트 스트리밍을 유지한다. 구조화 JSON은 델타에 섞이지 않는다. 구조화는 answerNode의 답변을 기준으로 생성되며 이후 PersonaGuard가 확정 텍스트를 변경할 수 있다.
+
+DB에는 답변 행의 `dialogue_type/structured_payload`를 저장한다. 사용자·공감 행은 `dialogue_type: null, structured_payload: {}`로 저장한다. 이전 행의 dialogue_type은 null을 허용하고 structured_payload는 `{}`가 기본값이다. GET 행은 다음 필드를 포함한다.
+
+```json
+{
+  "role":"agent",
+  "source_neuron":"answer",
+  "dialogue_type":"info_card",
+  "router_dialogue_type":null,
+  "structured_payload":{"title":"질문","summary":"답변 요약"}
+}
+```
+
+`dialogue_type`은 저장 컬럼 우선이며 없으면 null이다. `router_dialogue_type`은 사용자 행에서만 기존 라우터 분류(`information/data/file/task/multi/question/command`)를 반환하고 모든 에이전트·시스템 행에서는 null이다. `structured_payload`는 저장값을 반환하고 이전 개발 저장소 행에 없으면 `{}`로 보완한다.
+
+REST `POST /api/sessions/:id/messages`의 data에는 다음 structured가 추가된다. 기존 data.dialogue_type은 라우터 분류를 유지한다.
+
+```json
+{"structured":{"dialogue_type":"info_card","structured_payload":{"title":"질문","summary":"답변 요약"},"classifier":"rules"}}
+```
+
+`classifier`는 `llm | rules`이며 TurnResult와 REST의 structured에 포함한다. DB 메시지 행에는 저장하지 않는다. `run.completed.structured`는 같은 dialogue_type과 structured_payload만 포함하며 classifier는 제외한다(프로토콜 타입상 선택 필드). `message.new.message`와 REST의 messages 객체에는 저장 행의 신규 컬럼 dialogue_type과 structured_payload가 그대로 포함된다. message.new에는 조회용 router_dialogue_type을 추가하지 않는다.
+
+### 인증과 운영 설정
+
+REST와 WS는 자체 발급 JWT를 검증하고, 백엔드는 service-role로 DB에 접근한다. 소유권은 라우트와 WS 명령 처리 시 검증한다. 사용자별 Supabase access token 교환은 Phase 3 과제다. 마이그레이션 002는 authenticated/anon의 정책을 SELECT 전용으로 제한하며 쓰기는 백엔드 service_role을 경유한다.
+
+WS는 Authorization 헤더를 우선 검증하고 실패 시 일회용 query.ticket을 소비한다. 초기 세션 및 subscribe, audio.start, audio.end, audio.cancel, transcript, message.send, run.cancel은 소유권 검증을 통과해야 허브에 등록된다. DEV_MODE의 무인증 연결은 connected만 수신하고 세션 작업은 거부한다. `dev-test`도 `dev-test-user` 소유 세션만 접근한다.
+
+DEV_MODE는 `DEV_MODE=true`로만 활성화된다. 운영 모드에서는 SUPABASE_URL, 유효한 SUPABASE_SERVICE_ROLE_KEY, 기본값이 아닌 JWT_SECRET이 없으면 시작 시 즉시 실패한다. 운영 모드의 `dev-refresh-*` 토큰은 AUTH_INVALID로 거부한다.
+
+### 슬랙식 스레드 (Run D)
+
+메시지는 nullable UUID인 `parent_message_id`와 `root_message_id`로 트리를 구성한다. 일반 메시지는 두 값이 null이다. 답글 턴의 사용자 행은 지정한 부모를 가리키며, 공감·답변 행은 해당 사용자 행을 부모로 갖는다. 세 행의 root는 동일하다. 답글도 세션의 기존 `turn_index`를 소비하며 `UNIQUE(session_id, turn_index)`는 유지한다.
+
+`GET /api/messages/:id`는 메시지 전체 행과 스레드 요약을 반환한다. 답글 ID도 자신의 root 기준으로 집계한다. 아래 예시는 행의 주요 필드만 표시한다.
+
+```json
+{"ok":true,"data":{"id":"루트 UUID","parent_message_id":null,"root_message_id":null,"dialogue_type":"info_card","structured_payload":{"title":"요약"},"thread_summary":{"reply_count":3,"last_reply_at":"2026-09-26T12:00:00.000Z"}}}
+```
+
+`GET /api/messages/:id/thread`는 root 전체 행과 turn_index 오름차순의 replies 전체 행 배열, reply_count를 반환한다. 답글 ID로 호출해도 같은 전체 스레드를 반환한다.
+
+```json
+{"ok":true,"data":{"root":{"id":"루트 UUID","dialogue_type":"info_card","structured_payload":{}},"replies":[{"id":"답글 UUID","parent_message_id":"루트 UUID","root_message_id":"루트 UUID","turn_index":3}],"reply_count":1}}
+```
+
+`POST /api/messages/:id/replies` 요청:
+
+```json
+{"content":"이 카드 내용을 더 설명해줘"}
+```
+
+응답은 HTTP 201이며 기존 `POST /api/sessions/:id/messages`의 모든 필드에 다음 thread 객체가 추가된다.
+
+```json
+{"thread":{"root_message_id":"루트 UUID","parent_message_id":"대상 메시지 UUID","reply_count":3}}
+```
+
+reply_count는 사용자·공감·답변을 포함해 저장된 답글 행 수다. 답글은 runTextTurn의 전체 뉴런 파이프라인과 같은 WS 발행 경로를 사용한다. LLM 이력은 해당 루트와 기존 답글에서 구성하며 기존 historyTurns 제한과 공감 메시지 제외 규칙을 적용한다. 다른 스레드나 일반 세션 메시지는 답변 이력에 포함하지 않는다. 빈 content는 400, archived 세션은 409이며, 메시지 없음·타 사용자 메시지는 404 NOT_FOUND다.
+
+WS `message.send`에 선택 필드 `parent_message_id`를 보내면 같은 스레드 동작을 수행한다. 부모는 인증 사용자의 같은 세션 메시지여야 한다.
+
+```json
+{"type":"message.send","session_id":"세션 UUID","content":"추가 질문","parent_message_id":"부모 UUID"}
+```
+
+`message.new.message` 전체 행에 parent/root가 포함된다. `answer.done`과 `run.completed.message_ids` 형태는 유지한다.
+
+### 하드포크와 계보 (Run D)
+
+`POST /api/sessions/:id/fork` 요청:
+
+```json
+{"from_message_id":"포크 지점 UUID","new_session_title":"대안 검토"}
+```
+
+응답은 HTTP 201이다. session은 실제 신규 세션 전체 행이며 아래는 주요 필드 예시다. 선택 제목은 별도 컬럼 추가 없이 `metadata.title`에 저장한다.
+
+```json
+{"ok":true,"data":{"session":{"id":"새 세션 UUID","user_id":"소유자 UUID","agent_id":"기존 에이전트 UUID","persona_id":"기존 페르소나 UUID","status":"active","metadata":{"title":"대안 검토"},"forked_from":{"session_id":"원본 UUID","message_id":"포크 지점 UUID","turn_index":5,"forked_at":"2026-09-26T12:00:00.000Z"}},"copied":{"messages":6,"memories":1,"transcripts":1,"context_patches":4}}}
+```
+
+복제 범위와 원칙:
+
+- 메시지는 원본 세션에서 포크 지점 turn_index 이하인 전체 행이다. 새 메시지 ID를 발급하고 parent/root를 새 ID로 치환한다. 카드 payload, STT, persona_guard 등 모든 나머지 컬럼은 유지한다.
+- 압축 기억의 source_turn_range와 원본 트랜스크립트의 turn_range는 parseRangeUpper 결과가 포크 지점 이하인 행만 복제한다. 문자열 `[lower,upper)`와 기존 객체 `{lower,upper}` 모두 지원한다. 이 조건은 지정된 상한 자체의 비교이므로, 문자열 상한이 지점+1인 배치는 제외된다.
+- context_patches는 시점 제한 없이 원본 세션 전체를 새 ID로 복제한다. 따라서 포크 지점 이후 생성된 컨텍스트도 포함될 수 있다. 동일 생성 시각은 패치 ID 순서로 재생한다.
+- user_id, agent_id, persona_id를 유지한다. 페르소나 행 자체를 복제하지 않고 같은 버전을 참조한다. neuron_instances, neuron_connections, tasks, task_logs는 복제하지 않는다.
+- 원본 불변·독립 진화: 원본 세션·메시지·기억·컨텍스트는 수정하지 않는다. 포크 이후 메시지와 패치는 새 세션에만 기록되고, 기존 세션 이력 로더가 복제 이력을 읽는다.
+- 서버 프로세스 내 세션 락으로 턴 실행과 포크 스냅샷을 직렬화한다. 복사 실패 시 신규 행을 정리한다. 여러 PostgREST 요청으로 수행하므로 실DB 트랜잭션 단위의 원자성은 제공하지 않는다.
+
+`GET /api/sessions/:id/lineage`는 가까운 조상부터 ancestors에 반환하며 forks는 직계 자식 세션 전체 행 배열이다.
+
+```json
+{"ok":true,"data":{"ancestors":[{"session_id":"부모 UUID","message_id":"부모의 분기 메시지 UUID","turn_index":5,"forked_at":"2026-09-26T12:00:00.000Z"}],"forks":[{"id":"직계 자식 UUID","forked_from":{"session_id":"현재 세션 UUID","message_id":"현재 세션의 분기 메시지 UUID","turn_index":8,"forked_at":"2026-09-26T12:10:00.000Z"}}]}}
+```
+
+조상 추적은 visited set으로 순환을 차단하고 최대 50단계로 제한한다. 다른 소유자의 세션은 계보 조회에 노출하지 않는다. 포크 지점 메시지가 원본 세션에 없으면 404다.
+
+마이그레이션은 `002_rls_hardening.sql` 끝에 추가했다. sessions의 기존 `UNIQUE(user_id, agent_id)`를 제거하고 `forked_from ->> 'session_id' IS NULL`인 원본 세션만 부분 유니크 인덱스로 보호한다. 포크 세션은 예외다. ensureSession은 여러 세션 중 forked_from.session_id가 없는 원본만 반환한다. 실DB 적용은 별도 감독 작업이다.

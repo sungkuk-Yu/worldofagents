@@ -1,11 +1,24 @@
+import { randomUUID } from 'node:crypto';
+import { withSessionLock } from '../lib/turnLock';
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
-import { ensureSession, getOwnedSession } from '../lib/helpers';
-import { processTurn } from '../neurons/graph';
+import { ensureSession, getOwnedSession, selectAllRows } from '../lib/helpers';
+import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
+import { broadcastToSession } from '../websocket/handler';
+import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
 import { listTasksBySession, createTaskInSession } from './tasks';
+
+/** INT4RANGE 문자열과 기존 개발 저장소 객체를 함께 읽는다. */
+export function parseRangeUpper(v: unknown): number | null {
+  const raw = typeof v === 'string' ? /^\[\s*-?\d+\s*,\s*(-?\d+)\s*\)$/.exec(v)?.[1]
+    : v && typeof v === 'object' && 'upper' in v ? v.upper : undefined;
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null;
+  const upper = Number(raw);
+  return Number.isFinite(upper) ? upper : null;
+}
 
 const SESSION_STATUSES = ['active', 'suspended', 'archived'] as const;
 
@@ -42,6 +55,103 @@ export async function sessionRoutes(app: FastifyInstance) {
     return ok({ ...session, messages: messages || [] });
   });
 
+  // POST /api/sessions/:id/fork — 포크 지점까지 복제하고 원본은 유지한다.
+  app.post('/:id/fork', { preHandler: requireAuth }, async (request, reply) => {
+    const original = await getOwnedSession(request.db, request.userId, (request.params as { id: string }).id);
+    const body = request.body as { from_message_id?: unknown; new_session_title?: unknown } | null;
+    if (typeof body?.from_message_id !== 'string' || !body.from_message_id.trim()) throw badRequest('from_message_id는 필수입니다.');
+    if (body.new_session_title !== undefined && (typeof body.new_session_title !== 'string' || !body.new_session_title.trim())) {
+      throw badRequest('new_session_title은 비어 있지 않은 문자열이어야 합니다.');
+    }
+    const result = await withSessionLock(original.id, async () => {
+      const { data: point, error } = await request.db.from('messages').select('*')
+        .eq('session_id', original.id).eq('id', body.from_message_id).maybeSingle();
+      if (error || !point) throw new ApiError(ERROR_CODES.NOT_FOUND, '포크 지점 메시지를 찾을 수 없습니다.');
+      const db = request.db;
+      // 원본 턴 실행과 직렬화하고, 쓰기 전에 복제할 스냅샷을 확정한다.
+      const messages = (await selectAllRows(db, 'messages', { session_id: original.id }))
+        .filter(row => row.turn_index <= point.turn_index).sort((a, b) => a.turn_index - b.turn_index);
+      const withinPoint = (value: unknown) => {
+        const upper = parseRangeUpper(value);
+        return upper !== null && upper <= point.turn_index;
+      };
+      const memories = (await selectAllRows(db, 'compressed_memories', { session_id: original.id }))
+        .filter(row => withinPoint(row.source_turn_range));
+      const transcripts = (await selectAllRows(db, 'raw_transcripts', { session_id: original.id }))
+        .filter(row => withinPoint(row.turn_range));
+      const patches = await selectAllRows(db, 'context_patches', { session_id: original.id });
+      const now = new Date().toISOString();
+      const { data: session, error: createError } = await db.from('sessions').insert({
+        user_id: original.user_id, agent_id: original.agent_id, persona_id: original.persona_id,
+        status: 'active', stream_channel_id: null, created_at: now, last_activity_at: now,
+        metadata: { ...(original.metadata as Record<string, unknown>),
+          ...(body.new_session_title ? { title: (body.new_session_title as string).trim() } : {}) },
+        forked_from: { session_id: original.id, message_id: point.id, turn_index: point.turn_index, forked_at: now },
+      }).select().single();
+      if (createError || !session) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, createError?.message || '포크 세션 생성 실패');
+      try {
+        const ids = new Map(messages.map(row => [row.id, randomUUID()]));
+        const mapped = (id: string | null) => {
+          if (!id) return null;
+          const target = ids.get(id);
+          if (!target) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '복제 범위를 벗어난 메시지 참조입니다.');
+          return target;
+        };
+        const copies = messages.map(row => ({ ...structuredClone(row), id: ids.get(row.id), session_id: session.id,
+          parent_message_id: mapped(row.parent_message_id), root_message_id: mapped(row.root_message_id) }));
+        // 같은 INSERT 문 안에서 메시지 외래 키를 함께 생성한다.
+        if (copies.length) {
+          const { error: copyError } = await db.from('messages').insert(copies);
+          if (copyError) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, copyError.message);
+        }
+        for (const [table, rows] of [
+          ['compressed_memories', memories], ['raw_transcripts', transcripts], ['context_patches', patches],
+        ] as const) {
+          for (const row of rows) {
+            const copy = { ...structuredClone(row), session_id: session.id };
+            // 컨텍스트 패치의 BIGSERIAL을 포함해 각 테이블 기본값으로 새 ID를 발급한다.
+            delete copy.id;
+            const { error: copyError } = await db.from(table).insert(copy);
+            if (copyError) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, copyError.message);
+          }
+        }
+        return { session, copied: { messages: messages.length, memories: memories.length,
+          transcripts: transcripts.length, context_patches: patches.length } };
+      } catch (err) {
+        // devstore도 같은 결과가 되도록 자식 행을 명시적으로 정리한다.
+        for (const table of ['messages', 'compressed_memories', 'raw_transcripts', 'context_patches']) {
+          const { error: cleanupError } = await db.from(table).delete().eq('session_id', session.id);
+          if (cleanupError) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '포크 실패 후 정리에 실패했습니다.');
+        }
+        const { error: cleanupError } = await db.from('sessions').delete().eq('id', session.id);
+        if (cleanupError) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '포크 실패 후 세션 정리에 실패했습니다.');
+        throw err;
+      }
+    });
+    return reply.status(201).send(ok(result));
+  });
+
+  // GET /api/sessions/:id/lineage — 소유한 조상과 직계 자식만 반환한다.
+  app.get('/:id/lineage', { preHandler: requireAuth }, async request => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as { id: string }).id);
+    const ancestors: Record<string, unknown>[] = [];
+    const visited = new Set<string>([session.id]);
+    let current = session;
+    for (let depth = 0; depth < 50; depth++) {
+      const link = current.forked_from as Record<string, unknown> | null;
+      if (!link || typeof link.session_id !== 'string' || visited.has(link.session_id)) break;
+      const { data: parent, error } = await request.db.from('sessions').select('*')
+        .eq('id', link.session_id).eq('user_id', request.userId).maybeSingle();
+      if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
+      if (!parent) break;
+      ancestors.push({ session_id: link.session_id, message_id: link.message_id, turn_index: link.turn_index, forked_at: link.forked_at });
+      visited.add(link.session_id);
+      current = parent;
+    }
+    const rows = await selectAllRows(request.db, 'sessions', { user_id: request.userId });
+    return ok({ ancestors, forks: rows.filter(row => row.forked_from?.session_id === session.id) });
+  });
+
   // PATCH /api/sessions/:id — 세션 상태 변경
   app.patch('/:id', { preHandler: requireAuth }, async (request) => {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
@@ -70,13 +180,19 @@ export async function sessionRoutes(app: FastifyInstance) {
 
     let query = request.db.from('messages').select('*').eq('session_id', session.id);
     if (role && ['user', 'agent', 'system'].includes(role)) query = query.eq('role', role);
-    if (after) query = query.gt('turn_index', parseInt(after, 10) || 0 - 1);
-    if (before) query = query.lt('turn_index', parseInt(before, 10) || 0);
+    const afterIdx = Number.parseInt(after || '', 10);
+    const beforeIdx = Number.parseInt(before || '', 10);
+    if (Number.isFinite(afterIdx)) query = query.gt('turn_index', afterIdx);
+    if (Number.isFinite(beforeIdx)) query = query.lt('turn_index', beforeIdx);
     query = query.order('turn_index', { ascending: false }).limit(max);
     const { data } = await query;
 
     const rows = ((data as any[]) || []).sort((a, b) => a.turn_index - b.turn_index);
-    return ok(rows, { has_more: rows.length === max, total: rows.length });
+    return ok(rows.map(row => ({
+      ...row, dialogue_type: row.dialogue_type ?? null,
+      router_dialogue_type: row.role === 'user' ? classifyDialogueType(row.content) : null,
+      structured_payload: row.structured_payload ?? {},
+    })), { has_more: rows.length === max, total: rows.length });
   });
 
   // POST /api/sessions/:id/messages — 텍스트 메시지 전송 (뉴런 파이프라인 실행)
@@ -88,28 +204,13 @@ export async function sessionRoutes(app: FastifyInstance) {
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
 
-    // 활성 페르소나 로드
-    const { data: persona } = await request.db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
-    const { rowToPersonaConfig } = await import('../lib/persona.js');
-    const personaConfig = persona ? rowToPersonaConfig(persona) : null;
-
-    const result = await processTurn(request.db, session.id, request.userId, session.agent_id, personaConfig, content, {
+    const result = await runTextTurn(request.db, session, request.userId, content, {
       sttMetadata: body.stt_metadata || null,
+      emit: e => broadcastToSession(session.id, e),
     });
 
     return reply.status(201).send(
-      ok({
-        user_message_id: result.userMessageId,
-        empathy_message_id: result.empathyMessageId,
-        answer_message_id: result.answerMessageId,
-        empathy_response: result.empathyResponse,
-        answer_response: result.answerResponse,
-        dialogue_type: result.dialogueType,
-        activation_plan: result.activationPlan,
-        neuron_events: result.events,
-        persona_guard_passed: result.guardPassed,
-        engine: result.engine,
-      })
+      ok(textTurnResponse(result))
     );
   });
 
@@ -184,8 +285,10 @@ export async function sessionRoutes(app: FastifyInstance) {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
 
     // 마지막 압축 턴 이후 메시지를 배치로 묶어 요약 생성 (Phase 1: 템플릿 요약)
-    const { data: lastMem } = await request.db.from('compressed_memories').select('*').eq('session_id', session.id).order('importance_score', { ascending: false }).limit(1).maybeSingle();
-    const lastTurn = (lastMem as { source_turn_range?: { upper: number } } | null)?.source_turn_range?.upper ?? -1;
+    const { data: lastMem } = await request.db.from('compressed_memories').select('*').eq('session_id', session.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const upper = parseRangeUpper(lastMem?.source_turn_range);
+    // 신규 문자열은 상한 제외, 기존 객체는 마지막 턴 번호를 저장했다.
+    const lastTurn = upper === null ? -1 : typeof lastMem.source_turn_range === 'string' ? upper - 1 : upper;
 
     const { data: messages } = await request.db.from('messages').select('*').eq('session_id', session.id).gt('turn_index', lastTurn).order('turn_index', { ascending: true });
     const batch = (messages as any[]) || [];
@@ -205,7 +308,7 @@ export async function sessionRoutes(app: FastifyInstance) {
         tags: ['auto'],
         importance_score: 0.5,
         compaction_criteria: ['automatic'],
-        source_turn_range: { lower: lastTurn + 1, upper: Math.max(...batch.map((m) => m.turn_index)) },
+        source_turn_range: `[${lastTurn + 1},${Math.max(...batch.map((m) => m.turn_index)) + 1})`,
       })
       .select()
       .single();
@@ -215,7 +318,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     await request.db.from('raw_transcripts').insert({
       session_id: session.id,
       batch_id: (mem as { source_batch_id: number }).source_batch_id,
-      turn_range: { lower: lastTurn + 1, upper: Math.max(...batch.map((m) => m.turn_index)) },
+      turn_range: `[${lastTurn + 1},${Math.max(...batch.map((m) => m.turn_index)) + 1})`,
       content: batch.map((m) => ({ role: m.role, content: m.content, turn_index: m.turn_index })),
       is_compacted: true,
       compacted_at: new Date().toISOString(),

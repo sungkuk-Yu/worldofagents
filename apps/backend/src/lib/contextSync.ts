@@ -76,7 +76,8 @@ export async function readContextValue(
     .select('*')
     .eq('session_id', sessionId)
     .eq('key', key)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
   if (error) return null;
   const ops = ((data as any[]) || []).map((p) => ({
     operation: p.operation as ContextOperation,
@@ -91,7 +92,8 @@ export async function readFullContext(db: DbClient, sessionId: string): Promise<
     .from('context_patches')
     .select('*')
     .eq('session_id', sessionId)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
   if (error) return {};
 
   const byKey = new Map<string, { operation: ContextOperation; value: unknown; created_at: string }>();

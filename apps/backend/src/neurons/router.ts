@@ -48,7 +48,7 @@ export class NeuronRouter {
     const activate = new Set<string>(['empathy']);
     const reasons: string[] = ['empathy=always'];
 
-    const hasRequest = dialogueType === 'question' || dialogueType === 'command' || dialogueType === 'data' || dialogueType === 'file' || dialogueType === 'task';
+    const hasRequest = dialogueType === 'question' || dialogueType === 'command' || dialogueType === 'data' || dialogueType === 'file' || dialogueType === 'task' || dialogueType === 'multi';
     if (hasRequest) {
       activate.add('answer');
       reasons.push('answer=request_detected');

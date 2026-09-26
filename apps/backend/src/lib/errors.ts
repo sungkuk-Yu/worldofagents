@@ -5,6 +5,7 @@ import { ApiErrorResponse, ApiResponse } from '../types/db';
  * API 에러 코드 — api-design.md §6 매핑.
  */
 export const ERROR_CODES = {
+  RUN_CANCELLED: 'RUN_CANCELLED',
   AUTH_REQUIRED: 'AUTH_REQUIRED',
   AUTH_EXPIRED: 'AUTH_EXPIRED',
   AUTH_INVALID: 'AUTH_INVALID',
@@ -35,6 +36,7 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 const HTTP_BY_CODE: Record<string, number> = {
+  RUN_CANCELLED: 499,
   AUTH_REQUIRED: 401,
   AUTH_EXPIRED: 401,
   AUTH_INVALID: 401,

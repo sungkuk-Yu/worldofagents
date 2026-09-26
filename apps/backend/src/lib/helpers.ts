@@ -1,7 +1,7 @@
 /**
  * 라우트 공용 도우미 — 소유권 검증, 페르소나 자동 생성, 세션 ensure.
  */
-import { AgentsRow, SessionsRow, PersonasRow } from '../types/db';
+import { AgentsRow, SessionsRow, PersonasRow, MessagesRow } from '../types/db';
 import { DbClient } from './supabase';
 import { ApiError, ERROR_CODES } from './errors';
 
@@ -63,12 +63,8 @@ export async function ensureSession(db: DbClient, userId: string, agentId: strin
     .maybeSingle();
   if (!persona) throw new ApiError(ERROR_CODES.NOT_FOUND, '에이전트에 활성 페르소나가 없습니다.');
 
-  const { data: existing } = await db
-    .from('sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('agent_id', agentId)
-    .maybeSingle();
+  const rows = await selectAllRows(db, 'sessions', { user_id: userId, agent_id: agentId });
+  const existing = rows.find(row => !row.forked_from?.session_id);
   if (existing) return existing as SessionsRow;
 
   const { data, error } = await db
@@ -80,6 +76,7 @@ export async function ensureSession(db: DbClient, userId: string, agentId: strin
       status: 'active',
       stream_channel_id: null,
       metadata: {},
+      forked_from: {},
     })
     .select()
     .single();
@@ -99,4 +96,33 @@ export async function getOwnedSession(db: DbClient, userId: string, sessionId: s
 export async function nextTurnIndex(db: DbClient, sessionId: string): Promise<number> {
   const { data } = await db.from('messages').select('turn_index').eq('session_id', sessionId).order('turn_index', { ascending: false }).limit(1).maybeSingle();
   return ((data as { turn_index?: number } | null)?.turn_index ?? -1) + 1;
+}
+
+/** ID 커서로 전체 행을 읽어 PostgREST의 응답 행 제한을 피한다. */
+export async function selectAllRows(db: DbClient, table: string, filters: Record<string, string>): Promise<any[]> {
+  const rows: any[] = [];
+  let cursor: string | number | undefined;
+  for (;;) {
+    let query = db.from(table).select('*');
+    for (const [key, value] of Object.entries(filters)) query = query.eq(key, value);
+    if (cursor) query = query.gt('id', cursor);
+    const { data, error } = await query.order('id', { ascending: true }).limit(500);
+    if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
+    if (!data?.length) return rows;
+    rows.push(...data);
+    cursor = data[data.length - 1].id;
+  }
+}
+
+
+/** 메시지와 소속 세션의 소유권을 확인하며 실패 이유는 모두 404로 숨긴다. */
+export async function getOwnedMessage(db: DbClient, userId: string, messageId: string, sessionId?: string): Promise<{ message: MessagesRow; session: SessionsRow }> {
+  const { data: message, error } = await db.from('messages').select('*').eq('id', messageId).maybeSingle();
+  if (error || !message || (sessionId && message.session_id !== sessionId)) {
+    throw new ApiError(ERROR_CODES.NOT_FOUND, '메시지를 찾을 수 없습니다.');
+  }
+  const { data: session, error: sessionError } = await db.from('sessions').select('*')
+    .eq('id', message.session_id).eq('user_id', userId).maybeSingle();
+  if (sessionError || !session) throw new ApiError(ERROR_CODES.NOT_FOUND, '메시지를 찾을 수 없습니다.');
+  return { message, session };
 }

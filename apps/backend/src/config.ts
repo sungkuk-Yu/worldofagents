@@ -5,7 +5,7 @@ dotenv.config();
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   host: process.env.HOST || '0.0.0.0',
-  devMode: process.env.DEV_MODE === 'true' || !process.env.SUPABASE_URL,
+  devMode: process.env.DEV_MODE === 'true',
   
   cors: {
     origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081', 'http://localhost:5173'],
@@ -34,7 +34,25 @@ export const config = {
       partialIntervalMs: 500,
     },
   },
-  
+
+  /**
+   * 채팅 답변 생성 LLM (DashScope OpenAI 호환 모드).
+   * - apiKey: CHAT_LLM_API_KEY 우선, 없으면 DASHSCOPE_API_KEY
+   * - baseUrl/model: 환경변수로 오버라이드 가능 (기본: dashscope-intl + qwen3-max)
+   * - enableThinking: qwen3 하이브리드 모델의 reasoning 모드 (미설정 시 파라미터 전송 안 함)
+   */
+  chatLlm: {
+    enabled: process.env.CHAT_LLM_DISABLED !== 'true',
+    apiKey: process.env.CHAT_LLM_API_KEY || process.env.DASHSCOPE_API_KEY || '',
+    baseUrl: process.env.CHAT_LLM_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    model: process.env.CHAT_LLM_MODEL || 'qwen3-max',
+    maxTokens: parseInt(process.env.CHAT_LLM_MAX_TOKENS || '1024', 10),
+    timeoutMs: parseInt(process.env.CHAT_LLM_TIMEOUT_MS || '60000', 10),
+    temperature: process.env.CHAT_LLM_TEMPERATURE ? parseFloat(process.env.CHAT_LLM_TEMPERATURE) : 0.8,
+    enableThinking: process.env.CHAT_LLM_ENABLE_THINKING === 'true' ? true : process.env.CHAT_LLM_ENABLE_THINKING === 'false' ? false : null,
+    historyTurns: parseInt(process.env.CHAT_LLM_HISTORY_TURNS || '20', 10),
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || 'agenttalk-dev-secret-change-in-production',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
@@ -54,3 +72,13 @@ export const config = {
     maxAudioBufferMs: 10000,
   },
 };
+
+/** 운영 필수 설정 누락 시 서버 기동을 중단한다. */
+export function validateConfig(): void {
+  if (config.devMode) return;
+  if (!process.env.SUPABASE_URL?.trim()) throw new Error('SUPABASE_URL이 필요합니다.');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!key || key.startsWith('mock')) throw new Error('유효한 SUPABASE_SERVICE_ROLE_KEY가 필요합니다.');
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret || secret === 'agenttalk-dev-secret-change-in-production') throw new Error('운영용 JWT_SECRET이 필요합니다.');
+}

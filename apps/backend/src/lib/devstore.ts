@@ -95,7 +95,7 @@ interface Filter {
 interface SelectOp {
   kind: 'select';
   filters: Filter[];
-  orderBy: { field: string; ascending: boolean } | null;
+  orderBy: { field: string; ascending: boolean }[];
   limit: number | null;
   single: boolean;
   maybeSingle: boolean;
@@ -121,7 +121,7 @@ type PendingOperation =
   | (MutationOp & { kind: 'delete' });
 
 function freshSelect(): SelectOp {
-  return { kind: 'select', filters: [], orderBy: null, limit: null, single: false, maybeSingle: false, columns: '*' };
+  return { kind: 'select', filters: [], orderBy: [], limit: null, single: false, maybeSingle: false, columns: '*' };
 }
 
 function cloneSelect(op: SelectOp | null): SelectOp | null {
@@ -191,10 +191,10 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
     const op = this.op;
     const orderBy = { field, ascending: opts?.ascending ?? true };
     if (op.kind === 'select') {
-      return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', orderBy });
+      return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', orderBy: [...op.orderBy, orderBy] });
     }
     const then = cloneSelect(op.then) ?? freshSelect();
-    then.orderBy = orderBy;
+    then.orderBy = [...then.orderBy, orderBy];
     return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
   }
 
@@ -233,14 +233,14 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
   insert(values: DevRow | DevRow[]): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...r, id: r.id ?? randomUUID(), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
   }
 
   upsert(values: DevRow | DevRow[], opts?: { onConflict?: string }): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...r, id: r.id ?? randomUUID(), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
   }
 
@@ -348,15 +348,18 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
     const table = scope || this.store.tables[this.table] || [];
     let rows = [...table];
     for (const f of op.filters) rows = rows.filter((r) => f.predicate(r[f.field]));
-    if (op.orderBy) {
-      const { field, ascending } = op.orderBy;
+    if (op.orderBy.length) {
       rows.sort((a, b) => {
-        const va = a[field];
-        const vb = b[field];
-        if (va == null && vb == null) return 0;
-        if (va == null) return 1;
-        if (vb == null) return -1;
-        return ascending ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+        for (const { field, ascending } of op.orderBy) {
+          const va = a[field];
+          const vb = b[field];
+          if (va == null && vb == null) continue;
+          if (va == null) return 1;
+          if (vb == null) return -1;
+          const compared = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+          if (compared) return ascending ? compared : -compared;
+        }
+        return 0;
       });
     }
     if (op.limit != null) rows = rows.slice(0, op.limit);

@@ -93,6 +93,10 @@ export async function authRoutes(app: FastifyInstance) {
     const { refresh_token } = _request.body as { refresh_token?: string };
     if (!refresh_token) throw badRequest('refresh_token은 필수입니다.');
 
+    if (!config.devMode && refresh_token.startsWith('dev-refresh-')) {
+      throw new ApiError(ERROR_CODES.AUTH_INVALID, '개발용 refresh 토큰은 운영 모드에서 사용할 수 없습니다.');
+    }
+
     // DEV_MODE: dev-refresh-<userId> 형식에서 사용자 복원
     if (config.devMode) {
       const userId = refresh_token.startsWith('dev-refresh-') ? refresh_token.replace('dev-refresh-', '') : null;

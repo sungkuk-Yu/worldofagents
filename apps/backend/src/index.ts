@@ -2,10 +2,12 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import websocket from '@fastify/websocket';
-import { config } from './config';
+import { config, validateConfig } from './config';
 import { errorHandler } from './lib/errors';
+import { wsTicketRoutes } from './routes/wsTicket';
 import { authRoutes } from './routes/auth';
 import { agentRoutes } from './routes/agents';
+import { messageRoutes } from './routes/messages';
 import { sessionRoutes } from './routes/sessions';
 import { taskRoutes } from './routes/tasks';
 import { skillRoutes } from './routes/skills';
@@ -20,6 +22,7 @@ export const app = Fastify({
 });
 
 export async function build() {
+  validateConfig();
   // 공통 에러 핸들러
   app.setErrorHandler(errorHandler);
 
@@ -43,13 +46,15 @@ export async function build() {
       version: '1.0.0',
       mode: config.devMode ? 'dev' : 'prod',
       docs: '/api-version',
-      websocket: '/ws?session_id=<uuid>&token=<jwt>',
+      websocket: '/ws?session_id=<uuid>&ticket=<ticket>',
     };
   });
 
   // REST 라우트 (api-design.md §3)
+  await app.register(wsTicketRoutes, { prefix: '/api/ws-ticket' });
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(agentRoutes, { prefix: '/api/agents' });
+  await app.register(messageRoutes, { prefix: '/api/messages' });
   await app.register(sessionRoutes, { prefix: '/api/sessions' });
   await app.register(taskRoutes, { prefix: '/api/tasks' });
   await app.register(skillRoutes, { prefix: '/api/skills' });
@@ -60,7 +65,7 @@ export async function build() {
   app.get('/api-version', async () => {
     return {
       version: 'v1',
-      api: ['/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me'],
+      api: ['/api/messages', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me'],
       docs: 'apps/backend/docs/api-design.md',
     };
   });
