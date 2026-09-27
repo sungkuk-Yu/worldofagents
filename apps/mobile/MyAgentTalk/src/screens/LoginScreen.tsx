@@ -13,7 +13,7 @@ import { Button, Surface, Text, TextInput } from 'react-native-paper';
 import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
 import { errorKey } from '../lib/errorKeys';
 import { api, setToken } from '../lib/api';
-import ConsentGate from '../components/ConsentGate';
+import ConsentGate, { contentGap, stackGap, formGap } from '../components/ConsentGate';
 import { emptyConsents, signupConsents, validateConsents } from '../lib/consents';
 
 interface Props {
@@ -62,7 +62,16 @@ export default function LoginScreen({ navigation }: Props) {
       style={[styles.container, webScreenMotion('mat-slide-from-right')]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.center} keyboardShouldPersistTaps="handled">
+      {/* t_865ea744 ②: 스크롤 점프 수정 — 가운데 정렬(flexGrow+center)을 버리고 상단 고정 정렬로 전환.
+          가입 게이트가 아래에 삽입돼도 입력 필드 위치가 흔들리지 않고 페이지 상단으로 튕기지 않는다.
+          iOS는 automaticallyAdjustKeyboardInsets가 키보드 높이만큼 인셋을 벌어 카드가 가려지지 않고,
+          하단 safe area(paddingBottom)를 넉넉히 확보한다. */}
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
+      >
         <Surface style={styles.card} elevation={0} testID="login-card">
           <View style={styles.logoWrap}>
             <Text style={styles.logoText}>{t('common.logo')}</Text>
@@ -70,32 +79,39 @@ export default function LoginScreen({ navigation }: Props) {
           <Text style={styles.title}>{t('common.app')}</Text>
           <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
 
-          <TextInput
-            mode="outlined"
-            label={t('login.email')}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            style={styles.input}
-            outlineColor={colors.border}
-            activeOutlineColor={colors.accent}
-            testID="login-email"
-          />
-          <TextInput
-            mode="outlined"
-            label={t('login.password')}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            style={styles.input}
-            outlineColor={colors.border}
-            activeOutlineColor={colors.accent}
-            testID="login-password"
-            onSubmitEditing={() => void authenticate()}
-          />
+          {/* 입력 스택 — 카드 내부 블록 사이 contentGap(20), 스택 내부 stackGap(16) */}
+          <View style={styles.fieldStack}>
+            <TextInput
+              mode="outlined"
+              label={t('login.email')}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              style={styles.input}
+              outlineColor={colors.border}
+              activeOutlineColor={colors.accent}
+              // 폼 필드 설정: 엔터는 제출이 아니라 다음 필드로 (웹 포커스 이탈/스크롤 방지)
+              submitBehavior="newline"
+              testID="login-email"
+            />
+            <TextInput
+              mode="outlined"
+              label={t('login.password')}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              style={styles.input}
+              outlineColor={colors.border}
+              activeOutlineColor={colors.accent}
+              submitBehavior="submit"
+              testID="login-password"
+              onSubmitEditing={() => void authenticate()}
+            />
+          </View>
 
+          {/* 입력 vs 동의 게이트: formGap(12) — 게이트 자체 margin */}
           {signup && <ConsentGate value={consents} onChange={setConsents} disabled={busy} onError={setError}
             onOpenDoc={(kind) => navigation.navigate('LegalDoc', { kind })} />}
 
@@ -133,12 +149,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  center: {
-    flexGrow: 1,
-    paddingVertical: spacing.sp6,
+  // t_865ea744 ②: 상단 고정 정렬 + 하단 safe area. 로그인(짧은 화면)과 가입(게이트로 길어진 화면)이
+  // 같은 캔버스 위를 스크롤할 때 필드 위치가 점프하지 않는다.
+  content: {
     alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: spacing.sp5,
+    paddingTop: spacing.sp8,
+    paddingBottom: spacing.sp10 * 2,
   },
   card: {
     width: '100%',
@@ -170,12 +187,17 @@ const styles = StyleSheet.create({
   subtitle: {
     ...typography.subhead,
     color: colors.text2,
-    marginBottom: spacing.sp5,
+    // 카드 내부 블록 사이 = contentGap (9/25 재설계 스페시싱)
+    marginBottom: contentGap,
+  },
+  // 입력 스택: 스택 내부 16, 스택과 다음 블록 사이 20
+  fieldStack: {
+    gap: stackGap,
+    marginBottom: formGap,
   },
   input: {
     ...typography.body,
     backgroundColor: colors.surface,
-    marginBottom: spacing.sp3,
     borderRadius: radii.md,
   },
   error: {

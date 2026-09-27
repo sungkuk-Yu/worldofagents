@@ -5,7 +5,9 @@
 //   기능 불변: validateConsents = marketing 제외 4종+14세 필수, marketing 기본 false(opt-in),
 //   서버 consents 기록 동일, testID 계약 동일 (기존 단위/e2e 테스트 통과 조건).
 //   ※ 법적 유효성(구분 없는 표시가 개인정보보호법 제22조 선택동의를 훼손하는지) 내변호사 확인 중 —
-//   문제 제기 시 "작게 구분" 폴백(의도 훼손 최소선)으로 되돌린다.
+//   t_865ea744 (9/26 김비서 지시)에서 "작게 구분" 폴백 적용 확정: 마케팅 라벨 뒤에 옅은 '(선택)' 접미사만
+//   회복(글자크기·색·행간·순서 변경 없음). requiredSuffix '(필수)'는 전 항목 제거 유지.
+//   ④ 전체 동의 라벨의 '(만 14세 확인 포함)' 괄호 제거 — 만 14세 행이 목록에 이미 있으므로 중복 안내.
 //   법률 카드 t_eb7f13e9: 약관/처리방침 링크는 example.com 임시 주소 폐기 — 앱 내 정책 문서 화면
 //   (LegalDocScreen, 내변호사 초안 원문)으로 연결. DRAFT·[대표님 확정 필요] 고지는 문서 본문에 유지.
 import React from 'react';
@@ -16,6 +18,12 @@ import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
 import type { LegalDocKind } from '../lib/legalDocLogic';
 import { ConsentState, toggleRequiredConsents, validateConsents } from '../lib/consents';
+
+// t_865ea744 — 로그인 카드 내부 여백 3종 스페시싱 (9/25 재설계 지시):
+// 카드 내부 블록 사이 20, 입력 스택 내부 16, 입력 vs 동의 게이트 12.
+export const contentGap = 20;
+export const stackGap = 16;
+export const formGap = 12;
 
 // 햅틱: 동의 토글 = selection (#52 지시의 3곳 중 하나). 웹은 expo-haptics가 no-op 폴백이라 try로 방어.
 const selectionTick = () => {
@@ -34,14 +42,18 @@ export default function ConsentGate({ value, onChange, disabled, onError, onOpen
 }) {
   const { t } = useTranslation();
   const toggle = (next: ConsentState) => { selectionTick(); onChange(next); };
-  const checkbox = (key: string, checked: boolean, onPress: () => void, testID: string, styleOverride?: { row?: object; box?: object; label?: object }) => (
+  // 접미사(예: 마케팅의 옅은 '(선택)')는 라벨과 같은 행·글자크기·색 위에 텍스트만 얇게 붙인다 (t_865ea744).
+  const checkbox = (key: string, checked: boolean, onPress: () => void, testID: string, styleOverride?: { row?: object; box?: object; label?: object }, suffixKey?: string) => (
     <Pressable key={key} onPress={onPress} disabled={disabled} accessibilityRole="checkbox"
-      accessibilityLabel={t(key)} accessibilityState={{ checked, disabled }} testID={testID}
+      accessibilityLabel={suffixKey ? `${t(key)} ${t(suffixKey)}` : t(key)} accessibilityState={{ checked, disabled }} testID={testID}
       style={[styles.row, styleOverride?.row]}>
       <View style={[styles.box, styleOverride?.box, checked && styles.checked]}>
         {checked && <Text style={styles.check}>{t('consent.checkedIcon')}</Text>}
       </View>
-      <Text style={[styles.label, styleOverride?.label]}>{t(key)}</Text>
+      <Text style={[styles.label, styleOverride?.label]}>
+        {t(key)}
+        {suffixKey ? <Text style={styles.suffix}> {t(suffixKey)}</Text> : null}
+      </Text>
     </Pressable>
   );
   return <View style={styles.container}>
@@ -51,9 +63,11 @@ export default function ConsentGate({ value, onChange, disabled, onError, onOpen
 
     <View style={styles.divider} />
 
-    {/* ② 단일 자연 목록 — 마케팅(선택)을 필수 사이에 섞음, 스타일 구분 없음 (#83) */}
+    {/* ② 단일 자연 목록 — 마케팅(선택)을 필수 사이에 섞음, 라벨·행간 구분 없음 (#83) —
+        마케팅에만 옅은 '(선택)' 접미사 (개인정보보호법 제22조 선택동의 표시, t_865ea744 "작게 구분" 폴백) */}
     {consentOrder.map((type) => <View key={type}>
-      {checkbox(`consent.${type}`, value[type], () => toggle({ ...value, [type]: !value[type] }), `consent-${testIds[type]}`)}
+      {checkbox(`consent.${type}`, value[type], () => toggle({ ...value, [type]: !value[type] }), `consent-${testIds[type]}`,
+        undefined, type === 'marketing' ? 'consent.optionalSuffix' : undefined)}
       {type === 'voice_recording' && <Text style={styles.notice}>{t('consent.voiceNotice')}</Text>}
       {type === 'overseas_transfer' && <Text style={styles.notice}>{t('consent.overseasNotice')}</Text>}
     </View>)}
@@ -68,12 +82,15 @@ export default function ConsentGate({ value, onChange, disabled, onError, onOpen
   </View>;
 }
 const styles = StyleSheet.create({
-  container: { marginVertical: spacing.sp3 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minHeight: spacing.sp10 + spacing.sp2, paddingVertical: spacing.sp2 },
+  // t_865ea744: 카드 폭과 무관하게 게이트 본문은 400px로 묶고, 행 최소높이 44, 문구-링크 마진 재정렬.
+  container: { marginVertical: spacing.sp3, maxWidth: 400 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minHeight: 44, paddingVertical: spacing.sp2 },
   box: { width: spacing.sp6, height: spacing.sp6, borderWidth: 1, borderColor: colors.accent, borderRadius: radii.xs, alignItems: 'center', justifyContent: 'center' },
   checked: { backgroundColor: colors.accent },
   check: { ...typography.bodyBold, color: colors.onPrimary },
   label: { ...typography.subhead, color: colors.text1, flex: 1, minWidth: 0 },
+  // 마케팅 '(선택)' 접미사 — 라벨과 같은 글자크기·행, 색과 자중만 옅게 (t_865ea744).
+  suffix: { ...typography.subhead, color: colors.text3, fontWeight: '400' },
   // 전체 동의 — 분리 블록: 카드 배경 + 큰 체크박스 + 굵은 라벨
   allRow: {
     backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
@@ -83,8 +100,8 @@ const styles = StyleSheet.create({
   allBox: { width: spacing.sp8, height: spacing.sp8, borderRadius: radii.sm, borderWidth: 2 },
   allLabel: { ...typography.bodyBold, fontWeight: '700', color: colors.text1 },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sp2 },
-  notice: { ...typography.caption, color: colors.text2, marginBottom: spacing.sp2, flexShrink: 1 },
-  links: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sp2 },
-  link: { paddingVertical: spacing.sp3, flexShrink: 1 },
+  notice: { ...typography.caption, color: colors.text2, marginBottom: spacing.sp1, marginLeft: spacing.sp6 + spacing.sp2, flexShrink: 1 },
+  links: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sp2, marginTop: spacing.sp1 },
+  link: { paddingVertical: spacing.sp2, flexShrink: 1 },
   linkText: { ...typography.caption, color: colors.accent },
 });
