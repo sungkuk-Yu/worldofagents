@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createInstance } from 'i18next';
 import { registerCard, getCard } from '../../src/cards/registry';
 import { normalizeServerMessages } from '../../src/lib/chatLogic';
-import { forkTitle, mergeThread, parseThread, toggleTaskOverride, parseForkOrigin, parseForkSession } from '../../src/lib/cardLogic';
+import { forkTitle, mergeThread, parseThread, toggleTaskOverride, parseForkOrigin, parseForkSession, canForkAgent } from '../../src/lib/cardLogic';
 import { safeFileUrl } from '../../src/cards/payload';
 
 test('레지스트리 등록과 교체, 미등록 및 악의적 키도 text 폴백', () => {
@@ -57,9 +57,30 @@ test('포크 제목 템플릿은 양 언어 번역 키와 입력 제목을 사�
   const ko = JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8'));
   const en = JSON.parse(readFileSync('src/i18n/locales/en.json', 'utf8'));
   void i18n.init({ lng: 'ko', initAsync: false, resources: { ko: { translation: ko }, en: { translation: en } } });
-  assert.equal(forkTitle(i18n.t, 'A'), 'A에서 분기');
+  assert.equal(forkTitle(i18n.t, 'A'), 'A에서 갈라내기');
   void i18n.changeLanguage('en');
   assert.equal(forkTitle(i18n.t, 'A'), 'Fork of A');
+});
+test('갈라내기 게이트 — 김비서(비서실장) room만 fork 노출 (t_55f9ed57)', () => {
+  assert.equal(canForkAgent({ name: '김비서' }), true);
+  assert.equal(canForkAgent({ titleKey: 'agent.chief.title' }), true);
+  assert.equal(canForkAgent({ category: 'chief_of_staff' }), true);
+  assert.equal(canForkAgent({ role: 'chief_of_staff' }), true);
+  for (const other of [{ name: '내 변호사' }, { name: 'Legal Guide', category: 'legal' }, { name: '나의 그림자 비서' }, {}]) {
+    assert.equal(canForkAgent(other), false, JSON.stringify(other));
+  }
+});
+test('라벨 확정 — 답글/갈라내기 외 구(舊) 표기가 사전에 잔존하지 않는다 (t_55f9ed57)', () => {
+  const flat = (obj: Record<string, unknown>, prefix = ''): string[] =>
+    Object.entries(obj).flatMap(([k, v]) => typeof v === 'string' ? [`${prefix}${k}=${v}`] : flat(v as Record<string, unknown>, `${prefix}${k}.`));
+  const ko = flat(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8')));
+  const joined = ko.join('\n');
+  for (const stale of ['스레드', '분기', '여기서 새 프로젝트', '이 글에서']) {
+    assert.ok(!joined.includes(stale), `ko.json에 잔존 구 표기: ${stale}`);
+  }
+  assert.match(joined, /cards\.threadFrom=답글/);
+  assert.match(joined, /fork\.action=갈라내기/);
+  assert.match(joined, /joystick\.actions\.open_thread=답글 보기/);
 });
 test('포크 응답은 새 세션 ID를 요구하며 계보는 선택적으로 방어한다', () => {
   assert.throws(() => parseForkSession({ id: 'old' }, 'old'), /errors.fork/);

@@ -31,7 +31,7 @@ export function CardActions({ message, handlers, withFavorite = true, canFork = 
   return <View style={s.actions}>
     {message.role === 'agent' && message.aiGenerated !== false && <Text style={s.micro} testID="ai-generated-badge">{t('common.aiGenerated')}</Text>}
     {/* t_a0e998cc (대표님 9/26): 볼트/보드 저장·보관 액션 제거 — 카드는 기본적으로 볼트에 올라가고
-        즐겨찾기가 있으므로 별도 보관은 불필요. 카드 액션은 "이 글에서 스레드 시작"만 남긴다. */}
+        즐겨찾기가 있으므로 별도 보관은 불필요. t_55f9ed57 (9/27): 답글/갈라내기로 라벨 단축. */}
     <TouchableOpacity style={s.action} onPress={() => handlers.openThread(message)} testID="card-thread-start">
       <Text style={s.link}>{message.threadReplyCount === undefined ? t('cards.threadFrom') : t('cards.replies', { count: message.threadReplyCount, countText: formatNumber(message.threadReplyCount, i18n.language) })}</Text>
     </TouchableOpacity>

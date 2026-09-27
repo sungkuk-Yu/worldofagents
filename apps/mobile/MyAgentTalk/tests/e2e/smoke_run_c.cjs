@@ -12,7 +12,8 @@ const shot = (n) => path.join(OUT, `${n}.png`);
   const browser = await chromium.launch({ executablePath: '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell' });
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
-    const state = await installFixtures(page, { rich: true });
+    // chief=true — 갈라내기(fork)는 김비서 room 전용 (t_55f9ed57 게이트), fork 검증은 김비서 room에서 수행
+    const state = await installFixtures(page, { rich: true, chief: true });
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(APP);
@@ -37,13 +38,13 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByRole('button', { name: '즐겨찾기', exact: true }).first().click();
     assert.equal(await page.getByRole('button', { name: '즐겨찾기 해제', exact: true }).count(), 1);
     state.unsupportedThread = true;
-    await page.getByText('답변 1개', { exact: true }).click();
+    await page.getByText('답글 1개', { exact: true }).click();
     await page.getByTestId('thread-error').getByText('이 서버는 아직 이 기능을 지원하지 않아요', { exact: true }).waitFor();
     await page.getByText('뒤로 가기', { exact: true }).click();
-    // #52: 스레드는 라우트가 아닌 바텀시트 — dismiss(언마운트) 대기 후 재진입
+    // #52: 답글 시트는 라우트가 아닌 바텀시트 — dismiss(언마운트) 대기 후 재진입
     await page.waitForSelector('[data-testid="thread-sheet"]', { state: 'detached' });
     state.unsupportedThread = false;
-    await page.getByText('답변 1개', { exact: true }).click();
+    await page.getByText('답글 1개', { exact: true }).click();
     await page.getByText('Thread reply', { exact: true }).waitFor();
     await page.screenshot({ path: shot('02-thread') });
     await page.getByPlaceholder('에이전트에게 메시지 보내기…').fill('thread-only').catch(async () => {
@@ -55,7 +56,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByText('뒤로 가기', { exact: true }).click();
     await page.waitForSelector('[data-testid="thread-sheet"]', { state: 'detached' });
     assert.equal(await page.getByText('Test reply to thread-only', { exact: true }).count(), 0);
-    await page.getByText('여기서 새 프로젝트 시작', { exact: true }).first().click();
+    await page.getByTestId('card-fork').first().click();
     await page.getByTestId('fork-title').fill('Independent project');
     state.unsupportedFork = true;
     await page.getByTestId('fork-submit').click();
@@ -64,7 +65,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     state.unsupportedFork = false;
     await page.getByTestId('fork-submit').click();
     await page.getByText('Independent project', { exact: true }).waitFor();
-    await page.getByText('⟨Original project⟩에서 분기됨', { exact: true }).waitFor();
+    await page.getByText('⟨Original project⟩에서 갈라냄', { exact: true }).waitFor();
     await page.getByTestId('chat-input').fill('new-room-only');
     await page.getByTestId('send-button').click();
     await page.getByText('Test reply to new-room-only', { exact: true }).waitFor();
