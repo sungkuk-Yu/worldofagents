@@ -3,6 +3,8 @@
  * 흐름: 앱 실행 → 로그인(dev) → 대화목록 → 새 채팅 → 메시지 전송 → 응답 수신(처리중 표시 포함) → 새로고침 후 히스토리 유지
  * 실행:
  *   백엔드: DEV_MODE=true PORT=3000 tsx src/index.ts (apps/backend)
+ *     ※ t_16f6df02: DEV_MODE 필수. DEV_MODE=false면 가입이 실Supabase로 나가 400 →
+ *       LoginScreen에서 reset 안 됨 → new-chat-button이 비활성 장면(display:none)에 남아 스모크 전멸.
  *   정적서버: python3 -m http.server 8081 (apps/mobile/MyAgentTalk/dist-web)
  *   node smoke_web_chat.cjs
  */

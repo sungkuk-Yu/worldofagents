@@ -3,6 +3,9 @@
  * 실 API 연동 판정: DEV_MODE 백엔드(:3020) + dist-continuity 정적서버(:8099) 대상 (mock 아님).
  * 실행:
  *   백엔드: DEV_MODE=true PORT=3020 CORS_ORIGIN=http://localhost:8099 npx tsx src/index.ts
+ *     ※ t_16f6df02: ⑤ mock 전사 검증을 위해 OPENAI_API_KEY 비워 실행 —
+ *        env OPENAI_API_KEY= DEV_MODE=true PORT=3020 ... (stt.ts는 키 없어야 mock 분기).
+ *        키 있으면 .env placeholder가 dotenv로 재주입돼 Whisper 401 → PTT 3셀 연속 FAIL.
  *   정적서버: python3 -m http.server 8099 --bind 127.0.0.1 -d dist-continuity (+window.process shim)
  *   APP_URL=http://localhost:8099 node tests/e2e/smoke_continuity.cjs
  * 검증 흐름 (카드 요구 1·2·3 + 확정 ①~⑤):
@@ -139,12 +142,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       && ['pc-web', 'mobile-web'].includes(rs.data.last_device), JSON.stringify(rs && rs.data));
 
     // ④-b 즐겨찾기 2탭 실시간 동기화 (t_b89df485 김비서 지시): A가 ⭐ → favorite.updated WS → B 카드 갱신 <2s
-    // 카드 본문 렌더가 곧 진실: active 시 ★(cards.starredIcon), idle 시 ☆ — DOM 텍스트 카운트로 판정.
-    const starCount = (p) => p.evaluate(() => Array.from(document.querySelectorAll('[data-testid="card-favorite"]')).filter((el) => el.textContent.includes('★')).length);
+    // t_16f6df02 회귀수복: t_64af90b0 #2에서 ☆/★ 문자 글리프 → SVG StarIcon으로 교체됨 →
+    // textContent('★') 판정은 죽은 셀렉터(항상 0). RNW 0.21.3은 accessibilityState를 DOM에 포워딩
+    // 하지 않음(aria-selected=null 실측 확인, probe4) — 유일한 DOM 진실 소스는 accessibilityLabel→
+    // aria-label 전환('즐겨찾기'→'즐겨찾기 해제', en: 'Remove favorite'). 이걸로 판정.
+    const starredCountInPage = () => Array.from(document.querySelectorAll('[data-testid="card-favorite"]')).filter((el) => ['즐겨찾기 해제', 'Remove favorite'].includes(el.getAttribute('aria-label'))).length;
+    const starCount = (p) => p.evaluate(starredCountInPage);
     const bStarBefore = await starCount(B);
     await A.locator('[data-testid="card-favorite"]').first().click();
     const synced = await B.waitForFunction(
-      (before) => Array.from(document.querySelectorAll('[data-testid="card-favorite"]')).filter((el) => el.textContent.includes('★')).length > before,
+      (before) => Array.from(document.querySelectorAll('[data-testid="card-favorite"]')).filter((el) => ['즐겨찾기 해제', 'Remove favorite'].includes(el.getAttribute('aria-label'))).length > before,
       bStarBefore, { timeout: 3000 }
     ).then(() => true).catch(() => false);
     check('즐겨찾기 2탭 실시간 동기화 — A ⭐ → B 카드 <2s (favorite.updated)', synced, `before=${bStarBefore} after=${await starCount(B)}`);

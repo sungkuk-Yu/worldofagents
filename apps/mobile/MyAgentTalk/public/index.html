@@ -64,6 +64,9 @@
         }
       }
     </style>
+    <!-- e2e 하네스: expo export 번들이 런타임 process.env 참조(window.process shim)를 요구 —
+         dist-* 매번 수동 패치하던 결함 영구 해소 (t_16f6df02). 실값은 빌드 시 EXPO_PUBLIC_*로 베이크됨. -->
+    <script>window.process = window.process || { env: {} };</script>
   </head>
   <body>
     <noscript>
