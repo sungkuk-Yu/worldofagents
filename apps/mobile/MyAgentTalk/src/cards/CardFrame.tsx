@@ -99,21 +99,22 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
   const preview = isAgentCard
     ? buildCardPreview(props.message.dialogueType, props.message.payload, props.message.content, knownType)
     : null;
-  // collapsible: 접으면 가려지는 내용이 있는 카드만 핸들 노출 (#51 규칙 4).
-  const collapsible = isAgentCard && preview?.expandable === true;
-  const autoExpanded = collapsible ? resolveExpanded(choice, bodyHeight, guessLong(props.message), ONE_SCREEN_PX) : true;
-  const expanded = !collapsible || autoExpanded;
-  // 리더 노출 = '1 화면 초과 장문' — auto 기준(사용자 토그와 무관하게 긴 카드엔 항상 리더).
-  const long = collapsible && !resolveExpanded(undefined, bodyHeight, guessLong(props.message), ONE_SCREEN_PX);
+  // potential: 접을 내용이 존재하는 카드 (#51 규칙 4). long = 실측(우선) 또는 길이 추정 가드로 1 화면(≈1200px) 초과 판정.
+  const potential = isAgentCard && preview?.expandable === true;
+  const collapsible = potential && (bodyHeight > 0 ? bodyHeight > ONE_SCREEN_PX : guessLong(props.message));
+  // 펼침 = 기본. long 카드만 auto 접힘; 사용자 수동 선택(choice)이 auto를 덮는다.
+  const expanded = !collapsible || resolveExpanded(choice, bodyHeight, guessLong(props.message), ONE_SCREEN_PX);
+  const long = collapsible; // 리더 노출 기준 = auto 판정(장문이면 펼친 상태에도 '전체 읽기' 유지)
   // hook은 early return보다 위에서 전부 호출 (rules-of-hooks — 시스템 카드 분기 이후로 내리면 금지).
   const toggleExpand = useCallback(() => {
     expandAnimation(reduceMotion);
-    expandStore.toggle(messageId, autoExpanded);
-  }, [messageId, autoExpanded, reduceMotion]);
+    expandStore.toggle(messageId, expanded);
+  }, [messageId, expanded, reduceMotion]);
+  // 펼친 본문만 실측 — 접힌 프리뷰 높이를 세면 전체 높이가 오염된다. (short 카드는 첫 프레임부터 펼침 → 실측 확보)
   const measureBody = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
-    if (!collapsible) return;
+    if (!potential) return;
     expandStore.setHeight(messageId, e.nativeEvent.layout.height);
-  }, [messageId, collapsible]);
+  }, [messageId, potential]);
   if (props.message.role === 'system') return <View style={s.action}><UserCard {...props} /></View>;
   const Component = props.message.role === 'agent' ? (knownType ? getCard(props.message.dialogueType) : FallbackCard) : UserCard;
 
@@ -130,15 +131,15 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
         disabled={props.exportDisabled === true || props.message.pending === true || props.message.status === 'failed'} />
       <FavoriteStar {...props} />
     </View>}
-    {/* 펼침 상태에서만 실측 — 접힌 프리뷰 높이를 세면 다시 펼쳐지는 진동(oscillation) 발생. */}
-    <View onLayout={expanded && collapsible ? measureBody : undefined}>
+    {/* 펼친 본문만 실측(preview 스왑) — 접힌 프리뷰 높이로 전체 높이가 오염되지 않는다. */}
+    <View onLayout={expanded && potential ? measureBody : undefined}>
       {expanded || !collapsible ? (
         React.createElement(Component, { ...props, payload: props.message.payload })
       ) : getCardPreview(props.message.dialogueType) && props.message.role === 'agent' ? (
-        // 카드별 커스텀 접힘 렌더러 (Wave1: media=poster 썸네일) — 텍스트 요약으로 못 그리는 유형용
+        // 커스텀 접힘 렌더러 (media=poster) — 텍스트 요약으로 못 그리는 유형 (사용자 수동 접힘 시)
         React.createElement(getCardPreview(props.message.dialogueType)!, { ...props, payload: props.message.payload })
       ) : (
-        // 접힘 상태 — 카드 종류별 미리보기 (info=제목+한 줄, data=첫 N행+"N행 더", file=파일명, task=상태 배지, multi=에이전트 나열)
+        // '더 보기' 접힘 상태 — 카드 종류별 미리보기 (info=제목+한 줄, data=첫 N행+N행 더, task=상태 배지)
         <View style={s.webTransition}>
           {!!preview.title && <Text style={s.title} numberOfLines={1}>{preview.title}</Text>}
           {!!preview.summary && <Text style={s.body} numberOfLines={2}>{preview.summary}</Text>}

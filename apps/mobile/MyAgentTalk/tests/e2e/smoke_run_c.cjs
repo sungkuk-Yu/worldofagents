@@ -21,18 +21,13 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByText('Server value', { exact: true }).waitFor();
     assert.equal(await page.getByTestId('ai-generated-badge').count(), 7);
     await page.screenshot({ path: shot('01-card-feed') });
-    // #51 카드 펼침/접기 스모크 — 기본 접힘(요약) → 탭 펼침(전체) → 재접힘, 카드별 독립 상태
-    const expandButtons = await page.getByTestId('card-expand').count();
-    assert.ok(expandButtons >= 2, `펼침 핸들 노출 (확장 가능한 카드 ${expandButtons}개)`);
-    await page.getByText('1행 더', { exact: true }).waitFor();
-    await page.getByTestId('card-expand').first().click();
-    await page.getByTestId('card-collapse').first().waitFor();
-    assert.equal(await page.getByTestId('card-collapse').count(), 1, '하나만 펼침 — 다른 카드 독립 유지(아코디언 아님)');
+    // t_3116c5bc 펼침 기본화 — 짧아 전부 보이는 카드는 핸들 없이 본문 전체가 기본 렌더 (#51 규칙4 유지).
+    // rich 픽스처(7카드 모두 1화면 미만) → 접을 일이 없어 card-expand/collapse 0, 요약 배지('N행 더')도 0.
+    await page.getByText('789', { exact: true }).waitFor(); // 스프레드시트 3행이 펼침 없이 바로 보임
+    assert.equal(await page.getByTestId('card-expand').count(), 0, '짧은 카드 = 펼침 기본, 더 보기 핸들 없음');
+    assert.equal(await page.getByTestId('card-collapse').count(), 0, '접힘 핸들 없음');
+    assert.equal(await page.getByText('1행 더', { exact: true }).count(), 0, '접힘 요약 프리뷰 배지 없음');
     await page.screenshot({ path: shot('01a-card-expanded') });
-    await page.getByTestId('card-collapse').first().click();
-    await page.waitForTimeout(350);
-    assert.equal(await page.getByTestId('card-collapse').count(), 0, '재탭으로 접힘');
-    await page.screenshot({ path: shot('01b-card-collapsed') });
     await page.getByRole('checkbox').click();
     await page.getByText('완료', { exact: true }).waitFor();
     await page.getByRole('button', { name: '즐겨찾기', exact: true }).first().click();

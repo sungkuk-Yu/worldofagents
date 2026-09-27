@@ -1,11 +1,19 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false } = {}) {
-  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [] };
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null } = {}) {
+  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [] };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
   const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: '2026-09-26T12:00:00Z' });
-  state.messages.source = rich ? [
+  const LONG_PARA = '계약서 검토 결과, 제14조 위약금 조항에서 연 5퍼센트의 지연 이자를 상한으로 두되 기한이익 상실 요건을 채무자의 명시적-payment 거절로 한정하는 것이 안전하다. 제22조의 해지 통보 기한은 30일로 충분하며 중재지는 서울로, 준거법은 대한민국 법률로 정한다. 부속 합의서의 비밀유지 조항은 존속기간을 계약 종료 후 5년으로 연장하고 예외 사유를 법령상 의무, 이미 공개된 정보, 독립적으로 개발된 정보로 한정한다. 각 조항의 충돌 시 부속 합의서가 우선하며 분할 가능성이 인정되지 않는 조항은 무효로 두되 나머지 조항의 효력에는 영향이 없다. 통지는 서면으로 하되 전자서명된 메일을 유효한 서면으로 본다.'.repeat(6);
+  const TABLE_ROWS = Array.from({ length: 40 }, (_, i) => [`항목 ${i + 1}`, (i + 1) * 120, i % 3 === 0 ? '완료' : '대기']);
+  state.messages.source = reader ? [
+    // t_3116c5bc 3카드좌표: 단문(펼침 유지·더보기 없음) / 장문 리치텍스트(1화면 초과→더보기+전체읽기) / 표 40행(더보기+xlsx 활성)
+    row('short', 'info_card', { title: '단문 카드', fields: [{ label: '상태', value: '정상' }, { label: '처리', value: '완료' }] }),
+    { ...row('long', 'text'), content: LONG_PARA },
+    row('table', 'spreadsheet', { title: '지출 결의서', columns: ['항목', '금액', '상태'], rows: TABLE_ROWS }),
+    row('task', 'task_flow', { items: [{ title: '인장 날인', status: 'pending' }] }),
+  ] : rich ? [
     { ...row('text', 'text'), thread_reply_count: 1 },
     row('info', 'info_card', { fields: [{ label: 'Real field', value: 'Server value' }] }),
     row('table', 'spreadsheet', { columns: ['Amount'], rows: [[123], [456], [789]] }),
@@ -89,6 +97,16 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
           : state.favorites.filter((e) => e.message.id !== favorite[1]);
       }
       return ok(target ?? { id: favorite[1], favorite: body.favorite });
+    }
+    // 카드 내보내기 (t_3116c5bc) — exportStub: null=미_stub(404), false=실패주입, true=200+Content-Disposition
+    const exportPath = path.match(/^\/api\/messages\/([^/]+)\/export$/);
+    if (exportPath && request.method() === 'GET') {
+      const fmt = new URL(request.url()).searchParams.get('fmt') || 'pdf';
+      state.exports.push({ messageId: exportPath[1], fmt });
+      if (exportStub === false) return route.fulfill({ status: 500, json: { ok: false, error: { code: 'INTERNAL_ERROR', message: 'boom' } } });
+      if (fmt === 'xlsx' && exportPath[1] !== 'table') return route.fulfill({ status: 400, json: { ok: false, error: { code: 'EXPORT_FORMAT_UNSUPPORTED', message: 'table only' } } });
+      const bytes = Buffer.from('%PDF-1.4 fake export payload ' + fmt + ' ' + exportPath[1]);
+      return route.fulfill({ status: 200, headers: { 'content-type': fmt === 'pdf' ? 'application/pdf' : 'application/octet-stream', 'content-disposition': `attachment; filename="card.${fmt}"; filename*=UTF-8''%EC%84%B8%EC%85%98_%EC%B9%B4%EB%93%9C_${fmt}.${fmt === 'hwp' ? 'docx' : fmt}` }, body: bytes });
     }
     const thread = path.match(/^\/api\/messages\/([^/]+)\/thread$/);
     if (thread) {

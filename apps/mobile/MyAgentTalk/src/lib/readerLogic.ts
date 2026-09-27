@@ -17,12 +17,13 @@ export const READER_LINE_HEIGHT = Math.round(READER_BODY_FONT * 1.6); // 26
  */
 export function guessLong(message: ChatMessage): boolean {
   const content = message.content ?? '';
-  if (content.replace(/\s+/g, '').length > 700) return true;
+  // 모바일 390px 기준 1200px ≈ 50행 ≈ 한글 1000자 — 그 아래 추정은 실측이 교정한다(첫 프레임 펼침→측정).
+  if (content.replace(/\s+/g, '').length > 950) return true;
   const p = message.payload;
   if (!p || typeof p !== 'object') return false;
   const size = (v: unknown) => (Array.isArray(v) ? v.length : 0);
   const tableish = size(p.rows) + size(p.items) + size(p.fields) + size(p.agents) + size(p.labels);
-  return tableish > 14 || size(p.rows) * size(p.columns ?? []) > 40;
+  return tableish >= 30;
 }
 
 const UNITS = '%|만원|억|달러|엔|시간|분|초|일|주|개월|년|개|명|회|배|권|통|곳|살|번|등|kg|g|km|m|px|MB|GB|KB|bps|원';

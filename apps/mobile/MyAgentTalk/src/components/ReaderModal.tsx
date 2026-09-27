@@ -63,7 +63,7 @@ export default function ReaderModal({ message, agentName, onClose }: Props) {
               <BookOpenIcon size={iconSize.tileSm} color={colors.accent} />
               <Text style={styles.kicker} numberOfLines={1}>{t('reader.byAgent', { name: agentName })}</Text>
             </View>
-            <RNText numberOfLines={2} style={styles.title}>{title}</RNText>
+            <RNText numberOfLines={2} style={styles.title} testID="reader-title">{title}</RNText>
           </View>
           <Pressable onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityRole="button" accessibilityLabel={t('common.close')} testID="reader-close" style={styles.closeButton}>

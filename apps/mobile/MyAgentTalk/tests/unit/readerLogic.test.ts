@@ -15,11 +15,12 @@ test('resolveExpanded — 선택 우선 / auto=기본 펼침, 실측>1200px만 �
   assert.equal(resolveExpanded(false, 10, false), false, '사용자 접힘 선택 유지');
 });
 
-test('guessLong — 짧은 본문·작은 표는 false, 장문/대형 표만 true (오탐 보수적)', () => {
+test('guessLong — 짧은 본문·중형 표는 false, 장문/대형 표만 true (1200px≈50행 보수 추정)', () => {
   assert.equal(guessLong(msg({ content: '짧은 답' })), false);
-  assert.equal(guessLong(msg({ content: '가'.repeat(701) })), true);
-  assert.equal(guessLong(msg({ content: '', payload: { columns: ['a', 'b'], rows: Array.from({ length: 12 }, () => ['1', '2']) } })), false, '12행 표는 아직 추정 접힘 아님');
-  assert.equal(guessLong(msg({ content: '', payload: { rows: Array.from({ length: 15 }, () => ['x']) } })), true, '15행 → 초과 추정');
+  assert.equal(guessLong(msg({ content: '가'.repeat(900) })), false, '900자는 아직 추정 접힘 아님(1200px≈950자)');
+  assert.equal(guessLong(msg({ content: '가'.repeat(960) })), true);
+  assert.equal(guessLong(msg({ content: '', payload: { columns: ['a', 'b'], rows: Array.from({ length: 20 }, () => ['1', '2']) } })), false, '20행 표는 추정 접힘 아님 — 실측이 교정');
+  assert.equal(guessLong(msg({ content: '', payload: { rows: Array.from({ length: 30 }, () => ['x']) } })), true, '30행 → 초과 추정');
 });
 
 test('joinNumericUnits — 숫자와 단위(만원/%) 사이 공백을 NBSP로 붙인다', () => {
