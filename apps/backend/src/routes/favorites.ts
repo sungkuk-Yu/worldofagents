@@ -3,14 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ApiError, ERROR_CODES, ok } from '../lib/errors';
 import { MessagesRow, SessionsRow } from '../types/db';
-
-/** 세션 제목 — 006 캐논 sessions.title 컬럼 우선, 없으면 metadata.title 폴백 (sessions.ts와 동일 규칙). */
-function sessionTitle(session: SessionsRow): string | null {
-  if (typeof session.title === 'string' && session.title.trim()) return session.title.trim();
-  const meta = session.metadata as Record<string, unknown> | null;
-  const title = meta && typeof meta.title === 'string' ? meta.title.trim() : '';
-  return title || null;
-}
+import { sessionTitleOf as sessionTitle } from '../lib/sessionTitle'; // 006 캐논 규칙 단일 소스 (t_cc52fd4f)
 
 /**
  * GET /api/favorites — 내 즐겨찾기 메시지 목록 (마이그레이션 003).
