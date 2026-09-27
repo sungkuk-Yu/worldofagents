@@ -106,16 +106,34 @@ export async function downloadFromAttachmentsBucket(objectPath: string): Promise
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** 파기 (수동 프루브/정리용 — 프로덕션 크론은 후속 과제, 카드 코멘트 이관). */
+/**
+ * 파기 (수동 프루브/정리용 — 프로덕션 크론은 후속 과제, 카드 코멘트 이관).
+ *
+ * ⚠️ t_9c5f2bd0 실측: 업로드 시 cacheControl '3600' 때문에 remove()로 원본(S3) 바이트가
+ * 사라져도 Cloudflare 엣지가 퍼블릭 URL을 최대 1시간 동안 계속 서빙한다(HIT) —
+ * 탈퇴=개인정보 즉시 파기(개인정보보호법 제21조) 위반. remove 후 경로별 CDN purgeCache로
+ * 엣지까지 함께 파기한다. purgeCache는 hosted 전용·service_role 필수(storage-js 2.117 실측:
+ * 이 프로젝트에서는 200 {"message":"success"} + 직후 퍼블릭 URL 400/BYPASS 확인).
+ */
 export async function deleteFromAttachmentsBucket(objectPaths: string[]): Promise<void> {
   if (config.devMode) {
     for (const p of objectPaths) getStore().blobs.delete(p);
     return;
   }
-  const res = await (adminRaw().storage as unknown as {
+  const bucket = (adminRaw().storage as unknown as {
     from: (b: string) => {
       remove: (p: string[]) => Promise<CallResult<unknown>>;
+      purgeCache: (p: string) => Promise<CallResult<unknown>>;
     };
-  }).from(config.upload.bucket).remove(objectPaths);
+  }).from(config.upload.bucket);
+  const res = await bucket.remove(objectPaths);
   if (res.error) logger.warn(`attachments 오브젝트 삭제 실패(크론 후속): ${res.error.message}`);
+  for (const p of objectPaths) {
+    try {
+      const purged = await bucket.purgeCache(p);
+      if (purged.error) logger.warn(`attachments CDN purge 실패(엣지 잔존 ≤ cacheControl TTL): ${p} — ${purged.error.message}`);
+    } catch (err) {
+      logger.warn(`attachments CDN purge 예외(계속 속행): ${p} — ${(err as Error).message}`);
+    }
+  }
 }

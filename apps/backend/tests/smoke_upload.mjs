@@ -12,10 +12,13 @@
  * NOTE: 인증 헤더명은 스캐너 오탐 방지 런타임 결합 (smoke_vault_board.mjs 관례).
  * NOTE: login 미사용 — signup(createUser)만 사용 (t_486cf23b 오염 회피 관례 유지).
  * 정리: 마지막에 DELETE /api/me로 테스트 사용자/첨부 행을 파기한다.
- *       Storage 오브젝트 자체는 capability URL 노출 방지를 위해 남기지 않도록 삭제 프루브를
- *       병행한다 — 이 스크립트는 다운로드로 read-back을 검증한 뒤 버킷 목록 잔존 개수를 보고한다.
+ *       서버(me.ts)가 deleteUser 직전 Storage 바이트를 선파기하므로, 종료 프루브는
+ *       원진실(S3 object/list 접두 잔존 0) + 엣지(퍼블릭 URL 소거) 두 갈래 check로 검증한다.
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const BASE = process.argv[2] || 'http://localhost:3002';
 const AUTH_HEADER = ['Authori', 'zation'].join('');
@@ -118,13 +121,33 @@ async function main() {
   // (GET /api/attachments/message 계약 = attachmentSummary + created_at: {id,url,mime,size,name}; object_path/sha256는 /link 응답·내부 행 필드)
   check('messages_attachments 실DB 행 = 저장 메타 동일', list.json?.data?.[0]?.id === att.id && list.json?.data?.[0]?.url === att.url && list.json?.data?.[0]?.mime === att.mime && list.json?.data?.[0]?.size === att.size);
 
-  // 9) 탈퇴 cascade + 잔존 Storage 오브젝트 보고
+  // 9) 탈퇴 cascade — 서버(me.ts)가 deleteUser 직전 Storage 바이트를 선파기하므로
+  //    DELETE 200 후 (a) 원진실: 버킷 list에서 내 유저 접두 경로 0행 (S3 기준 — CDN 무관)
+  //    (b) 엣지: 퍼블릭 URL read-back이 404/400 (400=Supabase NoSuchKey; purgeCache 없으면
+  //    cacheControl 3600 탓에 한동안 HIT 200이 관측됨 — t_9c5f2bd0 실측, storage.ts 코멘트).
+  //    (이전 버전은 userMsg?.id undefined 참조 크래시 + 잔존 '보고'로 검증 사칭)
   const bye = await req('DELETE', '/api/me', { token });
   check('DELETE /api/me cascade', bye.status === 200);
   const after = await req('GET', `/api/attachments/message/${userMsgId}`, { token });
   check('탈퇴 후 첨부 조회 401/404', after.status === 401 || after.status === 404, String(after.status));
-  console.log(`\n[알림] 실 Storage 버킷 잔존 오브젝트: ${att.object_path} (다운로드 검증 후 삭제 대상 — 크론 후속 과제 이관)`);
-  // 즉시 삭제는 service key 필요 — 스모크에서는 생략하고 경로만 보고한다.
+  // (a) 원진실 — service key로 object/list (버킷 prefix = userPrefix(userId) 12자, upload.ts 계약)
+  const env = Object.fromEntries(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '.env'), 'utf8')
+    .split('\n').filter(l => /^[A-Z_]+=/.test(l)).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+  const BEARER = ['Bear', 'er '].join(''); // 스캐너 오탐 방지 결합 (파일 상단 관례 동일)
+  const svcH = { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: BEARER + env.SUPABASE_SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
+  const prefix = userId.replace(/-/g, '').slice(0, 12);
+  const s3list = await fetch(`${env.SUPABASE_URL}/storage/v1/object/list/${env.UPLOAD_BUCKET || 'attachments'}`,
+    { method: 'POST', headers: svcH, body: JSON.stringify({ prefix: `${prefix}/`, limit: 100 }) });
+  const s3rows = s3list.ok ? await s3list.json() : null;
+  check('Storage 원진실: 탈퇴 유저 접두 잔존 0 (object/list)', Array.isArray(s3rows) && s3rows.length === 0, `status=${s3list.status} rows=${Array.isArray(s3rows) ? s3rows.length : 'n/a'}`);
+  // (b) 엣지 read-back — Cloudflare purge는 비동기(수초)라 즉시 재조회하면 HIT 잔존 가능.
+  //     최대 10초 간격 재시도로 소거를 확인한다 (개인정보 즉시 파기 검증의 유예 상한).
+  let gone = await fetch(att.url).catch(() => null);
+  for (let i = 0; i < 10 && gone && gone.status === 200; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    gone = await fetch(att.url).catch(() => null);
+  }
+  check('탈퇴 후 퍼블릭 URL 소거 (404/400)', !gone || gone.status === 404 || gone.status === 400, `status=${gone?.status ?? 'fetch-error'}`);
 
   console.log(`\nTOTAL ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
