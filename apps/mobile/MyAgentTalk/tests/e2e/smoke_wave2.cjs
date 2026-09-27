@@ -27,8 +27,10 @@ function check(name, cond, extra = '') {
 }
 async function signup(page, email, cred) {
   await page.goto(APP, { waitUntil: 'networkidle' });
-  await page.waitForSelector('[data-testid="login-hint"], [data-testid="new-chat-button"]', { timeout: 20000 });
-  await page.getByTestId('login-hint').click();
+  await page.waitForSelector('[data-testid="onboarding-panel"], [data-testid="new-chat-button"]', { timeout: 20000 });
+  const signin = page.getByTestId('signin-button');
+  if (await signin.count()) await signin.click();
+  else await page.getByTestId('login-hint').click();
   await page.getByTestId('auth-mode-toggle').click();
   await page.getByTestId('login-email').fill(email);
   await page.getByTestId('login-password').fill(cred);
