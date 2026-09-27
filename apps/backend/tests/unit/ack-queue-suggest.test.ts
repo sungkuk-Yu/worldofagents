@@ -225,6 +225,23 @@ describe('③ 시그니티드 질문', () => {
     expect((events.at(-1) as any).structured.structured_payload.suggested_questions).toBeUndefined();
   });
 
+  it('볼트 노트·선호가 컨텍스트로 주입된다 (생성 프롬프트에 노트 제목 포함)', async () => {
+    vi.spyOn(config.suggestedQuestions, 'enabled', 'get').mockReturnValue(true);
+    store.tables.vault_notes.push({ id: 'n1', user_id: 'user', title: '해지 위약금 정리', content: 'x', folder: '/', tags: [], updated_at: new Date().toISOString() });
+    store.tables.users.push({ id: 'user', preferences: { interests: ['노동법'] } });
+    const seen: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: any, options: any) => {
+      const body = JSON.parse(options.body);
+      if (body.stream) return new Response('data: {"model":"m","choices":[{"delta":{"content":"답변"}}]}\n\ndata: [DONE]\n');
+      seen.push(body.messages[body.messages.length - 1].content);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"questions":["위약금은?","소송은?"]}' } }] }));
+    }));
+    const result = await runTextTurn(db, session, 'user', '왜 그런가요?', { emit: () => undefined });
+    expect(result.suggestedQuestions).toHaveLength(2);
+    expect(seen[0]).toContain('해지 위약금 정리');
+    expect(seen[0]).toContain('노동법');
+  });
+
   it('parseSuggestedQuestions 방어: 2개 미만 null, 4개면 3개 캡, fenced/배열 형태 허용', () => {
     expect(parseSuggestedQuestions('{"questions":["첫 질문?","둘 질문?"]}', 'ko')).toHaveLength(2);
     expect(parseSuggestedQuestions('```json\n{"questions":["a1?","b2?","c3?","d4?"]}\n```', 'ko')).toHaveLength(3);

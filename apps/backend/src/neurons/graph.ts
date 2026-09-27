@@ -53,6 +53,8 @@ export interface NodeContext {
   llm: LlmRunInfo;
   /** 공감 확인음 노출 후 답변 LLM 시작 전 대기(ms) — t_344e047a ①. 0이면 즉시. */
   leadMs?: number;
+  /** ③ 후속 질문 보강 컨텍스트(볼트 노트·선호) 조회용 — processTurn이 주입. */
+  db?: DbClient;
 }
 
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null };
@@ -276,12 +278,24 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       ? { ...structured, dialogue_type: 'info_card', structured_payload: { title: state.userMessage.slice(0, 50), summary: answerResponse.slice(0, 200), facts: [], grounding: groundingCardPayload(grounding) } }
       : { ...structured, structured_payload: { ...structured.structured_payload, grounding: groundingCardPayload(grounding) } };
   }
-  // ③ 후속 예상 질문 2~3개 (t_344e047a) — 이전 발화·답변을 컨텍스트로 LLM 1회.
-  // 실패(미설정/타임아웃/파싱)는 조용히 생략, 사용자 체감 0. 절대 던지지 않는다.
+  // ③ 후속 예상 질문 2~3개 (t_344e047a) — 세션 최근 발화·볼트 노트·사용자 preference를
+  // 컨텍스트로 LLM 1회. 실패(미설정/타임아웃/파싱/조회 오류)는 조용히 생략, 체감 0. 절대 던지지 않는다.
   if (!ctx.signal?.aborted) {
     const contextLines = [...(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
-      `user: ${state.userMessage.slice(0, 200)}`, `agent: ${answerResponse.slice(0, 400)}`].join('\n');
-    const questions = await generateSuggestedQuestions(contextLines, state.locale, { signal: ctx.signal });
+      `user: ${state.userMessage.slice(0, 200)}`, `agent: ${answerResponse.slice(0, 400)}`];
+    try {
+      if (ctx.db) {
+        const { data: notes } = await ctx.db.from('vault_notes').select('title')
+          .eq('user_id', state.userId).order('updated_at', { ascending: false }).limit(5);
+        const titles = ((notes as { title?: string }[] | null) || []).map(n => n.title).filter(Boolean);
+        if (titles.length) contextLines.push(`user saved notes (topics): ${titles.join(' | ').slice(0, 300)}`);
+        const { data: user } = await ctx.db.from('users').select('preferences,profile').eq('id', state.userId).maybeSingle();
+        const u = (user as { preferences?: Record<string, unknown>; profile?: Record<string, unknown> } | null) || null;
+        const prefs = JSON.stringify({ ...(u?.preferences || {}), ...(u?.profile || {}) }).slice(0, 300);
+        if (prefs && prefs !== '{}') contextLines.push(`user preferences: ${prefs}`);
+      }
+    } catch { /* 보강 컨텍스트 조회 실패는 발화 이력만으로 계속 */ }
+    const questions = await generateSuggestedQuestions(contextLines.join('\n'), state.locale, { signal: ctx.signal });
     if (questions?.length) {
       structured = { ...structured, structured_payload: { ...structured.structured_payload, suggested_questions: questions } };
     }
@@ -466,7 +480,9 @@ export async function processTurn(
         opts.onTurnStatus?.('processing', { stage: e.stage });
       }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false },
       // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
-      leadMs: opts.answerLeadMs ?? config.answerLeadMs };
+      leadMs: opts.answerLeadMs ?? config.answerLeadMs,
+      // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
+      db };
       const dialogueType = classifyDialogueType(userMessage);
 
       // 전문가 카테고리 판정 (t_d54bc456) — 그라운딩 게이트와 저장 시 디스클레이머가 공유한다.
