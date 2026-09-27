@@ -347,7 +347,7 @@
     "overseas_transfer": "개인정보 국외이전 동의 (필수)",
     "marketing": "마케팅 정보 수신 동의",
     "ageConfirmed": "만 14세 이상입니다 (필수)",
-    "allRequired": "전체 동의 (선택 포함)",
+    "allRequired": "전체 동의",
     "optionalSuffix": "(선택)",
     "missing": "모든 필수 동의와 만 14세 이상 확인을 완료해야 가입할 수 있습니다.",
     "viewTerms": "이용약관 전체 보기",

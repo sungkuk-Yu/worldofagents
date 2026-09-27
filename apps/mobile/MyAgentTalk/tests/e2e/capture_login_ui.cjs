@@ -3,7 +3,7 @@
 //       node tests/e2e/capture_login_ui.cjs   (OUT_DIR 스크린샷 출력)
 // 검증 항목:
 //   ① 5개 필수 행 라벨에 '(필수)'/(Required) 노출 + 마케팅 행 '(선택)'/(optional) (t_6978cba4 원복)
-//   ④ 전체 동의 라벨 = '전체 동의 (선택 포함)' / 'Agree to all (includes optional)'
+//   ④ 전체 동의 라벨 = '전체 동의' / 'Agree to all' (t_cac6f531: '(선택 포함)' 문구 제거 — 전체동의가 마케팅까지 6종 일괄 토글)
 //   ②b 이메일/비밀번호 플로팅 라벨이 입력값/플레이스홀더와 한 자리에 겹치지 않음
 //      (라벨 승격 확인 + 텍스트 rect 교차 높이 <=8px — 대표님 슬브 실증 버그 회귀 방지)
 //   ② 동의 행 minHeight>=44, 게이트 컨테이너 maxWidth<=400, 390px 뷰포트에서 스크린샷
@@ -122,7 +122,7 @@ async function overlapChecks(page, lang, tag) {
       check(`${lang}: ${name} 행 '(필수)' 명시`, !!hit && reqPat.test(hit.text) && reqPat.test(hit.aria || hit.text), JSON.stringify(hit && hit.text));
     }
     const allRow = texts.find((t) => t.id === 'consent-all-required');
-    check(`${lang}: 전체 동의 '(선택 포함)' 투명화`, lang === 'ko' ? allRow.text.includes('전체 동의 (선택 포함)') : /Agree to all \(includes optional\)/i.test(allRow.text), JSON.stringify(allRow.text));
+    check(`${lang}: 전체 동의 라벨 '전체 동의' (선택 포함 문구 제거)`, lang === 'ko' ? allRow.text.trim() === '전체 동의' : /^agree to all$/i.test(allRow.text.trim()), JSON.stringify(allRow.text));
     const marketing = texts.find((t) => t.id === 'consent-marketing');
     check(`${lang}: 마케팅 '(선택)' 접미사`, lang === 'ko' ? marketing.text.includes('(선택)') : /\(optional\)/i.test(marketing.text));
     check(`${lang}: 마케팅 행에 '(필수)' 없음`, !reqPat.test(marketing.text));
@@ -155,7 +155,7 @@ async function overlapChecks(page, lang, tag) {
     const posAfter = await docY();
     check(`${lang}: 모드 전환 무관 — 이메일 필드 문서좌표 고정(재정렬 점프 없음)`, posBefore === posLogin && posLogin === posAfter, JSON.stringify({ posBefore, posLogin, posAfter }));
 
-    // 전체동의 토글 동작 보존 + 마케팅 opt-in 독립 확인
+    // 전체동의 토글 = 6종 일괄 체크 (t_cac6f531) — 마케팅 포함, 개별 해제는 그 아래 행 탭으로 가능
     // (RN-web Pressable은 aria-checked 미노출 — ✓ 체크 아이콘 텍스트로 판정)
     await page.getByTestId('consent-all-required').click();
     await page.waitForTimeout(200);
@@ -163,7 +163,16 @@ async function overlapChecks(page, lang, tag) {
       const g = (id) => (document.querySelector(`[data-testid="${id}"]`).textContent.includes('✓') ? 'true' : 'false');
       return { terms: g('consent-terms'), marketing: g('consent-marketing'), age: g('consent-age14') };
     });
-    check(`${lang}: 전체동의 → 필수+14세 체크, 마케팅 미체크`, afterAll.terms === 'true' && afterAll.age === 'true' && afterAll.marketing === 'false', JSON.stringify(afterAll));
+    check(`${lang}: 전체동의 → 6종 일괄 체크(마케팅 포함)`, afterAll.terms === 'true' && afterAll.age === 'true' && afterAll.marketing === 'true', JSON.stringify(afterAll));
+    await page.getByTestId('consent-marketing').click();
+    await page.waitForTimeout(200);
+    const afterIndiv = await page.evaluate(() => {
+      const g = (id) => (document.querySelector(`[data-testid="${id}"]`).textContent.includes('✓') ? 'true' : 'false');
+      return { terms: g('consent-terms'), marketing: g('consent-marketing'), age: g('consent-age14') };
+    });
+    check(`${lang}: 마케팅 개별 해제 가능(필수 유지)`, afterIndiv.marketing === 'false' && afterIndiv.terms === 'true' && afterIndiv.age === 'true', JSON.stringify(afterIndiv));
+    await page.getByTestId('consent-marketing').click(); // 복원 → 전체동의 블록 체크 상태로
+    await page.waitForTimeout(200);
     const submitDisabled = await page.getByTestId('signup-submit').evaluate((el) => el.disabled === true || el.getAttribute('aria-disabled') === 'true' || el.className.includes('disabled'));
     check(`${lang}: 전체동의 후 가입 버튼 활성`, !submitDisabled);
 

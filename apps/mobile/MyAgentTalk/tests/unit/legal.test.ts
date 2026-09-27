@@ -16,20 +16,21 @@ test('Consent gate checks all 64 combinations independently of marketing', () =>
     assert.equal(validateConsents(state), required.every((key) => state[key]));
   }
 });
-test('Required toggle preserves optional choice and does not mutate state', () => {
-  for (const marketing of [true, false]) {
-    const original = { ...emptyConsents, marketing };
-    const checked = toggleRequiredConsents(original);
-    assert.equal(validateConsents(checked), true);
-    assert.equal(checked.marketing, marketing);
-    assert.deepEqual(toggleRequiredConsents(checked), original);
-    assert.equal(original.terms, false);
-  }
+test('Agree-to-all toggles all six consents incl. marketing (t_cac6f531)', () => {
+  const checked = toggleRequiredConsents(emptyConsents);
+  assert.equal(validateConsents(checked), true);
+  assert.equal(checked.marketing, true);
+  assert.deepEqual(toggleRequiredConsents(checked), emptyConsents);
+  assert.equal(emptyConsents.marketing, false);
+  // 개별 해제 유지: 일괄 on 후 마케팅만 개별 off → 필수 판정은 통과 (validateConsents는 marketing 무시)
+  const marketingOff = { ...checked, marketing: false };
+  assert.equal(validateConsents(marketingOff), true);
+  assert.equal(signupConsents(marketingOff).consents.find((c) => c.type === 'marketing')?.consented, false);
 });
 test('Signup payload includes all five versioned consents and age', () => {
   const state = toggleRequiredConsents(emptyConsents);
   assert.deepEqual(signupConsents(state), {
-    consents: consentTypes.map((type) => ({ type, version: '1.0', consented: type !== 'marketing' })),
+    consents: consentTypes.map((type) => ({ type, version: '1.0', consented: true })),
     age_confirmed: true,
   });
 });

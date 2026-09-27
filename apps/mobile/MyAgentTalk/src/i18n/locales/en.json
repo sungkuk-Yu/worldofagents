@@ -347,7 +347,7 @@
     "overseas_transfer": "I consent to overseas transfers of personal data (Required)",
     "marketing": "I agree to receive marketing messages",
     "ageConfirmed": "I am at least 14 years old (Required)",
-    "allRequired": "Agree to all (includes optional)",
+    "allRequired": "Agree to all",
     "optionalSuffix": "(optional)",
     "missing": "Complete all required consents and confirm you are at least 14 to create an account.",
     "viewTerms": "View full Terms of Service",
