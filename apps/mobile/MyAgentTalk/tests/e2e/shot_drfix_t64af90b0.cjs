@@ -31,8 +31,9 @@ async function openChat(browser, width) {
     {
       const { page, errors } = await openChat(browser, 390);
       // #4: placeholder 잘림 없이 전체 표시 — 입력창 placeholder 텍스트 실측
-      const ph = page.getByPlaceholder('메시지 보내기…');
-      assert.ok((await ph.count()) > 0, 'placeholder \'메시지 보내기…\' 표시');
+      // t_4b1bd4c2 요구 4: placeholder 전체 한 줄 표시 — 마이크 버튼 제거로 입력창 폭 확보
+      const ph = page.getByPlaceholder('에이전트에게 메시지 보내기');
+      assert.ok((await ph.count()) > 0, 'placeholder \'에이전트에게 메시지 보내기\' 표시');
       // #1: 사용자 카드 '나' 라벨 제거 — 밴드(testID 유지)는 존재, '나' 텍스트 없음
       await page.getByTestId('chat-input').fill('테스트 발화');
       await page.getByTestId('send-button').click();
@@ -43,9 +44,8 @@ async function openChat(browser, width) {
       // #3: 에이전트명 헤더는 첫 에이전트 메시지만 — 'Test Agent' 텍스트 노출 수 ≤ 1 (앱바 제외 본문 카드)
       const bodyAgentName = await page.locator('[data-testid="message-agent"] >> text="Test Agent"').count();
       assert.ok(bodyAgentName <= 1, `#3 에이전트명 라벨 중복 제거 (본문 카드 내 ${bodyAgentName}회)`);
-      // #2: 마이크 버튼 SVG화 — ptt-mic-button 안에 emoji 없음
-      const micHtml = await page.getByTestId('ptt-mic-button').innerHTML();
-      assert.ok(!/🎤/.test(micHtml) && /<svg/i.test(micHtml), '#2 마이크 = SVG 아이콘');
+      // #2: t_4b1bd4c2 요구 1 — 입력창 옆 마이크 버튼 완전 제거 (ptt-mic-button 미렌더)
+      assert.equal(await page.getByTestId('ptt-mic-button').count(), 0, '#2+t_4b1bd4c2 마이크 홀드 버튼 제거');
       // 즐겨찾기 별 SVG (카드 헤더)
       const favHtml = await page.getByTestId('card-favorite').first().innerHTML();
       assert.ok(!/[★☆]/.test(favHtml) && /<svg/i.test(favHtml), '#2 즐겨찾기 별 = SVG 아이콘');

@@ -35,9 +35,7 @@ export default function RealtimeTranscript({ transcripts, isRecording }: Props) 
   if (transcripts.length === 0 && !isRecording) {
     return (
       <View style={styles.placeholder}>
-        <View style={styles.placeholderIconWrap}>
-          <Text style={styles.placeholderIcon}>🎙️</Text>
-        </View>
+        {/* t_4b1bd4c2 요구 1: 🎙️ 이모지 타일 제거 — 음성 홈은 문구만으로 담백하게 */}
         <Text style={styles.placeholderText}>{t('voice.transcriptPlaceholder')}</Text>
         <Text style={styles.placeholderSubtext}>{t('voice.transcriptSubtext')}</Text>
       </View>
@@ -98,20 +96,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 60,
-  },
-  placeholderIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.sp4,
-  },
-  placeholderIcon: {
-    ...typography.title1,
   },
   placeholderText: {
     ...typography.headline,

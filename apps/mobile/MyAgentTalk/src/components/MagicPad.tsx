@@ -1,13 +1,15 @@
-// 매직패드 입력 위젯 (MagicPad) — 카드 t_5de18a91 요구 2/3/4/5/6
-// 넓은 평면에서 제스처 계층을 인지한다 (인지 로직은 lib/joystickEngine — 순수·테스트 가능):
-//   탭(이동無·짧음)   → TAP_CENTER (말하기 — 녹음 고정, 요구 6)
-//   롱프레스(500ms)   → LONG_CENTER (녹음 — 요구 6)
-//   flick(빠른 방향)  → 8방향 중 하나 → 사용자 맵의 방향 동작 (자유매핑과 재사용)
-//   swipe(길게 미끄러짐) → 스와이프 계층: ↑녹음종료 ↓취소 ←이전 →다음 (swipeActionFor, 자유매핑과 독립 레이어)
+// 매직패드 입력 위젯 (MagicPad) — t_4b1bd4c2 입력 콘솔 재설계 (렌더만; 엔진 불변)
+// 제스처 계층 계약 (lib/joystickEngine 순수 로직 그대로):
+//   탭(이동無·짧음)   → TAP_CENTER (말하기 — 녹음 고정)
+//   롱프레스(500ms)   → LONG_CENTER (녹음)
+//   flick(빠른 방향)  → 8방향 중 하나 → 사용자 맵의 방향 동작 (자유매핑 재사용)
+//   swipe(길게 미끄러짐) → 스와이프 계층: ↑녹음종료 ↓취소 ←이전 →다음 (swipeActionFor, 독립 레이어)
 //   드래그(우하단 그립에서 시작) → 미세조정(세그먼트 스텝), 크게 이탈 시 취소
 // 변형: variant='hybrid' — 중앙 스틱 썸 + 외부 패드 계층 동시.
-// 엔진(이 컴포넌트)은 기호(JoystickGesture / SwipeAction / 스텝)만 emit하고 의미 실행은 화면 dispatcher —
-// 기존 엔진/의미 분리 계약(JoystickMic와 동일) 유지.
+// 대표님 9/28深夜 확정 요구 반영:
+//   요구 1: 🎤/🔴 이모지 앵커·펄스 링·레드 녹음 링 폐기 — 평상시 패드는 담백한 흰 평면 하나.
+//   요구 2: 방향 라벨은 눌림(touchstart) 동안만 페이드인, 놓으면 페이드아웃 (overlayLayer).
+//   요구 3: 2색(#00A86B+흰/극회색) 평면 조형 — 도트 그리드·연그립 그립 패치 등 게임 HUD 장식품 제거.
 import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
@@ -23,7 +25,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { JoystickGesture } from '../types';
-import { colors, typography, iconSize } from '../theme';
+import { colors, radii, spacing, typography, iconSize, shadows } from '../theme';
 import { getDirection, DIRECTION_ARROWS, DEFAULT_DIRECTION_LABELS, GESTURE_CONFIG } from '../lib/gesture';
 import {
   PadGestureTracker, PAD_CONFIG, SwipeAction, dragStepsFromDx, isDoubleTap, swipeActionFor,
@@ -48,10 +50,10 @@ interface Props {
 }
 
 const screenWidth = Dimensions.get('window').width;
-// 크기 레퍼런스 (대표님 지시 9/26 — 자체 창작 금지):
-//   · 표면 비례 = Apple Magic Trackpad 활성부 109.5×71.2mm ≈ 1.54:1 (가로:세로) — 매직패드의 실물 제품 규격
-//   · 터치 타깃 = Apple HIG 최소 44pt — 중앙 앵커/하이브리드 썸은 조이스틱 썸과 동일 공식(96~140px), 모드 전환 시 형제 모양 유지
-//   · 요구 4: iOS 가장자리 스와이프(뒤로가기 ~20px 존) 충돌 방지 — 좌우 24px 인셋으로 화면 중앙 고정 영역
+// 크기 레퍼런스 (9/26 실측 기준 유지):
+//   · 표면 비례 = Apple Magic Trackpad 활성부 109.5×71.2mm ≈ 1.54:1 — 매직패드의 실물 제품 규격
+//   · 터치 타깃 = Apple HIG 최소 44pt — 중앙 앵커/하이브리드 썸은 조이스틱 썸과 동일 공식(96~140px)
+//   · iOS 가장자리 스와이프(뒤로가기 ~20px 존) 충돌 방지 — 좌우 24px 인셋으로 화면 중앙 고정 영역
 const PAD_WIDTH = Math.min(screenWidth - 48, 380);
 const PAD_HEIGHT = Math.round(PAD_WIDTH / 1.54);
 // 중앙 앵커/썸 직경 = JoystickMic 썸과 동일 클램프 공식 — 3모드 공통 조형
@@ -70,7 +72,9 @@ export default function MagicPad({
   isRecording, directionLabels,
 }: Props) {
   const { t } = useTranslation();
-  const [pulseAnim] = useState(() => new Animated.Value(0.5));
+  // 요구 2: 눌림 동안만 오버레이 — grant 페이드인 / release·terminate 페이드아웃
+  const [overlayFade] = useState(() => new Animated.Value(0));
+  const [pressed, setPressed] = useState(false);
   const [hint, setHint] = useState<{ arrow?: string; text: string } | null>(null);
   const [trail, setTrail] = useState<{ x: number; y: number }[]>([]); // 스와이프 궤적 (페이드 렌더)
   const trailRef = useRef<{ x: number; y: number }[]>([]);
@@ -87,18 +91,6 @@ export default function MagicPad({
   useEffect(() => {
     cbs.current = { onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels, t };
   }, [onGesture, onSwipe, onDoubleTap, onDragStep, onDragEnd, onRelease, variant, directionLabels, t]);
-
-  // 아이들 펄스 (패드에 띄워진 마이크 앵커)
-  useEffect(() => {
-    if (!isRecording) {
-      const pulse = Animated.loop(Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.3, duration: 1000, useNativeDriver: true }),
-      ]));
-      pulse.start();
-      return () => pulse.stop();
-    }
-  }, [isRecording, pulseAnim]);
 
   const clearLongPress = () => {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
@@ -125,6 +117,8 @@ export default function MagicPad({
         trackerRef.current = tr;
         dragLastSteps.current = 0;
         hintDirRef.current = null;
+        setPressed(true);
+        Animated.timing(overlayFade, { toValue: 1, duration: 160, useNativeDriver: true }).start();
 
         const inThumb =
           cbs.current.variant === 'hybrid' &&
@@ -235,6 +229,8 @@ export default function MagicPad({
         setHint(null);
         setTrail([]);
         trailRef.current = [];
+        setPressed(false);
+        Animated.timing(overlayFade, { toValue: 0, duration: 220, useNativeDriver: true }).start();
         const wasDrag = phaseRef.current === 'drag';
         const wasPress = phaseRef.current === 'press';
         phaseRef.current = 'idle';
@@ -284,40 +280,85 @@ export default function MagicPad({
         setHint(null);
         setTrail([]);
         trailRef.current = [];
+        setPressed(false);
+        Animated.timing(overlayFade, { toValue: 0, duration: 220, useNativeDriver: true }).start();
         phaseRef.current = 'idle';
         trackerRef.current = null;
         cbs.current.onRelease();
       },
     });
     setPanHandlers(responder.panHandlers);
-  }, []);
+  }, [overlayFade]);
+
+  // 눌림 중 8방향 오버레이 데이터 (요구 2 — 평상시에는 렌더 자체가 없다)
+  const labels = { ...DEFAULT_DIRECTION_LABELS, ...directionLabels };
+  const overlayRingR = Math.min(PAD_WIDTH, PAD_HEIGHT) * 0.5 - 26;
+  const OVERLAY_DIRS: { key: JoystickGesture; angle: number }[] = [
+    { key: 'DIR_UP', angle: 0 }, { key: 'DIR_UPRIGHT', angle: 45 },
+    { key: 'DIR_RIGHT', angle: 90 }, { key: 'DIR_DOWNRIGHT', angle: 135 },
+    { key: 'DIR_DOWN', angle: 180 }, { key: 'DIR_DOWNLEFT', angle: 225 },
+    { key: 'DIR_LEFT', angle: 270 }, { key: 'DIR_UPLEFT', angle: 315 },
+  ];
 
   return (
     <View style={styles.container} pointerEvents="box-none">
-      {/* 패드 표면 */}
-      <View style={styles.pad} testID="magic-pad" accessibilityLabel="magic-pad" {...panHandlers}>
-        {/* 도트 그리드 (매직패드 질감) */}
-        <View style={styles.grid} pointerEvents="none">
-          {Array.from({ length: 5 }).map((_, r) => (
-            <View key={r} style={styles.gridRow}>
-              {Array.from({ length: 7 }).map((__, c) => <View key={c} style={styles.dot} />)}
-            </View>
-          ))}
+      {/* 패드 표면 — 흰 평면 + 헤어라인 하나. 도트 그리드/장식 제거(요구 3) */}
+      <View
+        style={[styles.pad, pressed && styles.padPressed, isRecording && styles.padRecording]}
+        testID="magic-pad"
+        accessibilityLabel="magic-pad"
+        {...panHandlers}
+      >
+        {/* 우하단 그립 — 면 대신 액센트 코너 마크 2줄로만 (작은 물음표: 존재는 알리되 장식 금지) */}
+        <View style={styles.gripMark} pointerEvents="none" testID="magic-pad-grip">
+          <View style={styles.gripLineH} />
+          <View style={styles.gripLineV} />
         </View>
 
-        {/* 우하단 그립 영역 힌트 */}
-        <View style={styles.gripZone} pointerEvents="none">
-          <Text style={styles.gripLabel}>{t('joystick.grip')}</Text>
-        </View>
+        {/* 눌림 중 8방향 오버레이 링 (touchstart 페이드인 → release 페이드아웃 — 슬롯은 상시 마운트,
+            opacity가 0이면 화면에 없다. 조건부 렌더로 언마운트하면 페이드아웃이 안 보임(요구 2)) */}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.overlayLayer, { opacity: overlayFade }]}
+          testID="magic-pad-overlay"
+        >
+          {OVERLAY_DIRS.map(({ key, angle }) => {
+            const rad = (angle * Math.PI) / 180;
+            const selected = hint?.arrow === DIRECTION_ARROWS[key] && !!hint?.arrow;
+            return (
+              <View
+                key={key}
+                testID="joystick-direction-label"
+                style={[
+                  styles.overlaySlot,
+                  {
+                    left: '50%', top: '50%',
+                    transform: [
+                      { translateX: Math.sin(rad) * overlayRingR - 34 },
+                      { translateY: -Math.cos(rad) * overlayRingR - 13 },
+                    ],
+                  },
+                ]}
+              >
+                <Text style={[styles.overlayArrow, selected && styles.overlayArrowSelected]}>
+                  {DIRECTION_ARROWS[key]}
+                </Text>
+                <Text style={[styles.overlayLabel, selected && styles.overlayLabelSelected]} numberOfLines={1}>
+                  {labels[key] ?? DEFAULT_DIRECTION_LABELS[key]}
+                </Text>
+              </View>
+            );
+          })}
+        </Animated.View>
 
-        {/* hybrid = 중앙 스틱 썸 오버레이 */}
+        {/* hybrid = 중앙 스틱 썸 (흰 디스크 + 녹음 점; 🎤 이모지 폐기, 요구 1) */}
         {variant === 'hybrid' && (
-          <View style={styles.hybridThumb} pointerEvents="none">
-            <Text style={styles.hybridThumbIcon}>{isRecording ? '🔴' : '🎤'}</Text>
+          <View style={[styles.hybridThumb, isRecording && styles.hybridThumbRecording]} pointerEvents="none">
+            <View style={[styles.recDot, isRecording && styles.recDotActive]} />
           </View>
         )}
 
-        {/* 스와이프 궤적 페이드 (요구 ② 시각) */}
+        {/* 스와이프 궤적 페이드 (요구 ② 시각) — 극회색 도트 그라데이션 */}
         {trail.length > 1 && (
           <View style={styles.trailLayer} pointerEvents="none">
             {trail.map((p, i) => (
@@ -333,7 +374,7 @@ export default function MagicPad({
           </View>
         )}
 
-        {/* 제스처 피드백 배지 */}
+        {/* 제스처 확정 피드백 배지 — 흰 칩 + 헤어라인 + 액센트 화살표 (어두운 HUD 박스 폐기) */}
         {hint && (
           <View style={styles.hintBadge} pointerEvents="none">
             {hint.arrow ? <Text style={styles.hintArrow}>{hint.arrow}</Text> : null}
@@ -342,15 +383,12 @@ export default function MagicPad({
         )}
       </View>
 
-      {/* pad 모드: 중앙 마이크 앵커 (표면 위 시각 정중앙, 탭은 패드 어디든 가능) */}
+      {/* pad 모드 중앙 정중앙 마커 — 눌림 시에만 나타나 녹음 앵커 위치를 알려주는 극박 링
+          (평상시 마이크 코어·펄스·레드 링 전부 제거 — 요구 1/2) */}
       {variant === 'pad' && (
-        <View style={styles.micAnchor} pointerEvents="none">
-          {!isRecording && <Animated.View style={[styles.pulseRing, { opacity: pulseAnim }]} />}
-          {isRecording && <View style={styles.recordingRing} />}
-          <View style={[styles.micCore, isRecording && styles.micCoreRecording]}>
-            <Text style={styles.micIcon}>{isRecording ? '🔴' : '🎤'}</Text>
-          </View>
-        </View>
+        <Animated.View style={[styles.centerMark, { opacity: overlayFade }]} pointerEvents="none">
+          <View style={[styles.recDot, isRecording && styles.recDotActive]} />
+        </Animated.View>
       )}
     </View>
   );
@@ -366,7 +404,7 @@ const styles = StyleSheet.create({
   pad: {
     width: PAD_WIDTH,
     height: PAD_HEIGHT,
-    borderRadius: 28,
+    borderRadius: radii.lg, // 28 → 12 — Apple 연속성: 카드 반지름 체계와 맞춘다
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -374,23 +412,54 @@ const styles = StyleSheet.create({
     userSelect: 'none', // 웹: 드래그가 텍스트 선택으로 새면 responder가 terminate됨 (RNW selectionchange)
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadows.sh1,
   },
-  grid: { opacity: 0.5 },
-  gridRow: { flexDirection: 'row', gap: 34, marginVertical: 14 },
-  dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.border },
-  gripZone: {
+  padPressed: { borderColor: colors.borderStrong }, // 눌림 = 헤어라인 한 단계 진해짐 (연속성)
+  padRecording: { borderColor: colors.accent, backgroundColor: colors.accentTint }, // 녹음 = 극연그린 한 장
+  gripMark: {
     position: 'absolute',
-    right: 6,
-    bottom: 6,
-    width: PAD_CONFIG.gripEdgeMargin,
-    height: PAD_CONFIG.gripEdgeMargin,
-    borderTopLeftRadius: 999,
-    backgroundColor: colors.accentTint,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-end',
-    padding: 8,
+    right: 10,
+    bottom: 10,
+    width: 18,
+    height: 18,
   },
-  gripLabel: { ...typography.micro, fontWeight: '700', color: colors.segTask },
+  gripLineH: {
+    position: 'absolute', right: 0, bottom: 0, width: 14, height: 2,
+    borderRadius: radii.full, backgroundColor: colors.borderStrong,
+  },
+  gripLineV: {
+    position: 'absolute', right: 0, bottom: 0, width: 2, height: 14,
+    borderRadius: radii.full, backgroundColor: colors.borderStrong,
+  },
+  overlayLayer: {
+    position: 'absolute', left: 0, top: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  overlaySlot: {
+    position: 'absolute',
+    width: 68,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sp1,
+    paddingVertical: 2,
+  },
+  overlayArrow: {
+    ...typography.subhead,
+    fontWeight: '700',
+    color: colors.text2,
+    textAlign: 'center',
+  },
+  overlayArrowSelected: { color: colors.accent },
+  overlayLabel: {
+    ...typography.micro,
+    fontWeight: '500',
+    color: colors.text3,
+    textAlign: 'center',
+  },
+  overlayLabelSelected: { color: colors.text1, fontWeight: '600' },
   hybridThumb: {
     position: 'absolute',
     alignSelf: 'center',
@@ -398,46 +467,55 @@ const styles = StyleSheet.create({
     width: HYBRID_THUMB_RADIUS * 2,
     height: HYBRID_THUMB_RADIUS * 2,
     borderRadius: HYBRID_THUMB_RADIUS,
-    borderWidth: 2,
-    borderStyle: 'dashed',
+    borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surfaceRaise,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadows.sh1,
   },
-  hybridThumbIcon: { fontSize: Math.round(ANCHOR_SIZE * 0.32) },
-  hintBadge: {
-    position: 'absolute',
-    top: 14,
-    alignItems: 'center',
-    backgroundColor: 'rgba(17,24,39,0.72)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  hybridThumbRecording: { borderColor: colors.accent },
+  recDot: {
+    width: 14,
+    height: 14,
+    borderRadius: radii.full,
+    backgroundColor: colors.accent,
   },
-  hintArrow: { ...typography.headline, fontSize: iconSize.glyph, fontWeight: '700', color: '#fff' },
-  hintText: { ...typography.micro, fontWeight: '600', color: '#fff' },
+  recDotActive: {
+    width: 18,
+    height: 18,
+  },
   trailLayer: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 },
   trailDot: {
     position: 'absolute', width: 10, height: 10, borderRadius: 5,
     backgroundColor: colors.accent,
   },
-  micAnchor: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  pulseRing: {
-    position: 'absolute', width: ANCHOR_SIZE + 24, height: ANCHOR_SIZE + 24, borderRadius: (ANCHOR_SIZE + 24) / 2,
-    borderWidth: 2, borderColor: colors.accent,
+  hintBadge: {
+    position: 'absolute',
+    top: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sp1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.sp3,
+    paddingVertical: spacing.sp1,
+    ...shadows.sh1,
   },
-  recordingRing: {
-    position: 'absolute', width: ANCHOR_SIZE + 36, height: ANCHOR_SIZE + 36, borderRadius: (ANCHOR_SIZE + 36) / 2,
-    borderWidth: 3, borderColor: colors.statusErr,
+  hintArrow: { ...typography.headline, fontSize: iconSize.glyph, fontWeight: '700', color: colors.accent },
+  hintText: { ...typography.micro, fontWeight: '600', color: colors.text1 },
+  centerMark: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: ANCHOR_SIZE,
+    height: ANCHOR_SIZE,
+    borderRadius: ANCHOR_SIZE / 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    ...shadows.sh1,
   },
-  micCore: {
-    width: ANCHOR_SIZE, height: ANCHOR_SIZE, borderRadius: ANCHOR_SIZE / 2,
-    backgroundColor: colors.surfaceRaise,
-    alignItems: 'center', justifyContent: 'center',
-    elevation: 8,
-    shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
-  },
-  micCoreRecording: { backgroundColor: '#3D1A1A', shadowColor: colors.statusErr },
-  micIcon: { fontSize: Math.round(ANCHOR_SIZE * 0.35) },
 });

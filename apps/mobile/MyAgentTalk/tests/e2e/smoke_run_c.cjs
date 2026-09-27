@@ -47,7 +47,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByText('답글 1개', { exact: true }).click();
     await page.getByText('Thread reply', { exact: true }).waitFor();
     await page.screenshot({ path: shot('02-thread') });
-    await page.getByPlaceholder('메시지 보내기…').fill('thread-only').catch(async () => {
+    await page.getByPlaceholder('에이전트에게 메시지 보내기').fill('thread-only').catch(async () => {
       await page.locator('textarea').fill('thread-only');
     });
     await page.getByRole('button', { name: '전송', exact: true }).click();

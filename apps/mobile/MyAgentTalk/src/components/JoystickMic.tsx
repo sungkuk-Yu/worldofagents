@@ -1,8 +1,9 @@
-// 조이스틱 마이크 버튼 (JoystickMic)
-// 화면 7 중앙에 위치, 8방향 + 탭/롱프레스 제스처 인식
-// 설계서: ui-interaction-spec.md §1
-//   §1.4 상태별 시각 피드백: 방향 드래그 중 반투명 화살표+라벨 → 확정 시 아이콘 변경+햅틱
-//   §1.5 롱프레스: 500ms 확정 → 레드 코어 + 파형 애니메이션 + 실시간 트랜스크립트
+// 조이스틱 입력 디스크 (JoystickMic) — t_4b1bd4c2 입력 콘솔 재설계
+// 대표님 9/28深夜 확정 요구 반영:
+//   요구 1: 마이크/🎤 이모지 폐기 — 썸 중앙은 담백한 녹음 점 하나만.
+//   요구 2: 8방향 라벨 오버레이는 눌리는(touchstart) 순간에만 페이드인, 놓으면 페이드아웃. 평상시 상시 노출 금지.
+//   요구 3: 2색 체계(#00A86B + 흰/극회색) · Apple HIG 스프링 감각 · 게임 HUD 금지(펄스 링/레드 코어/상시 화살표 제거).
+//   엔진 불변: 제스처 인지는 lib/gesture 순수 로직(getDirection/isOutsideDeadzone/isTap) 그대로 — 렌더만 재작성.
 import React, { useRef, useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -17,7 +18,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { JoystickGesture } from '../types';
-import { colors, typography, iconSize, shadows } from '../theme';
+import { colors, radii, spacing, typography, iconSize, shadows } from '../theme';
 import {
   getDirection,
   isOutsideDeadzone,
@@ -27,7 +28,7 @@ import {
 } from '../lib/gesture';
 import Waveform from './Waveform';
 
-// 조이스틱 설정 (설계서 §1.3)
+// 조이스틱 설정 (설계서 §1.3) — 감지 임계값 불변
 const CONFIG = {
   deadzone: 12,
   directionThreshold: 30,
@@ -46,26 +47,32 @@ interface Props {
   directionLabels?: Partial<Record<JoystickGesture, string>>;
 }
 
-// 버튼 실측·재조정 (대표님 지시 9/26 — 자체 창작 금지, 실제 제품 레퍼런스):
-//   · 현행 실측: thumb = width×0.22 → 390px 폰에서 85.8px, 단일체(베이스 없음)
-//   · 레퍼런스: PS5 DualSense 스틱 캡 Ø21mm ≈ 390px 뷰포트 환산 논리 ~115px,
-//     모바일 게임 가상조이스틱(스위치 스타일) 관례 = 썸 너비 20~25% + 베이스 직경 썸의 ~1.5배
-//   · 재조정: thumb = clamp(width×0.24, 96, 140) (HIG 44pt 최소 타깃의 2.2배), 베이스 = 1.5×thumb 정적 링
-//   · PC 웹(3패널)에서는 140px 상한으로 화면을 압도하지 않고 하단 중앙 유지
+// 크기 계 — 9/26 실측 기준 유지(썸 24%·클램프 96~140, 베이스 1.5×), 위층 조형만 2색 평면화
 const screenWidth = Dimensions.get('window').width;
 const BUTTON_SIZE = Math.min(Math.max(screenWidth * 0.24, 96), 140);
-const BASE_SIZE = Math.round(BUTTON_SIZE * 1.5); // 정적 베이스 링 (스위치 캡+스커트 비례)
-const KNOB_TRAVEL = Math.round((BASE_SIZE - BUTTON_SIZE) / 2); // 썸 이동 한계 = 베이스 안쪽 (실물 스틱 물리)
+const BASE_SIZE = Math.round(BUTTON_SIZE * 1.5);
+const KNOB_TRAVEL = Math.round((BASE_SIZE - BUTTON_SIZE) / 2);
+
+// 8방향 오버레이 배치 — 버튼 중심 반지름 위에 화살표+라벨 (0°=위, 시계방향; lib/gesture와 동일 각계)
+const OVERLAY_DIRS: { key: JoystickGesture; angle: number }[] = [
+  { key: 'DIR_UP', angle: 0 }, { key: 'DIR_UPRIGHT', angle: 45 },
+  { key: 'DIR_RIGHT', angle: 90 }, { key: 'DIR_DOWNRIGHT', angle: 135 },
+  { key: 'DIR_DOWN', angle: 180 }, { key: 'DIR_DOWNLEFT', angle: 225 },
+  { key: 'DIR_LEFT', angle: 270 }, { key: 'DIR_UPLEFT', angle: 315 },
+];
+const OVERLAY_R = BASE_SIZE / 2 + 2;
 
 export default function JoystickMic({ onGesture, onRelease, isRecording, directionLabels }: Props) {
   // RN Animated 표준 패턴 — Animated.Value 는 렌더 간 안정적인 identity 가 필요 → useState 초기화
   // (React 19 react-hooks/refs 규칙: 렌더 중 ref 접근 금지 대응)
   const [scaleAnim] = React.useState(() => new Animated.Value(1));
-  const [pulseAnim] = React.useState(() => new Animated.Value(0.5));
   const [knobAnim] = React.useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
+  // 요구 2: 눌림 동안만 오버레이 — grant 시 페이드인, release 시 페이드아웃
+  const [overlayFade] = React.useState(() => new Animated.Value(0));
   const touchStartTime = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentDirection = useRef<JoystickGesture | null>(null);
+  const pressedRef = useRef(false);
 
   // 최신 콜백을 ref에 유지 (useEffect 재생성 방지)
   const onGestureRef = useRef(onGesture);
@@ -93,14 +100,19 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
 
       onPanResponderGrant: () => {
         touchStartTime.current = Date.now();
+        pressedRef.current = true;
         Animated.spring(scaleAnim, {
-          toValue: 1.05,
+          toValue: 1.04,
+          friction: 5,
+          tension: 80,
           useNativeDriver: true,
         }).start();
         Animated.spring(knobAnim, {
           toValue: { x: 0, y: 0 },
           useNativeDriver: true,
         }).start();
+        // touchstart → 8방향 오버레이 페이드인 (160ms, 요구 2)
+        Animated.timing(overlayFade, { toValue: 1, duration: 160, useNativeDriver: true }).start();
 
         longPressTimer.current = setTimeout(() => {
           onGestureRef.current('LONG_CENTER');
@@ -137,14 +149,22 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
 
       onPanResponderRelease: () => {
         const duration = Date.now() - touchStartTime.current;
+        pressedRef.current = false;
+        // 복귀 스프링 (HIG 감각 — 뻣뻣한 instant 대신 감쇠 스프링)
         Animated.spring(scaleAnim, {
           toValue: 1,
+          friction: 6,
+          tension: 68,
           useNativeDriver: true,
         }).start();
         Animated.spring(knobAnim, {
           toValue: { x: 0, y: 0 },
+          friction: 6,
+          tension: 68,
           useNativeDriver: true,
         }).start();
+        // 놓음 → 오버레이 페이드아웃 (220ms, 요구 2)
+        Animated.timing(overlayFade, { toValue: 0, duration: 220, useNativeDriver: true }).start();
 
         if (currentDirection.current) {
           onGestureRef.current(currentDirection.current);
@@ -169,102 +189,73 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
     });
 
     setPanHandlers(responder.panHandlers);
-  }, [scaleAnim, knobAnim]);
+  }, [scaleAnim, knobAnim, overlayFade]);
 
-  // 아이들 상태 펄스 애니메이션
-  useEffect(() => {
-    if (!isRecording) {
-      const pulse = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 0.3,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulse.start();
-      return () => pulse.stop();
-    }
-  }, [isRecording, pulseAnim]);
-
-  // 드래그 중 방향 화살표/라벨 (렌더는 상태 기반 — currentDirection ref 는 핸들러 전용)
+  // 드래그 중 방향 피드백 (요구 2: 눌린 동안만 렌더 — 평상시 DOM에 오버레이 자체가 없다)
   const labels = { ...DEFAULT_DIRECTION_LABELS, ...directionLabels };
-  const selectedGesture = activeDirection;
 
   return (
-    <View style={styles.container}>
-      {/* 파형 애니메이션 (녹음 중, 버튼 바로 아래) */}
-      <View style={styles.waveformWrap} pointerEvents="none">
-        <Waveform active={isRecording} color={colors.statusErr} barCount={15} height={26} />
-      </View>
-
-      {/* 펄스 링 (아이들 상태) */}
-      {!isRecording && (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.pulseRing,
-            { opacity: pulseAnim },
-          ]}
-        />
-      )}
-
-      {/* 녹음 중 링 */}
-      {isRecording && <View pointerEvents="none" style={styles.recordingRing} />}
-
-      {/* 정적 베이스 링 — 캡+스커트 2계층 조형 (레퍼런스: 콘솔 가상스틱 관례) */}
+    <View style={styles.container} testID="joystick-mic">
+      {/* 정적 베이스 — 극회색 평면 디스크 + 헤어라인. 게임 HUD 금지: 펄스 링·스커트·레드 코어 제거 */}
       <View pointerEvents="none" style={styles.baseRing} />
 
-      {/* 드래그 방향 피드백 (반투명 화살표, §1.4) */}
-      {selectedGesture && selectedGesture !== 'TAP_CENTER' && selectedGesture !== 'LONG_CENTER' && (
-        <Animated.View pointerEvents="none" style={styles.directionFeedback}>
-          <Text style={styles.dtoDirectionArrow}>{DIRECTION_ARROWS[selectedGesture]}</Text>
-          <Text style={styles.directionLabel}>
-            {labels[selectedGesture] ?? DEFAULT_DIRECTION_LABELS[selectedGesture]}
-          </Text>
-        </Animated.View>
-      )}
+      {/* 눌림 중 8방향 오버레이 (touchstart 페이드인 → release 페이드아웃) */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.overlayLayer, { opacity: overlayFade }]}
+        testID="joystick-overlay"
+      >
+        {OVERLAY_DIRS.map(({ key, angle }) => {
+          const rad = (angle * Math.PI) / 180;
+          const selected = activeDirection === key;
+          return (
+            <View
+              key={key}
+              testID="joystick-direction-label"
+              style={[
+                styles.overlaySlot,
+                {
+                  left: '50%', top: '50%',
+                  transform: [
+                    { translateX: Math.sin(rad) * OVERLAY_R - 34 },
+                    { translateY: -Math.cos(rad) * OVERLAY_R - 13 },
+                  ],
+                },
+              ]}
+            >
+              <Text style={[styles.overlayArrow, selected && styles.overlayArrowSelected]}>
+                {DIRECTION_ARROWS[key]}
+              </Text>
+              <Text style={[styles.overlayLabel, selected && styles.overlayLabelSelected]} numberOfLines={1}>
+                {labels[key] ?? DEFAULT_DIRECTION_LABELS[key]}
+              </Text>
+            </View>
+          );
+        })}
+      </Animated.View>
 
-      {/* 메인 버튼 */}
+      {/* 썸 — 흰 디스크 + 헤어라인 + 극박 그림자. 중앙은 마이크 대신 녹음 점 하나 (요구 1)
+          확정(스냅)된 방향이 있으면 그 자리에 화살표로 대체 표시 */}
       <Animated.View
         style={[
           styles.button,
-          {
-            transform: [
-              { scale: scaleAnim },
-              ...knobAnim.getTranslateTransform(),
-            ],
-          },
+          { transform: [{ scale: scaleAnim }, ...knobAnim.getTranslateTransform()] },
           isRecording && styles.buttonRecording,
+          !!activeDirection && styles.buttonArmed,
         ]}
         {...panHandlers}
       >
-        {selectedGesture && selectedGesture !== 'TAP_CENTER' && selectedGesture !== 'LONG_CENTER' ? (
-          <Text style={[styles.buttonIcon, { color: colors.onPrimary }]}>
-            {DIRECTION_ARROWS[selectedGesture]}
-          </Text>
+        {activeDirection && activeDirection !== 'TAP_CENTER' && activeDirection !== 'LONG_CENTER' ? (
+          <Text style={styles.thumbArrow}>{DIRECTION_ARROWS[activeDirection]}</Text>
         ) : (
-          <Text style={styles.buttonIcon}>
-            {isRecording ? '🔴' : '🎤'}
-          </Text>
+          <View style={[styles.recDot, isRecording && styles.recDotActive]} />
         )}
       </Animated.View>
 
-      {/* 방향 인디케이터 (간소화) */}
-      {!isRecording && !selectedGesture && (
-        <View pointerEvents="none" style={styles.directionLabels}>
-          <Text style={[styles.dirLabel, styles.dirUp]}>↑</Text>
-          <Text style={[styles.dirLabel, styles.dirLeft]}>←</Text>
-          <Text style={[styles.dirLabel, styles.dirRight]}>→</Text>
-          <Text style={[styles.dirLabel, styles.dirDown]}>↓</Text>
-        </View>
-      )}
+      {/* 녹음 중 파형 — 액센트 2색 체계 유지 (레드 금지), 썸 바로 아래 */}
+      <View style={styles.waveformWrap} pointerEvents="none">
+        <Waveform active={isRecording} color={colors.accent} barCount={15} height={22} />
+      </View>
     </View>
   );
 }
@@ -272,7 +263,7 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
 const styles = StyleSheet.create({
   container: {
     width: BASE_SIZE,
-    height: BASE_SIZE,
+    height: BASE_SIZE + spacing.sp6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -281,89 +272,81 @@ const styles = StyleSheet.create({
     width: BASE_SIZE,
     height: BASE_SIZE,
     borderRadius: BASE_SIZE / 2,
+    backgroundColor: colors.surfaceRaise, // 극회색 디스크 — 흰 화면 위에 한 단계 얹힘
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  overlayLayer: {
+    position: 'absolute',
+    width: BASE_SIZE + 76,
+    height: BASE_SIZE + 76,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overlaySlot: {
+    position: 'absolute',
+    width: 68,
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sp1,
+    paddingVertical: 2,
     ...shadows.sh1,
   },
-  waveformWrap: {
-    position: 'absolute',
-    // 베이스 링(1.5×) 하단 안쪽 — 컨테이너가 썸+스커트 크기로 축소된 데 맞춘 재배치
-    top: BASE_SIZE - 18,
-    width: BUTTON_SIZE * 1.2,
+  overlayArrow: {
+    ...typography.subhead,
+    fontWeight: '700',
+    color: colors.text2,
+    textAlign: 'center',
   },
-  pulseRing: {
-    position: 'absolute',
-    width: BUTTON_SIZE * 1.4,
-    height: BUTTON_SIZE * 1.4,
-    borderRadius: (BUTTON_SIZE * 1.4) / 2,
-    borderWidth: 2,
-    borderColor: colors.accent,
+  overlayArrowSelected: { color: colors.accent },
+  overlayLabel: {
+    ...typography.microXs,
+    fontWeight: '500',
+    color: colors.text3,
+    textAlign: 'center',
   },
-  recordingRing: {
-    position: 'absolute',
-    width: BASE_SIZE + 20,
-    height: BASE_SIZE + 20,
-    borderRadius: (BASE_SIZE + 20) / 2,
-    borderWidth: 3,
-    borderColor: colors.statusErr,
-  },
+  overlayLabelSelected: { color: colors.text1, fontWeight: '600' },
   button: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
-    backgroundColor: colors.surfaceRaise,
+    backgroundColor: colors.surface, // 흰 썸 — 2색 체계의 흰
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 8,
-    shadowColor: colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    ...shadows.sh1,
   },
   buttonRecording: {
-    backgroundColor: '#3D1A1A',
-    shadowColor: colors.statusErr,
+    backgroundColor: colors.accentTint, // 녹음 = 극연그린 밴드 (레드 HUD 금지, 요구 3)
+    borderColor: colors.accent,
   },
-  buttonIcon: {
-    fontSize: BUTTON_SIZE * 0.35,
+  buttonArmed: {
+    borderColor: colors.accent, // 방향 스냅 확정 — 액센트 헤어라인 하나만
   },
-  directionFeedback: {
-    position: 'absolute',
-    top: 8, // 썸 상단 위쪽 — 1.5× 베이스 컨테이너에 맞춰 재배치 (§1.4 화살표+라벨)
-    alignItems: 'center',
-    backgroundColor: 'rgba(17,24,39,0.72)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    zIndex: 10,
+  recDot: {
+    width: 14,
+    height: 14,
+    borderRadius: radii.full,
+    backgroundColor: colors.accent,
   },
-  dtoDirectionArrow: {
+  recDotActive: {
+    backgroundColor: colors.accent,
+    width: 18,
+    height: 18,
+  },
+  thumbArrow: {
     ...typography.headline,
     fontSize: iconSize.glyph,
     fontWeight: '700',
-    color: '#fff',
+    color: colors.accent,
   },
-  directionLabel: {
-    ...typography.micro,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  directionLabels: {
+  waveformWrap: {
     position: 'absolute',
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+    bottom: 0,
+    width: BUTTON_SIZE * 1.2,
   },
-  dirLabel: {
-    ...typography.headline,
-    fontSize: iconSize.glyph,
-    position: 'absolute',
-    color: colors.text3,
-  },
-  dirUp: { top: 0 },
-  dirLeft: { left: 0 },
-  dirRight: { right: 0 },
-  dirDown: { bottom: 0 },
 });

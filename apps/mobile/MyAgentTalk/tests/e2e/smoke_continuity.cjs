@@ -198,23 +198,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const toggleMsg = await B.waitForSelector('text=정리해 주세요', { timeout: 12000 }).catch(() => null);
     check('재매핑 KeyK + 토글 모드 — 한 번 더 눌러 전송', toggleOn > 0 && !!toggleMsg);
 
-    // 모바일 웹 홀드 버튼(터치 겸용) — A에서 마이크 홀드
-    const mic = A.getByTestId('ptt-mic-button');
-    const micCount = await mic.count();
-    if (micCount) {
-      await A.locator('[data-testid="chat-appbar"]').click({ position: { x: 60, y: 30 } });
-      const box = await mic.boundingBox();
-      await A.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await A.mouse.down();
-      await sleep(900);
-      const holdShown = await A.getByTestId('ptt-banner').count();
-      await A.mouse.up();
-      check('모바일 웹 — 터치 홀드 PTT 버튼', holdShown > 0);
-      await A.waitForSelector('text=정리해 주세요', { timeout: 12000 }).catch(() => null);
-      await A.screenshot({ path: shot('08-mobile-ptt-hold') });
-    } else {
-      check('모바일 웹 — 터치 홀드 PTT 버튼', false, 'ptt-mic-button 미탐지');
-    }
+    // t_4b1bd4c2 요구 1: 입력창 옆 마이크 홀드 버튼 폐기 — 상시 미렌더 검증으로 대체
+    // (음성 진입은 PC PTT 키 / 음성 홈 조이스틱 탭으로만)
+    await A.bringToFront();
+    const micRemoved = await A.getByTestId('ptt-mic-button').count();
+    check('t_4b1bd4c2 — 입력창 마이크 홀드 버튼 제거', micRemoved === 0);
+    await A.screenshot({ path: shot('08-mobile-inputbar-nomic') });
 
     // ② 3해상도 캡처 마무리 (1440/900/390)
     await B.setViewportSize({ width: 1440, height: 900 }); await sleep(600);

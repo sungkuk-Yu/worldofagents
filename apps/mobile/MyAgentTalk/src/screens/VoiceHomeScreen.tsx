@@ -40,7 +40,8 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
   const { sessionId, startSession, isDemo } = useVoiceSession();
   // 사용자 매핑 — 전역 1개 맵(lib/userPrefs)에서 방향별 동작/라벨 공급 (요구 4: 전역 공통)
   // mode: 입력 장비 3모드 — joystick(기존 스틱)/pad(매직패드)/hybrid(스틱+패드 동시) (카드 t_5de18a91)
-  const { map, mode, actionFor, directionLabels } = useJoystickMap();
+  // t_4b1bd4c2 요구 2: 방향 라벨은 위젯 오버레이(touchstart 중)로만 — 맵의 좌우 상시 힌트 행 제거로 map 미사용
+  const { mode, actionFor, directionLabels } = useJoystickMap();
 
   const [agentIndex, setAgentIndex] = React.useState(0);
 
@@ -235,13 +236,8 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
             ? t('voice.idleHint')
             : t('voice.padHint')}
         </Text>
-        {/* 방향 힌트 — 사용자 맵의 좌/우 할당 동작명 표시 (비할당이면 히든) */}
-        {!isRecording && (map.DIR_LEFT !== 'none' || map.DIR_RIGHT !== 'none') && (
-          <View style={styles.gestureHints}>
-            <Text style={styles.gestureHintLeft}>{map.DIR_LEFT === 'none' ? '' : `← ${t(`joystick.actions.${map.DIR_LEFT}`)}`}</Text>
-            <Text style={styles.gestureHintRight}>{map.DIR_RIGHT === 'none' ? '' : `${t(`joystick.actions.${map.DIR_RIGHT}`)} →`}</Text>
-          </View>
-        )}
+        {/* t_4b1bd4c2 요구 2: 상시 노출되던 '← 예 / 아니오 →' 방향 힌트 행 제거 —
+            방향 라벨은 위젯 내부 오버레이(touchstart 동안만)로만 표시된다. */}
       </View>
     </SafeAreaView>
   );
@@ -354,21 +350,5 @@ const styles = StyleSheet.create({
     color: colors.text3,
     marginTop: spacing.sp4,
     textAlign: 'center',
-  },
-  gestureHints: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '72%',
-    marginTop: spacing.sp2,
-  },
-  gestureHintLeft: {
-    ...typography.caption,
-    fontWeight: '600',
-    color: colors.segTask,
-  },
-  gestureHintRight: {
-    ...typography.caption,
-    fontWeight: '600',
-    color: colors.statusErr,
   },
 });

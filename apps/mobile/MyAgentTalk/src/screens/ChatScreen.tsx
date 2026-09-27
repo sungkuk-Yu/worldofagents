@@ -2,7 +2,7 @@ import CardFrame from '../cards/CardFrame';
 import ForkDialog from '../components/ForkDialog';
 import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
 import TypingCard from '../components/TypingCard';
-import PttBannerComponent, { PttMicButton } from '../components/PttBanner';
+import PttBannerComponent from '../components/PttBanner';
 import DevicePresenceBadge from '../components/DevicePresenceBadge';
 import ContextPanel from '../components/ContextPanel';
 import { useCardActions } from '../hooks/useCardActions';
@@ -585,16 +585,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           returnKeyType="send"
           accessibilityLabel={t('chat.input')}
         />
-        {/* PTT 마이크 홀드 버튼 — t_64af90b0 #2/#4: 이모지+장문 라벨 → SVG 아이콘 버튼(라벨은 접근성 이름으로),
-            입력창 폭 확보로 placeholder 전체 표시 */}
-        {Platform.OS === 'web' && !isDemo && (
-          <PttMicButton
-            active={ptt.active || talking}
-            onPressIn={ptt.press}
-            onPressOut={ptt.release}
-            label={t('chat.pttMic')}
-          />
-        )}
+        {/* t_4b1bd4c2 요구 1: 입력창 옆 마이크 홀드 버튼 폐기 — 음성 진입은 PTT 키(PC) / 조이스틱 탭(음성 홈)으로만 */}
         {/* t_64af90b0 #4 — paper Button은 disabled 시 색상 오버라이드가 무시되어 회색이 된다 →
             커스텀 Pressable: 비활성 = 액센트 55% (초록 체계 유지), 활성 = 액센트. 제출 자체는 submit()이 검증. */}
         <Pressable
