@@ -44,6 +44,14 @@ function multipartBuf(filename, contentType, data) {
   return { body: Buffer.concat([head, data, tail]), headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` } };
 }
 
+// #84 이후 signup 계약: 필수 동의 4종 consents[] + age_confirmed=true (lib/consents.ts REQUIRED_CONSENTS)
+const SMOKE_CONSENTS = [
+  { type: 'terms', version: 'smoke-v1', consented: true },
+  { type: 'privacy', version: 'smoke-v1', consented: true },
+  { type: 'voice_recording', version: 'smoke-v1', consented: true },
+  { type: 'overseas_transfer', version: 'smoke-v1', consented: true },
+];
+
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4096, 0x5a)]);
 const sha = b => createHash('sha256').update(b).digest('hex');
 
@@ -54,7 +62,8 @@ async function main() {
   if (health.json?.mode !== 'prod') { console.log('!! DEV_MODE=false 서버에서 실행하세요 — 프로덕션 Storage 경로 프루브입니다.'); process.exit(2); }
 
   const email = `smoke-upload-${Date.now()}@test.io`;
-  const su = await req('POST', '/api/auth/signup', { body: { email, password: 'password123', display_name: 'smokeup', consent: { terms: true, privacy: true, marketing: false, minor_confirm: false } } });
+  // #84 이후 signup 본문 계약: 필수 동의 4종 consents[] + age_confirmed (smoke_chat.mjs 관례)
+  const su = await req('POST', '/api/auth/signup', { body: { email, password: 'password123', display_name: 'smokeup', age_confirmed: true, consents: SMOKE_CONSENTS } });
   check('signup A', su.status === 201 || su.status === 200, String(su.status));
   const token = su.json?.data?.token;
   const userId = su.json?.data?.user?.id;
@@ -93,24 +102,26 @@ async function main() {
   const sessionId = sess.json?.data?.id;
   const msg = await req('POST', `/api/sessions/${sessionId}/messages`, { token, body: { content: 'smoke-첨부전송', attachment_ids: [att.id] } });
   check('sendMessage+attachment_ids → 201', msg.status === 201, `${msg.status} ${JSON.stringify(msg.json?.error || '')}`);
-  const userMsg = msg.json?.data?.messages?.user;
-  check('user.messages.attachments 요약 포함', Array.isArray(userMsg?.attachments) && userMsg.attachments[0]?.id === att.id);
+  // NOTE: 응답의 messages.user 행은 링크 이전 insert 스냅샷 — 첨부 반영 read-back은 GET /api/attachments/message가 계약 경로.
+  const userMsgId = msg.json?.data?.user_message_id;
+  check('응답 user_message_id 발급', !!userMsgId);
 
   // 7) 첨부 목록 조회 + 타인 격리
-  const list = await req('GET', `/api/attachments/message/${userMsg?.id}`, { token });
+  const list = await req('GET', `/api/attachments/message/${userMsgId}`, { token });
   check('GET /api/attachments/message → 1행', list.status === 200 && list.json?.data?.length === 1);
-  const su2 = await req('POST', '/api/auth/signup', { body: { email: email.replace('smoke-upload', 'smoke-other') + '2', password: 'password123', display_name: 'smokeother', consent: { terms: true, privacy: true, marketing: false, minor_confirm: false } } });
+  const su2 = await req('POST', '/api/auth/signup', { body: { email: email.replace('smoke-upload', 'smoke-other') + '2', password: 'password123', display_name: 'smokeother', age_confirmed: true, consents: SMOKE_CONSENTS } });
   const tokenB = su2.json?.data?.token;
   const cross = await req('POST', '/api/attachments/link', { token: tokenB, body: { message_id: '00000000-0000-0000-0000-000000000000', attachment_ids: [att.id] } });
   check('B의 A 첨부 링크 시도 → 403/404', cross.status === 403 || cross.status === 404, String(cross.status));
 
   // 8) 실DB 행 read-back 프루브 — 목록 결과가 저장 메타와 동일하면 messages_attachments 행이 실DB에 존재한다
-  check('messages_attachments 실DB 행 = 저장 메타 동일', list.json?.data?.[0]?.object_path === att.object_path && list.json?.data?.[0]?.sha256 === att.sha256);
+  // (GET /api/attachments/message 계약 = attachmentSummary + created_at: {id,url,mime,size,name}; object_path/sha256는 /link 응답·내부 행 필드)
+  check('messages_attachments 실DB 행 = 저장 메타 동일', list.json?.data?.[0]?.id === att.id && list.json?.data?.[0]?.url === att.url && list.json?.data?.[0]?.mime === att.mime && list.json?.data?.[0]?.size === att.size);
 
   // 9) 탈퇴 cascade + 잔존 Storage 오브젝트 보고
   const bye = await req('DELETE', '/api/me', { token });
   check('DELETE /api/me cascade', bye.status === 200);
-  const after = await req('GET', `/api/attachments/message/${userMsg?.id}`, { token });
+  const after = await req('GET', `/api/attachments/message/${userMsgId}`, { token });
   check('탈퇴 후 첨부 조회 401/404', after.status === 401 || after.status === 404, String(after.status));
   console.log(`\n[알림] 실 Storage 버킷 잔존 오브젝트: ${att.object_path} (다운로드 검증 후 삭제 대상 — 크론 후속 과제 이관)`);
   // 즉시 삭제는 service key 필요 — 스모크에서는 생략하고 경로만 보고한다.
