@@ -46,9 +46,9 @@ describe('quip 금지 노출 검사', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('캐릭터 간·stage 간 중복 0건 — 공용 3톤 포함 전체 quip 문자열 84개가 서로 다르다', () => {
+  it('캐릭터 간·stage 간 중복 0건 — 공용 3톤 포함 전체 quip 문자열 96개가 서로 다르다', () => {
     const all = allQuipStrings();
-    expect(all).toHaveLength(7 * (3 + 3) * 2);
+    expect(all).toHaveLength(8 * (3 + 3) * 2); // 8 stage (ack 추가, t_344e047a) × (3톤+3캐릭터) × 2로케일
     const byText = new Map<string, string[]>();
     for (const { id, text } of all) byText.set(text, [...(byText.get(text) || []), id]);
     const dupes = [...byText.entries()].filter(([, ids]) => ids.length > 1).map(([t, ids]) => `"${t}" ← ${ids.join(', ')}`);
@@ -56,7 +56,7 @@ describe('quip 금지 노출 검사', () => {
   });
 
   it('전체 키×톤×로케일 조합이 빈 문자열 없이 채워져 있다', () => {
-    for (const key of ['started', 'thinking', 'organizing', 'finalizing', 'rendering', 'patience_check', 'patience_nearly'] as QuipKey[])
+    for (const key of ['started', 'ack', 'thinking', 'organizing', 'finalizing', 'rendering', 'patience_check', 'patience_nearly'] as QuipKey[])
       for (const tone of toneKeys) for (const locale of ['ko', 'en'] as const)
         expect(QUIPS[key][tone][locale].length, `${key}.${tone}.${locale}`).toBeGreaterThan(0);
     for (const ch of charKeys) for (const key of quipKeys) for (const locale of ['ko', 'en'] as const)

@@ -21,6 +21,7 @@ import { linkAttachmentsToMessage } from '../lib/attachments';
 import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
+import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 
@@ -50,6 +51,8 @@ export interface NodeContext {
   emit(e: NeuronStatusEvent): void;
   onDelta?(d: string): void;
   llm: LlmRunInfo;
+  /** 공감 확인음 노출 후 답변 LLM 시작 전 대기(ms) — t_344e047a ①. 0이면 즉시. */
+  leadMs?: number;
 }
 
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null };
@@ -110,6 +113,8 @@ export interface ProcessTurnOptions {
   sttMetadata?: Record<string, unknown> | null;
   /** 첨부 링크 (t_401c5bd1): 사용자 메시지 저장 후 messages_attachments에 링크할 ID 목록. */
   attachmentIds?: string[];
+  /** 짧은 확인음 노출 후 답변 시작 전 대기(ms) — 대표님 9/28 ①. 생략 시 config.answerLeadMs. */
+  answerLeadMs?: number;
 }
 
 export interface TurnResult {
@@ -122,6 +127,8 @@ export interface TurnResult {
   empathyResponse: string | null;
   answerResponse: string | null;
   structured: StructuredAnswer;
+  /** 후속 예상 질문 2~3개 (t_344e047a ③) — structured_payload.suggested_questions와 동일. 실패 시 []. */
+  suggestedQuestions: SuggestedQuestion[];
   dialogueType: DialogueType;
   /** 판별 단계 (t_56498848) — 1=패턴 2=LLM 3=폴백/수동 */
   dialogueStage: 1 | 2 | 3;
@@ -137,14 +144,30 @@ export interface TurnResult {
 
 // ── 노드 함수 (실시간 이벤트 및 상태 변환) ─────────────────────────
 
+/** 취소 전파 대기 — answer 리드 지연(t_344e047a ①)용 abortable sleep. */
+function waitOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (ms <= 0 || signal?.aborted) {
+      if (signal?.aborted) reject(new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.'));
+      else resolve();
+      return;
+    }
+    const t = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    const onAbort = () => { clearTimeout(t); reject(new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.')); };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
+  // 공감 문장 생성은 유지(DB 기록·컨텍스트)하되, 화면 노출은 "예/아니오" 수준 짧은 확인음으로
+  // 대체한다 (t_344e047a ①, 대표님 9/28 정정: 복명복창 노출 금지, 생성 자체는 끄지 말 것).
   const response = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
-  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'thinking') });
+  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') });
   return {
     empathyResponse: response,
-    events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'thinking') }],
+    events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') }],
   };
 }
 
@@ -191,6 +214,9 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
 
 async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
   if (!state.activationPlan.includes('answer')) return {};
+  // ① 짧은 확인음(ack) 후 답변 스트리밍 전 체감 공백 (t_344e047a, 대표님 9/28 ①) —
+  // config.answerLeadMs(기본 3000, 0=즉시). 이 3초는 quip이 도는 구간이다. 취소 전파됨.
+  if (ctx.leadMs) await waitOrAbort(ctx.leadMs, ctx.signal);
   const prompt = state.persona ? buildPersonaPrompt(state.persona, 'answer') : '';
   const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') };
   ctx.emit(start);
@@ -249,6 +275,16 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     structured = structured.dialogue_type === 'text' && grounding.status === 'grounded'
       ? { ...structured, dialogue_type: 'info_card', structured_payload: { title: state.userMessage.slice(0, 50), summary: answerResponse.slice(0, 200), facts: [], grounding: groundingCardPayload(grounding) } }
       : { ...structured, structured_payload: { ...structured.structured_payload, grounding: groundingCardPayload(grounding) } };
+  }
+  // ③ 후속 예상 질문 2~3개 (t_344e047a) — 이전 발화·답변을 컨텍스트로 LLM 1회.
+  // 실패(미설정/타임아웃/파싱)는 조용히 생략, 사용자 체감 0. 절대 던지지 않는다.
+  if (!ctx.signal?.aborted) {
+    const contextLines = [...(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
+      `user: ${state.userMessage.slice(0, 200)}`, `agent: ${answerResponse.slice(0, 400)}`].join('\n');
+    const questions = await generateSuggestedQuestions(contextLines, state.locale, { signal: ctx.signal });
+    if (questions?.length) {
+      structured = { ...structured, structured_payload: { ...structured.structured_payload, suggested_questions: questions } };
+    }
   }
   // 답변 생성 이후 분류 단계에서 받은 취소는 규칙 카드로 완료한다.
   ctx.classificationCancelled = Boolean(ctx.signal?.aborted);
@@ -428,7 +464,9 @@ export async function processTurn(
       const ctx: NodeContext = { signal: opts.signal, emit: e => {
         emit(e);
         opts.onTurnStatus?.('processing', { stage: e.stage });
-      }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false } };
+      }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false },
+      // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
+      leadMs: opts.answerLeadMs ?? config.answerLeadMs };
       const dialogueType = classifyDialogueType(userMessage);
 
       // 전문가 카테고리 판정 (t_d54bc456) — 그라운딩 게이트와 저장 시 디스클레이머가 공유한다.
@@ -572,9 +610,15 @@ export async function processTurn(
       let guardPassed = true;
       let empathyMessage: MessagesRow | null = null;
       let answerMessage: MessagesRow | null = null;
+      // 화면 노출용 공감 텍스트(짧은 확인음) — TurnResult.empathyResponse의 계약값 (t_344e047a ①).
+      let empathyVisible: string | null = null;
 
       checkCancelled();
       if (final.empathyResponse) {
+        // ① 노출 최소화 (t_344e047a, 대표님 9/28 정정): 공감 문장 생성은 유지하되,
+        // 행에 저장되는 화면 노출 텍스트는 "예/아니오" 수준의 짧은 확인음으로 대체한다.
+        // 복명복창 원문은 structured_payload.empathy_full에 감사용으로 보존한다 (DB 기록 유지).
+        const empathyAck = pickQuip('ack', locale, persona?.tone);
         const { data: m, error } = await db
           .from('messages')
           .insert({
@@ -586,9 +630,9 @@ export async function processTurn(
             locale,
             ai_generated: true,
             message_type: 'text',
-            content: final.empathyResponse,
+            content: empathyAck,
             dialogue_type: null,
-            structured_payload: {},
+            structured_payload: { empathy_full: final.empathyResponse },
             stt_metadata: null,
             source_neuron: 'empathy',
             attachments: [],
@@ -600,6 +644,7 @@ export async function processTurn(
         if (error || !m) throw new ApiError('INTERNAL_ERROR', error?.message || '공감 메시지 저장 실패');
         empathyMessage = m;
         empathyMessageId = m.id;
+        empathyVisible = empathyAck;
       }
 
       if (final.answerResponse) {
@@ -687,9 +732,11 @@ export async function processTurn(
         userMessageId: (msgUser as { id: string }).id,
         empathyMessageId,
         answerMessageId,
-        empathyResponse: final.empathyResponse,
+        empathyResponse: empathyVisible,
         answerResponse: final.answerResponse,
         structured: final.structured,
+        // ③ (t_344e047a) — answerNode가 structured_payload에 병합한 후속 질문 (실패 시 []).
+        suggestedQuestions: ((final.structured.structured_payload as Record<string, unknown>)?.suggested_questions as SuggestedQuestion[]) ?? [],
         dialogueType: final.dialogueType,
         dialogueStage: final.dialogueStage ?? 3,
         dialogueConfidence: final.dialogueConfidence ?? 0,

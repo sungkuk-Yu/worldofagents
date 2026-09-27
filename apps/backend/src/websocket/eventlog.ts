@@ -6,6 +6,7 @@ const buffers = new Map<string, StampedMessage[]>();
 const recordedTypes = new Set([
   'message.new', 'run.started', 'run.progress', 'run.completed', 'run.failed', 'run.cancelled',
   'answer.delta', 'answer.done', 'neuron.status', 'transcript.partial', 'transcript.final', 'queue.update',
+  'queue.updated',
 ]);
 
 /** 연결 유무와 무관하게 세션별 최근 500개 이벤트를 기록한다. */
@@ -45,6 +46,11 @@ export function registerRun(sessionId: string, run: ActiveRun): () => void {
     if (index >= 0) runs.splice(index, 1);
     if (!runs.length) activeRuns.delete(sessionId);
   };
+}
+
+/** 세션에 실행 중인 턴이 있는지 (t_344e047a 질문 큐 — 실행 중 끼어들기 판정). */
+export function hasActiveRun(sessionId: string): boolean {
+  return (activeRuns.get(sessionId)?.length ?? 0) > 0;
 }
 
 export function cancelRun(sessionId: string, runId?: string): boolean {

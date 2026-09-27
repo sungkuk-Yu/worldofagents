@@ -10,6 +10,8 @@ import { SessionsRow } from '../types/db';
 import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
 import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession, sessionPresence } from '../websocket/handler';
+import { hasActiveRun } from '../websocket/eventlog';
+import { listQueue, queueSnapshot, enqueueQuestion, skipAllPending, isQueueKnownUnavailable } from '../lib/questionQueue';
 import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
@@ -277,7 +279,22 @@ export async function sessionRoutes(app: FastifyInstance) {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     const { data, error } = await request.db.from('sessions').update({ status: 'archived' }).eq('id', session.id).select().single();
     if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
+    // ② (t_344e047a) 아카이브로 미답변 큐 행이 영구 대기하지 않게 skipped로 마감 — 체크포인트에 보인다.
+    // 큐 마감 실패가 아카이브 자체를 막지 않게 한다(마이그레이션 008 미적용 환경 등 — degrade).
+    try {
+      await skipAllPending(request.db, session.id);
+      broadcastToSession(session.id, { type: 'queue.updated', session_id: session.id, ...queueSnapshot(await listQueue(request.db, session.id)) });
+    } catch (err) { request.log.warn({ err }, 'queue skipAllPending failed (archive continues)'); }
     return ok(data);
+  });
+
+  // GET /api/sessions/:id/queue — 질문 큐 체크포인트 행 목록 (t_344e047a ②)
+  // 프론트(t_2f45ccb1 normalizeQueueItems)는 data 배열을 그대로 읽는다: {id,content,status,position}[].
+  // WS queue.updated는 스냅샷 객체({pending_count, items}) — 프론트가 raw.items로 동일 처리.
+  app.get('/:id/queue', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const snap = queueSnapshot(await listQueue(request.db, session.id));
+    return ok(snap.items, { total: snap.pending_count });
   });
 
   // GET /api/sessions/:id/messages — 메시지 히스토리 (cursor는 turn_index 기반)
@@ -312,6 +329,20 @@ export async function sessionRoutes(app: FastifyInstance) {
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
     const attachmentIds = parseAttachmentIds(body);
+
+    // ② 질문 큐 (t_344e047a): 실행 중 메인 발화는 message_queue에 적재 후 202로 알린다.
+    // 체크포인트는 GET /:id/queue 또는 WS queue.updated로 확인; 답변은 run 완료 후 워커가 순차 처리.
+    // 008 미적용 환경(래치)은 폴백 — 아래 runTextTurn이 세션 락으로 기존처럼 직렬 실행한다.
+    if (!attachmentIds.length && hasActiveRun(session.id)) {
+      const item = await enqueueQuestion(request.db, { sessionId: session.id, userId: request.userId, content, locale: parseAcceptLanguage(request.headers['accept-language']) });
+      if (item) {
+        broadcastToSession(session.id, { type: 'queue.updated', session_id: session.id, ...queueSnapshot(await listQueue(request.db, session.id)) });
+        return reply.status(202).send(ok({ queued: true, queue_item: { id: item.id, status: item.status, position: item.position } }));
+      }
+      if (!isQueueKnownUnavailable()) {
+        throw new ApiError(ERROR_CODES.RATE_LIMIT_EXCEEDED, '대기 중인 질문이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+      }
+    }
 
     const result = await runTextTurn(request.db, session, request.userId, content, {
       locale: parseAcceptLanguage(request.headers['accept-language']),

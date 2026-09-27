@@ -8,6 +8,19 @@ export const config = {
   defaultLocale: process.env.DEFAULT_LOCALE === 'en' ? 'en' as const : 'ko' as const,
   // 처리 지연이 이 시간을 넘으면 단계 진행도 quip을 이어 붙인다 (t_b2b86cd6).
   quipPatienceMs: parseInt(process.env.QUIP_PATIENCE_MS || '15000', 10),
+  // 공감 확인음 노출 후 답변 스트리밍 시작 전 체감 공백 (t_344e047a, 대표님 9/28). 0이면 즉시 시작.
+  answerLeadMs: parseInt(process.env.ANSWER_LEAD_MS || '3000', 10),
+  /** 후속 예상 질문 2~3개 생성 (t_344e047a ③) — answer 완료 후 비동 보강. 실패 시 조용히 생략. */
+  suggestedQuestions: {
+    enabled: process.env.SUGGEST_QUESTIONS_DISABLED !== 'true',
+    timeoutMs: parseInt(process.env.SUGGEST_QUESTIONS_TIMEOUT_MS || '6000', 10),
+  },
+  /** 질문 큐 (t_344e047a): 실행 중 끼어든 발화의 유실 방지 — 세션 대기 상한/워커 라운드캡. */
+  questionQueue: {
+    maxPending: parseInt(process.env.QUEUE_MAX_PENDING || '20', 10),
+    /** 워커 1라운드에서 순차 처리할 최대 항목 (나머지는 다음 라운드). */
+    maxBatch: parseInt(process.env.QUEUE_MAX_BATCH || '5', 10),
+  },
   // MVP는 보존 정책만 선언한다. 자동 삭제 크론은 Phase 3, 탈퇴 시에는 즉시 파기한다.
   retention: { rawTranscriptDays: Number(process.env.RAW_TRANSCRIPT_RETENTION_DAYS || 180) },
   devMode: process.env.DEV_MODE === 'true',

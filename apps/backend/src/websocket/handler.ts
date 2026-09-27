@@ -10,7 +10,7 @@ import { getOwnedMessage } from '../lib/helpers';
  */
 import { FastifyRequest } from 'fastify';
 import { consumeTicket } from '../routes/wsTicket';
-import { recordEvent, currentSeq, replaySince, cancelRun } from './eventlog';
+import { recordEvent, currentSeq, replaySince, cancelRun, hasActiveRun } from './eventlog';
 import { config } from '../config';
 import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
@@ -18,6 +18,7 @@ import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt
 import { normalizePttMode, normalizeDeviceLabel, isPttIdleTimeout, isPttHoldOverflow, PttMode } from '../lib/pushToTalk';
 import { runTextTurn } from '../lib/chatTurn';
 import { parseAttachmentIds } from '../lib/attachments';
+import { enqueueQuestion, listQueue, queueSnapshot, isQueueKnownUnavailable } from '../lib/questionQueue';
 import { SessionsRow } from '../types/db';
 import { sendJson, ClientMessage, ServerMessage, WSChannel, PresenceDevice } from './protocol';
 
@@ -267,6 +268,22 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             }
             const { message: parent } = await getOwnedMessage(supabaseAdmin, state.userId, message.parent_message_id, session!.id);
             thread = { parentMessageId: parent.id, rootMessageId: parent.root_message_id || parent.id };
+          }
+          // ② 질문 큐 (t_344e047a): 실행 중 끼어든 메인 발화(스레드·첨부 아님)는 유실 방지용
+          // message_queue에 적재하고 queue.updated 체크포인트를 발행한다. 답변은 현재 run
+          // 완료 후 워커(drainSessionQueue)가 position 순서로 이어한다.
+          // parseAttachmentIds를 먼저 호출해 형식 검증(VALIDATION_ERROR)이 큐 경보다 앞선다.
+          const hasAttachments = parseAttachmentIds(message).length > 0;
+          if (!thread && !hasAttachments && hasActiveRun(session!.id)) {
+            const item = await enqueueQuestion(supabaseAdmin, { sessionId: session!.id, userId: state.userId, content: message.content.trim(), locale: state.locale });
+            if (item) {
+              broadcastToSession(session!.id, { type: 'queue.updated', session_id: session!.id, ...queueSnapshot(await listQueue(supabaseAdmin, session!.id)) });
+              break;
+            }
+            // null 원인 분기: 008 미적용(래치)이면 기존 직렬 실행으로 폴백, 아니면 대기 상한 429.
+            if (!isQueueKnownUnavailable()) {
+              throw Object.assign(new Error('대기 중인 질문이 너무 많습니다. 잠시 후 다시 시도해주세요.'), { code: 'RATE_LIMIT_EXCEEDED' });
+            }
           }
           // 종료 상태는 공유 실행기의 finally에서 보장한다.
           await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), emit: e => broadcastToSession(session!.id, e) });

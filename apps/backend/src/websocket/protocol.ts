@@ -54,6 +54,9 @@ export type ServerMessage =
   /** 즐겨찾기 토글 → 세션 허브 알림 (t_b89df485 김비서 지시). seq 미채번·eventlog 미기록 — 재접속 동기화는 GET /api/favorites. */
   | { type: 'favorite.updated'; session_id: string; message_id: string; favorite: boolean }
   | { type: 'queue.update'; seq?: number; session_id: string; pending_count: number; current_task: string | null; next_tasks: string[] }
+  /** 질문 큐 체크포인트 (t_344e047a) — 메시지 유실 방지 대기열 스냅샷. status는 언어중립 코드,
+   *  화면 문구는 프론트 i18n t() 키(pending→빈 원 / answered→초록 체크 / skipped→회색 대시). */
+  | { type: 'queue.updated'; seq?: number; session_id: string; pending_count: number; items: Array<{ id: string; content: string; status: 'pending' | 'answered' | 'skipped'; position: number }> }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'pong'; ts: number }

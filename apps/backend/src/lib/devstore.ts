@@ -44,6 +44,7 @@ export const emptyStore = (): DevStore => ({
     board_cards: [],
     messages_attachments: [],
     upload_quota_daily: [],
+    message_queue: [],
   },
   usersByEmail: new Map(),
   sequences: {},

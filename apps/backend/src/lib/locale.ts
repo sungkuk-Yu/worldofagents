@@ -27,7 +27,7 @@ export function appendLanguageInstruction(prompt: string, locale: Locale): strin
 export type QuipTone = 'warm' | 'brisk' | 'playful';
 /** 캐릭터 전용 풀 키(t_80f0d396): tone_config.quip_tone에 문자열로 지정한다. */
 export type QuipCharacter = 'noir' | 'adjutant' | 'sf';
-export type QuipKey = 'started' | 'thinking' | 'organizing' | 'finalizing' | 'rendering' | 'patience_check' | 'patience_nearly';
+export type QuipKey = 'started' | 'ack' | 'thinking' | 'organizing' | 'finalizing' | 'rendering' | 'patience_check' | 'patience_nearly';
 
 export const QUIPS: Record<QuipKey, Record<QuipTone, Record<Locale, string>>> = {
   started: {
@@ -35,6 +35,12 @@ export const QUIPS: Record<QuipKey, Record<QuipTone, Record<Locale, string>>> = 
     warm: { ko: '네, 제가 한번 살필게요', en: 'Noted — I will take a careful look.' },
     brisk: { ko: '확인했습니다. 바로 봅니다', en: 'Understood. On it.' },
     playful: { ko: '오, 이거 재밌겠는데요', en: 'Ooh, this looks fun.' },
+  },
+  // 짧은 확인음 (t_344e047a, 대표님 9/28): 공감 발화 복명복창 대체 — "예/아니오" 수준 1절.
+  ack: {
+    warm: { ko: '네, 확인했어요', en: 'Got it — checking now.' },
+    brisk: { ko: '확인했습니다', en: 'Confirmed.' },
+    playful: { ko: '오케이, 맡겨주세요', en: 'Okay, leave it to me!' },
   },
   thinking: {
     warm: { ko: '잠깐, 관련 사례 좀 뒤져볼게요', en: 'Let me dig through a few precedents…' },
@@ -88,6 +94,7 @@ export const CHARACTER_QUIPS: Record<QuipCharacter, Record<QuipKey, Record<Local
   // 내 변호사 — 탐정 누아르 톤. "네, 제가 꼼꼼히 봐드릴게요"는 기존 공용 문구를 이관(현행 유지).
   noir: {
     started: { ko: '현장에 나가볼게요, 잠깐만요', en: 'Heading to the scene — give me a moment.' },
+    ack: { ko: '접수했습니다', en: 'Logged.' },
     thinking: { ko: '단서가 두 개 나왔습니다, 더 캘까요', en: 'Two leads so far. Want me to keep digging?' },
     organizing: { ko: '증거는 모았어요, 정리해서 가져올게요', en: 'Evidence is in. I am building the case file.' },
     finalizing: { ko: '이 사건 생각보다 복잡하네요, 좀 더 봐야돼요', en: 'This case runs deeper than it looks — a little more time.' },
@@ -98,6 +105,7 @@ export const CHARACTER_QUIPS: Record<QuipCharacter, Record<QuipKey, Record<Local
   // 내 보좌관 — 한국 영화 친근 톤.
   adjutant: {
     started: { ko: '이건 제가 한 번 제대로 물어볼게요', en: 'Leave this one to me — I will sink my teeth into it.' },
+    ack: { ko: '네, 받들겠습니다', en: 'Yes, sir.' },
     thinking: { ko: '잠깐만요, 지금 뛰고 있습니다', en: 'Hold on a sec, I am already running on this.' },
     organizing: { ko: '맡겨주세요, 금방 정리해서 가져올게요', en: 'Trust me — sorted and back to you in a flash.' },
     finalizing: { ko: '판은 봤어요, 숫자만 세면 됩니다', en: "I've got the picture — just tallying the numbers now." },
@@ -108,6 +116,7 @@ export const CHARACTER_QUIPS: Record<QuipCharacter, Record<QuipKey, Record<Local
   // 범용/신규 에이전트 — SF 집사 톤.
   sf: {
     started: { ko: '지도를 펼쳤습니다, 출발합니다', en: 'Chart is open. Setting off.' },
+    ack: { ko: '신호 접수', en: 'Signal received.' },
     thinking: { ko: '0.4초만 주시죠, 지금 찾고 있어요', en: 'Give me 0.4 seconds — I am on the trail.' },
     organizing: { ko: '지금 서류 넘기는 소리 들리실 겁니다', en: 'You can hear the papers turning right now.' },
     finalizing: { ko: '이 항목은 처음이에요, 지도 다시 그립니다', en: 'First time on this route — redrawing the map.' },
