@@ -5,7 +5,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import Waveform from './Waveform';
-import { colors, radii, spacing, typography } from '../theme';
+import { MicIcon } from './Icon';
+import { colors, iconSize, radii, spacing, typography } from '../theme';
 
 interface Props {
   active: boolean;
@@ -34,7 +35,9 @@ export default function PttBanner({ active, keyLabel, mode, error }: Props) {
   );
 }
 
-/** 입력창 옆 홀드 마이크 버튼 (모바일 웹 PTT + PC 마우스 겸용 — 클릭 홀드 동일 동작) */
+/** 입력창 옆 홀드 마이크 버튼 (모바일 웹 PTT + PC 마우스 겸용 — 클릭 홀드 동일 동작)
+ *  t_64af90b0 #2/#4: 🎤 이모지 + '길게 눌러 말하기' 장문 라벨 → SVG 마이크 아이콘 버튼.
+ *  홀드 동작 안내는 accessibilityLabel과 PTT 배너가 담당 (입력창 폭 확보 → placeholder 전체 표시). */
 export function PttMicButton({ active, onPressIn, onPressOut, onCancelLong, label }: {
   active: boolean;
   onPressIn: () => void;
@@ -42,33 +45,20 @@ export function PttMicButton({ active, onPressIn, onPressOut, onCancelLong, labe
   onCancelLong?: () => void;
   label: string;
 }) {
-  const { t } = useTranslation();
   return (
     <View style={styles.micWrap}>
-      <PressableMic active={active} onPressIn={onPressIn} onPressOut={onPressOut} onCancelLong={onCancelLong} label={label} t={t} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        testID="ptt-mic-button"
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        onLongPress={onCancelLong}
+        style={[styles.micButton, active && styles.micActive]}
+      >
+        <MicIcon size={iconSize.glyphLg} color={active ? colors.onPrimary : colors.text2} />
+      </Pressable>
     </View>
-  );
-}
-
-function PressableMic({ active, onPressIn, onPressOut, onCancelLong, label, t }: {
-  active: boolean; onPressIn: () => void; onPressOut: () => void; onCancelLong?: () => void; label: string;
-  t: (k: string, o?: Record<string, unknown>) => string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      testID="ptt-mic-button"
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-      onLongPress={onCancelLong}
-      style={[styles.micButton, active && styles.micActive]}
-    >
-      <Text style={[styles.micIcon, active && { color: colors.onPrimary }]}>🎤</Text>
-      <Text style={[styles.micText, active && { color: colors.onPrimary }]} numberOfLines={1}>
-        {t(active ? 'chat.pttRecording' : 'chat.pttIdle')}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -90,17 +80,14 @@ const styles = StyleSheet.create({
   text: { ...typography.bodyBold, color: colors.onPrimary, flex: 1, minWidth: 0 },
   micWrap: { alignSelf: 'center' },
   micButton: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 64,
-    paddingHorizontal: spacing.sp2,
-    paddingVertical: spacing.sp1,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   micActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  micIcon: { fontSize: 18 },
-  micText: { ...typography.microXs, color: colors.text3, marginTop: 1 },
 });

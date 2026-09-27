@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Button, Surface, Text, TextInput } from 'react-native-paper';
@@ -22,6 +23,7 @@ interface Props {
 
 export default function LoginScreen({ navigation }: Props) {
   const { t } = useTranslation();
+  const { height } = useWindowDimensions();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [consents, setConsents] = useState({ ...emptyConsents });
   const signup = mode === 'signup';
@@ -30,6 +32,9 @@ export default function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // t_64af90b0 #9 — 로그인 카드(실측 ~430px) 기준 대략적 세로 중앙 여백.
+  // 가입 게이트 삽입과 무관한 고정 상수 → t_865ea744 '모드 전환 필드 점프 없음' 불변식 유지.
+  const verticalGap = Math.max(spacing.sp8, Math.round((height - 430) / 2));
 
   const authenticate = async () => {
     if (busy) return;
@@ -62,28 +67,31 @@ export default function LoginScreen({ navigation }: Props) {
       style={[styles.container, webScreenMotion('mat-slide-from-right')]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* t_865ea744 ②: 스크롤 점프 수정 — 가운데 정렬(flexGrow+center)을 버리고 상단 고정 정렬로 전환.
-          가입 게이트가 아래에 삽입돼도 입력 필드 위치가 흔들리지 않고 페이지 상단으로 튕기지 않는다.
+      {/* t_865ea744 ②: 스크롤 점프 수정 — 가입(게이트로 긴 화면)은 상단 고정 유지.
+          t_64af90b0 #9: 로그인(짧은 화면)은 세로 중앙 정렬 — 카드 밖 회색 여백 60% 문제 시정.
           iOS는 automaticallyAdjustKeyboardInsets가 키보드 높이만큼 인셋을 벌어 카드가 가려지지 않고,
           하단 safe area(paddingBottom)를 넉넉히 확보한다. */}
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingTop: verticalGap }]}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
       >
         <Surface style={styles.card} elevation={0} testID="login-card">
           <View style={styles.logoWrap}>
+            {/* t_64af90b0 #8 — 3단 브랜드 중복 제거: 'MAT' 워드마크만 (Round 7 로고 확정 전), 타이틀 삭제 */}
             <Text style={styles.logoText}>{t('common.logo')}</Text>
           </View>
-          <Text style={styles.title}>{t('common.app')}</Text>
           <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
 
-          {/* 입력 스택 — 카드 내부 블록 사이 contentGap(20), 스택 내부 stackGap(16) */}
+          {/* 입력 스택 — 카드 내부 블록 사이 contentGap(20), 스택 내부 stackGap(16)
+              t_64af90b0 #8: paper outlined가 label을 placeholder로 이중 렌더(포커스 시 상자 안 재표시) →
+              placeholder=''로 억제, 플로팅 라벨 하나로 통일 */}
           <View style={styles.fieldStack}>
             <TextInput
               mode="outlined"
               label={t('login.email')}
+              placeholder=""
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -99,6 +107,7 @@ export default function LoginScreen({ navigation }: Props) {
             <TextInput
               mode="outlined"
               label={t('login.password')}
+              placeholder=""
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -154,8 +163,12 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     paddingHorizontal: spacing.sp5,
+    // t_64af90b0 #9 — 카드 밖 회색 여백 60% 시정: 로그인 카드 높이를 미리 계산한 여백으로
+    // 대략적 세로 중앙 배치. 모드(가입 게이트 삽입)와 무관한 고정 값이라 t_865ea744의
+    // '모드 전환 시 필드 점프 없음' 불변식을 깨지 않는다 (conditional center는 회귀 유발).
     paddingTop: spacing.sp8,
     paddingBottom: spacing.sp10 * 2,
+    flexGrow: 1,
   },
   card: {
     width: '100%',

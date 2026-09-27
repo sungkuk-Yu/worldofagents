@@ -12,8 +12,8 @@ import { Platform } from 'react-native';
 import type { ViewStyle } from 'react-native';
 
 export const colors = {
-  // 배경/표면 — 라이트
-  bg: '#F5F7FA',            // 앱 배경 — 흰 바탕 계열
+  // 배경/표면 — 라이트 (t_64af90b0 #5: 칙칙한 회색 지양 — 극박 회색/화이트)
+  bg: '#FAFBFC',            // 앱 배경 — 흰에 가까운 극박 회색
   surface: '#FFFFFF',       // 카드 표면 — 화이트
   surfaceRaise: '#F0F3F7',  // 상승 표면 (hover/selected/참조바)
   surfaceHover: '#EAEEF3',
@@ -75,15 +75,17 @@ export const fontFamily = Platform.select({
 }) as string;
 
 // 라인하이트 비율은 tokens.json v1.1 기준, 트래킹은 mintlify.md 규칙(크기별 음수 축소).
+// t_64af90b0 #12 — 4단계 규모 체계 통일: h1 28 · h2 20 · body 16 · caption 13 (line-height 1.5·1.4·1.5·1.4).
 export const typography = {
   display: { fontFamily, fontSize: 34, fontWeight: '700', lineHeight: 39, letterSpacing: -0.4 },  // 34/1.15
-  title1: { fontFamily, fontSize: 28, fontWeight: '700', lineHeight: 34, letterSpacing: -0.3 },    // 28/1.2
-  title2: { fontFamily, fontSize: 22, fontWeight: '700', lineHeight: 28, letterSpacing: -0.2 },    // 22/1.25
+  // t_64af90b0 #12 — 규모 체계 통일: h1=title1(28) 고정. title2(22)는 h1 슬롯 사용 금지.
+  title1: { fontFamily, fontSize: 28, fontWeight: '700', lineHeight: 34, letterSpacing: -0.3 },    // 28/1.2 — h1
+  title2: { fontFamily, fontSize: 20, fontWeight: '700', lineHeight: 28, letterSpacing: -0.2 },    // 20/1.4 — h2
   headline: { fontFamily, fontSize: 17, fontWeight: '600', lineHeight: 22, letterSpacing: -0.2 },  // 17/1.3
-  body: { fontFamily, fontSize: 15, fontWeight: '400', lineHeight: 22, letterSpacing: 0 },         // 15/1.5 — 장문 가독성 (Claude 레퍼런스)
-  bodyBold: { fontFamily, fontSize: 15, fontWeight: '600', lineHeight: 21, letterSpacing: 0 },      // 15/1.4
+  body: { fontFamily, fontSize: 16, fontWeight: '400', lineHeight: 24, letterSpacing: 0 },         // 16/1.5 — 본문 (h1/h2/body/caption 체계)
+  bodyBold: { fontFamily, fontSize: 16, fontWeight: '600', lineHeight: 23, letterSpacing: 0 },      // 16/1.45
   subhead: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19, letterSpacing: 0 },       // 13/1.45
-  caption: { fontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17, letterSpacing: 0 },       // 12/1.4
+  caption: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18, letterSpacing: 0 },       // 13/1.4 — 캡션
   micro: { fontFamily, fontSize: 11, fontWeight: '500', lineHeight: 14, letterSpacing: 0.1 },       // 11/1.3 — 미세 +트래킹 (mintlify Label 규칙)
   microSm: { fontFamily, fontSize: 10, fontWeight: '600', lineHeight: 14, letterSpacing: 0.1 },     // 배지/메타용 (micro 하위)
   microXs: { fontFamily, fontSize: 9, fontWeight: '700', lineHeight: 12, letterSpacing: 0.2 },      // 극소 배지 (삭제 뱃지 등)

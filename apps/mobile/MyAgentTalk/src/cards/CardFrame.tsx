@@ -11,6 +11,8 @@ import { buildCardPreview } from './preview';
 import { expandStore } from './expandStore';
 import { formatNumber } from '../i18n/format';
 import { useReduceMotion } from '../lib/motion';
+import { ChevronDownIcon, ChevronUpIcon, StarIcon } from '../components/Icon';
+import { colors, iconSize } from '../theme';
 
 // 웹: LayoutAnimation은 no-op → CSS transition 폴백 (#52 규칙 6, styles.webTransition).
 // 네이티브: 스프링 프리셋 — ease-in/out 금지, 애플 계열 snappy 곡선 (#52 규칙 1).
@@ -36,20 +38,22 @@ export function CardActions({ message, handlers, withFavorite = true, canFork = 
       <Text style={s.link}>{message.threadReplyCount === undefined ? t('cards.threadFrom') : t('cards.replies', { count: message.threadReplyCount, countText: formatNumber(message.threadReplyCount, i18n.language) })}</Text>
     </TouchableOpacity>
     {withFavorite && <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
-      <Text style={s.link}>{t(message.favorite ? 'cards.starredIcon' : 'cards.starIcon')}</Text>
+      {/* t_64af90b0 #2 — ☆/★ 텍스트 글리프 → SVG 아이콘 (이모지/문자 아이콘 금지) */}
+      <StarIcon size={iconSize.tile} color={message.favorite ? colors.accent : colors.text3} />
     </TouchableOpacity>}
     {/* 갈라내기(fork)는 김비서 room 전용 (대표님 지시 9/27) — other room에서는 렌더 생략(데이터 보존) */}
     {canFork && <TouchableOpacity style={s.action} onPress={() => handlers.forkFromHere(message)} testID="card-fork"><Text style={s.link}>{t('fork.action')}</Text></TouchableOpacity>}
   </View>;
 }
 
-// 즐겨찾기 ⭐ — 대표님 지시(9/26): 카드 헤더 우상단 고정. 비활성=옅은 외곽선(☆·text3), 활성=채운 별(★·accent).
+// 즐겨찾기 — 대표님 지시(9/26): 카드 헤더 우상단 고정. t_64af90b0 #2: ☆/★ 문자 대신 SVG 별 아이콘
+// (비활성=outline·text3, 활성=filled·accent).
 export function FavoriteStar({ message, handlers }: CardProps) {
   const { t } = useTranslation();
   return <TouchableOpacity style={s.starTop} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
     accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button"
     accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)} testID="card-favorite">
-    <Text style={[s.starTopText, message.favorite ? s.starTopActive : s.starTopIdle]}>{t(message.favorite ? 'cards.starredIcon' : 'cards.starIcon')}</Text>
+    <StarIcon size={iconSize.glyph} filled={!!message.favorite} color={message.favorite ? colors.accent : colors.text3} />
   </TouchableOpacity>;
 }
 
@@ -77,7 +81,7 @@ function FallbackCard({ message, payload }: { message: CardProps['message']; pay
 // 기본 접힘(1~2줄 미리보기) → 탭으로 펼침(전체 payload) → 다시 탭하면 접힘.
 // 각 카드 독립 상태(expandStore) — 아코디언 아님, 여러 카드를 동시에 열어 비교 가능.
 // 법률 표기(ai_generated·디스클레이머)와 액션 행은 접힘 상태에서도 항상 노출 (법률 요구 — 숨김 금지).
-export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean }) {
+export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean; showHeader?: boolean }) {
   const { t, i18n } = useTranslation();
   const reduceMotion = useReduceMotion();
   const messageId = props.message.id;
@@ -94,12 +98,15 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
   const showHandle = isAgentCard && preview?.expandable === true;
   const expanded = showHandle && expandedState;
 
-  // 발신자 구분 = 영역(zone) 방식 (#54): 사용자 = 연그린 밴드 전체폭 행, 에이전트 = 흰 카드. 좌우 말풍선 금지.
+  // 발신자 구분 = 영역(zone) 방식 (#54): 사용자 = 밴드 전체폭 행, 에이전트 = 흰 카드. 좌우 말풍선 금지.
+  // t_64af90b0 #1: 사용자 카드의 '나' 라벨 행 제거 — 밴드+액센트 바만으로 구분 (버블/라벨 중복 금지, #59 재확인).
+  // t_64af90b0 #3: 에이전트명 텍스트는 showHeader=true(첫 에이전트 메시지)에만 노출 — 이후 생략(Linear/Slack식).
+  // 단 우상단 즐겨찾기 별은 전 카드 유지 (9/26 지시 — 별은 라벨이 아니라 컨트롤).
+  const showHeader = props.showHeader !== false;
   return <View style={props.compact ? undefined : (props.message.role === 'user' ? s.userFrame : s.frame)} testID={props.message.role === 'user' ? 'message-user' : 'message-agent'}>
-    {!props.compact && <View style={s.headerRow}>
-      <Text style={[s.title, s.headerTitle]} numberOfLines={1}>{props.message.role === 'user' ? t('chat.me') : props.agentName}</Text>
-      {/* 즐겨찾기 ⭐ = 카드 우상단 고정 (대표님 지시 9/26) — 하단 액션라인에서는 제외(compact 행은 헤더 없음 → 유지) */}
-      {props.message.role === 'agent' && <FavoriteStar {...props} />}
+    {!props.compact && props.message.role === 'agent' && <View style={s.headerRow}>
+      {showHeader ? <Text style={[s.title, s.headerTitle]} numberOfLines={1}>{props.agentName}</Text> : <View style={s.headerSpacer} />}
+      <FavoriteStar {...props} />
     </View>}
     {expanded || !showHandle ? (
       React.createElement(Component, { ...props, payload: props.message.payload })
@@ -126,10 +133,14 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
       testID={expanded ? 'card-collapse' : 'card-expand'}
       style={s.expandHandle}
     >
-      <Text style={s.expandHandleText}>{expanded ? `${t('cards.collapse')} ⌃` : `${t('cards.expand')} ⌄`}</Text>
+      {/* t_64af90b0 #2 — ⌃/⌄ 문자 글리프 → SVG chevron */}
+      <View style={s.row}>
+        <Text style={s.expandHandleText}>{expanded ? t('cards.collapse') : t('cards.expand')}</Text>
+        {expanded ? <ChevronUpIcon size={iconSize.tile} color={colors.accent} /> : <ChevronDownIcon size={iconSize.tile} color={colors.accent} />}
+      </View>
     </Pressable>}
     {props.message.role === 'agent' && needsClientDisclaimer(props.presetCategory, props.message.content) && <Text style={s.micro} testID="legal-disclaimer">{t('legal.disclaimer')}</Text>}
-    {/* compact(스레드 행)는 헤더 없음 → 즐겨찾기를 하단 액션에 유지. 일반 카드는 ⭐ 우상단 고정. */}
+    {/* compact(스레드 행)는 헤더 없음 → 즐겨찾기를 하단 액션에 유지. 일반 카드는 별 우상단 고정. */}
     {props.message.role === 'agent' && <CardActions {...props} withFavorite={props.compact === true} />}
   </View>;
 }

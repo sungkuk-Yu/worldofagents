@@ -9,7 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { api, FavoriteEntry, VaultNote } from '../lib/api';
 import { inspectStore } from '../lib/inspectStore';
 import type { ChatMessage } from '../lib/chatLogic';
-import { colors, radii, spacing, typography } from '../theme';
+import { StarIcon, VaultIcon } from './Icon';
+import { colors, iconSize, radii, spacing, typography } from '../theme';
 
 interface Props {
   sessionId: string | null;
@@ -55,36 +56,35 @@ export default function ContextPanel({ sessionId, messages, onOpenVault, onOpenF
   return (
     <View style={styles.container} testID="context-panel">
       {/* 카드 인스펙터 — 채팅에서 선택(inspectStore)된 카드를 상시 비춤 */}
-      <View style={styles.section}>
+      {inspected && <View style={styles.section}>
         <SectionHead title={t('context.cards')} />
-        {inspected ? (
-          <View style={styles.itemCard}>
-            <Text style={styles.itemTitle} numberOfLines={2}>{inspectedCard?.title || inspectedCard?.kind || t('context.cardUntitled')}</Text>
-            <Text style={styles.itemBody} numberOfLines={4}>{inspected.content || t('context.cardPreviewEmpty')}</Text>
-          </View>
-        ) : (
-          <Text style={styles.empty}>{t('context.cardEmpty')}</Text>
-        )}
-      </View>
+        <View style={styles.itemCard}>
+          <Text style={styles.itemTitle} numberOfLines={2}>{inspectedCard?.title || inspectedCard?.kind || t('context.cardUntitled')}</Text>
+          <Text style={styles.itemBody} numberOfLines={4}>{inspected.content || t('context.cardPreviewEmpty')}</Text>
+        </View>
+      </View>}
+      {/* t_64af90b0 #10 — 빈 섹션은 회색 안내문 스택 대신 한 줄 요약+아이콘으로 접는다 (섹션 헤더 유지) */}
       <View style={styles.section}>
         <SectionHead title={t('context.notes')} onSeeAll={onOpenVault} seeAllLabel={t('context.seeAll')} />
-        {notes.length === 0 && <Text style={styles.empty}>{t('context.notesEmpty')}</Text>}
-        {notes.map((note) => (
-          <Pressable key={note.id} accessibilityRole="button" onPress={onOpenVault} style={styles.itemCard} testID={`context-note-${note.id}`}>
-            <Text style={styles.itemTitle} numberOfLines={1}>{note.title}</Text>
-            <Text style={styles.itemBody} numberOfLines={2}>{note.content}</Text>
-          </Pressable>
-        ))}
+        {notes.length === 0
+          ? <View style={styles.emptyRow}><VaultIcon size={iconSize.glyph} color={colors.text3} /><Text style={styles.empty}>{t('context.notesEmpty')}</Text></View>
+          : notes.map((note) => (
+            <Pressable key={note.id} accessibilityRole="button" onPress={onOpenVault} style={styles.itemCard} testID={`context-note-${note.id}`}>
+              <Text style={styles.itemTitle} numberOfLines={1}>{note.title}</Text>
+              <Text style={styles.itemBody} numberOfLines={2}>{note.content}</Text>
+            </Pressable>
+          ))}
       </View>
       <View style={styles.section}>
         <SectionHead title={t('context.favorites')} onSeeAll={onOpenFavorites} seeAllLabel={t('context.seeAll')} />
-        {favorites.length === 0 && <Text style={styles.empty}>{t('context.favoritesEmpty')}</Text>}
-        {favorites.map((entry) => (
-          <View key={entry.message.id} style={styles.itemCard}>
-            <Text style={styles.itemTitle} numberOfLines={1}>{entry.session.title || entry.session.agent_name || t('common.agent')}</Text>
-            <Text style={styles.itemBody} numberOfLines={2}>{entry.message.content}</Text>
-          </View>
-        ))}
+        {favorites.length === 0
+          ? <View style={styles.emptyRow}><StarIcon size={iconSize.glyph} color={colors.text3} /><Text style={styles.empty}>{t('context.favoritesEmpty')}</Text></View>
+          : favorites.map((entry) => (
+            <View key={entry.message.id} style={styles.itemCard}>
+              <Text style={styles.itemTitle} numberOfLines={1}>{entry.session.title || entry.session.agent_name || t('common.agent')}</Text>
+              <Text style={styles.itemBody} numberOfLines={2}>{entry.message.content}</Text>
+            </View>
+          ))}
       </View>
     </View>
   );
@@ -116,4 +116,6 @@ const styles = StyleSheet.create({
   itemTitle: { ...typography.bodyBold, color: colors.text1 },
   itemBody: { ...typography.caption, color: colors.text2 },
   empty: { ...typography.caption, color: colors.text3 },
+  // t_64af90b0 #10 — 빈 상태 한 줄 요약 (아이콘 + 안내문), 섹션 헤더는 유지
+  emptyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, paddingVertical: spacing.sp2 },
 });

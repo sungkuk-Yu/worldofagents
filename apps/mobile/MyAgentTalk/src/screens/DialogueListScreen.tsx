@@ -1,6 +1,6 @@
 // 대화 목록과 에이전트 선택은 서버의 실제 데이터를 카드로 표시한다.
 import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
@@ -8,6 +8,7 @@ import ResumeBanner from '../components/ResumeBanner';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { formatDayLabel } from '../i18n/format';
+import { BoardIcon, GearIcon, MicIcon, StarIcon, VaultIcon } from '../components/Icon';
 
 interface Props { navigation: any; route?: any; variant?: 'full' | 'sidebar' | 'home' }
 export default function DialogueListScreen({ navigation, variant = 'full' }: Props) {
@@ -64,23 +65,24 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const offline = !connected && !loading && !signedOut;
   return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
     {!isSidebar && <View style={styles.header}>
-      <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
+      {/* t_64af90b0 #11 — 검은 굵은 '마이에이전트톡' 텍스트 로고 → 초록 MAT 워드마크 (Round 7 확정 전까지 sans 통일) */}
+      <Text style={styles.headerLogo} numberOfLines={1}>{t('common.logo')}</Text>
       <View style={styles.headerRight}>
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
-        {/* 즐겨찾기 컬렉션 진입 (Wave1 코멘트 — 대화목록 상단) */}
-        <TouchableOpacity onPress={() => navigation.navigate('Favorites')} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><Text style={styles.settingsIcon}>{t('favorites.icon')}</Text></TouchableOpacity>
+        {/* t_64af90b0 #2 — 이모지/문자 글리프 버튼 → SVG 아이콘 (접근성 라벨 유지) */}
+        <TouchableOpacity onPress={() => navigation.navigate('Favorites')} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><StarIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
         {/* 볼트/보드 진입 (Wave2 t_174b66d2 — "옵시디언과 칸반을 모두 적용" 대표님 지시) */}
-        <TouchableOpacity onPress={() => navigation.navigate('Vault')} testID="vault-button" style={styles.settingsButton} accessibilityLabel={t('vault.title')}><Text style={styles.settingsIcon}>{t('vault.icon')}</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('Board')} testID="board-button" style={styles.settingsButton} accessibilityLabel={t('board.title')}><Text style={styles.settingsIcon}>{t('board.icon')}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Vault')} testID="vault-button" style={styles.settingsButton} accessibilityLabel={t('vault.title')}><VaultIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Board')} testID="board-button" style={styles.settingsButton} accessibilityLabel={t('board.title')}><BoardIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
         {/* 음성 홈 진입 (t_5de18a91 — 3모드 입력 실사용/검증 경로. Phase 1부터 화면만 있고 진입점이 없었음) */}
-        <TouchableOpacity onPress={() => navigation.navigate('VoiceHome')} testID="voice-button" style={styles.settingsButton} accessibilityLabel={t('common.voice')}><Text style={styles.settingsIcon}>🎤</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="settings-button" style={styles.settingsButton} accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('VoiceHome')} testID="voice-button" style={styles.settingsButton} accessibilityLabel={t('common.voice')}><MicIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="settings-button" style={styles.settingsButton} accessibilityLabel={t('common.settings')}><GearIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
       </View>
     </View>}
     {isSidebar && <View style={styles.sidebarHeader}>
-      <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
+      <Text style={styles.headerLogo} numberOfLines={1} testID="sidebar-logo">{t('common.logo')}</Text>
       <View style={styles.headerRight}>
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="sidebar-settings-button" accessibilityLabel={t('common.settings')}><Text style={styles.settingsIcon}>{t('common.settingsIcon')}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="sidebar-settings-button" accessibilityLabel={t('common.settings')}><GearIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
       </View>
     </View>}
     {/* 이어보기 배너 (t_eded715c): PC 홈(중앙)에서만 — 다른 기기 미읽음 세션으로 즉시 이동 */}
@@ -116,10 +118,13 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
         return <TouchableOpacity style={[styles.dialogueCard, { borderLeftColor: colors.accent }]} testID="session-card"
           onPress={() => navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetCategory: agent?.preset?.category, presetTitleKey: agent?.preset?.titleKey })}
           accessibilityLabel={t('dialogueList.continue', { agentName })}>
-          <View style={styles.dialogueBody}><View style={styles.dialogueHeader}>
-            <Text style={[styles.dialogueType, { color: colors.accent }]} numberOfLines={1}>{agentName}</Text>
-            <Text style={styles.dialogueTime}>{date && Number.isFinite(date.getTime()) ? formatDayLabel(date, i18n.language) : null}</Text>
-          </View><Text style={styles.dialogueTitle} numberOfLines={2}>{item.title || t('dialogueList.title', { agentName })}</Text>
+          <View style={styles.dialogueBody}><Text style={[styles.dialogueType, { color: colors.accent }]} numberOfLines={1}>{agentName}</Text>
+            {/* t_64af90b0 #6 — 제목 한 줄 ellipsis + word-break:keep-all(한글 어절 유지, 세로 줄바꿈 파손 방지),
+                시간은 우하 캡션으로 이동 (우상단 초소형 회색 폐기) */}
+            <View style={styles.dialogueTitleRow}>
+              <Text style={styles.dialogueTitle} numberOfLines={1}>{item.title || t('dialogueList.title', { agentName })}</Text>
+              <Text style={styles.dialogueTime}>{date && Number.isFinite(date.getTime()) ? formatDayLabel(date, i18n.language) : null}</Text>
+            </View>
           {origin && <><Text style={styles.dialogueType}>{t('fork.badge')}</Text><Text style={styles.emptySubtext} numberOfLines={1}>{t('fork.lineage', { origin: origin.title || sessions.find((session) => session.id === origin.session_id)?.title || t('fork.original') })}</Text></>}
           </View>
         </TouchableOpacity>;
@@ -146,9 +151,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: spacing.sp3,
+    // t_64af90b0 #7 — 상단 여백과 '새 대화' 버튼 여백 균형 (위 좁고 아래 넓음 시정)
+    paddingTop: spacing.sp5,
     paddingHorizontal: spacing.sp4,
-    paddingBottom: spacing.sp3,
+    paddingBottom: spacing.sp2,
   },
   headerRight: {
     flexDirection: 'row',
@@ -160,6 +166,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     color: colors.text1,
+  },
+  // t_64af90b0 #11 — 목록 헤더 로고: 초록 MAT 워드마크 (sans, 굵게). 라운드7 확정 시 이미지 로고로 교체.
+  headerLogo: {
+    ...typography.title1,
+    fontSize: 22,
+    letterSpacing: -0.2,
+    flexShrink: 1,
+    minWidth: 0,
+    color: colors.accent,
   },
   demoBadge: {
     backgroundColor: colors.surfaceRaise,
@@ -205,6 +220,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sp2,
     marginHorizontal: spacing.sp4,
+    marginTop: spacing.sp2,
     marginBottom: spacing.sp3,
     backgroundColor: colors.accent,
     borderRadius: radii.md,
@@ -266,6 +282,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  // t_64af90b0 #6 — 제목(좌) + 시간 캡션(우하) 한 줄 행
+  dialogueTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.sp2,
+    minWidth: 0,
+  },
   dialogueType: {
     ...typography.micro,
     fontWeight: '700',
@@ -273,17 +296,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   dialogueTime: {
-    ...typography.micro,
-    flexShrink: 1,
-    minWidth: 0,
+    ...typography.caption,
     color: colors.text3,
+    flexShrink: 0,
   },
   dialogueTitle: {
     ...typography.body,
-    fontWeight: '500',
+    fontWeight: '600',
     flexShrink: 1,
     minWidth: 0,
     color: colors.text1,
+    // 한글 어절 유지 — '내/변호사와의 대화' 식 세로 파절 방지 (웹: word-break keep-all)
+    ...(Platform.OS === 'web' ? { wordBreak: 'keep-all' } as never : {}),
   },
   empty: {
     paddingHorizontal: spacing.sp4,

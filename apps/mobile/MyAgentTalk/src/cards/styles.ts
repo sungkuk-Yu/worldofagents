@@ -1,10 +1,10 @@
 import { StyleSheet, Platform } from 'react-native';
-import { colors, radii, spacing, typography } from '../theme';
+import { colors, radii, shadows, spacing, typography } from '../theme';
 export const cardStyles = StyleSheet.create({
-  frame: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md, padding: spacing.sp3, marginBottom: spacing.sp2, minWidth: 0 },
-  // 사용자 메시지 — 옅은 배경 밴드(연그린 tint) + 좌측 액센트 바로 발신자 구분 (#54 영역 구분, 말풍선 금지).
-  // 레퍼런스: Slack 전체폭 행 — 둥근 비대칭 라운드 없음, 사각 계열 radii.md 통일.
-  userFrame: { backgroundColor: colors.accentTint, borderColor: colors.border, borderWidth: 1, borderLeftWidth: 3, borderLeftColor: colors.accent, borderRadius: radii.md, padding: spacing.sp3, marginBottom: spacing.sp2, minWidth: 0 },
+  frame: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md, padding: spacing.sp3, marginBottom: spacing.sp2, minWidth: 0, ...shadows.sh1 },
+  // 사용자 메시지 — t_64af90b0 #1 (#59 재확인): 연그린 '색 박스'는 버블처럼 보이므로 극박 회색 밴드 +
+  // 좌측 액센트 바 3px만으로 영역 구분 (버블/라벨 금지, 전폭 행 — Slack 레퍼런스).
+  userFrame: { backgroundColor: colors.surfaceRaise, borderColor: colors.border, borderWidth: 1, borderLeftWidth: 3, borderLeftColor: colors.accent, borderRadius: radii.md, padding: spacing.sp3, marginBottom: spacing.sp2, minWidth: 0, ...shadows.sh1 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
   body: { ...typography.body, color: colors.text1, flexShrink: 1, minWidth: 0 },
   title: { ...typography.subhead, color: colors.text1, flexShrink: 1, minWidth: 0 },
@@ -22,6 +22,8 @@ export const cardStyles = StyleSheet.create({
   // 헤더 행 — 발신자 라벨 + 우측 즐겨찾기 ⭐ 고정 (대표님 지시 9/26)
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2 },
   headerTitle: { flex: 1, minWidth: 0 },
+  // t_64af90b0 #3 — 에이전트명 생략 카드: 별은 우상단 고정 유지 (9/26 지시)
+  headerSpacer: { flex: 1, minWidth: 0 },
   starTop: { padding: spacing.sp1 },
   starTopText: { fontSize: 16, lineHeight: 20 },
   starTopIdle: { color: colors.text3 },

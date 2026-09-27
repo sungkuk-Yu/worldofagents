@@ -64,12 +64,12 @@ const shot = (n) => path.join(OUT, `${n}.png`);
       const bodyText = await page.locator('[data-testid="consent-marketing"]').innerText();
       assert.ok(!/\[선택\]|\[필수\]|\[Optional\]|\[Required\]/.test(bodyText), `구분 문구 없음: ${bodyText}`);
 
-      // opt-in 기본 off: 전체 동의 후 필수 행은 체크(✓)되지만 마케팅 행은 미체크 유지
+      // t_cac6f531 (대표님 9/27): 전체 동의 = 마케팅 포함 6종 일괄 on — 이 어서션은 그 확정 동작 기준
       await page.getByTestId('consent-all-required').click();
       const checkedOf = (id) => page.locator(`[data-testid="consent-${id}"]`).evaluate((el) => el.textContent.includes('✓'));
       assert.equal(await checkedOf('terms'), true, '약관 체크됨');
-      assert.equal(await checkedOf('marketing'), false, '일괄 동의 후에도 마케팅 기본 off (opt-in 불변)');
-      await page.screenshot({ path: shot('11-consent-all-but-marketing-off'), fullPage: true });
+      assert.equal(await checkedOf('marketing'), true, '일괄 동의 = 마케팅 포함 (t_cac6f531)');
+      await page.screenshot({ path: shot('11-consent-all-with-marketing'), fullPage: true });
 
       // 가입 제출 → 서버에 5종 consents 기록(동일 payload 계약 불변)
       await page.getByTestId('login-email').fill('joy-signup@myagenttalk.dev');
@@ -79,8 +79,8 @@ const shot = (n) => path.join(OUT, `${n}.png`);
       assert.equal(signupCalls.length, 1, 'signup POST 1회');
       const consents = signupCalls[0].consents;
       const byType = Object.fromEntries(consents.map((c) => [c.type, c.consented]));
-      assert.deepEqual(byType, { terms: true, privacy: true, voice_recording: true, overseas_transfer: true, marketing: false },
-        `서버 consents 기록 — marketing만 false(opt-in): ${JSON.stringify(byType)}`);
+      assert.deepEqual(byType, { terms: true, privacy: true, voice_recording: true, overseas_transfer: true, marketing: true },
+        `서버 consents 기록 — 전체 동의 시 마케팅 포함(true): ${JSON.stringify(byType)}`);
       assert.equal(signupCalls[0].age_confirmed, true);
       assert.equal(errors.length, 0, `A 콘솔 예외 없음: ${errors.join(' | ')}`);
       await page.close();

@@ -11,6 +11,7 @@ import { normalizeServerMessages } from '../lib/chatLogic';
 import { buildCardPreview } from '../cards/preview';
 import { isCardRegistered } from '../cards/registry';
 import { formatDayLabel } from '../i18n/format';
+import { StarIcon } from '../components/Icon';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 
 if (Platform.OS !== 'web' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -77,7 +78,8 @@ export default function FavoritesScreen({ navigation }: { navigation: any }) {
       </TouchableOpacity>}
       {entries.length === 0 && !error && (
         <View style={styles.center}>
-          <Text style={styles.emptyIcon}>{t('cards.starIcon')}</Text>
+          {/* t_64af90b0 #2 — ☆ 문자 → SVG 별 (빈 상태 히어로) */}
+          <StarIcon size={iconSize.hero} color={colors.borderStrong} />
           <Text style={styles.emptyText}>{t('favorites.empty')}</Text>
         </View>
       )}
@@ -95,7 +97,7 @@ export default function FavoritesScreen({ navigation }: { navigation: any }) {
                 <Text style={styles.itemSource} numberOfLines={1}>{entry.session.title || t('favorites.untitledSession')}</Text>
                 <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => unfavorite(entry)}
                   accessibilityLabel={t('cards.unfavorite')} testID={`favorite-unstar-${message.id}`}>
-                  <Text style={styles.starActive}>{t('cards.starredIcon')}</Text>
+                  <StarIcon size={iconSize.glyphLg} color={colors.accent} filled />
                 </TouchableOpacity>
               </View>
               {!!preview.title && <Text style={styles.itemTitle} numberOfLines={1}>{preview.title}</Text>}
@@ -127,13 +129,11 @@ const styles = StyleSheet.create({
   headerTitle: { ...typography.title2, color: colors.text1, flex: 1, textAlign: 'center' },
   errorBar: { padding: spacing.sp3 },
   errorText: { ...typography.caption, color: colors.statusErr },
-  emptyIcon: { ...typography.display, color: colors.borderStrong },
-  emptyText: { ...typography.subhead, color: colors.text3 },
+  emptyText: { ...typography.subhead, color: colors.text3, marginTop: spacing.sp3 },
   list: { padding: spacing.sp3, gap: spacing.sp3 },
   item: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sp3, gap: spacing.sp1 },
   itemHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2 },
   itemSource: { ...typography.caption, color: colors.text2, flex: 1, minWidth: 0 },
-  starActive: { fontSize: iconSize.glyphLg, color: colors.accent },
   itemTitle: { ...typography.subhead, color: colors.text1 },
   itemSummary: { ...typography.body, color: colors.text2 },
   itemMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, flexWrap: 'wrap' },

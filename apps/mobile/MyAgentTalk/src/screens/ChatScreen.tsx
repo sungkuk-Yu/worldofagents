@@ -33,6 +33,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   NativeSyntheticEvent, NativeScrollEvent,
+  Pressable,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -215,6 +216,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => () => { if (pendingClear.current) clearTimeout(pendingClear.current); }, []);
   const previousMessages = useRef<ChatMessage[]>([]);
   const groups = useMemo(() => groupByTurn(messages), [messages]);
+  // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
+  const firstAgentMessageId = useMemo(() => messages.find((m) => m.role === 'agent')?.id, [messages]);
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
   // 딥링크 스크롤 — 그룹을 찾으면 scrollToIndex + 하이라이트 2.6초, 히스토리 밖이면 loadOlder로 역행 추적
   useEffect(() => {
@@ -395,7 +398,8 @@ export default function ChatScreen({ navigation, route }: Props) {
         renderItem={({ item }) => <View>
           {times.get(item.key) && <Text style={styles.pendingMark}>{times.get(item.key)}</Text>}
           {item.items.map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
-            {/* 다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
+            {/* t_64af90b0 #3 — 에이전트명 헤더는 대화의 첫 에이전트 메시지만 노출, 이후 생략 (Linear/Slack식).
+                다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
             {selection.active
               ? <TouchableOpacity
                 onPress={() => toggleSelect(message.id)}
@@ -404,9 +408,9 @@ export default function ChatScreen({ navigation, route }: Props) {
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: selectedIds.includes(message.id) }}
               >
-                <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} />
+                <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} />
               </TouchableOpacity>
-              : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} />}
+              : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} />}
             {message.role === 'user' && <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
             {message.status === 'failed' && <View style={styles.msgHeader}>
               <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
@@ -478,7 +482,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           returnKeyType="send"
           accessibilityLabel={t('chat.input')}
         />
-        {/* PTT 마이크 홀드 버튼 — 모바일 웹 터치 홀드 + PC 마우스 겸용(확정 ⑤, 키보드와 병존) */}
+        {/* PTT 마이크 홀드 버튼 — t_64af90b0 #2/#4: 이모지+장문 라벨 → SVG 아이콘 버튼(라벨은 접근성 이름으로),
+            입력창 폭 확보로 placeholder 전체 표시 */}
         {Platform.OS === 'web' && !isDemo && (
           <PttMicButton
             active={ptt.active || talking}
@@ -487,20 +492,22 @@ export default function ChatScreen({ navigation, route }: Props) {
             label={t('chat.pttMic')}
           />
         )}
-        <Button
-          mode="contained"
+        {/* t_64af90b0 #4 — paper Button은 disabled 시 색상 오버라이드가 무시되어 회색이 된다 →
+            커스텀 Pressable: 비활성 = 액센트 55% (초록 체계 유지), 활성 = 액센트. 제출 자체는 submit()이 검증. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('chat.sendLabel')}
           onPress={submit}
           disabled={!validateMessageInput(input).ok}
-          buttonColor={colors.accent}
-          textColor={colors.onPrimary}
-          style={styles.sendButton}
-          contentStyle={styles.sendContent}
-          labelStyle={styles.sendLabel}
           testID="send-button"
-          accessibilityLabel={t('chat.sendLabel')}
+          style={({ pressed }) => [
+            styles.sendButton,
+            { backgroundColor: validateMessageInput(input).ok ? colors.accent : colors.accent + '55' },
+            pressed && validateMessageInput(input).ok && { backgroundColor: colors.accent + 'CC' },
+          ]}
         >
-          {t('chat.send')}
-        </Button>
+          <Text style={styles.sendLabel}>{t('chat.send')}</Text>
+        </Pressable>
         </View>
       </View>
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
@@ -755,6 +762,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     borderRadius: radii.md,
     minHeight: spacing.sp10 + spacing.sp1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sp3,
   },
   sendContent: {
     paddingHorizontal: spacing.sp3,
@@ -762,6 +772,7 @@ const styles = StyleSheet.create({
   sendLabel: {
     ...typography.bodyBold,
     letterSpacing: 0,
+    color: colors.onPrimary,
     minWidth: 0,
     flexShrink: 1,
   },

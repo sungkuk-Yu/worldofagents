@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import JoystickMic from '../components/JoystickMic';
 import MagicPad from '../components/MagicPad';
 import RealtimeTranscript from '../components/RealtimeTranscript';
+import { GearIcon } from '../components/Icon';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { useStore, setState, getState } from '../store';
@@ -192,7 +193,7 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
             style={styles.settingsButton}
             accessibilityLabel={t('common.settings')}
           >
-            <Text style={styles.settingsIcon}>⚙</Text>
+            <GearIcon size={iconSize.glyph} color={colors.text2} />
           </TouchableOpacity>
         </View>
       </View>

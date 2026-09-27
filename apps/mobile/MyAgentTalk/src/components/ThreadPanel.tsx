@@ -80,14 +80,16 @@ export default function ThreadPanel({ target, navigation, onBack, onOpenNested }
     </View>}
     {!root && !chat.error && <Text style={cardStyles.micro}>{t('common.loading')}</Text>}
     {root && <FlatList data={chat.messages} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const date = item.createdAt ? new Date(item.createdAt) : null;
+        // t_64af90b0 #1/#3 — '나' 라벨 제거·에이전트명은 첫 메시지만 (본문 라벨 3단 중복 해소)
+        const showSender = index === 0 || !chat.messages.slice(0, index).some((m) => m.role === item.role);
         return <View style={styles.reply}>
-          <View style={cardStyles.row}>
-            <Text style={[cardStyles.title, { color: item.role === 'user' ? colors.text1 : colors.accent }]}>{item.role === 'user' ? t('chat.me') : agentName}</Text>
-            <Text style={cardStyles.micro}>{date && Number.isFinite(date.getTime()) ? formatTime(date, i18n.language) : null}</Text>
+          {(showSender && item.role !== 'user') || date ? <View style={cardStyles.row}>
+            {showSender && item.role !== 'user' && <Text style={[cardStyles.title, { color: colors.accent }]}>{agentName}</Text>}
+            {date && Number.isFinite(date.getTime()) && <Text style={cardStyles.micro}>{formatTime(date, i18n.language)}</Text>}
             {item.role === 'user' && <Text style={cardStyles.micro}>{t(item.status === 'failed' ? 'chat.failed' : item.pending ? 'chat.sending' : 'chat.sent')}</Text>}
-          </View>
+          </View> : null}
           <CardFrame presetCategory={presetCategory} canFork={canFork} compact message={decorate(item)} handlers={handlers} agentName={agentName} />
           {item.status === 'failed' && <View style={cardStyles.row}>
             <Button onPress={() => void chat.retryMessage(item.id)}>{t('chat.resend')}</Button>

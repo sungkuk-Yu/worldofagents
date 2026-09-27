@@ -33,7 +33,7 @@
     "reconnecting": "다시 연결하는 중…",
     "offline": "연결이 끊겼어요",
     "help": "무엇을 도와드릴까요? 아래에 적어 보내주시면 바로 살펴볼게요.",
-    "placeholder": "에이전트에게 메시지 보내기…",
+    "placeholder": "메시지 보내기…",
     "input": "메시지 입력창",
     "sendLabel": "메시지 전송",
     "send": "전송",
