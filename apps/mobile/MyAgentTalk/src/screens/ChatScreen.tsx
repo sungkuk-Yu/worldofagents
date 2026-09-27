@@ -11,7 +11,7 @@ import { useLayout } from '../hooks/useLayout';
 import { getPttKey, getPttMode } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
-import { parseForkOrigin } from '../lib/cardLogic';
+import { parseForkOrigin, canForkAgent } from '../lib/cardLogic';
 import { api } from '../lib/api';
 import type { ForkOrigin } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -79,6 +79,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [presetCategory, setPresetCategory] = useState<string | undefined>(route?.params?.presetCategory);
   const presetTitleKey = route?.params?.presetTitleKey;
   const agentName: string = presetTitleKey && i18n.exists(presetTitleKey) ? t(presetTitleKey) : route?.params?.agentName || t('common.agent');
+  // 갈라내기(fork) = 김비서 room 전용 (대표님 지시 9/27, t_55f9ed57). 세션 진입 경로가 다양해
+  // (딥링크·즐겨찾기·이어보기) route 파라 대신 아래 effect에서 서버 에이전트 행으로 확정한다.
+  const [canFork, setCanFork] = useState(() => canForkAgent({ name: route?.params?.agentName, titleKey: presetTitleKey, category: route?.params?.presetCategory }));
   const initialSessionId: string | undefined = route?.params?.sessionId;
   // 즐겨찾기 딥링크 (Wave1): focusMessageId로 진입 → 해당 메시지까지 스크롤 + 하이라이트 1회
   const focusMessageId: string | undefined = route?.params?.focusMessageId;
@@ -120,7 +123,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
       inspectStore.set(message.id); // PC 컨텍스트 패널 인스펙터 — 지금 열어본 카드를 우측에 상시 비춤
-      threadSheet.current?.open({ sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory });
+      threadSheet.current?.open({ sessionId, rootMessageId: message.id, agentName, sessionTitle, presetCategory, canFork });
     },
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
@@ -139,7 +142,11 @@ export default function ChatScreen({ navigation, route }: Props) {
       if (active && parsed) setOrigin(parsed);
       if (env.data?.agent_id) {
         return api.listAgents().then((agents) => {
-          if (active) setPresetCategory(agents.data?.find((agent) => agent.id === env.data?.agent_id)?.preset?.category);
+          if (!active) return;
+          const agent = agents.data?.find((row) => row.id === env.data?.agent_id);
+          if (agent) setPresetCategory(agent.preset?.category);
+          // 진입 경로를 가리지 않고 서버 에이전트 행으로 갈라내기 게이트를 확정한다 (t_55f9ed57).
+          setCanFork(canForkAgent({ name: agent?.name, titleKey: agent?.preset?.titleKey, category: agent?.preset?.category }));
         });
       }
     }).catch(() => { /* 선택적 계보 필드 미지원은 기존 대화를 막지 않는다. */ });
@@ -397,9 +404,9 @@ export default function ChatScreen({ navigation, route }: Props) {
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: selectedIds.includes(message.id) }}
               >
-                <CardFrame presetCategory={presetCategory} message={decorate(message)} handlers={handlers} agentName={agentName} />
+                <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} />
               </TouchableOpacity>
-              : <CardFrame presetCategory={presetCategory} message={decorate(message)} handlers={handlers} agentName={agentName} />}
+              : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} />}
             {message.role === 'user' && <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
             {message.status === 'failed' && <View style={styles.msgHeader}>
               <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>

@@ -26,7 +26,7 @@ const expandAnimation = (skip: boolean) => {
   });
 };
 
-export function CardActions({ message, handlers, withFavorite = true }: CardProps & { withFavorite?: boolean }) {
+export function CardActions({ message, handlers, withFavorite = true, canFork = true }: CardProps & { withFavorite?: boolean; canFork?: boolean }) {
   const { t, i18n } = useTranslation();
   return <View style={s.actions}>
     {message.role === 'agent' && message.aiGenerated !== false && <Text style={s.micro} testID="ai-generated-badge">{t('common.aiGenerated')}</Text>}
@@ -38,7 +38,8 @@ export function CardActions({ message, handlers, withFavorite = true }: CardProp
     {withFavorite && <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
       <Text style={s.link}>{t(message.favorite ? 'cards.starredIcon' : 'cards.starIcon')}</Text>
     </TouchableOpacity>}
-    <TouchableOpacity style={s.action} onPress={() => handlers.forkFromHere(message)}><Text style={s.link}>{t('fork.action')}</Text></TouchableOpacity>
+    {/* 갈라내기(fork)는 김비서 room 전용 (대표님 지시 9/27) — other room에서는 렌더 생략(데이터 보존) */}
+    {canFork && <TouchableOpacity style={s.action} onPress={() => handlers.forkFromHere(message)} testID="card-fork"><Text style={s.link}>{t('fork.action')}</Text></TouchableOpacity>}
   </View>;
 }
 
@@ -76,7 +77,7 @@ function FallbackCard({ message, payload }: { message: CardProps['message']; pay
 // 기본 접힘(1~2줄 미리보기) → 탭으로 펼침(전체 payload) → 다시 탭하면 접힘.
 // 각 카드 독립 상태(expandStore) — 아코디언 아님, 여러 카드를 동시에 열어 비교 가능.
 // 법률 표기(ai_generated·디스클레이머)와 액션 행은 접힘 상태에서도 항상 노출 (법률 요구 — 숨김 금지).
-export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean }) {
+export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean }) {
   const { t, i18n } = useTranslation();
   const reduceMotion = useReduceMotion();
   const messageId = props.message.id;

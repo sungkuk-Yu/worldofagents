@@ -21,6 +21,7 @@ export default function CardThreadScreen({ navigation, route }: { navigation: an
         agentName: route?.params?.agentName || t('common.agent'),
         presetCategory: route?.params?.presetCategory,
         sessionTitle: route?.params?.sessionTitle,
+        canFork: route?.params?.canFork !== false,
       }}
     />
   </View>;

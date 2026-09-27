@@ -33,6 +33,8 @@ export interface ThreadTarget {
   agentName: string;
   presetCategory?: string;
   sessionTitle?: string;
+  /** 갈라내기(fork) 노출 게이트 — 김비서 room 전용 (t_55f9ed57). 생략=노출(기본 true). */
+  canFork?: boolean;
 }
 
 export default function ThreadPanel({ target, navigation, onBack, onOpenNested }: {
@@ -45,13 +47,14 @@ export default function ThreadPanel({ target, navigation, onBack, onOpenNested }
 }) {
   const { t, i18n } = useTranslation();
   const { sessionId, rootMessageId, presetCategory, agentName } = target;
+  const canFork = target.canFork !== false;
   const chat = useChatSession({ sessionId: rootMessageId ? sessionId : undefined, rootMessageId });
   const [input, setInput] = useState('');
   const [fork, setFork] = useState<ChatMessage | null>(null);
   const { handlers, decorate, actionError } = useCardActions(
     (message) => onOpenNested
       ? onOpenNested(message)
-      : navigation.push('CardThread', { sessionId, rootMessageId: message.id, agentName, presetCategory, sessionTitle: target.sessionTitle }),
+      : navigation.push('CardThread', { sessionId, rootMessageId: message.id, agentName, presetCategory, sessionTitle: target.sessionTitle, canFork: target.canFork }),
     setFork,
   );
   const root = chat.rootMessage;
@@ -69,7 +72,7 @@ export default function ThreadPanel({ target, navigation, onBack, onOpenNested }
     {root && <View style={[styles.refBar, { borderLeftColor: meta.color }]}>
       <Text style={[cardStyles.title, { color: meta.color }]}>{t('cards.referenceIcon')}</Text>
       <View style={styles.body}><Text style={cardStyles.micro}>{t(meta.key)}</Text><Text style={cardStyles.title} numberOfLines={2}>{displayValue(root.payload?.title) || root.content}</Text></View>
-      <Button onPress={() => setFork(root)} compact>{t('fork.short')}</Button>
+      {canFork && <Button onPress={() => setFork(root)} compact testID="thread-fork">{t('fork.short')}</Button>}
     </View>}
     {(chat.error || actionError) && <View style={styles.error} testID="thread-error">
       <Text accessibilityRole="alert" style={styles.errorText}>{t(chat.error || actionError!)}</Text>
@@ -85,7 +88,7 @@ export default function ThreadPanel({ target, navigation, onBack, onOpenNested }
             <Text style={cardStyles.micro}>{date && Number.isFinite(date.getTime()) ? formatTime(date, i18n.language) : null}</Text>
             {item.role === 'user' && <Text style={cardStyles.micro}>{t(item.status === 'failed' ? 'chat.failed' : item.pending ? 'chat.sending' : 'chat.sent')}</Text>}
           </View>
-          <CardFrame presetCategory={presetCategory} compact message={decorate(item)} handlers={handlers} agentName={agentName} />
+          <CardFrame presetCategory={presetCategory} canFork={canFork} compact message={decorate(item)} handlers={handlers} agentName={agentName} />
           {item.status === 'failed' && <View style={cardStyles.row}>
             <Button onPress={() => void chat.retryMessage(item.id)}>{t('chat.resend')}</Button>
             <Button onPress={() => chat.deleteMessage(item.id)}>{t('chat.delete')}</Button>
