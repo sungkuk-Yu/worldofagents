@@ -23,6 +23,8 @@ export const cardStyles = StyleSheet.create({
   readerHandle: { paddingVertical: spacing.sp2, marginTop: spacing.sp1, alignSelf: 'flex-end' },
   // 헤더 행 — 발신자 라벨 + 우측 즐겨찾기 ⭐ 고정 (대표님 지시 9/26)
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2 },
+  // t_b250487a — 사용자 밴드 상단 "나" 라벨 라인 (에이전트 작성자 라인과 대칭, 좌우 정렬 아님)
+  userLabel: { ...typography.caption, fontWeight: '700', color: colors.text2, marginBottom: spacing.sp1 },
   headerTitle: { flex: 1, minWidth: 0 },
   // t_64af90b0 #3 — 에이전트명 생략 카드: 별은 우상단 고정 유지 (9/26 지시)
   headerSpacer: { flex: 1, minWidth: 0 },

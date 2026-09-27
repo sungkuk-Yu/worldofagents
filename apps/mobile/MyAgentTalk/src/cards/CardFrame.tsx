@@ -125,6 +125,10 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
   // t_3116c5bc §3: 즐겨찾기 옆 다운로드 아이콘(카드 내보내기) — 전 에이전트 카드 무조건 노출.
   const showHeader = props.showHeader !== false;
   return <View style={props.compact ? undefined : (props.message.role === 'user' ? s.userFrame : s.frame)} testID={props.message.role === 'user' ? 'message-user' : 'message-agent'}>
+    {/* t_b250487a 대표님 확정 계약 반전(9/27 심야): 사용자=전체폭 밴드+"나" 라벨.
+        t_64af90b0 #1이 '나' 라벨을 제거했으나 본 계약(밴드+라벨, 에이전트=작성자 라인과 대칭)이 우선 — 두 결정 병기.
+        라벨은 i18n t('chat.me') 유지(ko '나'/en 'You'), 좌우 정렬·버블 아닌 밴드 상단 라인. */}
+    {!props.compact && props.message.role === 'user' && <Text style={s.userLabel} testID="message-user-label">{t('chat.me')}</Text>}
     {!props.compact && props.message.role === 'agent' && <View style={s.headerRow}>
       {showHeader ? <Text style={[s.title, s.headerTitle]} numberOfLines={1}>{props.agentName}</Text> : <View style={s.headerSpacer} />}
       <ExportMenu message={props.message} sessionTitle={props.sessionTitle || props.agentName}

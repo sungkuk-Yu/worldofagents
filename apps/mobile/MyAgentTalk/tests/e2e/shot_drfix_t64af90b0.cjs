@@ -37,13 +37,13 @@ async function openChat(browser, width) {
       await openKeyboardIfVoice(page);
       const ph = page.getByPlaceholder('에이전트에게 메시지 보내기');
       assert.ok((await ph.count()) > 0, 'placeholder \'에이전트에게 메시지 보내기\' 표시');
-      // #1: 사용자 카드 '나' 라벨 제거 — 밴드(testID 유지)는 존재, '나' 텍스트 없음
+      // #1: t_b250487a(대표님 확정 계약, t_64af90b0 #1 반전) — 사용자 밴드 + '나' 라벨 유지
       await page.getByTestId('chat-input').fill('테스트 발화');
       await page.getByTestId('send-button').click();
       await page.getByText('Test reply to 테스트 발화', { exact: true }).first().waitFor({ timeout: 15000 });
       await page.waitForTimeout(400);
-      const meCount = await page.getByText('나', { exact: true }).count();
-      assert.equal(meCount, 0, '#1 사용자 말풍선 \'나\' 라벨 잔존 없음');
+      const labelCount = await page.getByTestId('message-user-label').count();
+      assert.ok(labelCount >= 1, '#1(t_b250487a 반전) 사용자 밴드 \'나\' 라벨 존재');
       // #3: 에이전트명 헤더는 첫 에이전트 메시지만 — 'Test Agent' 텍스트 노출 수 ≤ 1 (앱바 제외 본문 카드)
       const bodyAgentName = await page.locator('[data-testid="message-agent"] >> text="Test Agent"').count();
       assert.ok(bodyAgentName <= 1, `#3 에이전트명 라벨 중복 제거 (본문 카드 내 ${bodyAgentName}회)`);
