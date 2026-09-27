@@ -84,6 +84,11 @@ function check(name, cond, extra = '') {
     await page.getByTestId('feed-tile-photo').click();
     await page.getByTestId('feed-viewer-save').waitFor({ timeout: 8000 });
     check('피드 탭 = 사진 뷰어(저장 + 원본 세션 딥링크)', (await page.getByTestId('feed-viewer-open-source').count()) === 1);
+    // 공유 스냅샷: 캔버스 합성→(headless는 navigator.share 없음) 다운로드 폴백 = PNG 1장
+    const dlP = page.waitForEvent('download', { timeout: 8000 });
+    await page.getByTestId('feed-viewer-share').click();
+    const dl = await dlP;
+    check('외부 공유 스냅샷 = 카드 이미지 다운로드(세션 컨텍스트 미포함)', dl.suggestedFilename() === 'share-card.png');
     await page.screenshot({ path: shot('07-feed-viewer') });
     // unstar는 뷰어를 즉시 닫고 타일을 제거한다 (setViewerId(null) + 낙관적 필터)
     await page.getByTestId('feed-viewer-unstar').click();

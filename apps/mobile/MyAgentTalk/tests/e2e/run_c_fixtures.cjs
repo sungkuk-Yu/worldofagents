@@ -38,6 +38,8 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     // 픽스처 이미지 스텁 — 외부 네트워크 없이 결정적으로 로드/저장 검증
     await page.route('https://picsum.photos/**', (route) => route.fulfill({
       status: 200, contentType: 'image/png',
+      // 공유 스냅샷 canvas 합성(tainted 방지) — loadHtmlImage의 crossOrigin=anonymous와 짝
+      headers: { 'access-control-allow-origin': '*' },
       body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
     }));
   }

@@ -59,12 +59,19 @@
         "expo-localization",
         {
           "supportedLocales": {
-            "ios": ["ko", "en"],
-            "android": ["ko", "en"]
+            "ios": [
+              "ko",
+              "en"
+            ],
+            "android": [
+              "ko",
+              "en"
+            ]
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-sharing"
     ]
   }
 }

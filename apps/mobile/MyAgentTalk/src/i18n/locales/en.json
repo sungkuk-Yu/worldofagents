@@ -515,6 +515,8 @@
     "editBadge": "Edited",
     "save": "Save image",
     "openSource": "Open source chat",
+    "share": "Share",
+    "shareUnsupported": "Sharing is not available on this device.",
     "viewTitle": "Feed",
     "unfavorite": "Remove favorite"
   }

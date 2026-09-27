@@ -11,6 +11,7 @@ import { api, FavoriteEntry } from '../lib/api';
 import { errorKey } from '../lib/errorKeys';
 import { FeedPost, FeedSegment, filterFeedPosts, isVideoUrl, toFeedPost } from '../lib/photoLogic';
 import { downloadUrlWeb } from '../lib/photoCapture';
+import { shareSnapshot } from '../lib/shareSnapshot';
 import { FeedIcon, StarIcon } from '../components/Icon';
 import { colors, radii, spacing, typography, iconSize } from '../theme';
 
@@ -70,6 +71,14 @@ export default function FeedScreen({ navigation }: { navigation: any }) {
     const url = post.mediaUrls[0];
     if (url) void downloadUrlWeb(url, post.kind);
   }, []);
+
+  // 외부 공유 스냅샷 (카드 §2) — 카드 내용만 이미지화; 세션 컨텍스트 미포함(toShareSnapshot 규칙)
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
+  const share = useCallback(async (post: FeedPost) => {
+    if (!post.canSnapshot) return;
+    const outcome = await shareSnapshot({ mediaUrls: post.mediaUrls, caption: post.caption });
+    setShareMsg(outcome === 'unsupported' ? t('feed.shareUnsupported') : null);
+  }, [t]);
 
   if (loading) return <View style={st.center}><ActivityIndicator color={colors.accent} testID="feed-loading" /></View>;
   return (
@@ -137,7 +146,11 @@ export default function FeedScreen({ navigation }: { navigation: any }) {
               {viewer.sessionId && (
                 <TouchableOpacity style={st.viewerBtn} onPress={() => openSource(viewer)} testID="feed-viewer-open-source"><Text style={st.viewerBtnText}>{t('feed.openSource')}</Text></TouchableOpacity>
               )}
+              {viewer.canSnapshot && (
+                <TouchableOpacity style={st.viewerBtn} onPress={() => void share(viewer)} testID="feed-viewer-share"><Text style={st.viewerBtnText}>{t('feed.share')}</Text></TouchableOpacity>
+              )}
             </View>
+            {!!shareMsg && <Text style={st.viewerShareMsg} testID="feed-share-msg">{shareMsg}</Text>}
           </View>
         )}
       </Modal>
@@ -179,6 +192,7 @@ const st = StyleSheet.create({
   viewerText: { ...typography.body, color: colors.onPrimary, textAlign: 'center' },
   viewerCaption: { ...typography.caption, color: colors.onPrimary, opacity: 0.85, paddingHorizontal: spacing.sp4, paddingBottom: spacing.sp2, textAlign: 'center' },
   viewerActions: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sp4, padding: spacing.sp5 },
+  viewerShareMsg: { ...typography.caption, color: colors.statusWarn, textAlign: 'center', paddingBottom: spacing.sp3 },
   viewerBtn: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', borderRadius: radii.full, paddingHorizontal: spacing.sp5, paddingVertical: spacing.sp2 },
   viewerBtnText: { ...typography.caption, color: colors.onPrimary },
 });
