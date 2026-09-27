@@ -15,6 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8099';
 const API = process.env.API_URL || 'http://localhost:3020';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'wave2');
@@ -52,7 +53,7 @@ async function signup(page, email, cred) {
     // ── 1) 계정 A: 가입 → 채팅 → 카드 액션 정리(t_a0e998cc) → '이 글에서 스레드 시작' → 스레드 시트 ──
     await signup(page, `w2a-${stamp}@myagenttalk.dev`, `w2pw-${stamp}`);
     await page.getByTestId('new-chat-button').click();
-    await page.waitForSelector('[data-testid="chat-input"]', { timeout: 20000 });
+    await openKeyboardIfVoice(page); // t_e735d936: 음성 우선 — 입력창은 키보드 계층
     await page.getByTestId('chat-input').fill(`웨이브2 스모크 볼트 노트 원문 ${stamp}`);
     await page.getByTestId('send-button').click();
     await page.waitForSelector('[data-testid="message-agent"]', { timeout: 30000 });

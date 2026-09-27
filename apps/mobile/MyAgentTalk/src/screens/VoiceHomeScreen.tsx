@@ -71,7 +71,7 @@ export default function VoiceHomeScreen({ navigation, route }: Props) {
       case 'yes': addTranscript('user', t('voice.yesReply'), false); break;
       case 'no': addTranscript('user', t('voice.noReply'), false); break;
       case 'cancel': setRecording(false); break;
-      case 'keyboard': navigation.navigate('Chat', {}); break; // 텍스트 전환 — 요구 6
+      case 'keyboard': navigation.navigate('Chat', { keyboard: '1' }); break; // 텍스트 전환 — 요구 6 (t_e735d936: 채팅도 음성 우선이라 진입 시 키보드 계층 열고 이동)
       case 'record_stop': setRecording(false); break;
       case 'continuous_record': setRecording(true); void startSession(); break;
       case 'favorites': navigation.navigate('Favorites'); break;

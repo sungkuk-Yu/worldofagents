@@ -1,6 +1,6 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
 async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null } = {}) {
-  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [] };
+  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [] };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
@@ -58,7 +58,15 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
   await page.routeWebSocket('**/ws**', (socket) => {
     state.sockets.push(socket);
     socket.onMessage((data) => {
-      if (JSON.parse(String(data)).type === 'subscribe') socket.send(JSON.stringify({ type: 'subscribed', current_seq: 0 }));
+      // t_e735d936: 음성 콘솔 스모크 — 컨트롤(JSON)과 PCM(바이너리) 프레임 전부 기록.
+      // 바이너리는 JSON.parse 시 throw → 방어 파싱 후 frames에만 남긴다.
+      const text = Buffer.isBuffer(data) ? null : String(data);
+      state.frames.push(text === null ? { binary: data.length } : (() => { try { return JSON.parse(text); } catch { return { unparsed: text.slice(0, 80) }; } })());
+      if (text) {
+        try {
+          if (JSON.parse(text).type === 'subscribe') socket.send(JSON.stringify({ type: 'subscribed', current_seq: 0 }));
+        } catch { /* binary/비JSON 무시 */ }
+      }
     });
   });
   await page.route('**/health', (route) => route.fulfill({ json: { status: 'ok' } }));

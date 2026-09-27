@@ -37,6 +37,13 @@ export interface UsePushToTalkReturn {
   release: () => void;
   /** Escape 등 취소 — 서버에 전송하지 않고 폐기(audio.cancel) */
   cancel: () => void;
+  /** t_e735d936: 글로벌 PTT 모드와 무관한 홀드-투-톡 원시 동작 (채팅 음성 콘솔 전용).
+   *  getUserMedia는 startHold가 처음 호출되는 사용자 제스처(touchstart) 시점에만 요구된다. */
+  startHold: () => void;
+  /** 음성 릴리스 — 전송 종료(위로 올려 빠져나와도 음성 발화는 확정 전송). */
+  endHold: () => void;
+  /** 음성 폐기 — 위로 끌어 키보드로 전환한 것처럼 녹음 중 다른 계층으로 빠질 때 서버에 보내지 않고 취소. */
+  abortHold: () => void;
 }
 
 /** 브라우저 AudioContext + ScriptProcessor 기반 16k PCM 캡처. 종료 시 스트림/컨텍스트 해제. */
@@ -192,7 +199,13 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
   // 언마운트 안전망 — 릴리스 미달 상태로 화면을 나가면 서버 안전망(30s/5m)에 기대지 않고 취소
   useEffect(() => () => { captureRef.current?.stop(false); }, []);
 
-  return { enabled, active, level, mode, error, press, release, cancel };
+  return {
+    enabled, active, level, mode, error, press, release, cancel,
+    // t_e735d936: 홀드 원시 동작 — mode 토글 여부와 무관하게 항상 start/stop/cancel로 직결한다.
+    startHold: startCaptureIfIdle,
+    endHold: () => stopCapture(true),
+    abortHold: () => stopCapture(false),
+  };
 }
 
 export default usePushToTalk;

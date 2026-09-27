@@ -24,6 +24,12 @@ export function GearIcon({ size = 18, color = colors.text2, testID }: IconProps)
   </Svg>;
 }
 
+/** t_e735d936: 키보드 열기 버튼 — 음성 기본 진입에서 텍스트 입력을 부르는 2차 UI 아이콘 */
+export function KeyboardIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M20,12A1,1 0 0,1 19,13H5A1,1 0 0,1 4,12V8A1,1 0 0,1 5,7H19A1,1 0 0,1 20,8V12M9,10V11H11V10H9M13,10V11H15V10H13M16,10V11H18V10H16M6,10V11H8V10H6M4,16A1,1 0 0,1 5,15H19A1,1 0 0,1 20,16V18A1,1 0 0,1 19,19H5A1,1 0 0,1 4,18V16M8,5V6H10V5H8M14,5V6H16V5H14M11,5V6H13V5H11M5,5V6H7V5H5M17,5V6H19V5H17M9,16.5V17.5H15V16.5H9Z" />
+  </Svg>;
+}
 export function StarIcon({ size = 18, color = colors.text3, filled = false, testID }: IconProps & { filled?: boolean }) {
   return <Svg {...svgBase(size)} testID={testID}>
     <Path fill={color} d={filled

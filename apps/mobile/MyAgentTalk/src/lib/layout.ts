@@ -32,3 +32,15 @@ export const shouldShowResumeHome = (mode: LayoutMode, routeName: string | null)
 export function bodyMaxWidth(width: number): number | undefined {
   return width >= 1440 ? 900 : undefined;
 }
+
+// ── t_e735d936 요구 1: 음성 우선 — 채팅 진입 기본 UI 판정 (pure, 단위테스트 대상) ──
+// 대표님 9/28 새벽 슛: "일단 음성기능이 먼저 떠주고". 웹 모바일(터치 소형 화면) 채팅 진입 시
+// 텍스트 입력창 대신 음성 콘솔(조이스틱 디스크)이 기본이고, 입력창은 키보드를 열었을 때만
+// 나타나는 2차 UI로 강등된다. PC 레이아웃(≥768)과 네이티브는 기존 텍스트 채팅 유지 —
+// PC엔 가상 키보드가 없어 입력창 상시가 곧 1차 UI이고, 네이티브는 웹 PTT 경로가 아니기 때문.
+// demo 모드면 음성 콘솔 금지 — 녹음 제스처가 데모 세션(캐리어 ready=false)에서 무의미한
+// 권한 다이얼로그만 부르므로 텍스트 진입이 폴백이다.
+export function voiceFirstConsole(opts: { os: string; width: number; isDemo: boolean }): boolean {
+  if (opts.os !== 'web' || opts.isDemo) return false;
+  return !isPcLayout(layoutModeForWidth(opts.width));
+}

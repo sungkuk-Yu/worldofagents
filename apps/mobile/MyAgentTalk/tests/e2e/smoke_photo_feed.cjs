@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8081';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'photo-feed');
 fs.mkdirSync(OUT, { recursive: true });
@@ -29,6 +30,8 @@ function check(name, cond, extra = '') {
     await page.getByTestId('chat-appbar').waitFor();
 
     // ① 클립 → 파일 선택 → 즉시 업로드 + 편집기 자동 오픈
+    // t_e735d936: 웹 모바일 진입 = 음성 콘솔 — 첨부/입력 검증은 키보드 계층을 연 뒤 수행
+    await openKeyboardIfVoice(page);
     const chooserP = page.waitForEvent('filechooser');
     await page.getByTestId('attach-button').click();
     const chooser = await chooserP;

@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8123';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'drfix-t64af90b0');
 fs.mkdirSync(OUT, { recursive: true });
@@ -32,6 +33,8 @@ async function openChat(browser, width) {
       const { page, errors } = await openChat(browser, 390);
       // #4: placeholder 잘림 없이 전체 표시 — 입력창 placeholder 텍스트 실측
       // t_4b1bd4c2 요구 4: placeholder 전체 한 줄 표시 — 마이크 버튼 제거로 입력창 폭 확보
+      // t_e735d936: 웹 모바일 채팅 = 음성 우선 — placeholder 검증은 키보드 계층을 연 뒤
+      await openKeyboardIfVoice(page);
       const ph = page.getByPlaceholder('에이전트에게 메시지 보내기');
       assert.ok((await ph.count()) > 0, 'placeholder \'에이전트에게 메시지 보내기\' 표시');
       // #1: 사용자 카드 '나' 라벨 제거 — 밴드(testID 유지)는 존재, '나' 텍스트 없음

@@ -8,6 +8,9 @@ import ContextPanel from '../components/ContextPanel';
 import { useCardActions } from '../hooks/useCardActions';
 import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useLayout } from '../hooks/useLayout';
+import { useJoystickMap } from '../hooks/useJoystickMap';
+import ChatVoiceConsole from '../components/ChatVoiceConsole';
+import { voiceFirstConsole } from '../lib/layout';
 import { getPttKey, getPttMode } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
@@ -40,6 +43,7 @@ import {
   NativeSyntheticEvent, NativeScrollEvent,
   Pressable,
   StyleSheet,
+  TextInput as RNTextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -51,7 +55,7 @@ import {
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { colors, radii, spacing, typography, webScreenMotion, iconSize } from '../theme';
-import { PaperclipIcon, QueuePendingIcon, QueueAnsweredIcon, QueueSkippedIcon } from '../components/Icon';
+import { PaperclipIcon, QueuePendingIcon, QueueAnsweredIcon, QueueSkippedIcon, MicIcon } from '../components/Icon';
 import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, queueItemForMessage, SuggestedQuestion, buildQueueStrip } from '../lib/chatLogic';
 import QueueStrip from '../components/QueueStrip';
 import ThreadListModal from '../components/ThreadListModal';
@@ -121,8 +125,18 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
   // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
-  const { pc, wide } = useLayout();
+  const { pc, wide, width } = useLayout();
   const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
+  // t_e735d936 요구 1/2: 음성 우선 — 웹 모바일 진입은 음성 콘솔이 1차 UI, 입력창은 키보드를
+  // 열었을 때만 나타나는 2차 UI. 방향→동작 매핑(↑=키보드 등)은 전역 조이스틱 맵을 그대로 쓴다.
+  const { actionFor, directionLabels } = useJoystickMap();
+  const voiceMode = voiceFirstConsole({ os: Platform.OS, width, isDemo });
+  const [keyboardOpen, setKeyboardOpen] = useState(route?.params?.keyboard === '1');
+  const chatInputRef = useRef<RNTextInput>(null);
+  // 마이크 권한 거부/캡처 실패 → 폴백: 안내 한 줄 + 입력창 자동 개방(텍스트만으로 완전 작동).
+  // effect 대신 파생값 — setState-in-effect 캐스케이드 금지(eslint react-compiler).
+  const inputOpen = !voiceMode || keyboardOpen || !!ptt.error;
+  useEffect(() => { if (voiceMode && inputOpen) chatInputRef.current?.focus(); }, [voiceMode, inputOpen]);
 
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
   const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
@@ -568,13 +582,14 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
 
       {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={styles.msgCard}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
-      {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성 */}
+      {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.
+          t_e735d936: 음성 우선 모드에서는 오류 안내가 콘솔 내부(chat-voice-fallback)에 있으므로 배너 중복 금지. */}
       {Platform.OS === 'web' && !isDemo && (
         <PttBannerComponent
           active={ptt.active || talking}
           keyLabel={pc ? pttKeyLabel(getPttKey() ?? 'KeyV') : undefined}
           mode={getPttMode() ?? 'hold'}
-          error={ptt.error}
+          error={voiceMode ? null : ptt.error}
         />
       )}
       {/* 다중 선택 액션 바 — t_a0e998cc(대표님 9/26): 보관(즐겨찾기 중복)·볼트로(기본 저장) 제거, 이어가기만 남김 */}
@@ -587,7 +602,23 @@ export default function ChatScreen({ navigation, route }: Props) {
       <View style={styles.stageRow}>
         <AttachmentChipRow items={att.items} onRemove={att.remove} onRetry={att.retry} />
       </View>
-      {/* 하단 입력 영역 — 화이트 배경 + 초박형 상단 테두리, 그린 포커스 (Mintlify 패턴) */}
+      {/* 하단 입력 영역 — t_e735d936 요구 1: 음성 우선. 웹 모바일은 기본이 음성 콘솔(조이스틱 홀드-투-톡)이고
+          텍스트 입력창은 키보드를 열었을 때만 나타나는 2차 UI. PC/네이티브/데모는 기존 입력창 상시. */}
+      {voiceMode && !keyboardOpen && (
+        <ChatVoiceConsole
+          onPressHoldStart={ptt.startHold}
+          onHoldEnd={ptt.endHold}
+          onHoldAbort={ptt.abortHold}
+          actionFor={(g) => actionFor(g)}
+          directionLabels={directionLabels()}
+          recording={ptt.active || talking}
+          error={ptt.error}
+          onOpenKeyboard={() => setKeyboardOpen(true)}
+        />
+      )}
+      {/* 폴백(error): 콘솔은 유지(거부 해제 후 재시도 가능)하되 안내 한 줄이 콘솔 안에 뜨고,
+          입력창이 자동 개방되어 텍스트만으로 완전 작동(요구 1). */}
+      {inputOpen && (
       <View style={styles.inputBar}>
         <View style={styles.inputRow}>
         {/* 클립 버튼 (t_4497cfce P1-2): 사진 선택 → 업로드 + 편집기. PTT 마이크와 동일 SVG 아이콘 버튼 패턴 (#2/#4). */}
@@ -595,6 +626,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           <PaperclipIcon size={iconSize.glyph} color={colors.text2} />
         </Pressable>
         <TextInput
+          ref={chatInputRef}
           mode="outlined"
           value={input}
           onChangeText={setInput}
@@ -611,6 +643,18 @@ export default function ChatScreen({ navigation, route }: Props) {
           returnKeyType="send"
           accessibilityLabel={t('chat.input')}
         />
+        {/* t_e735d936: 음성 우선 화면에서만 — 키보드 진입 후 음성 콘솔로 되돌아가는 복귀 버튼 */}
+        {voiceMode && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.voiceBack')}
+            onPress={() => { chatInputRef.current?.blur(); setKeyboardOpen(false); }}
+            testID="chat-voice-back"
+            style={({ pressed }) => [styles.clipButton, pressed && { backgroundColor: colors.surfaceHover }]}
+          >
+            <MicIcon size={iconSize.glyph} color={colors.text2} />
+          </Pressable>
+        )}
         {/* t_4b1bd4c2 요구 1: 입력창 옆 마이크 홀드 버튼 폐기 — 음성 진입은 PTT 키(PC) / 조이스틱 탭(음성 홈)으로만 */}
         {/* t_64af90b0 #4 — paper Button은 disabled 시 색상 오버라이드가 무시되어 회색이 된다 →
             커스텀 Pressable: 비활성 = 액센트 55% (초록 체계 유지), 활성 = 액센트. 제출 자체는 submit()이 검증. */}
@@ -630,6 +674,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         </Pressable>
         </View>
       </View>
+      )}
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}

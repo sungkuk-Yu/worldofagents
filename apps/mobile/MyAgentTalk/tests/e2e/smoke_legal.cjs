@@ -88,7 +88,7 @@ async function openLogin(page, locale) {
 
     // ── ② AI 고지: 채팅 상시 배너 ──
     await ko.getByTestId('new-chat-button').click();
-    await ko.waitForSelector('[data-testid="chat-input"]', { timeout: 20000 });
+    await openKeyboardIfVoice(ko); // t_e735d936: 웹 모바일 = 음성 우선, 입력창은 키보드 계층
     const disclosure = ko.getByTestId('ai-disclosure');
     check('KO: 채팅 상단 AI 고지 배너 노출', (await disclosure.count()) === 1 && (await disclosure.innerText()).includes('AI'));
     await ko.getByTestId('chat-input').fill(`법률 스모크 ${stamp}`);

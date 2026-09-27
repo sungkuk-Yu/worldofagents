@@ -6,6 +6,7 @@
  */
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -46,7 +47,7 @@ function check(name, cond, extra = '') {
     await page.waitForSelector('[data-testid="new-chat-button"]', { timeout: 15000 });
   }
   await page.getByTestId('new-chat-button').click();
-  await page.waitForSelector('[data-testid="chat-input"]', { timeout: 20000 });
+  await openKeyboardIfVoice(page); // t_e735d936: 웹 모바일 = 음성 우선, 입력창은 키보드 계층
   await page.waitForTimeout(800);
 
   // ── A) 전송 중 POST 차단 ──

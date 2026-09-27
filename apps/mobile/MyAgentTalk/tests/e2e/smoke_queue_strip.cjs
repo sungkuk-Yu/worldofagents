@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8096';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'queue-strip');
 fs.mkdirSync(OUT, { recursive: true });
@@ -86,6 +87,8 @@ const QUEUE_ROWS = [
     await page2.waitForTimeout(400);
     check('빈 세션 = 스트립 DOM 부재 (0건 완전 숨김)', (await page2.getByTestId('queue-strip').count()) === 0);
     // 전송 → 응답: 폴백 로컬 유도(서버 큐 없음)로 answered 1건 표시
+    // t_e735d936: 웹 모바일 진입은 음성 우선 — 입력창은 키보드 계층을 연 뒤에 존재
+    await openKeyboardIfVoice(page2);
     await page2.getByTestId('chat-input').fill('질문 큐 테스트 발화');
     await page2.getByTestId('send-button').click();
     await page2.getByText('Test reply to 질문 큐 테스트 발화', { exact: true }).waitFor({ timeout: 8000 });
@@ -173,7 +176,8 @@ const QUEUE_ROWS = [
     check('확장3: 행 탭 → 해당 스레드 열기', await page5.getByTestId('thread-sheet').count() > 0 || (await page5.getByText('Thread reply').count()) > 0);
     await page5.keyboard.press('Escape').catch(() => {});
     await page5.getByTestId('back-to-chat').click().catch(() => page5.getByText('뒤로 가기', { exact: true }).first().click().catch(() => {}));
-    // 칩 재탭 → 답글/갈라내기 버튼: 질문 전송 후 칩展开
+    // 칩 재탭 → 답글/갈라내기 버튼: 질문 전송 후 칩展开 (t_e735d936: 음성 우선 → 키보드 계층 먼저)
+    await openKeyboardIfVoice(page5);
     await page5.getByTestId('chat-input').fill('갈라내기 게이트 질문');
     await page5.getByTestId('send-button').click();
     await page5.getByTestId('queue-strip').waitFor({ timeout: 8000 });

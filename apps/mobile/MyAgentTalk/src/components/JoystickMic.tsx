@@ -42,6 +42,9 @@ const CONFIG = {
 interface Props {
   onGesture: (gesture: JoystickGesture) => void;
   onRelease: () => void;
+  /** t_e735d936: 그랜트(touchstart) 통지 — 채팅 음성 콘솔의 홀드-투-톡 시작 지점.
+   *  엔진 계약(onGesture/onRelease/testID) 불변, 선택적 추가 콜백만 확장. */
+  onPressStart?: () => void;
   isRecording: boolean;
   /** 드래그 중 라벨 오버라이드 (기본: 예/아니오/취소 등) */
   directionLabels?: Partial<Record<JoystickGesture, string>>;
@@ -62,7 +65,7 @@ const OVERLAY_DIRS: { key: JoystickGesture; angle: number }[] = [
 ];
 const OVERLAY_R = BASE_SIZE / 2 + 2;
 
-export default function JoystickMic({ onGesture, onRelease, isRecording, directionLabels }: Props) {
+export default function JoystickMic({ onGesture, onRelease, onPressStart, isRecording, directionLabels }: Props) {
   // RN Animated 표준 패턴 — Animated.Value 는 렌더 간 안정적인 identity 가 필요 → useState 초기화
   // (React 19 react-hooks/refs 규칙: 렌더 중 ref 접근 금지 대응)
   const [scaleAnim] = React.useState(() => new Animated.Value(1));
@@ -77,10 +80,12 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
   // 최신 콜백을 ref에 유지 (useEffect 재생성 방지)
   const onGestureRef = useRef(onGesture);
   const onReleaseRef = useRef(onRelease);
+  const onPressStartRef = useRef(onPressStart);
   useEffect(() => {
     onGestureRef.current = onGesture;
     onReleaseRef.current = onRelease;
-  }, [onGesture, onRelease]);
+    onPressStartRef.current = onPressStart;
+  }, [onGesture, onRelease, onPressStart]);
 
   // 드래그 중 방향 (라이브 피드백용 상태)
   const [activeDirection, setActiveDirection] = useState<JoystickGesture | null>(null);
@@ -113,6 +118,8 @@ export default function JoystickMic({ onGesture, onRelease, isRecording, directi
         }).start();
         // touchstart → 8방향 오버레이 페이드인 (160ms, 요구 2)
         Animated.timing(overlayFade, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+        // t_e735d936: 그랜트 통지 — 채팅 홀드-투-톡은 여기서 시작 (마이크 권한도 이 제스처부터만 요청)
+        onPressStartRef.current?.();
 
         longPressTimer.current = setTimeout(() => {
           onGestureRef.current('LONG_CENTER');

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8081';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'run-c');
 fs.mkdirSync(OUT, { recursive: true });
@@ -61,6 +62,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByTestId('fork-submit').click();
     await page.getByText('Independent project', { exact: true }).waitFor();
     await page.getByText('⟨Original project⟩에서 갈라냄', { exact: true }).waitFor();
+    await openKeyboardIfVoice(page); // t_e735d936: 웹 모바일 채팅 = 음성 우선, 입력창은 키보드 계층
     await page.getByTestId('chat-input').fill('new-room-only');
     await page.getByTestId('send-button').click();
     await page.getByText('Test reply to new-room-only', { exact: true }).waitFor();

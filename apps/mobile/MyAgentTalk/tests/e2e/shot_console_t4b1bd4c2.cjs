@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8147';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'console-t4b1bd4c2');
 fs.mkdirSync(OUT, { recursive: true });
@@ -54,7 +55,7 @@ async function pressHold(page, target, offset) {
     // ── C. 채팅 입력창 — placeholder 한 줄 완전 표시 + 마이크 버튼 부재 ─────────
     await page.goto(APP);
     await page.getByTestId('session-card').click();
-    await page.waitForSelector('[data-testid="chat-input"]', { timeout: 15000 });
+    await openKeyboardIfVoice(page); // t_e735d936: 음성 우선 — 입력창은 키보드 계층
     await page.waitForTimeout(600);
     assert.equal(await page.getByTestId('ptt-mic-button').count(), 0, '요구 1: 입력창 마이크 버튼 미렌더');
     const ph = page.getByPlaceholder('에이전트에게 메시지 보내기');

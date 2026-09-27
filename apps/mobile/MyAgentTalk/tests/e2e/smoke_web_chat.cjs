@@ -7,6 +7,7 @@
  *   node smoke_web_chat.cjs
  */
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -72,9 +73,9 @@ function check(name, cond, extra = '') {
   const loginError = await page.getByTestId('login-error').isVisible().catch(() => false);
   check('로그인 오류 없음', !loginError);
 
-  // 3) 새 채팅 → ChatScreen 진입
+  // 3) 새 채팅 → ChatScreen 진입 (t_e735d936: 웹 모바일 = 음성 우선, 입력창은 키보드 계층)
   await page.getByTestId('new-chat-button').click();
-  await page.waitForSelector('[data-testid="chat-input"]', { timeout: 20000 });
+  await openKeyboardIfVoice(page);
   await page.waitForTimeout(1200);
   await page.screenshot({ path: shot('04-chat-empty') });
   const chatOk = await page.getByTestId('chat-appbar').isVisible().catch(() => false);
