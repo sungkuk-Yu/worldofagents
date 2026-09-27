@@ -62,6 +62,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     const title = await modal.getByTestId('reader-title').textContent();
     assert.ok((title || '').includes('제14조'), '리더 상단 제목 = 카드 첫 문장');
     await modal.getByText('부속 합의서의 비밀유지 조항').first().waitFor();
+    await page.waitForTimeout(600); // fade 페인트 완료 후 캡처 — DOM 등장은 opacity 0 구간과 무관
     await page.screenshot({ path: shot(`${tags}04-reader-modal`) });
     await page.keyboard.press('Escape');
     await modal.waitFor({ state: 'detached' });
