@@ -18,6 +18,7 @@ import { MessagesRow } from '../types/db';
 import { config } from '../config';
 import { DbClient } from '../lib/supabase';
 import { linkAttachmentsToMessage } from '../lib/attachments';
+import { photoEditCardForTurn, photoEditDirectivePending } from '../lib/photoEditCard';
 import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
@@ -89,6 +90,8 @@ export interface NeuronState {
   expertise: keyof typeof DISCLAIMERS;
   groundEnabled: boolean;
   grounding: GroundingResult | null;
+  /** photo_edit 지시+이미지 첨부 동반 (t_78ffba4f) — routerNode가 answer 강제 활성에 사용. */
+  photoEditPending?: boolean;
   // 컴포즈
   finalResponse: { empathy: string | null; answer: string | null; visualsRequested: boolean };
   events: NeuronStatusEvent[];
@@ -153,6 +156,10 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     hasActiveTask: state.hasActiveTask,
     pendingQueueLength: state.pendingQueueLength,
   });
+  // photo_edit 강제 활성 (t_78ffba4f): 프론트 buildEditMessage 산출물은 "이 부분 잘라줘"처럼
+  // 규칙상 information/command로 잡혀 answer 뉴런이 꺼지고 답변 메시지가 저장되지 않는다.
+  // 지시 펜스+이미지 첨부가 같은 턴에 있으면 카드를 얹을 답변 행 자체가 필요하므로 answer를 강제한다.
+  const photoEditForced = state.photoEditPending && !plan.activate.includes('answer');
   // Stage 2 (t_56498848): 패턴 미확정(Stage 3 폴백)인 발화만 LLM 의도 분류에 넘긴다 —
   // 고신뢰 패턴 확정 발화는 0ms 규칙으로 이미 끝난다(spec §2.3 "놓치는 것보다 오판이 위험").
   // LLM 미설정/실패/타임아웃 → null → 규칙 폴백 유지. 인용 임계(0.8) 미만도 각 단계 값 그대로 둔다.
@@ -178,6 +185,10 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     if (dialogueType === 'data') set.add('visual');
     activationPlan = [...set];
     reason = `${plan.reason}, llm_stage2=${confidence.toFixed(2)}`;
+  }
+  if (photoEditForced) {
+    activationPlan = [...new Set([...activationPlan, 'answer'])];
+    reason = `${reason}, photo_edit=answer_forced`;
   }
   return {
     dialogueType,
@@ -463,6 +474,13 @@ export async function processTurn(
         history = (data || []).reverse();
       }
 
+      // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴이면
+      // 답변 structured를 photo_edit로 승격 — 프론트 registerCard('photo_edit')가 즉시 렌더.
+      // pending은 초기 상태(routerNode의 answer 강제 활성)에서 필요해 link보다 먼저 판정한다
+      // (지시 발화가 information으로 잡혀 답변 행 자체가 저장되지 않으면 카드가 나갈 자리가 없다).
+      // 최종 payload는 link 결과(첨부 URL)로 아래에서 확정 — 판정 규칙은 photoEditCard.ts 단일 소스.
+      const photoEditPending = photoEditDirectivePending(userMessage, opts.attachmentIds?.length ?? 0);
+
       const initial: NeuronState = {
         locale,
         sessionId,
@@ -487,6 +505,7 @@ export async function processTurn(
         expertise,
         groundEnabled,
         grounding: null,
+        photoEditPending,
         finalResponse: { empathy: null, answer: null, visualsRequested: false },
         events: [],
         engine: 'simple',
@@ -542,8 +561,9 @@ export async function processTurn(
       }
       if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
       // 첨부 링크 (t_401c5bd1): LLM 호출 전에 실패시켜 비용을 물리지 않는다. 소유권/이중링크 검증은 공유 lib.
+      let linkedAttachments: { url: string; mime: string }[] = [];
       if (opts.attachmentIds?.length) {
-        await linkAttachmentsToMessage(db, userId, sessionId, (msgUser as { id: string }).id, opts.attachmentIds);
+        linkedAttachments = await linkAttachmentsToMessage(db, userId, sessionId, (msgUser as { id: string }).id, opts.attachmentIds);
       }
       const checkCancelled = () => {
         if (opts.signal?.aborted && !ctx.classificationCancelled) throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
@@ -554,6 +574,11 @@ export async function processTurn(
       const final = engine === 'langgraph' ? await langGraphPipeline(initial, ctx) : await simplePipeline(initial, ctx);
       classificationCancelled = Boolean(ctx.classificationCancelled);
       checkCancelled();
+      // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴에 있으면
+      // 답변 structured를 photo_edit로 승격 — 프론트 registerCard('photo_edit')가 즉시 렌더.
+      // 기존 file/text 분류보다 우선하되, 지시·이미지 둘 다 없으면 무영향(결정론 규칙, LLM 미경유).
+      const photoEdit = photoEditCardForTurn(userMessage, linkedAttachments);
+      if (photoEdit) final.structured = photoEdit;
       // 인스턴스 활성화는 저장 직전에 (empathy 항상 + plan)
       for (const neuron of ['empathy', 'answer', 'visual', 'queue'] as const) {
         if (neuron === 'empathy' || final.activationPlan.includes(neuron)) {

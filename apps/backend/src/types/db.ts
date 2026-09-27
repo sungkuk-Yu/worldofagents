@@ -99,7 +99,7 @@ export interface NeuronInstancesRow {
   created_at: string;
 }
 
-export type DialogueCardType = 'text' | 'info_card' | 'spreadsheet' | 'file' | 'task_flow' | 'multi_agent';
+export type DialogueCardType = 'text' | 'info_card' | 'spreadsheet' | 'file' | 'task_flow' | 'multi_agent' | 'photo_edit';
 
 export interface MessagesRow {
   locale: 'ko' | 'en';
