@@ -52,7 +52,8 @@ import {
 import * as Haptics from 'expo-haptics';
 import { colors, radii, spacing, typography, webScreenMotion, iconSize } from '../theme';
 import { PaperclipIcon, QueuePendingIcon, QueueAnsweredIcon, QueueSkippedIcon } from '../components/Icon';
-import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, queueItemForMessage, SuggestedQuestion } from '../lib/chatLogic';
+import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, queueItemForMessage, SuggestedQuestion, buildQueueStrip } from '../lib/chatLogic';
+import QueueStrip from '../components/QueueStrip';
 import { useChatSession } from '../hooks/useChatSession';
 
 interface Props {
@@ -92,6 +93,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   const initialSessionId: string | undefined = route?.params?.sessionId;
   // 즐겨찾기 딥링크 (Wave1): focusMessageId로 진입 → 해당 메시지까지 스크롤 + 하이라이트 1회
   const focusMessageId: string | undefined = route?.params?.focusMessageId;
+  // 상단 큐 스트립 칩 탭 점프 (t_2f45ccb1) — 라우트 파라 대신 로컬 상태(같은 화면 내 스크롤만).
+  // nonce로 같은 칩 재탭에도 효과 재발동(스크롤 재실행).
+  const [queueJump, setQueueJump] = useState<{ id: string; nonce: number } | null>(null);
 
   const {
     messages, sessionId, enterDemo,
@@ -269,18 +273,23 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => () => { if (pendingClear.current) clearTimeout(pendingClear.current); }, []);
   const previousMessages = useRef<ChatMessage[]>([]);
   const groups = useMemo(() => groupByTurn(messages), [messages]);
+  // 상단 큐 스트립 행 (t_2f45ccb1) — 서버 queue 스냅샷 우선, 없으면 메시지 로컬 유도.
+  const queueStrip = useMemo(() => buildQueueStrip(messages, queue), [messages, queue]);
   // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
   const firstAgentMessageId = useMemo(() => messages.find((m) => m.role === 'agent')?.id, [messages]);
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
   // 딥링크 스크롤 — 그룹을 찾으면 scrollToIndex + 하이라이트 2.6초, 히스토리 밖이면 loadOlder로 역행 추적
+  // 점프 소스 2종 (t_2f45ccb1): 즐겨찾기/피드 딥링크(focusMessageId) + 상단 큐 칩 탭(queueJump, 우선)
+  const jumpTarget = queueJump?.id ?? focusMessageId;
+  const jumpNonce = queueJump?.nonce ?? 0;
   useEffect(() => {
-    if (!focusMessageId) return;
+    if (!jumpTarget) return;
     // setTimeout(0) 지연 — DialogueListScreen의 refresh 패턴과 동일 (effect 동기 setState 회피)
     const find = setTimeout(() => {
-      const groupIndex = groups.findIndex((g) => g.items.some((m) => m.id === focusMessageId));
+      const groupIndex = groups.findIndex((g) => g.items.some((m) => m.id === jumpTarget));
       if (groupIndex >= 0) {
-        if (highlightId !== focusMessageId) {
-          setHighlightId(focusMessageId);
+        if (highlightId !== jumpTarget) {
+          setHighlightId(jumpTarget);
           const groupKey = groups[groupIndex].key;
           const layout = layouts.current.get(groupKey);
           try {
@@ -295,7 +304,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       if (hasMoreHistory && !loadingHistory && focusTries.current < 12) { focusTries.current += 1; void loadOlder(); }
     }, 0);
     return () => clearTimeout(find);
-  }, [focusMessageId, groups, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
+  }, [jumpTarget, jumpNonce, groups, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     offset.current = contentOffset.y;
@@ -442,6 +451,9 @@ export default function ChatScreen({ navigation, route }: Props) {
           <Text style={styles.backText}>{t('selection.enter')}</Text>
         </TouchableOpacity>}
       </View>
+
+      {/* 상단 질문 큐 스트립 (t_2f45ccb1) — 질문 원문+상태 칩 가로 라인. 0건 완전 숨김, >3건 스크롤. */}
+      <QueueStrip items={queueStrip} onJump={(id) => setQueueJump({ id, nonce: Date.now() })} />
 
       {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.
           빈 상태의 chat.aiNotice와 달리 메시지가 쌓여도 사라지지 않는다 (AI 기본법 제31조 ①). */}

@@ -265,6 +265,11 @@ export const api = {
     );
   },
 
+  /** 질문 큐 스냅샷 — GET /api/sessions/:id/queue (t_2f45ccb1 선작업 폴링; 백엔드 t_344e047a 라우트 착지 전 404 → null)
+   *  WS queue.updated 미수신/미연결 구간의 데이터원. 계약 행: {id,content,status,position}[] (normalizeQueueItems). */
+  getQueue: (sessionId: string) =>
+    request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(sessionId)}/queue`),
+
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환)
    *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크. */
   sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[] }) =>

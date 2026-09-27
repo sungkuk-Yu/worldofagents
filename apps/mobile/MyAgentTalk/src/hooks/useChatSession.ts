@@ -10,7 +10,7 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
-  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord,
+  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildQueueStrip,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -134,6 +134,32 @@ export function useChatSession(
     runtime.messages = update(runtime.messages);
     setMessages(runtime.messages);
   }, [runtimeRef]);
+
+  // 큐 스냅샷 폴링 (t_2f45ccb1): WS queue.updated 미수신/미착지 구간의 보조 데이터원.
+  // GET /api/sessions/:id/queue — 백엔드 라우트 착지 전 404는 조용히 무시(로컬 유도 strip이 버틴다).
+  // 상시 요청 금지: 세션 진입 시 1회 부트스트랩 pull + strip에 pending이 있는 동안에만 15초 주기.
+  const queuePollSid = mode === 'live' ? sessionId : null;
+  const stripPending = buildQueueStrip(messages, queue).some((s) => s.status === 'pending');
+  const queuePulledSid = useRef<string | null>(null);
+  useEffect(() => {
+    if (!queuePollSid) return;
+    let disposed = false;
+    const pull = async () => {
+      try {
+        const env = await api.getQueue(queuePollSid);
+        if (disposed || !env?.ok || !Array.isArray((env as { data?: unknown }).data)) return;
+        setQueue(normalizeQueueItems((env as { data: unknown }).data));
+      } catch { /* 404/네트워크 — 계약 미착지 구간: strip은 messages 로컬 유도로 표시 */ }
+    };
+    // 부트스트랩: 세션당 1회 (stripPending 토글마다 재pull하면 WS queue.updated를 낡은 스냅샷으로 덮어씀)
+    let timer: ReturnType<typeof setInterval> | undefined;
+    if (queuePulledSid.current !== queuePollSid) {
+      queuePulledSid.current = queuePollSid;
+      void pull();
+    }
+    if (stripPending) timer = setInterval(() => void pull(), 15000);
+    return () => { disposed = true; if (timer) clearInterval(timer); };
+  }, [queuePollSid, stripPending]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;

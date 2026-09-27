@@ -34,7 +34,7 @@
     "reconnecting": "Reconnecting…",
     "offline": "Connection lost",
     "help": "What can I help with? Send a message to get started.",
-    "placeholder": "Send a message…",
+    "placeholder": "Message your agent",
     "input": "Message input",
     "sendLabel": "Send message",
     "send": "Send",
@@ -60,7 +60,9 @@
   "queue": {
     "pending": "Waiting for a reply",
     "answered": "Answered",
-    "skipped": "Skipped"
+    "skipped": "Skipped",
+    "chipAria": "{{status}} — {{text}}",
+    "photoQuestion": "Photo question"
   },
   "login": {
     "subtitle": "Sign in to your account or create a new one.",

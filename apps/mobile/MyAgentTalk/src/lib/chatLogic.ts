@@ -495,6 +495,65 @@ export function queueItemForMessage(queue: QueueItem[], message: ChatMessage): Q
   return queue.find((q) => normalizeQueueContent(q.content) === key);
 }
 
+// ── 상단 질문 큐 스트립 (t_2f45ccb1) ────────────────────────────────────
+// 데이터원 2계층: ① 서버 큐(t_344e047a message_queue → queue.updated WS / GET queue 폴링 / messages 스냅샷)
+//                ② 로컬 유도(메시지 목록에서 질문↔답변 페어링) — 서버 미착지 구간 기본값.
+// 서버 항목이 매칭되면 상태를 우선시(skipped는 서버 전용 정보), 없으면 로컬 페어링으로 추정.
+// 교체 지점: 백엔드 라우트/이벤트 확정 후에도 이 함수 형태(서버 우선+로컬 폴백) 그대로 유효.
+export interface QueueStripItem {
+  /** React key — 서버 큐 행 id 우선, 없으면 질문 메시지 id */
+  id: string;
+  text: string;
+  status: QueueStatus;
+  /** 탭 점프 대상: answered=답변 카드, 그 외 질문 카드. 서버 전용 행은 message_id 있을 때만. */
+  jumpMessageId?: string;
+}
+
+function hasQueuedAttachments(m: ChatMessage): boolean {
+  return (Array.isArray(m.attachments) && m.attachments.length > 0) || !!m.pendingAttachments?.length;
+}
+
+/** 첨부/본문 질문 목록에서 상단 큐 스트립 행을 만든다 (turn_index 오름, 답글 제외). */
+export function buildQueueStrip(messages: ChatMessage[], queue: QueueItem[]): QueueStripItem[] {
+  const timeline = messages
+    .filter((m) => m.role !== 'system' && !m.parentMessageId)
+    .sort((a, b) => a.turnIndex - b.turnIndex);
+  const items: QueueStripItem[] = [];
+  const usedQueue = new Set<string>();
+  const seenText = new Set<string>();
+
+  for (let i = 0; i < timeline.length; i += 1) {
+    const m = timeline[i];
+    if (m.role !== 'user') continue;
+    const text = m.content.trim();
+    if (!text && !hasQueuedAttachments(m)) continue; // 본문도 첨부도 없는 행은 존재하지 않는 질문
+    // 답변 = 이 질문 이후·다음 질문 이전의 첫 agent(공감 제외) 행
+    let answer: ChatMessage | undefined;
+    for (let j = i + 1; j < timeline.length; j += 1) {
+      const n = timeline[j];
+      if (n.role === 'user') break;
+      if (n.role === 'agent' && n.sourceNeuron !== 'empathy' && (n.content.trim() || hasQueuedAttachments(n))) { answer = n; break; }
+    }
+    const match = queueItemForMessage(queue, m);
+    if (match) usedQueue.add(match.id);
+    const status: QueueStatus = match ? match.status : answer ? 'answered' : 'pending';
+    if (text) seenText.add(normalizeQueueContent(text));
+    items.push({
+      id: match?.id ?? m.id,
+      text,
+      status,
+      jumpMessageId: status === 'answered' && answer ? answer.id : m.id,
+    });
+  }
+
+  // 서버에만 있는 행(드레인 전 끼어들기 등 — 아직 messages에 없음) → 질문 원문으로 보조 칩
+  const serverOnly = queue
+    .filter((q) => !usedQueue.has(q.id) && q.content.trim() && !seenText.has(normalizeQueueContent(q.content)))
+    .sort((a, b) => a.position - b.position)
+    .map((q): QueueStripItem => ({ id: q.id, text: q.content.trim(), status: q.status, jumpMessageId: q.messageId }));
+  return [...items, ...serverOnly];
+}
+
 // ── 후속 질문 칩 (t_1797f432 ③ / 백엔드 t_344e047a §3 계약) ─────────────
 // answer 완료 시 run.completed의 structured_payload.suggested_questions: [{id,text,locale}]
 // (또는 메시지 payload 동명의 필드) → 마지막 에이전트 카드 아래 칩으로 렌더, 탭 시 전송.
