@@ -32,9 +32,13 @@ export default function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // t_64af90b0 #9 — 로그인 카드(실측 ~430px) 기준 대략적 세로 중앙 여백.
-  // 가입 게이트 삽입과 무관한 고정 상수 → t_865ea744 '모드 전환 필드 점프 없음' 불변식 유지.
-  const verticalGap = Math.max(spacing.sp8, Math.round((height - 430) / 2));
+  // t_391be23c #1 — 카드 실측 높이 기반 수직 중앙: 짧은 화면(로그인)은 진짜 중앙,
+  // 가입처럼 카드가 뷰포트보다 길면 상단(sp8) 고정 후 스크롤(중앙이면 상단이 잘림).
+  // onLayout 측정값은 모드 전환 시 갱신 → 점프가 아니라 재중앙(대표님 요구).
+  const [cardH, setCardH] = useState(0);
+  const verticalGap = cardH > 0
+    ? Math.max(spacing.sp8, Math.round((height - cardH) / 2))
+    : spacing.sp8;
 
   const authenticate = async () => {
     if (busy) return;
@@ -67,8 +71,9 @@ export default function LoginScreen({ navigation }: Props) {
       style={[styles.container, webScreenMotion('mat-slide-from-right')]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* t_865ea744 ②: 스크롤 점프 수정 — 가입(게이트로 긴 화면)은 상단 고정 유지.
-          t_64af90b0 #9: 로그인(짧은 화면)은 세로 중앙 정렬 — 카드 밖 회색 여백 60% 문제 시정.
+      {/* t_391be23c #1: 카드 실측(onLayout) 높이로 수직 중앙 — 짧은 화면(로그인)은 뷰포트 중앙,
+          긴 화면(가입 게이트)은 상단 sp8 고정 후 스크롤(중앙이면 헤더가 잘려서 불가).
+          t_865ea744의 '고정 430 근사'는 가입 화면에서 하단 회색 과다 → 대표님 재지시 시정.
           iOS는 automaticallyAdjustKeyboardInsets가 키보드 높이만큼 인셋을 벌어 카드가 가려지지 않고,
           하단 safe area(paddingBottom)를 넉넉히 확보한다. */}
       <ScrollView
@@ -77,11 +82,13 @@ export default function LoginScreen({ navigation }: Props) {
         automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
       >
-        <Surface style={styles.card} elevation={0} testID="login-card">
+        <Surface style={styles.card} elevation={0} testID="login-card"
+          onLayout={(e) => setCardH(Math.round(e.nativeEvent.layout.height))}>
           <View style={styles.logoWrap}>
             {/* t_64af90b0 #8 — 3단 브랜드 중복 제거: 'MAT' 워드마크만 (Round 7 로고 확정 전), 타이틀 삭제 */}
             <Text style={styles.logoText}>{t('common.logo')}</Text>
           </View>
+          {/* t_391be23c #1 — 헤더 라인(MAT·타이틀·서브텍스트) 중앙 정렬 통일: 서브텍스트 좌측 정렬 잔여 시정 */}
           <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
 
           {/* 입력 스택 — 카드 내부 블록 사이 contentGap(20), 스택 내부 stackGap(16)
@@ -158,14 +165,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  // t_865ea744 ②: 상단 고정 정렬 + 하단 safe area. 로그인(짧은 화면)과 가입(게이트로 길어진 화면)이
-  // 같은 캔버스 위를 스크롤할 때 필드 위치가 점프하지 않는다.
+  // t_865ea744 ②: 상단 고정 정렬 + 하단 safe area. t_391be23c #1부터 실제 중앙 정렬은
+  // 카드 onLayout 실측(verticalGap)로 계산하고, 여기는 최소 상단 여백(sp8) 폴백.
   content: {
     alignItems: 'center',
     paddingHorizontal: spacing.sp5,
-    // t_64af90b0 #9 — 카드 밖 회색 여백 60% 시정: 로그인 카드 높이를 미리 계산한 여백으로
-    // 대략적 세로 중앙 배치. 모드(가입 게이트 삽입)와 무관한 고정 값이라 t_865ea744의
-    // '모드 전환 시 필드 점프 없음' 불변식을 깨지 않는다 (conditional center는 회귀 유발).
+    // t_64af90b0 #9 → t_391be23c: 고정 430 근사 폐기 — 카드 실측 높이 기반 재중앙.
+    // 모드 전환 시 필드 위치가 이동하는 것은 회귀가 아니라 의도된 재중앙(대표님 지시).
     paddingTop: spacing.sp8,
     paddingBottom: spacing.sp10 * 2,
     flexGrow: 1,
@@ -186,20 +192,24 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sp4,
   },
   logoText: {
+    // t_391be23c #2 — 폰트 담백화(Weight 강등): 800 → 600, display 토큰 트래킹(-0.4)으로 회귀
     ...typography.display,
-    fontWeight: '800',
-    letterSpacing: -0.8,
+    fontWeight: '600',
     color: colors.accent,
   },
   title: {
     ...typography.title1,
     letterSpacing: -0.8,
     color: colors.text1,
+    // t_391be23c #1 — 헤더 3줄(MAT·타이틀·서브텍스트) 중앙 정렬 통일 (#8에서 타이틀 행은 미렌더, 스타일만 정비)
+    textAlign: 'center',
     marginBottom: spacing.sp1,
   },
   subtitle: {
     ...typography.subhead,
     color: colors.text2,
+    // t_391be23c #1 — MAT·서브텍스트 헤더 중앙 정렬 통일 (기존 좌측 정렬 혼선 시정)
+    textAlign: 'center',
     // 카드 내부 블록 사이 = contentGap (9/25 재설계 스페시싱)
     marginBottom: contentGap,
   },

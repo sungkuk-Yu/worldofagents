@@ -138,22 +138,25 @@ async function overlapChecks(page, lang, tag) {
     check(`${lang}: 게이트 maxWidth <= 400`, metrics.gateWidth > 0 && metrics.gateWidth <= 400, String(metrics.gateWidth));
     check(`${lang}: 390px에서 가로 오버플로 없음`, metrics.docW <= 391, `scrollWidth=${metrics.docW}`);
 
-    // ② 스크롤 점프: 게이트는 입력 스택 아래에 삽입되므로 문서 좌표 기준 입력 필드 위치가
-    //    모드와 무관하게 고정이어야 한다(구 디자인은 flexGrow+center라 게이트 삽입 시 카드 전체가 재정렬·상단 튐).
-    await page.evaluate(() => document.querySelector('[data-testid="login-email"]').scrollIntoView({ block: 'center' }));
-    await page.waitForTimeout(300);
+    // ② 스크롤 안정성 (t_391be23c 개정): 카드 실측 기반 수직 중앙 → 모드 전환 시 필드가
+    //    이동하는 것은 의도된 재중앙. 대신 (a) 같은 모드 좌표는 전환 반복에도 흔들림 없고,
+    //    (b) 각 모드에서 이메일 필드가 스크롤 없이 뷰포트 안에 보여야 한다.
     const docY = () => page.evaluate(() => {
       const el = document.querySelector('[data-testid="login-email"]');
-      return Math.round(el.getBoundingClientRect().y + window.scrollY);
+      const r = el.getBoundingClientRect();
+      return { doc: Math.round(r.y + window.scrollY), inView: r.top > 0 && r.bottom < window.innerHeight };
     });
+    await page.evaluate(() => window.scrollTo(0, 0));
     const posBefore = await docY();
+    check(`${lang}: 가입 모드 — 이메일 필드 스크롤 없이 노출`, posBefore.inView, JSON.stringify(posBefore));
     await page.getByTestId('auth-mode-toggle').click(); // → 로그인 (게이트 제거)
     await page.waitForTimeout(400);
     const posLogin = await docY();
+    check(`${lang}: 로그인 모드 — 이메일 필드 스크롤 없이 노출`, posLogin.inView, JSON.stringify(posLogin));
     await page.getByTestId('auth-mode-toggle').click(); // → 가입 (게이트 재삽입)
     await page.waitForTimeout(400);
     const posAfter = await docY();
-    check(`${lang}: 모드 전환 무관 — 이메일 필드 문서좌표 고정(재정렬 점프 없음)`, posBefore === posLogin && posLogin === posAfter, JSON.stringify({ posBefore, posLogin, posAfter }));
+    check(`${lang}: 가입 모드 좌표 전환 반복 불변(드리프트 없음)`, posBefore.doc === posAfter.doc, JSON.stringify({ before: posBefore.doc, after: posAfter.doc }));
 
     // 전체동의 토글 = 6종 일괄 체크 (t_cac6f531) — 마케팅 포함, 개별 해제는 그 아래 행 탭으로 가능
     // (RN-web Pressable은 aria-checked 미노출 — ✓ 체크 아이콘 텍스트로 판정)
