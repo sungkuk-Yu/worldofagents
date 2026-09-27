@@ -20,6 +20,7 @@ import { vaultRoutes } from './routes/vault';
 import { boardRoutes, cardRoutes } from './routes/boards';
 import { uploadRoutes } from './routes/upload';
 import { attachmentRoutes } from './routes/attachments';
+import { exportRoutes } from './routes/export';
 import { websocketHandler } from './websocket/handler';
 import { logger } from './utils/logger';
 import { ensureDefaultNeurons } from './neurons/registry';
@@ -82,6 +83,8 @@ export async function build() {
   // 첨부 (t_401c5bd1) — 업로드 인입 + 열람/링크
   await app.register(uploadRoutes, { prefix: '/api/upload' });
   await app.register(attachmentRoutes, { prefix: '/api/attachments' });
+  // 카드 내보내기 (t_3116c5bc) — GET /api/messages/:id/export?fmt=pdf|docx|xlsx|hwp
+  await app.register(exportRoutes, { prefix: '/api/messages' });
 
   // API 버전/목록
   app.get('/api-version', async () => {

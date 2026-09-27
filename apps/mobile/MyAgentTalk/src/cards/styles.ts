@@ -19,6 +19,8 @@ export const cardStyles = StyleSheet.create({
     : {},
   expandHandle: { paddingVertical: spacing.sp2, marginTop: spacing.sp1 },
   expandHandleText: { ...typography.caption, color: colors.accent },
+  // t_3116c5bc §2 — '전체 읽기' 리더 진입 핸들 (펼침 상태와 독립, 장문 카드 하단)
+  readerHandle: { paddingVertical: spacing.sp2, marginTop: spacing.sp1, alignSelf: 'flex-end' },
   // 헤더 행 — 발신자 라벨 + 우측 즐겨찾기 ⭐ 고정 (대표님 지시 9/26)
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2 },
   headerTitle: { flex: 1, minWidth: 0 },

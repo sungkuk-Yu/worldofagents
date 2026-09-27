@@ -345,6 +345,7 @@
     "cancelled": "취소됨",
     "expand": "펼치기",
     "collapse": "접기",
+    "more": "더 보기",
     "moreRows": "{{countText}}행 더",
     "unknownType": "새 카드 형식 ({{type}})",
     "copy": "복사",
@@ -538,5 +539,27 @@
     "shareUnsupported": "이 기기에서는 공유할 수 없어요.",
     "viewTitle": "피드",
     "unfavorite": "즐겨찾기 해제"
+  },
+  "reader": {
+    "open": "전체 읽기",
+    "byAgent": "{{name}}의 카드",
+    "untitled": "이름 없는 카드",
+    "swipeToClose": "탭하거나 닫기 버튼으로 종료"
+  },
+  "exporter": {
+    "title": "내보내기",
+    "open": "카드 내보내기",
+    "pdf": "PDF",
+    "word": "Word (.docx)",
+    "excel": "Excel (.xlsx)",
+    "hwp": "한글 (.hwp)",
+    "tableOnly": "Excel은 표·차트 카드만 내보낼 수 있어요.",
+    "hwpFallback": "한글 호환 Word 파일(.docx)로 저장했어요 — 한글에서 열어 주세요.",
+    "saved": "저장했어요: {{name}}",
+    "working": "만드는 중…",
+    "unsupported": "이 카드 형식은 이 서식으로 내보낼 수 없어요.",
+    "pdfMissing": "서버에 PDF 변환 엔진이 없어요. HTML 내보내기를 브라우저에서 인쇄/저장해 주세요.",
+    "offline": "연결이 안 돼요. 네트워크를 확인한 뒤 다시 시도해 주세요.",
+    "failed": "내보내기에 실패했어요. 잠시 후 다시 시도해 주세요."
   }
 }

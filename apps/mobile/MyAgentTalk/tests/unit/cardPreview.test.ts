@@ -88,24 +88,33 @@ test('악성 payload 방어 — 배열/문자열/null이 와도 예외 없이 Ca
   }
 });
 
-test('expandStore — 카드별 독립 상태, 구독 알림, 토글/clear', () => {
+test('expandStore — 3상태(기본 펼침/수동 선택/실측), 카드별 독립, 구독 알림 (t_3116c5bc)', () => {
   expandStore.clear();
   let notified = 0;
   const unsub = expandStore.subscribe(() => { notified++; });
-  assert.equal(expandStore.get('a'), false);
-  expandStore.set('a', true);
+  // 신규 좌표: 선택 없음(undefined) = auto → get()은 펼침(true) 기본 (접힘 기본화 폐기)
+  assert.equal(expandStore.peek('a'), undefined);
   assert.equal(expandStore.get('a'), true);
-  assert.equal(expandStore.get('b'), false); // 독립 — 아코디언 아님 (#51 규칙 6)
-  expandStore.toggle('b');
-  assert.equal(expandStore.get('b'), true);
-  assert.equal(expandStore.get('a'), true); // b를 열어도 a는 유지
-  expandStore.toggle('a');
+  expandStore.set('a', false); // 사용자 접힘
   assert.equal(expandStore.get('a'), false);
+  assert.equal(expandStore.get('b'), true); // 독립 — 아코디언 아님 (#51 규칙 6), b는 auto 펼침
+  expandStore.toggle('b', true);
+  assert.equal(expandStore.get('b'), false);
+  assert.equal(expandStore.get('a'), false); // b를 닫아도 a 선택 유지
+  expandStore.toggle('a', false);
+  assert.equal(expandStore.get('a'), true);
   assert.ok(notified >= 3);
-  unsub();
+  // 실측 높이 캐시 — 2px 미만 변화는 알림 없음(측정 루프 방지), 이상은 알림
   const before = notified;
+  assert.equal(expandStore.setHeight('a', 100), true);
+  assert.equal(expandStore.height('a'), 100);
+  assert.equal(expandStore.setHeight('a', 101), false); // ±1px 노이즈 무시
+  assert.equal(notified, before + 1);
+  unsub();
+  const settled = notified;
   expandStore.set('a', true);
-  assert.equal(notified, before); // 해지된 구독자는 알림 없음
+  assert.equal(notified, settled); // 해지된 구독자는 알림 없음
   expandStore.clear();
-  assert.equal(expandStore.get('a'), false);
+  assert.equal(expandStore.peek('a'), undefined);
+  assert.equal(expandStore.get('a'), true); // clear = 선택·실측 초기화 → auto 펼침
 });

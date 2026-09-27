@@ -1,6 +1,6 @@
 import './defaults';
 import { needsClientDisclaimer } from '../lib/legal';
-import React, { useCallback, useSyncExternalStore } from 'react';
+import React, { useCallback, useState, useSyncExternalStore } from 'react';
 import { LayoutAnimation, Platform, Pressable, Text, TouchableOpacity, UIManager, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { getCard, getCardPreview, isCardRegistered } from './registry';
@@ -11,7 +11,10 @@ import { buildCardPreview } from './preview';
 import { expandStore } from './expandStore';
 import { formatNumber } from '../i18n/format';
 import { useReduceMotion } from '../lib/motion';
-import { ChevronDownIcon, ChevronUpIcon, StarIcon } from '../components/Icon';
+import { ChevronDownIcon, ChevronUpIcon, StarIcon, BookOpenIcon } from '../components/Icon';
+import { ExportMenu } from '../components/ExportMenu';
+import ReaderModal from '../components/ReaderModal';
+import { ONE_SCREEN_PX, guessLong, resolveExpanded } from '../lib/readerLogic';
 import { colors, iconSize } from '../theme';
 
 // 웹: LayoutAnimation은 no-op → CSS transition 폴백 (#52 규칙 6, styles.webTransition).
@@ -77,55 +80,77 @@ function FallbackCard({ message, payload }: { message: CardProps['message']; pay
   </View>;
 }
 
-// 기능형 카드 프레임 — 대표님 지시 #51 (펼치기/접기 유연성, Perplexity 소스 카드 패턴)
-// 기본 접힘(1~2줄 미리보기) → 탭으로 펼침(전체 payload) → 다시 탭하면 접힘.
-// 각 카드 독립 상태(expandStore) — 아코디언 아님, 여러 카드를 동시에 열어 비교 가능.
-// 법률 표기(ai_generated·디스클레이머)와 액션 행은 접힘 상태에서도 항상 노출 (법률 요구 — 숨김 금지).
-export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean; showHeader?: boolean }) {
+// 기능형 카드 프레임 — #51 펼침/접기 유연성 → t_3116c5bc semantics 전환 (대표님 9/28深夜 지시)
+// **본문 전부 펼침이 기본.** 실측(온레이아웃) 또는 길이 추정이 1 화면(≈1200px)을 넘을 때만
+// '더 보기 ▾'로 접고, 펼침은 인라인(모달 아님). 긴 카드는 하단 '전체 읽기' → 리더 모달(§2).
+// 각 카드 독립 상태(expandStore) — 아코디언 아님. 법률 표기·액션 행은 어떤 상태든 항상 노출(숨김 금지).
+// compact(스레드 행)는 읽기 전용 행 — 펼침/내보내기 UI 없이 전체본문 그대로(중첩 모달 금지).
+export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean; showHeader?: boolean; sessionTitle?: string; exportDisabled?: boolean }) {
   const { t, i18n } = useTranslation();
   const reduceMotion = useReduceMotion();
   const messageId = props.message.id;
-  const expandedState = useSyncExternalStore(expandStore.subscribe, () => expandStore.get(messageId), () => false);
-  const toggleExpand = useCallback(() => { expandAnimation(reduceMotion); expandStore.toggle(messageId); }, [messageId, reduceMotion]);
-  if (props.message.role === 'system') return <View style={s.action}><UserCard {...props} /></View>;
+  // 스냅샷은 프리미티브 2개 — 객체 셀렉터는 매 렌더 새 참조라 useSyncExternalStore 무한리렌더 유발.
+  const choice = useSyncExternalStore(expandStore.subscribe, () => expandStore.peek(messageId), () => undefined);
+  const bodyHeight = useSyncExternalStore(expandStore.subscribe, () => expandStore.height(messageId), () => 0);
+  const [readerOpen, setReaderOpen] = useState(false);
   const knownType = isCardRegistered(props.message.dialogueType);
-  const Component = props.message.role === 'agent' ? (knownType ? getCard(props.message.dialogueType) : FallbackCard) : UserCard;
   // 사용자 카드(text)는 펼침 UI 대상이 아님 — 에이전트 기능형 카드만 (compact=스레드 행도 제외)
   const isAgentCard = props.message.role === 'agent' && !props.compact;
   const preview = isAgentCard
     ? buildCardPreview(props.message.dialogueType, props.message.payload, props.message.content, knownType)
     : null;
-  const showHandle = isAgentCard && preview?.expandable === true;
-  const expanded = showHandle && expandedState;
+  // collapsible: 접으면 가려지는 내용이 있는 카드만 핸들 노출 (#51 규칙 4).
+  const collapsible = isAgentCard && preview?.expandable === true;
+  const autoExpanded = collapsible ? resolveExpanded(choice, bodyHeight, guessLong(props.message), ONE_SCREEN_PX) : true;
+  const expanded = !collapsible || autoExpanded;
+  // 리더 노출 = '1 화면 초과 장문' — auto 기준(사용자 토그와 무관하게 긴 카드엔 항상 리더).
+  const long = collapsible && !resolveExpanded(undefined, bodyHeight, guessLong(props.message), ONE_SCREEN_PX);
+  // hook은 early return보다 위에서 전부 호출 (rules-of-hooks — 시스템 카드 분기 이후로 내리면 금지).
+  const toggleExpand = useCallback(() => {
+    expandAnimation(reduceMotion);
+    expandStore.toggle(messageId, autoExpanded);
+  }, [messageId, autoExpanded, reduceMotion]);
+  const measureBody = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
+    if (!collapsible) return;
+    expandStore.setHeight(messageId, e.nativeEvent.layout.height);
+  }, [messageId, collapsible]);
+  if (props.message.role === 'system') return <View style={s.action}><UserCard {...props} /></View>;
+  const Component = props.message.role === 'agent' ? (knownType ? getCard(props.message.dialogueType) : FallbackCard) : UserCard;
 
   // 발신자 구분 = 영역(zone) 방식 (#54): 사용자 = 밴드 전체폭 행, 에이전트 = 흰 카드. 좌우 말풍선 금지.
   // t_64af90b0 #1: 사용자 카드의 '나' 라벨 행 제거 — 밴드+액센트 바만으로 구분 (버블/라벨 중복 금지, #59 재확인).
   // t_64af90b0 #3: 에이전트명 텍스트는 showHeader=true(첫 에이전트 메시지)에만 노출 — 이후 생략(Linear/Slack식).
   // 단 우상단 즐겨찾기 별은 전 카드 유지 (9/26 지시 — 별은 라벨이 아니라 컨트롤).
+  // t_3116c5bc §3: 즐겨찾기 옆 다운로드 아이콘(카드 내보내기) — 전 에이전트 카드 무조건 노출.
   const showHeader = props.showHeader !== false;
   return <View style={props.compact ? undefined : (props.message.role === 'user' ? s.userFrame : s.frame)} testID={props.message.role === 'user' ? 'message-user' : 'message-agent'}>
     {!props.compact && props.message.role === 'agent' && <View style={s.headerRow}>
       {showHeader ? <Text style={[s.title, s.headerTitle]} numberOfLines={1}>{props.agentName}</Text> : <View style={s.headerSpacer} />}
+      <ExportMenu message={props.message} sessionTitle={props.sessionTitle || props.agentName}
+        disabled={props.exportDisabled === true || props.message.pending === true || props.message.status === 'failed'} />
       <FavoriteStar {...props} />
     </View>}
-    {expanded || !showHandle ? (
-      React.createElement(Component, { ...props, payload: props.message.payload })
-    ) : getCardPreview(props.message.dialogueType) && props.message.role === 'agent' ? (
-      // 카드별 커스텀 접힘 렌더러 (Wave1: media=poster 썸네일) — 텍스트 요약으로 못 그리는 유형용
-      React.createElement(getCardPreview(props.message.dialogueType)!, { ...props, payload: props.message.payload })
-    ) : (
-      // 접힘 상태 — 카드 종류별 미리보기 (info=제목+한 줄, data=첫 N행+"N행 더", file=파일명, task=상태 배지, multi=에이전트 나열)
-      <View style={s.webTransition}>
-        {!!preview.title && <Text style={s.title} numberOfLines={1}>{preview.title}</Text>}
-        {!!preview.summary && <Text style={s.body} numberOfLines={2}>{preview.summary}</Text>}
-        <View style={s.previewMeta}>
-          {!!preview.badge && <Text style={s.badge} testID="card-preview-badge">{preview.badge}</Text>}
-          {preview.moreCount > 0 && <Text style={s.micro} testID="card-preview-more">{t('cards.moreRows', { countText: formatNumber(preview.moreCount, i18n.language) })}</Text>}
-          {preview.unknownType && <Text style={s.micro} numberOfLines={1}>{t('cards.unknownType', { type: props.message.dialogueType ?? '?' })}</Text>}
+    {/* 펼침 상태에서만 실측 — 접힌 프리뷰 높이를 세면 다시 펼쳐지는 진동(oscillation) 발생. */}
+    <View onLayout={expanded && collapsible ? measureBody : undefined}>
+      {expanded || !collapsible ? (
+        React.createElement(Component, { ...props, payload: props.message.payload })
+      ) : getCardPreview(props.message.dialogueType) && props.message.role === 'agent' ? (
+        // 카드별 커스텀 접힘 렌더러 (Wave1: media=poster 썸네일) — 텍스트 요약으로 못 그리는 유형용
+        React.createElement(getCardPreview(props.message.dialogueType)!, { ...props, payload: props.message.payload })
+      ) : (
+        // 접힘 상태 — 카드 종류별 미리보기 (info=제목+한 줄, data=첫 N행+"N행 더", file=파일명, task=상태 배지, multi=에이전트 나열)
+        <View style={s.webTransition}>
+          {!!preview.title && <Text style={s.title} numberOfLines={1}>{preview.title}</Text>}
+          {!!preview.summary && <Text style={s.body} numberOfLines={2}>{preview.summary}</Text>}
+          <View style={s.previewMeta}>
+            {!!preview.badge && <Text style={s.badge} testID="card-preview-badge">{preview.badge}</Text>}
+            {preview.moreCount > 0 && <Text style={s.micro} testID="card-preview-more">{t('cards.moreRows', { countText: formatNumber(preview.moreCount, i18n.language) })}</Text>}
+            {preview.unknownType && <Text style={s.micro} numberOfLines={1}>{t('cards.unknownType', { type: props.message.dialogueType ?? '?' })}</Text>}
+          </View>
         </View>
-      </View>
-    )}
-    {showHandle && <Pressable
+      )}
+    </View>
+    {collapsible && <Pressable
       onPress={toggleExpand}
       accessibilityRole="button"
       accessibilityState={{ expanded }}
@@ -135,12 +160,21 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
     >
       {/* t_64af90b0 #2 — ⌃/⌄ 문자 글리프 → SVG chevron */}
       <View style={s.row}>
-        <Text style={s.expandHandleText}>{expanded ? t('cards.collapse') : t('cards.expand')}</Text>
+        <Text style={s.expandHandleText}>{expanded ? t('cards.collapse') : t('cards.more')}</Text>
         {expanded ? <ChevronUpIcon size={iconSize.tile} color={colors.accent} /> : <ChevronDownIcon size={iconSize.tile} color={colors.accent} />}
       </View>
     </Pressable>}
+    {/* 전체 읽기 (t_3116c5bc §2) — 1 화면을 넘는 장문·표형 카드에만 하단 노출 → 페이퍼 리더 모달 */}
+    {long && <TouchableOpacity style={s.readerHandle} onPress={() => setReaderOpen(true)}
+      accessibilityRole="button" accessibilityLabel={t('reader.open')} testID="reader-open">
+      <View style={s.row}>
+        <BookOpenIcon size={iconSize.tile} color={colors.accent} />
+        <Text style={s.expandHandleText}>{t('reader.open')}</Text>
+      </View>
+    </TouchableOpacity>}
     {props.message.role === 'agent' && needsClientDisclaimer(props.presetCategory, props.message.content) && <Text style={s.micro} testID="legal-disclaimer">{t('legal.disclaimer')}</Text>}
     {/* compact(스레드 행)는 헤더 없음 → 즐겨찾기를 하단 액션에 유지. 일반 카드는 별 우상단 고정. */}
     {props.message.role === 'agent' && <CardActions {...props} withFavorite={props.compact === true} />}
+    {isAgentCard && <ReaderModal message={readerOpen ? props.message : null} agentName={props.agentName} onClose={() => setReaderOpen(false)} />}
   </View>;
 }

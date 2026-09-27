@@ -345,6 +345,7 @@
     "cancelled": "Cancelled",
     "expand": "Expand",
     "collapse": "Collapse",
+    "more": "More",
     "moreRows": "{{countText}} more rows",
     "unknownType": "New card format ({{type}})",
     "copy": "Copy",
@@ -538,5 +539,27 @@
     "shareUnsupported": "Sharing is not available on this device.",
     "viewTitle": "Feed",
     "unfavorite": "Remove favorite"
+  },
+  "reader": {
+    "open": "Read full",
+    "byAgent": "Card by {{name}}",
+    "untitled": "Untitled card",
+    "swipeToClose": "Tap or press close to exit"
+  },
+  "exporter": {
+    "title": "Export",
+    "open": "Export card",
+    "pdf": "PDF",
+    "word": "Word (.docx)",
+    "excel": "Excel (.xlsx)",
+    "hwp": "Hangul (.hwp)",
+    "tableOnly": "Excel export is only available for table/chart cards.",
+    "hwpFallback": "Saved as a Hangul-compatible Word file (.docx) — open it in Hangul (HWP).",
+    "saved": "Saved: {{name}}",
+    "working": "Generating…",
+    "unsupported": "This card type cannot be exported in this format.",
+    "pdfMissing": "The server has no PDF engine. Export HTML and print/save it from your browser.",
+    "offline": "Not connected. Check your network and try again.",
+    "failed": "Export failed. Please try again shortly."
   }
 }
