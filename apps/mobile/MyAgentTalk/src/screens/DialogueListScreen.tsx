@@ -17,6 +17,8 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  // 상태 분리 (t_c0fb3b22 P0): signedOut(error=auth) vs offline(connected=false) 구분.
+  // 미로그인은 정상 온보딩 상태 — 서버 다운("unavailable")과 절대 혼용하지 않는다.
   const [connected, setConnected] = useState(false);
   const [starting, setStarting] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -25,21 +27,28 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     ? t(agent.preset.titleKey) : agent?.name || t('common.agent');
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
+    if (!getApiConfig().token) {
+      // 토큰 없음 = 온보딩. 네트워크 판정(connected)을 건드리지 않고 로그인 배너만 띄운다.
+      setConnected(false); setError('errors.auth'); setLoading(false); return;
+    }
     try {
-      if (!getApiConfig().token) throw new Error('errors.auth');
       await api.health();
       const [agentEnv, sessionEnv] = await Promise.all([api.listAgents(), api.listSessions()]);
       if (!agentEnv.ok || !sessionEnv.ok) throw new Error('errors.request');
       setAgents(agentEnv.data ?? []); setSessions(sessionEnv.data ?? []); setConnected(true);
-    } catch (e) { setConnected(false); setError(errorKey(e)); }
-    finally { setLoading(false); }
+    } catch (e) {
+      const key = errorKey(e);
+      setConnected(false);
+      if (key === 'errors.auth') setError('errors.auth'); // 401/403 = 세션 만료, 서버 다운 아님
+      else setError(key); // 네트워크/5xx = 진짜 오프라인
+    } finally { setLoading(false); }
   }, []);
   useEffect(() => { const timer = setTimeout(() => { void refresh(); }, 0); return () => clearTimeout(timer); }, [refresh]);
   useEffect(() => navigation.addListener('focus', () => { void refresh(); }), [navigation, refresh]);
   const startChat = async (selected?: AgentSummary) => {
     setStarting(true); setError(null);
     try {
-      if (!getApiConfig().token) throw new Error('errors.auth');
+      if (!getApiConfig().token) { navigation.navigate('Login'); return; } // 미로그인 탭 = 온보딩 경로 (t_c0fb3b22 요구 2)
       const agent = selected ?? (await api.createAgent(t('dialogueList.defaultName'), t('dialogueList.defaultDescription'))).data;
       if (!agent) throw new Error('errors.agent');
       const env = await api.ensureSession(agent.id);
@@ -50,7 +59,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     } catch (e) { setError(errorKey(e)); }
     finally { setStarting(false); }
   };
-  const offline = !connected && !loading;
+  // 미로그인(error=auth)은 온보딩, 오프라인은 네트워크/서버 실제 실패에만 (t_c0fb3b22 P0)
+  const signedOut = error === 'errors.auth' && !loading;
+  const offline = !connected && !loading && !signedOut;
   return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
     {!isSidebar && <View style={styles.header}>
       <Text style={styles.headerTitle} numberOfLines={1}>{t('common.app')}</Text>
@@ -73,7 +84,7 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       </View>
     </View>}
     {/* 이어보기 배너 (t_eded715c): PC 홈(중앙)에서만 — 다른 기기 미읽음 세션으로 즉시 이동 */}
-    {isHome && !offline && <ResumeBanner onOpen={(item) => navigation.navigate('Chat', { sessionId: item.session_id, sessionTitle: item.title ?? undefined, agentId: item.agent_id ?? undefined, agentName: item.agent_name ?? undefined })} />}
+    {isHome && connected && <ResumeBanner onOpen={(item) => navigation.navigate('Chat', { sessionId: item.session_id, sessionTitle: item.title ?? undefined, agentId: item.agent_id ?? undefined, agentName: item.agent_name ?? undefined })} />}
     {error && <TouchableOpacity style={styles.errorBar} onPress={() => error === 'errors.auth' ? navigation.navigate('Login') : void refresh()} testID="login-hint">
       <Text style={styles.errorText}>{error === 'errors.auth' ? t('dialogueList.loginHint', { error: t(error) }) : t(error)}</Text>
     </TouchableOpacity>}
@@ -81,7 +92,11 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       {starting && <ActivityIndicator size="small" color={colors.onPrimary} />}
       <Text style={styles.newChatText}>{t(starting ? 'dialogueList.preparing' : 'dialogueList.new')}</Text>
     </TouchableOpacity>
-    {loading ? <ActivityIndicator color={colors.accent} /> : offline ? <View style={styles.empty} testID="offline-panel">
+    {loading ? <ActivityIndicator color={colors.accent} /> : signedOut ? <View style={styles.empty} testID="onboarding-panel">
+      <Text style={styles.emptyText}>{t('errors.auth')}</Text>
+      <Text style={styles.emptySubtext}>{t('dialogueList.loginSub')}</Text>
+      <TouchableOpacity style={styles.offlineAction} onPress={() => navigation.navigate('Login')} testID="signin-button"><Text style={styles.offlineActionText}>{t('dialogueList.signin')}</Text></TouchableOpacity>
+    </View> : offline ? <View style={styles.empty} testID="offline-panel">
       <Text style={styles.emptyText}>{t('dialogueList.unavailable')}</Text>
       <Text style={styles.emptySubtext}>{t(error || 'dialogueList.check')}</Text>
       <TouchableOpacity style={styles.offlineAction} onPress={() => void refresh()} testID="retry-button"><Text style={styles.offlineActionText}>{t('common.retry')}</Text></TouchableOpacity>

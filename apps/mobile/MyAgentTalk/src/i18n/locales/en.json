@@ -169,7 +169,7 @@
     "empty": "Write a message first.",
     "tooLong": "Keep your message under {{limit}} characters.",
     "request": "Something went wrong. Please try again.",
-    "auth": "Please sign in to continue.",
+    "auth": "You need to sign in",
     "credentials": "Enter your email and password.",
     "token": "We couldn’t sign you in. Please try again.",
     "bootstrap": "We couldn’t load your account.",
@@ -207,7 +207,7 @@
     "offline": "Offline",
     "new": "Start a chat",
     "preparing": "Starting your chat…",
-    "unavailable": "We can’t reach the server",
+    "unavailable": "We can't reach the server",
     "check": "Check your connection and try again.",
     "retry": "Try again",
     "empty": "No conversations yet",
@@ -217,7 +217,9 @@
     "defaultDescription": "Default chat assistant",
     "title": "Chat with {{agentName}}",
     "continue": "Continue your chat with {{agentName}}",
-    "loginHint": "{{error}} — Tap to sign in"
+    "loginHint": "{{error}} — Tap to sign in",
+    "signin": "Sign in / Sign up",
+    "loginSub": "Sign in to start chatting with your agents."
   },
   "fork": {
     "action": "Start a new project from here",

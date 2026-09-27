@@ -169,7 +169,7 @@
     "empty": "메시지를 입력해주세요",
     "tooLong": "메시지는 {{limit}}자까지 보낼 수 있어요",
     "request": "요청을 처리하지 못했습니다. 다시 시도해주세요.",
-    "auth": "로그인이 필요합니다.",
+    "auth": "로그인이 필요해요",
     "credentials": "이메일과 비밀번호를 입력하세요.",
     "token": "토큰을 받지 못했습니다.",
     "bootstrap": "로그인 정보를 불러오지 못했습니다",
@@ -207,7 +207,7 @@
     "offline": "오프라인",
     "new": "에이전트와 이어서 대화",
     "preparing": "세션 준비 중…",
-    "unavailable": "백엔드에 연결할 수 없습니다",
+    "unavailable": "서버에 연결할 수 없어요",
     "check": "네트워크 또는 서버 상태를 확인하세요.",
     "retry": "다시 시도",
     "empty": "대화가 없습니다",
@@ -217,7 +217,9 @@
     "defaultDescription": "채팅 MVP 기본 에이전트",
     "title": "{{agentName}}와의 대화",
     "continue": "{{agentName}}와의 대화 이어서 보기",
-    "loginHint": "{{error}} — 탭하여 로그인"
+    "loginHint": "{{error}} — 탭하여 로그인",
+    "signin": "로그인 / 가입하기",
+    "loginSub": "에이전트와 대화하려면 로그인해 주세요."
   },
   "fork": {
     "action": "여기서 새 프로젝트 시작",
