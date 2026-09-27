@@ -8,8 +8,8 @@ import ContextPanel from '../components/ContextPanel';
 import { useCardActions } from '../hooks/useCardActions';
 import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useLayout } from '../hooks/useLayout';
-import { useJoystickMap } from '../hooks/useJoystickMap';
-import ChatVoiceConsole from '../components/ChatVoiceConsole';
+import ChatInputConsole from '../components/ChatInputConsole';
+import { useQueueStrip } from '../hooks/useQueueStrip';
 import { voiceFirstConsole } from '../lib/layout';
 import { getPttKey, getPttMode } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
@@ -20,7 +20,6 @@ import { useAttachments } from '../hooks/useAttachments';
 import PhotoEditorSheet, { PhotoEditResult } from '../components/PhotoEditorSheet';
 import { pickImages, measureImage } from '../lib/imagePicker';
 import { errorKey } from '../lib/errorKeys';
-import { AttachmentChipRow } from '../components/AttachmentChips';
 import type { ForkOrigin } from '../types';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../i18n/format';
@@ -43,7 +42,6 @@ import {
   NativeSyntheticEvent, NativeScrollEvent,
   Pressable,
   StyleSheet,
-  TextInput as RNTextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -51,13 +49,11 @@ import {
   Button,
   Surface,
   Text,
-  TextInput,
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
-import { colors, radii, spacing, typography, webScreenMotion, iconSize } from '../theme';
-import { PaperclipIcon, QueuePendingIcon, QueueAnsweredIcon, QueueSkippedIcon, MicIcon } from '../components/Icon';
-import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, queueItemForMessage, SuggestedQuestion, buildQueueStrip } from '../lib/chatLogic';
-import QueueStrip from '../components/QueueStrip';
+import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
+import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
+import QueueStrip, { QueueMessageMark } from '../components/QueueStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import { useChatSession } from '../hooks/useChatSession';
 
@@ -98,9 +94,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const initialSessionId: string | undefined = route?.params?.sessionId;
   // 즐겨찾기 딥링크 (Wave1): focusMessageId로 진입 → 해당 메시지까지 스크롤 + 하이라이트 1회
   const focusMessageId: string | undefined = route?.params?.focusMessageId;
-  // 상단 큐 스트립 칩 탭 점프 (t_2f45ccb1) — 라우트 파라 대신 로컬 상태(같은 화면 내 스크롤만).
-  // nonce로 같은 칩 재탭에도 효과 재발동(스크롤 재실행).
-  const [queueJump, setQueueJump] = useState<{ id: string; nonce: number } | null>(null);
+  // 상단 큐 스트립 칩 탭 점프 (t_2f45ccb1) — 점프 요청/폴링은 useQueueStrip이 소유 (t_91cb659c 응집).
 
   const {
     messages, sessionId, enterDemo,
@@ -115,7 +109,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
-    peers, talking, talk, queue, suggested, threads,
+    peers, talking, talk, queue, suggested, threads, applyQueueSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -128,15 +122,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   const { pc, wide, width } = useLayout();
   const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
   // t_e735d936 요구 1/2: 음성 우선 — 웹 모바일 진입은 음성 콘솔이 1차 UI, 입력창은 키보드를
-  // 열었을 때만 나타나는 2차 UI. 방향→동작 매핑(↑=키보드 등)은 전역 조이스틱 맵을 그대로 쓴다.
-  const { actionFor, directionLabels } = useJoystickMap();
+  // 열었을 때만 나타나는 2차 UI. 콘솔 조립과 키보드 계층 전환은 ChatInputConsole 소유 (t_91cb659c),
+  // 방향→동작 매핑(↑=키보드 등)은 전역 조이스틱 맵을 그대로 쓴다.
   const voiceMode = voiceFirstConsole({ os: Platform.OS, width, isDemo });
-  const [keyboardOpen, setKeyboardOpen] = useState(route?.params?.keyboard === '1');
-  const chatInputRef = useRef<RNTextInput>(null);
-  // 마이크 권한 거부/캡처 실패 → 폴백: 안내 한 줄 + 입력창 자동 개방(텍스트만으로 완전 작동).
-  // effect 대신 파생값 — setState-in-effect 캐스케이드 금지(eslint react-compiler).
-  const inputOpen = !voiceMode || keyboardOpen || !!ptt.error;
-  useEffect(() => { if (voiceMode && inputOpen) chatInputRef.current?.focus(); }, [voiceMode, inputOpen]);
 
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
   const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
@@ -306,15 +294,15 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
     setForkMessage(m);
   }, [messages, isDemo, sessionId]);
-  // 상단 큐 스트립 행 (t_2f45ccb1) — 서버 queue 스냅샷 우선, 없으면 메시지 로컬 유도.
-  const queueStrip = useMemo(() => buildQueueStrip(messages, queue), [messages, queue]);
+  // 상단 큐 스트립 (t_2f45ccb1 → t_91cb659c 응집): 칩 행 빌드 · GET /queue 보조 폴링 · 칩 탭 점프 요청은 useQueueStrip 소유.
+  const strip = useQueueStrip({ sessionId, live: !isDemo, messages, queue, applyQueueSnapshot });
   // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
   const firstAgentMessageId = useMemo(() => messages.find((m) => m.role === 'agent')?.id, [messages]);
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
   // 딥링크 스크롤 — 그룹을 찾으면 scrollToIndex + 하이라이트 2.6초, 히스토리 밖이면 loadOlder로 역행 추적
-  // 점프 소스 2종 (t_2f45ccb1): 즐겨찾기/피드 딥링크(focusMessageId) + 상단 큐 칩 탭(queueJump, 우선)
-  const jumpTarget = queueJump?.id ?? focusMessageId;
-  const jumpNonce = queueJump?.nonce ?? 0;
+  // 점프 소스 2종 (t_2f45ccb1): 즐겨찾기/피드 딥링크(focusMessageId) + 상단 큐 칩 탭(strip.jump, 우선)
+  const jumpTarget = strip.jump?.id ?? focusMessageId;
+  const jumpNonce = strip.jump?.nonce ?? 0;
   useEffect(() => {
     if (!jumpTarget) return;
     // setTimeout(0) 지연 — DialogueListScreen의 refresh 패턴과 동일 (effect 동기 setState 회피)
@@ -492,7 +480,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       </View>
 
       {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기. */}
-      <QueueStrip items={queueStrip} canFork={canFork && !isDemo} onJump={(id) => setQueueJump({ id, nonce: Date.now() })} onReply={openThreadOf} onFork={forkOf} />
+      <QueueStrip items={strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
       <ThreadListModal visible={threadsOpen} threads={threads} onClose={() => setThreadsOpen(false)} onOpenThread={openThreadOf} />
 
       {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.
@@ -536,16 +524,7 @@ export default function ChatScreen({ navigation, route }: Props) {
             {message.role === 'user' && <View style={styles.userMetaRow}>
               <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>
               {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
-              {(() => {
-                const q = queueItemForMessage(queue, message);
-                if (!q) return null;
-                return <View style={styles.queueMark} testID={`queue-mark-${q.id}`} accessibilityLabel={t(`queue.${q.status}`)}>
-                  {q.status === 'pending' ? <QueuePendingIcon size={iconSize.tileSm} color={colors.text3} />
-                    : q.status === 'answered' ? <QueueAnsweredIcon size={iconSize.tileSm} color={colors.statusOk} />
-                    : <QueueSkippedIcon size={iconSize.tileSm} color={colors.text3} />}
-                  <Text style={styles.queueMarkText}>{t(`queue.${q.status}`)}</Text>
-                </View>;
-              })()}
+              <QueueMessageMark queue={queue} message={message} />
             </View>}
             {message.status === 'failed' && <View style={styles.msgHeader}>
               <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
@@ -597,84 +576,28 @@ export default function ChatScreen({ navigation, route }: Props) {
         <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selectedIds.length, i18n.language) })}</Text>
         <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
       </View>}
-      {input.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
-      {/* 첨부 스테이지 — 전송 대기 칩 행 (t_4497cfce P1-2) */}
-      <View style={styles.stageRow}>
-        <AttachmentChipRow items={att.items} onRemove={att.remove} onRetry={att.retry} />
-      </View>
-      {/* 하단 입력 영역 — t_e735d936 요구 1: 음성 우선. 웹 모바일은 기본이 음성 콘솔(조이스틱 홀드-투-톡)이고
-          텍스트 입력창은 키보드를 열었을 때만 나타나는 2차 UI. PC/네이티브/데모는 기존 입력창 상시. */}
-      {voiceMode && !keyboardOpen && (
-        <ChatVoiceConsole
-          onPressHoldStart={ptt.startHold}
-          onHoldEnd={ptt.endHold}
-          onHoldAbort={ptt.abortHold}
-          actionFor={(g) => actionFor(g)}
-          directionLabels={directionLabels()}
-          recording={ptt.active || talking}
-          error={ptt.error}
-          onOpenKeyboard={() => setKeyboardOpen(true)}
-        />
-      )}
-      {/* 폴백(error): 콘솔은 유지(거부 해제 후 재시도 가능)하되 안내 한 줄이 콘솔 안에 뜨고,
-          입력창이 자동 개방되어 텍스트만으로 완전 작동(요구 1). */}
-      {inputOpen && (
-      <View style={styles.inputBar}>
-        <View style={styles.inputRow}>
-        {/* 클립 버튼 (t_4497cfce P1-2): 사진 선택 → 업로드 + 편집기. PTT 마이크와 동일 SVG 아이콘 버튼 패턴 (#2/#4). */}
-        <Pressable accessibilityRole="button" accessibilityLabel={t('attachments.attach')} onPress={() => void attachPhoto()} disabled={isDemo || att.count >= 10} testID="attach-button" style={({ pressed }) => [styles.clipButton, pressed && { backgroundColor: colors.surfaceHover }]}>
-          <PaperclipIcon size={iconSize.glyph} color={colors.text2} />
-        </Pressable>
-        <TextInput
-          ref={chatInputRef}
-          mode="outlined"
-          value={input}
-          onChangeText={setInput}
-          placeholder={t('chat.placeholder')}
-          placeholderTextColor={colors.text3}
-          style={styles.textInput}
-          outlineColor={colors.border}
-          activeOutlineColor={colors.accent}
-          textColor={colors.text1}
-          dense
-          multiline={false}
-          testID="chat-input"
-          onSubmitEditing={submit}
-          returnKeyType="send"
-          accessibilityLabel={t('chat.input')}
-        />
-        {/* t_e735d936: 음성 우선 화면에서만 — 키보드 진입 후 음성 콘솔로 되돌아가는 복귀 버튼 */}
-        {voiceMode && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('chat.voiceBack')}
-            onPress={() => { chatInputRef.current?.blur(); setKeyboardOpen(false); }}
-            testID="chat-voice-back"
-            style={({ pressed }) => [styles.clipButton, pressed && { backgroundColor: colors.surfaceHover }]}
-          >
-            <MicIcon size={iconSize.glyph} color={colors.text2} />
-          </Pressable>
-        )}
-        {/* t_4b1bd4c2 요구 1: 입력창 옆 마이크 홀드 버튼 폐기 — 음성 진입은 PTT 키(PC) / 조이스틱 탭(음성 홈)으로만 */}
-        {/* t_64af90b0 #4 — paper Button은 disabled 시 색상 오버라이드가 무시되어 회색이 된다 →
-            커스텀 Pressable: 비활성 = 액센트 55% (초록 체계 유지), 활성 = 액센트. 제출 자체는 submit()이 검증. */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('chat.sendLabel')}
-          onPress={submit}
-          disabled={!validateMessageInput(input).ok}
-          testID="send-button"
-          style={({ pressed }) => [
-            styles.sendButton,
-            { backgroundColor: validateMessageInput(input).ok ? colors.accent : colors.accent + '55' },
-            pressed && validateMessageInput(input).ok && { backgroundColor: colors.accent + 'CC' },
-          ]}
-        >
-          <Text style={styles.sendLabel}>{t('chat.send')}</Text>
-        </Pressable>
-        </View>
-      </View>
-      )}
+      {/* 하단 입력 영역 (t_91cb659c): 첨부 스테이지 + 음성 콘솔(1차) + 키보드 입력바(2차) 조립은 ChatInputConsole 소유
+          (초장문 안내 한 줄 포함).
+          t_e735d936 요구 1 유지: 웹 모바일은 기본이 음성 콘솔(조이스틱 홀드-투-톡), 입력창은 키보드를
+          열었을 때만 나타나는 2차 UI. PC/네이티브/데모는 기존 입력창 상시. */}
+      <ChatInputConsole
+        value={input}
+        onChangeText={setInput}
+        onSubmit={submit}
+        isDemo={isDemo}
+        attachmentItems={att.items}
+        attachmentCount={att.count}
+        onAttach={() => void attachPhoto()}
+        onAttachmentRemove={att.remove}
+        onAttachmentRetry={att.retry}
+        voiceMode={voiceMode}
+        initialKeyboardOpen={route?.params?.keyboard === '1'}
+        recording={ptt.active || talking}
+        pttError={ptt.error}
+        onPressHoldStart={ptt.startHold}
+        onHoldEnd={ptt.endHold}
+        onHoldAbort={ptt.abortHold}
+      />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
@@ -845,8 +768,6 @@ const styles = StyleSheet.create({
   },
   // 질문 큐 체크포인트 (t_1797f432 ②) — user 카드 하단 상태 행: 전송 표시 + 큐 마커 한 줄
   userMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
-  queueMark: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp1, minWidth: 0 },
-  queueMarkText: { ...typography.micro, color: colors.text3, flexShrink: 1, minWidth: 0 },
   // 후속 질문 칩 (t_1797f432 ③) — 타이핑/스트리밍 종료 후 최종 답변 아래 2~3개, 탭 시 즉시 전송
   suggestRow: { gap: spacing.sp2, paddingTop: spacing.sp1 },
   suggestTitle: { ...typography.micro, color: colors.text3 },
@@ -913,50 +834,9 @@ const styles = StyleSheet.create({
     color: colors.text3,
     textAlign: 'center',
   },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sp2,
-    paddingHorizontal: spacing.sp3,
-    paddingTop: spacing.sp2,
-    paddingBottom: Platform.OS === 'ios' ? spacing.sp4 : spacing.sp3,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  textInput: {
-    ...typography.body,
-    minWidth: 0,
-    flexShrink: 1,
-    flex: 1,
-    backgroundColor: colors.surface,
-    maxHeight: spacing.sp6 * 2,
-    borderRadius: radii.md,
-  },
-  sendButton: {
-    minWidth: 0,
-    flexShrink: 1,
-    borderRadius: radii.md,
-    minHeight: spacing.sp10 + spacing.sp1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sp3,
-  },
-  sendContent: {
-    paddingHorizontal: spacing.sp3,
-  },
-  sendLabel: {
-    ...typography.bodyBold,
-    letterSpacing: 0,
-    color: colors.onPrimary,
-    minWidth: 0,
-    flexShrink: 1,
-  },
   // ── 반응형 2트랙 (t_eded715c) ──
   // shell: 채팅 본문 + (PC wide) 우측 컨텍스트 패널을 나란히. 모바일에서는 패널 미렌더라 단일 컬럼과 동일.
+  // 입력바/스테이지/클립 스타일은 ChatInputConsole로 이동 (t_91cb659c)
   shell: { flex: 1, flexDirection: 'row', backgroundColor: colors.bg },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginTop: spacing.sp1 },
-  inputRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
-  stageRow: { paddingHorizontal: spacing.sp4, paddingTop: spacing.sp2, minHeight: 0 },
-  clipButton: { width: spacing.sp10, height: spacing.sp10, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceRaise },
 });

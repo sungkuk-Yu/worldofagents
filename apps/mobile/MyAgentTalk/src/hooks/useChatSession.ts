@@ -10,7 +10,7 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
-  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildQueueStrip, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
+  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -54,6 +54,8 @@ export interface UseChatSessionReturn {
   };
   // 질문 큐 체크포인트 (t_1797f432 ②): 세션 message_queue 스냅샷 — 빈 배열이면 표시 없음
   queue: QueueItem[];
+  /** GET /queue 보조 폴링이 쓰는 queue 스냅샷 적용기 (안정 ref, t_91cb659c 스트립 훅 응집) */
+  applyQueueSnapshot: (items: QueueItem[]) => void;
   /** 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 */
   threads: ThreadIndexEntry[];
   /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
@@ -139,31 +141,10 @@ export function useChatSession(
     setMessages(runtime.messages);
   }, [runtimeRef]);
 
-  // 큐 스냅샷 폴링 (t_2f45ccb1): WS queue.updated 미수신/미착지 구간의 보조 데이터원.
-  // GET /api/sessions/:id/queue — 백엔드 라우트 착지 전 404는 조용히 무시(로컬 유도 strip이 버틴다).
-  // 상시 요청 금지: 세션 진입 시 1회 부트스트랩 pull + strip에 pending이 있는 동안에만 15초 주기.
-  const queuePollSid = mode === 'live' ? sessionId : null;
-  const stripPending = buildQueueStrip(messages, queue).some((s) => s.status === 'pending');
-  const queuePulledSid = useRef<string | null>(null);
-  useEffect(() => {
-    if (!queuePollSid) return;
-    let disposed = false;
-    const pull = async () => {
-      try {
-        const env = await api.getQueue(queuePollSid);
-        if (disposed || !env?.ok || !Array.isArray((env as { data?: unknown }).data)) return;
-        setQueue(normalizeQueueItems((env as { data: unknown }).data));
-      } catch { /* 404/네트워크 — 계약 미착지 구간: strip은 messages 로컬 유도로 표시 */ }
-    };
-    // 부트스트랩: 세션당 1회 (stripPending 토글마다 재pull하면 WS queue.updated를 낡은 스냅샷으로 덮어씀)
-    let timer: ReturnType<typeof setInterval> | undefined;
-    if (queuePulledSid.current !== queuePollSid) {
-      queuePulledSid.current = queuePollSid;
-      void pull();
-    }
-    if (stripPending) timer = setInterval(() => void pull(), 15000);
-    return () => { disposed = true; if (timer) clearInterval(timer); };
-  }, [queuePollSid, stripPending]);
+  // 큐 스냅샷 보조 폴링은 useQueueStrip(스트립 도메인 훅)으로 응집 (t_91cb659c 리팩터링).
+  // 이 훅은 WS queue.updated / GET messages 스냅샷의 단일 queue 상태 원천만 유지하고,
+  // 폴링의 동일 상태 적용은 applyQueueSnapshot(안정 ref)을 통해 이루어진다 (이중 상태원천 금지).
+  const applyQueueSnapshot = useCallback((items: QueueItem[]) => setQueue(items), []);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -615,6 +596,8 @@ export function useChatSession(
     peers, talking, talk,
     // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
     queue, suggested,
+    /** 스트립 보조 폴링의 단일 queue 상태 적용기 (t_91cb659c) — useQueueStrip에 전달 */
+    applyQueueSnapshot,
     // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 기준
     threads,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,

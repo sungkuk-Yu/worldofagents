@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { colors, iconSize, radii, spacing, typography } from '../theme';
 import { formatNumber } from '../i18n/format';
 import { QueueAnsweredIcon, QueuePendingIcon, QueueSkippedIcon } from './Icon';
-import type { QueueStripItem } from '../lib/chatLogic';
+import { queueItemForMessage, ChatMessage, QueueItem, QueueStripItem } from '../lib/chatLogic';
 
 interface Props {
   items: QueueStripItem[];
@@ -108,4 +108,25 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.surface,
   },
   actionText: { ...typography.micro, color: colors.text2 },
+});
+
+// 질문 큐 체크포인트 마커 (t_1797f432 ②) — 사용자 메시지 행의 상태 아이콘+라벨.
+// 스트립과 동일 데이터원(queue 스냅샷)을 쓰는 형제 UI이므로 QueueStrip 파일에 공동 배치 (t_91cb659c).
+// 매칭 큐 항목이 없으면 렌더 없음(서버 이벤트 미착지 구간 조용히 스킵).
+export function QueueMessageMark({ queue, message }: { queue: QueueItem[]; message: ChatMessage }) {
+  const { t } = useTranslation();
+  const q = queueItemForMessage(queue, message);
+  if (!q) return null;
+  return <View style={markStyles.mark} testID={`queue-mark-${q.id}`} accessibilityLabel={t(`queue.${q.status}`)}>
+    {q.status === 'pending' ? <QueuePendingIcon size={iconSize.tileSm} color={colors.text3} />
+      : q.status === 'answered' ? <QueueAnsweredIcon size={iconSize.tileSm} color={colors.statusOk} />
+      : <QueueSkippedIcon size={iconSize.tileSm} color={colors.text3} />}
+    <Text style={markStyles.markText}>{t(`queue.${q.status}`)}</Text>
+  </View>;
+}
+
+// 값은 ChatScreen 인라인 시절과 동일 (리팩터링 전용)
+const markStyles = StyleSheet.create({
+  mark: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp1, minWidth: 0 },
+  markText: { ...typography.micro, color: colors.text3, flexShrink: 1, minWidth: 0 },
 });
