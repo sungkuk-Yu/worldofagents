@@ -32,7 +32,7 @@ export interface UseChatSessionReturn {
   lastError: string | null;
   hasOlder: boolean;
   loadingOlder: boolean;
-  send: (content: string) => Promise<SendResult>;
+  send: (content: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }) => Promise<SendResult>;
   retryLastSend: () => Promise<SendResult>;
   loadOlder: () => Promise<void>;
   enterDemo: () => void;
@@ -73,7 +73,7 @@ function createRuntime(onChange: (active: boolean, quip: string | null, count: n
       runStages: new Map<string, string>(),
       sequence: createSequenceTracker(), streams: [] as StreamingAnswer[],
       socket: null as VoiceSocket | null, stop: () => {},
-      lastFailedContent: null as { content: string; id: string } | null,
+      lastFailedContent: null as { content: string; id: string; attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] } } | null,
       demoTimers: new Map<ReturnType<typeof setTimeout>, (result: SendResult) => void>(),
       // 연속성 (t_eded715c): 읽기 커서 PUT dedup / PTT 세그먼트 열림
       lastSentCursor: null as number | null,
@@ -402,7 +402,7 @@ export function useChatSession(
     }
   }, [runtimeRef, hasOlder, updateMessages, rootMessageId]);
 
-  const performSend = useCallback(async (content: string, retryId?: string): Promise<SendResult> => {
+  const performSend = useCallback(async (content: string, retryId?: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }): Promise<SendResult> => {
     const runtime = runtimeRef.current;
     const validation = validateMessageInput(content);
     if (!validation.ok) return { ok: false, error: validation.errorKey! };
@@ -416,6 +416,8 @@ export function useChatSession(
     setLastError(null);
     updateMessages((prev) => appendOptimistic(prev, {
       id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
+      // 첨부 낙관 프리뷰 — 서버 확정 시 message.new/confirm의 attachments 요약으로 대체된다 (t_4497cfce)
+      ...(attachments?.previews?.length ? { pendingAttachments: attachments.previews, pendingAttachmentIds: attachments.ids, attachments: [] } : {}),
     }));
     coordinator.start(execId);
     runtime.scopedRuns.add(execId);
@@ -435,14 +437,22 @@ export function useChatSession(
     }
     try {
       if (!sid || !runtime.initialized) throw new Error('errors.notReady');
-      const env = await api.sendMessage(sid, text, execId, rootMessageId ? { parent_message_id: rootMessageId } : undefined);
+      const env = await api.sendMessage(sid, text, execId, {
+        ...(rootMessageId ? { parent_message_id: rootMessageId } : {}),
+        // 첨부 링크 (t_4497cfce): 업로드 완료 ID만 — 서버가 user 메시지에 링크 후 messages.attachments 요약 발행
+        ...(attachments?.ids?.length ? { attachment_ids: attachments.ids } : {}),
+      });
       if (!env.ok || !env.data) throw new Error('errors.response');
       if (generation !== runtime.generation) return { ok: false, error: 'errors.changed' };
       if (env.data.run_id) runtime.scopedRuns.add(env.data.run_id);
       updateMessages((prev) => {
         const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base);
         const existing = new Set(prev.filter((m) => m.id !== optimisticId).map((m) => m.id));
-        return rootMessageId ? confirmed.map((m) => existing.has(m.id) ? m : { ...m, parentMessageId: rootMessageId }) : confirmed;
+        const userId = env.data!.user_message_id || optimisticId;
+        return confirmed
+          .map((m) => (rootMessageId && !existing.has(m.id) ? { ...m, parentMessageId: rootMessageId } : m))
+          // 확정 user 행의 attachments 요약이 빈 배열이면(저장 직렬화 시점 경쟁) 낙관 프리뷰로 유지 (t_4497cfce)
+          .map((m) => (m.id === userId && attachments?.previews?.length && !(m.attachments as unknown[] | undefined)?.length ? { ...m, pendingAttachments: attachments.previews } : m));
       });
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
@@ -453,7 +463,7 @@ export function useChatSession(
       const error = errorText(e);
       if (generation === runtime.generation) {
         updateMessages((prev) => prev.map((m) => m.id === optimisticId ? { ...m, pending: false, status: 'failed' } : m));
-        runtime.lastFailedContent = { content, id: optimisticId };
+        runtime.lastFailedContent = { content, id: optimisticId, attachments };
         setLastError(error);
       }
       coordinator.finish(execId, sid ?? '', undefined, true);
@@ -463,11 +473,11 @@ export function useChatSession(
       coordinator.finish(execId, sid ?? '');
     }
   }, [runtimeRef, updateMessages, rootMessageId]);
-  const send = useCallback((content: string) => performSend(content), [performSend]);
+  const send = useCallback((content: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }) => performSend(content, undefined, attachments), [performSend]);
   const retryLastSend = useCallback((): Promise<SendResult> => {
     const runtime = runtimeRef.current;
     const failed = runtime.lastFailedContent;
-    return failed ? performSend(failed.content, failed.id)
+    return failed ? performSend(failed.content, failed.id, failed.attachments ?? undefined)
       : Promise.resolve({ ok: false, error: 'errors.noRetry' });
   }, [runtimeRef, performSend]);
   const enterDemo = useCallback(() => {
@@ -481,7 +491,11 @@ export function useChatSession(
   const retryConnection = useCallback(() => runtimeRef.current.retry(), []);
   const retryMessage = useCallback((id: string) => {
     const message = runtimeRef.current.messages.find((m) => m.id === id && m.status === 'failed');
-    return message ? performSend(message.draft ?? message.content, id) : Promise.resolve<SendResult>({ ok: false, error: 'errors.noRetry' });
+    if (!message) return Promise.resolve<SendResult>({ ok: false, error: 'errors.noRetry' });
+    const attachments = message.pendingAttachmentIds?.length
+      ? { ids: message.pendingAttachmentIds, previews: message.pendingAttachments }
+      : undefined;
+    return performSend(message.draft ?? message.content, id, attachments);
   }, [performSend]);
   const deleteMessage = useCallback((id: string) => {
     if (runtimeRef.current.lastFailedContent?.id === id) runtimeRef.current.lastFailedContent = null;

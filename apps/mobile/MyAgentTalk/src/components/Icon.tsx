@@ -55,3 +55,15 @@ export function BoardIcon({ size = 18, color = colors.text2, testID }: IconProps
     <Path fill={color} d="M3,3H9V21H3V3M11,3H17V13H11V3M19,3H21V8H19V3M11,15H17V21H11V15M19,10H21V21H19V10Z" />
   </Svg>;
 }
+
+export function PaperclipIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M16.5,6V17.5C16.5,19.54 14.89,21.15 12.85,21.15C10.81,21.15 9.2,19.54 9.2,17.5V5C9.2,3.73 10.23,2.7 11.5,2.7C12.77,2.7 13.8,3.73 13.8,5V17.5C13.8,18.02 13.37,18.45 12.85,18.45C12.33,18.45 11.9,18.02 11.9,17.5V6H10.9V17.5C10.9,18.58 11.78,19.45 12.85,19.45C13.93,19.45 14.8,18.58 14.8,17.5V5C14.8,3.2 13.3,1.7 11.5,1.7C9.7,1.7 8.2,3.2 8.2,5V17.5C8.2,20.07 10.28,22.15 12.85,22.15C15.42,22.15 17.5,20.07 17.5,17.5V6H16.5Z" />
+  </Svg>;
+}
+
+export function FeedIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M3,3H11V11H3V3M13,3H21V11H13V3M3,13H11V21H3V13M13,13H21V21H13V13M5,5V9H9V5H5M15,5V9H19V5H15M5,15V19H9V15H5M15,15V19H19V15H15Z" />
+  </Svg>;
+}

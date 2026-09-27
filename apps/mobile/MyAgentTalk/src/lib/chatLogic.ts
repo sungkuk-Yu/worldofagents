@@ -22,6 +22,7 @@ export interface ServerMessageRow {
   parent_message_id?: unknown;
   thread_reply_count?: unknown;
   run_id?: string;
+  attachments?: unknown;
 }
 
 /** 서버 행 → UI 메시지 정규화 */
@@ -32,7 +33,7 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
   if (!Array.isArray(rows)) return [];
   return rows.filter(isRecord).filter((r) =>
     typeof r.id === 'string' && !!r.id &&
-    (typeof r.content === 'string' && r.content.length > 0 || isRecord(r.structured_payload))
+    (typeof r.content === 'string' && r.content.length > 0 || isRecord(r.structured_payload) || (Array.isArray(r.attachments) && r.attachments.length > 0))
   ).map((r): ChatMessage => ({
     id: r.id as string,
     aiGenerated: typeof r.ai_generated === 'boolean' ? r.ai_generated : undefined,
@@ -47,6 +48,8 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     threadReplyCount: typeof r.thread_reply_count === 'number' && Number.isInteger(r.thread_reply_count) && r.thread_reply_count >= 0 ? r.thread_reply_count : undefined,
     // 즐겨찾기 영속화 (백엔드 t_219c4d36) — GET messages 응답의 favorite 보존. 결측 시 undefined(로컬 상태 우선).
     favorite: typeof r.favorite === 'boolean' ? r.favorite : undefined,
+    // 첨부 요약 (t_4497cfce) — messages.attachments JSONB {id,url,mime,size,name}[] (백엔드 독해 위임 코멘트)
+    attachments: Array.isArray(r.attachments) ? r.attachments : undefined,
     runId: typeof r.run_id === 'string' ? r.run_id : undefined,
     status: 'sent',
   })).sort((a, b) => a.turnIndex - b.turnIndex);

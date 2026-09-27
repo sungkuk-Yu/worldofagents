@@ -13,6 +13,11 @@ import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
 import { parseForkOrigin, canForkAgent } from '../lib/cardLogic';
 import { api } from '../lib/api';
+import { useAttachments } from '../hooks/useAttachments';
+import PhotoEditorSheet, { PhotoEditResult } from '../components/PhotoEditorSheet';
+import { pickImages, measureImage } from '../lib/imagePicker';
+import { errorKey } from '../lib/errorKeys';
+import { AttachmentChipRow } from '../components/AttachmentChips';
 import type { ForkOrigin } from '../types';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../i18n/format';
@@ -45,7 +50,8 @@ import {
   TextInput,
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
-import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
+import { colors, radii, spacing, typography, webScreenMotion, iconSize } from '../theme';
+import { PaperclipIcon } from '../components/Icon';
 import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft } from '../lib/chatLogic';
 import { useChatSession } from '../hooks/useChatSession';
 
@@ -155,6 +161,34 @@ export default function ChatScreen({ navigation, route }: Props) {
   }, [sessionId, isDemo]);
 
   const [input, setInput] = useState('');
+  // 첨부 스테이지 + 사진 편집기 (t_4497cfce P1-2/P0-1): 클립 → 선택 → 즉시 업로드 + 편집기.
+  const att = useAttachments();
+  const [editing, setEditing] = useState<{ source: { uri: string; width: number; height: number }; localId: string } | null>(null);
+  const attachPhoto = useCallback(async () => {
+    if (isDemo) { setUnavailableError('errors.unavailableAction'); return; }
+    try {
+      const picked = await pickImages(1);
+      if (!picked.length) return;
+      const localId = await att.add(picked[0]);
+      const size = await measureImage(picked[0].uri);
+      if (localId && size.width > 0 && size.height > 0) setEditing({ source: { uri: picked[0].uri, width: size.width, height: size.height }, localId });
+    } catch (e) {
+      setUnavailableError(errorKey(e));
+    }
+  }, [isDemo, att, setUnavailableError]);
+  // 편집 저장 → 원본 스테이지 행을 편집본으로 교체 + 지시문 프리필 (카드 §1 photo_edit 계약)
+  const onEditSave = useCallback(async (res: PhotoEditResult) => {
+    if (res.edited) {
+      const prev = att.items.find((x) => x.localId === editing?.localId);
+      if (prev) att.remove(prev.localId);
+      const file = Platform.OS === 'web'
+        ? { uri: URL.createObjectURL(res.edited as Blob), name: res.editedName, type: 'image/png' }
+        : res.edited as { uri: string; name: string; type: string };
+      await att.add(file);
+    }
+    // 편집 실패 폴백(res.edited=null): 원본 첨부 행을 유지하고 지시문만 입력에 남긴다.
+    setInput((cur) => (cur.trim() ? cur.trimEnd() + '\n' : '') + res.text);
+  }, [att, editing]);
   // 다중 선택 모드 (대표님 지시 9/26 — "복수로 누를수 있게, 다음대화에서 이어가거나 보관"):
   // 진입 = 앱바 '선택' 버튼 또는 카드 롱프레스. 보관 = 선택 카드 일괄 즐겨찾기(서버 PATCH),
   // 이어가기 = 가장 최근 선택 카드 지점의 포크(ForkDialog 재사용 — 백엔드 선택적 포크 없는 MVP는 계보 preserved 방식).
@@ -181,28 +215,47 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   const submit = useCallback(() => {
     const validation = validateMessageInput(input);
+    // 첨부 게이트 (t_4497cfce P1-2): 텍스트 필수 + 업로드 중 행 없음 + 완료 행만 동봉 (서버 400 방어 = UX 선방어)
     if (!validation.ok) return;
+    if (att.uploading) { setUnavailableError('errors.uploadPending'); return; }
+    if (!att.items.length) {
+      const text = input;
+      setInput('');
+      setSendFailed(false);
+      void send(text).then((res) => {
+        if (!res.ok) {
+          setInput((current) => restoreFailedDraft(current, text));
+          setSendFailed(true);
+        } else {
+          try { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); } catch { /* web no-op */ }
+        }
+      });
+      return;
+    }
+    if (!att.ready) { setUnavailableError('errors.uploadFailed'); return; } // 오류 행 = 재시도 후 전송
     const text = input;
+    const payload = { ids: att.ids(), previews: att.items.map((it) => ({ localId: it.localId, name: it.name, uri: it.localUri, type: it.type, status: 'done' as const })) };
     setInput('');
     setSendFailed(false);
-    void send(text).then((res) => {
+    void send(text, payload).then((res) => {
       if (!res.ok) {
-        // 실패 시 입력 원문 복원 (Codex 리뷰 #2 — 초안 보존) + 재시도 UI
         setInput((current) => restoreFailedDraft(current, text));
         setSendFailed(true);
+        // 첨부는 재시도 실패 시 낙관 행(failed)의 pendingAttachments로 유지 — 서버 링크 실패와 무관하게 ID 재전송 가능
       } else {
-        // 햅틱 (#52 규칙 4): 전송 성공 = light impact — 이 3곳 외 남용 금지
+        att.clear();
         try { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); } catch { /* web no-op */ }
       }
     });
-  }, [input, send]);
+  }, [input, send, att, setUnavailableError]);
 
   const retry = useCallback(() => {
     setSendFailed(false);
     void retryLastSend().then((res) => {
       if (!res.ok) setSendFailed(true);
+      else att.clear(); // 재시도는 최초 실패 시 보존된 첨부 ID로 전송 — 스테이지 정리 (t_4497cfce)
     });
-  }, [retryLastSend]);
+  }, [retryLastSend, att, setSendFailed]);
 
   const nearBottom = useRef(true);
   const offset = useRef(0);
@@ -462,9 +515,17 @@ export default function ChatScreen({ navigation, route }: Props) {
         <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
       </View>}
       {input.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
+      {/* 첨부 스테이지 — 전송 대기 칩 행 (t_4497cfce P1-2) */}
+      <View style={styles.stageRow}>
+        <AttachmentChipRow items={att.items} onRemove={att.remove} onRetry={att.retry} />
+      </View>
       {/* 하단 입력 영역 — 화이트 배경 + 초박형 상단 테두리, 그린 포커스 (Mintlify 패턴) */}
       <View style={styles.inputBar}>
         <View style={styles.inputRow}>
+        {/* 클립 버튼 (t_4497cfce P1-2): 사진 선택 → 업로드 + 편집기. PTT 마이크와 동일 SVG 아이콘 버튼 패턴 (#2/#4). */}
+        <Pressable accessibilityRole="button" accessibilityLabel={t('attachments.attach')} onPress={() => void attachPhoto()} disabled={isDemo || att.count >= 10} testID="attach-button" style={({ pressed }) => [styles.clipButton, pressed && { backgroundColor: colors.surfaceHover }]}>
+          <PaperclipIcon size={iconSize.glyph} color={colors.text2} />
+        </Pressable>
         <TextInput
           mode="outlined"
           value={input}
@@ -512,6 +573,8 @@ export default function ChatScreen({ navigation, route }: Props) {
       </View>
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
+      {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
+      <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
     {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지) */}
     {wide && Platform.OS === 'web' && (
@@ -781,4 +844,6 @@ const styles = StyleSheet.create({
   shell: { flex: 1, flexDirection: 'row', backgroundColor: colors.bg },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginTop: spacing.sp1 },
   inputRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
+  stageRow: { paddingHorizontal: spacing.sp4, paddingTop: spacing.sp2, minHeight: 0 },
+  clipButton: { width: spacing.sp10, height: spacing.sp10, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceRaise },
 });

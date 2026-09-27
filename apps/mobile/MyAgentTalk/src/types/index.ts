@@ -152,6 +152,12 @@ export interface ChatMessage {
   status?: 'pending' | 'sent' | 'failed';
   runId?: string;
   draft?: string;
+  /** 첨부 요약 (messages.attachments JSONB — {id,url,mime,size,name}[], 백엔드 t_401c5bd1) */
+  attachments?: unknown;
+  /** 전송 실패 시 재시도용 업로드 완료 ID (previews와 한 쌍) */
+  pendingAttachmentIds?: string[];
+  /** 전송 대기 중인 로컬 첨부 프리뷰 (useAttachments.AttachmentDraft 호환 형태) */
+  pendingAttachments?: { localId: string; name: string; uri: string; type: string; status: 'uploading' | 'done' | 'error'; errorKey?: string }[];
 }
 
 /** 로그인 사용자 */

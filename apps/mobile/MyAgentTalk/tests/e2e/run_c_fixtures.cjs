@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [] };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -30,6 +30,10 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     ];
   })() : [];
   state.favorites = state.messages.source.filter((m) => m.favorite).map((m) => ({ message: m, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } }));
+  if (feedPhoto) {
+    // 피드용 즐겨찾기 photo_edit 행 — source 세션에는 넣지 않는다(체팅 재현 카드 testID 중복 방지, favorites-only)
+    state.favorites.push({ message: { id: 'photo', role: 'user', dialogue_type: 'photo_edit', content: '편집된 사진', favorite: true, created_at: '2026-09-27T00:00:00Z', structured_payload: { original_url: 'https://picsum.photos/seed/photo/640/480', crop: { x: 0.1, y: 0.1, w: 0.6, h: 0.6 }, annotations: [{ id: 'a1', kind: 'pin', from: { x: 0.5, y: 0.5 } }] } }, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } });
+  }
   if (wave) {
     // 픽스처 이미지 스텁 — 외부 네트워크 없이 결정적으로 로드/저장 검증
     await page.route('https://picsum.photos/**', (route) => route.fulfill({
@@ -51,11 +55,20 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    const body = request.postDataJSON();
+    // multipart 업로드(t_4497cfce)는 JSON 본문이 아니다 — postDataJSON은 content-type이 JSON일 때만
+    const jsonish = (request.headers()['content-type'] || '').includes('json');
+    const body = jsonish ? request.postDataJSON() : null;
     state.calls.push({ path, method: request.method(), body });
     const ok = (data) => route.fulfill({ json: { ok: true, data } });
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204 });
     if (path === '/api/ws-ticket') return ok({ ticket: 'test-ticket' });
+    // 첨부 업로드 스텁 (t_4497cfce e2e): POST /api/upload → UploadResult (실패 주입 가능)
+    if (path === '/api/upload' && request.method() === 'POST') {
+      if (uploadStub && uploadStub.failOnce && !uploadStub.failed) { uploadStub.failed = true; return route.fulfill({ status: 413, json: { ok: false, error: { code: 'FILE_TOO_LARGE', message: 'too big' } } }); }
+      if (uploadStub) uploadStub.count = (uploadStub.count || 0) + 1;
+      const n = uploadStub ? uploadStub.count : 1;
+      return route.fulfill({ status: 201, json: { ok: true, data: { id: 'att' + n, url: 'https://cdn.test/object/' + n + '.png', object_path: 'u/att' + n + '.png', mime: 'image/png', size: 1200, sha256: 'x'.repeat(64), name: 'photo.png' } } });
+    }
     if (path === '/api/agents') return ok(request.method() === 'POST' ? agent : (rich || wave) ? [agent] : []);
     if (path === '/api/sessions/ensure') return ok(state.sessions[0]);
     if (path === '/api/sessions') return ok(state.sessions);
@@ -92,7 +105,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       const sid = messages[1];
       if (request.method() === 'GET') return ok(state.messages[sid] || []);
       const index = state.calls.length;
-      const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: index, parent_message_id: body.parent_message_id };
+      // 첨부 링크 에코 (t_4497cfce): attachment_ids → messages.attachments 요약 (백엔드 linkAttachmentsToMessage 규격)
+      const echo = (body.attachment_ids || []).map((id, k) => ({ id, url: 'https://cdn.test/object/' + id + '.png', mime: 'image/png', size: 1200, name: 'photo.png' }));
+      const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: index, parent_message_id: body.parent_message_id, attachments: echo };
       const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: index, parent_message_id: body.parent_message_id };
       if (!body.parent_message_id) state.messages[sid].push(user, answer);
       return ok({ user_message_id: user.id, messages: { user, empathy: null, answer }, run_id: 'r' + index });

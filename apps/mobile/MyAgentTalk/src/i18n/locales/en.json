@@ -15,6 +15,7 @@
     "logo": "MAT",
     "aiGenerated": "AI-generated",
     "cancel": "Cancel",
+    "close": "Close",
     "settingsIcon": "⚙",
     "backIcon": "←",
     "forwardIcon": "→"
@@ -201,7 +202,16 @@
     "vault": "Could not sync the vault. Please try again.",
     "micDenied": "Microphone permission is required. Allow it in your browser's address-bar permission settings.",
     "storageSecure": "A secure storage for login credentials is unavailable",
-    "storageLocal": "A storage for login credentials is unavailable"
+    "storageLocal": "A storage for login credentials is unavailable",
+    "fileTooLarge": "This file is too large. Attachments must be 20 MB or smaller.",
+    "unsupportedMediaType": "Only images and PDFs can be attached.",
+    "uploadQuotaExceeded": "You have reached today's upload limit. Please try again tomorrow.",
+    "uploadPending": "The attachment is still uploading. Please try again shortly.",
+    "uploadFailed": "Upload failed. Tap the '!' on the chip to retry.",
+    "photoLoad": "Could not load the photo.",
+    "photoPermDenied": "Photo access is not permitted. Allow it in settings.",
+    "photoSaveFailed": "Could not render the edited image. The original attachment will still be sent.",
+    "saveDenied": "Save permission denied. Allow photo access in settings."
   },
   "dialogueList": {
     "offline": "Offline",
@@ -462,5 +472,50 @@
     "favorites": "Favorites",
     "favoritesEmpty": "No favorite cards yet.",
     "seeAll": "See all"
+  },
+  "attachments": {
+    "attach": "Attach photo",
+    "open": "Open attachment",
+    "image": "Attached image",
+    "file": "Attachment",
+    "uploading": "Uploading",
+    "remove": "Remove",
+    "retry": "Retry"
+  },
+  "photoEditor": {
+    "title": "Edit photo",
+    "tools": { "crop": "Crop", "arrow": "Arrow", "pin": "Pin", "text": "Text" },
+    "note": { "placeholder": "Note (optional)", "add": "Add note" },
+    "presets": "Ratio",
+    "freeRatio": "Free",
+    "reset": "Reset",
+    "notePlaceholder": "Note (optional)",
+    "removeAnnotation": "Remove annotation",
+    "saveSend": "Save edit → ready to send",
+    "hint": "Drag the canvas to adjust the crop area.",
+    "arrowHint": "Arrow: drag from the start point and release to pin it. Add a note to label it.",
+    "undo": "Undo",
+    "clear": "Clear",
+    "cancel": "Cancel",
+    "save": "Save edit",
+    "saving": "Saving…",
+    "failed": "Could not create the edited image. Instructions will still be sent."
+  },
+  "photoEditCard": {
+    "badge": "Photo edit instruction",
+    "save": "Save edited result",
+    "saved": "Saved as image.",
+    "cropLabel": "Crop",
+    "annotationLabel": "Annotation"
+  },
+  "feed": {
+    "title": "Feed",
+    "segments": { "all": "All", "photo": "Photos", "media": "Media" },
+    "empty": "Favorited photos and cards show up here.",
+    "editBadge": "Edited",
+    "save": "Save image",
+    "openSource": "Open source chat",
+    "viewTitle": "Feed",
+    "unfavorite": "Remove favorite"
   }
 }

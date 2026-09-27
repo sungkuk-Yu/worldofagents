@@ -15,6 +15,7 @@
     "logo": "MAT",
     "aiGenerated": "AI 생성",
     "cancel": "취소",
+    "close": "닫기",
     "settingsIcon": "⚙",
     "backIcon": "←",
     "forwardIcon": "→"
@@ -201,7 +202,16 @@
     "vault": "볼트를 반영하지 못했어요. 다시 시도해 주세요.",
     "micDenied": "마이크 권한이 필요해요. 브라우저 주소창 권한 설정에서 허용해 주세요.",
     "storageSecure": "안전한 로그인 정보 저장소를 사용할 수 없습니다",
-    "storageLocal": "로그인 정보 저장소를 사용할 수 없습니다"
+    "storageLocal": "로그인 정보 저장소를 사용할 수 없습니다",
+    "fileTooLarge": "파일이 너무 커요. 20MB 이하만 첨부할 수 있어요.",
+    "unsupportedMediaType": "이미지·PDF만 첨부할 수 있어요.",
+    "uploadQuotaExceeded": "오늘 첨부 업로드 한도를 넘었어요. 내일 다시 시도해 주세요.",
+    "uploadPending": "첨부 업로드가 끝나지 않았어요. 잠시 후 다시 시도해 주세요.",
+    "uploadFailed": "첨부 업로드에 실패했어요. 칩의 '!'를 눌러 재시도해 주세요.",
+    "photoLoad": "사진을 불러오지 못했어요.",
+    "photoPermDenied": "사진 접근 권한이 없어요. 설정에서 허용해 주세요.",
+    "photoSaveFailed": "편집본을 만들지 못했어요. 원본 첨부는 그대로 전송돼요.",
+    "saveDenied": "저장 권한이 없어요. 설정에서 사진 접근을 허용해 주세요."
   },
   "dialogueList": {
     "offline": "오프라인",
@@ -462,5 +472,50 @@
     "favorites": "즐겨찾기",
     "favoritesEmpty": "즐겨찾기한 카드가 아직 없어요.",
     "seeAll": "전체"
+  },
+  "attachments": {
+    "attach": "사진 첨부",
+    "open": "첨부 열기",
+    "image": "첨부 이미지",
+    "file": "첨부 파일",
+    "uploading": "업로드 중",
+    "remove": "삭제",
+    "retry": "재시도"
+  },
+  "photoEditor": {
+    "title": "사진 편집",
+    "tools": { "crop": "크롭", "arrow": "화살표", "pin": "핀", "text": "텍스트" },
+    "note": { "placeholder": "메모 (선택)", "add": "메모 달기" },
+    "presets": "비율",
+    "freeRatio": "자유",
+    "reset": "초기화",
+    "notePlaceholder": "메모 (선택)",
+    "removeAnnotation": "주석 삭제",
+    "saveSend": "편집 저장 → 전송 준비",
+    "hint": "캔버스를 드래그해 크롭 영역을 조절하세요.",
+    "arrowHint": "화살표: 시작점에서 드래그 → 놓으면 주석이 고정됩니다. 메모를 입력하면 라벨이 붙어요.",
+    "undo": "되감기",
+    "clear": "지우기",
+    "cancel": "취소",
+    "save": "편집 저장",
+    "saving": "저장 중…",
+    "failed": "편집본 생성에 실패했어요. 지시문은 그대로 전송됩니다."
+  },
+  "photoEditCard": {
+    "badge": "사진 편집 지시",
+    "save": "편집 결과 저장",
+    "saved": "이미지로 저장했어요.",
+    "cropLabel": "크롭",
+    "annotationLabel": "주석"
+  },
+  "feed": {
+    "title": "피드",
+    "segments": { "all": "전체", "photo": "사진", "media": "미디어" },
+    "empty": "즐겨찾기한 사진·카드가 여기에 표시됩니다.",
+    "editBadge": "편집",
+    "save": "이미지 저장",
+    "openSource": "원본 대화 열기",
+    "viewTitle": "피드",
+    "unfavorite": "즐겨찾기 해제"
   }
 }
