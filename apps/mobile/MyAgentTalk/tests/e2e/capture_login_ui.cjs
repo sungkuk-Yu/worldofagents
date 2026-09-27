@@ -1,23 +1,81 @@
-// t_865ea744 검증+캡처 — 가입 화면 재설계/동의 라벨/스크롤 점프 수정 (mock 아님, 정적 서빙)
-// 실행: python3 -m http.server 8123 --bind 127.0.0.1 -d dist-login-ui (index.html에 window.process shim 필요)
+// t_6978cba4 (t_865ea744 정정) 검증+캡처 — 가입 화면 '(필수)' 라벨 원복 + 플로팅 라벨 겹침 확인
+// 실행: python3 -m http.server 8123 --bind 127.0.0.1 -d dist-t6978cba4 (index.html에 window.process shim 필요)
 //       node tests/e2e/capture_login_ui.cjs   (OUT_DIR 스크린샷 출력)
 // 검증 항목:
-//   ① 라벨에 '(필수)' 계열 접미사 잔재 0건 (ko/en, 접근성 라벨 포함)
-//   ④ 전체 동의 라벨 = '전체 동의' / 'Agree to all' (괄호 안내 제거)
-//      마케팅 행에만 옅은 '(선택)'/'(optional)' 접미사
+//   ① 5개 필수 행 라벨에 '(필수)'/(Required) 노출 + 마케팅 행 '(선택)'/(optional) (t_6978cba4 원복)
+//   ④ 전체 동의 라벨 = '전체 동의 (선택 포함)' / 'Agree to all (includes optional)'
+//   ②b 이메일/비밀번호 플로팅 라벨이 입력값/플레이스홀더와 한 자리에 겹치지 않음
+//      (라벨 승격 확인 + 텍스트 rect 교차 높이 <=8px — 대표님 슬브 실증 버그 회귀 방지)
 //   ② 동의 행 minHeight>=44, 게이트 컨테이너 maxWidth<=400, 390px 뷰포트에서 스크린샷
-//   ② 모드 전환(로그인↔가입) 후 스크롤 점프 없음 (scrollTop 변화 측정)
+//   ② 모드 전환(로그인↔가입) 후 스크롤 점프 없음 (필드 문서좌표 고정 측정)
+// 포트 triple: 정적 서빙 8123 (백엔드 없이 API 401 mock 라우팅) — 실 백엔드 필요 시 API+CORS 3021 일치 확인 (t_865ea744 사고#1 재발방지)
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const APP = process.env.APP_URL || 'http://localhost:8123';
-const OUT = process.env.OUT_DIR || '/home/holysky87/.hermes/profiles/frontdev/cache/scratch/login-ui';
+const OUT = process.env.OUT_DIR || '/home/holysky87/.hermes/profiles/frontdev/cache/scratch/login-ui-t6978cba4';
 fs.mkdirSync(OUT, { recursive: true });
 const shot = (n) => path.join(OUT, `${n}.png`);
 let passed = 0, failed = 0;
 function check(name, cond, extra = '') {
   if (cond) { passed++; console.log(`  PASS  ${name}${extra ? ' — ' + extra : ''}`); }
   else { failed++; console.log(`  FAIL  ${name}${extra ? ' — ' + extra : ''}`); }
+}
+
+// ②b 플로팅 라벨 겹침 판정 — RN-paper outlined TextInput(웹)에서 testID는 input 자체에 붙고
+// 필드 래퍼(absolute 라벨 포함)는 input.parentElement. 래퍼 기준 라벨 텍스트 rect와
+// 입력값 텍스트 rect의 교차 높이를 잰다. 승격된 라벨은 아웃라인 notch 위(h=18, top < input top)에
+// 안착하므로 정상 상태 교차 <=8px; 버그(라벨이 값과 한 자리 겹침)라면 교차 >8px.
+const OVERLAP_PROBE = (spec) => {
+  const out = [];
+  for (const { testId, labelText, value } of spec) {
+    const input = document.querySelector(`input[data-testid="${testId}"]`);
+    const box = input ? input.parentElement : null;
+    if (!box) { out.push({ testId, ok: false, why: 'field missing' }); continue; }
+    const boxRect = box.getBoundingClientRect();
+    const inpRect = input.getBoundingClientRect();
+    const findTextRect = (pred) => {
+      const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = w.nextNode())) {
+        const t = n.textContent.trim();
+        if (t && pred(t)) {
+          const r = document.createRange(); r.selectNodeContents(n);
+          const b = r.getBoundingClientRect();
+          if (b.width > 1) return b;
+        }
+      }
+      return null;
+    };
+    const lRect = findTextRect((t) => t === labelText);
+    // 입력값은 <input>의 value 프로퍼티(텍스트 노드 아님) — 승격 라벨(lRect.top < input.top)과
+    // 입력 텍스트가 렌더되는 content rect의 수직 교차만 잰다.
+    const valueShown = !value || input.value.includes(value);
+    let cross = -1;
+    if (lRect) {
+      const o = inpRect;
+      cross = Math.max(0, Math.min(lRect.bottom, o.bottom) - Math.max(lRect.top, o.top));
+    }
+    out.push({
+      testId,
+      labelShown: !!lRect, valueShown,
+      labelAboveInput: lRect ? lRect.top < inpRect.top : null, // 승격 = 라벨 상단이 입력 라인보다 위
+      cross: Math.round(cross),
+    });
+  }
+  return out;
+};
+async function overlapChecks(page, lang, tag) {
+  const labels = lang === 'ko' ? { email: '이메일', pw: '비밀번호' } : { email: 'Email', pw: 'Password' };
+  const typed = [
+    { testId: 'login-email', labelText: labels.email, value: 'probe@example.com' },
+    { testId: 'login-password', labelText: labels.pw, value: null }, // secure 입력은 DOM 값 마스킹 → 승격+미겹침만 판정
+  ];
+  for (const item of await page.evaluate(OVERLAP_PROBE, typed)) {
+    check(`${lang}/${tag}: ${item.testId} 라벨 승격+입력값과 미겹침`, item.labelShown === true && item.labelAboveInput === true && (item.cross === -1 || item.cross <= 8), JSON.stringify(item));
+  }
+  const emailProbe = (await page.evaluate(OVERLAP_PROBE, [{ testId: 'login-email', labelText: labels.email, value: 'probe@example.com' }]))[0];
+  check(`${lang}/${tag}: 이메일 입력값 렌더 확인(라벨과 분리)`, emailProbe.valueShown === true, JSON.stringify(emailProbe));
 }
 
 (async () => {
@@ -37,28 +95,37 @@ function check(name, cond, extra = '') {
     await page.getByTestId('login-hint').click();
     await page.waitForSelector('[data-testid="login-card"]', { timeout: 10000 });
     await page.waitForTimeout(600);
-    await page.screenshot({ path: shot(`${lang}-login-390`), fullPage: true });
+
+    // ②b 로그인 모드에서 입력 충전 후 라벨 겹침 확인 (대표님 슬브 실증 시나리오)
+    await page.fill('input[data-testid="login-email"]', 'probe@example.com');
+    await page.fill('input[data-testid="login-password"]', 'ProbePass1!');
+    await page.waitForTimeout(400);
+    await overlapChecks(page, lang, 'login390');
+    await page.screenshot({ path: shot(`${lang}-login-filled-390`), fullPage: true });
 
     // 가입 모드로 전환 (동의 게이트 노출)
     await page.getByTestId('auth-mode-toggle').click();
     await page.waitForSelector('[data-testid="consent-all-required"]', { timeout: 10000 });
     await page.waitForTimeout(400);
+    await overlapChecks(page, lang, 'signup390');
 
-    // ①④ 라벨 검증 —可見 텍스트 + 접근성 라벨 전체에서 '(필수)' 잔재 0
+    // ①④ 라벨 검증 (t_6978cba4 원복): 5개 필수 행 '(필수)'/(Required), 마케팅 '(선택)'/(optional)
     // (링크 행 consent-link-* 은 체크박스 아님 → 제외; RN-web은 aria-checked 미노출 → ✓ 텍스트로 판정)
     const ROWS = '[data-testid^="consent-"]:not([data-testid^="consent-link"])';
     const texts = await page.evaluate((sel) => {
       const nodes = [...document.querySelectorAll(sel)];
       return nodes.map((el) => ({ id: el.getAttribute('data-testid'), text: el.textContent, aria: el.getAttribute('aria-label') }));
     }, ROWS);
-    const all = texts.map((t) => `${t.text}|${t.aria ?? ''}`).join('\n');
-    check(`${lang}: '(필수)' 잔재 0건`, !/\(필수\)|（필수）|\[필수\]|required\)/i.test(all.replace(/\(optional\)|\(선택\)/g, '')));
+    const reqPat = lang === 'ko' ? /\(필수\)|（필수）/ : /\(Required\)/i;
+    for (const [row, name] of [['consent-terms', '약관'], ['consent-privacy', '개인정보'], ['consent-voice', '음성'], ['consent-overseas', '국외이전'], ['consent-age14', '14세']]) {
+      const hit = texts.find((t) => t.id === row);
+      check(`${lang}: ${name} 행 '(필수)' 명시`, !!hit && reqPat.test(hit.text) && reqPat.test(hit.aria || hit.text), JSON.stringify(hit && hit.text));
+    }
     const allRow = texts.find((t) => t.id === 'consent-all-required');
-    check(`${lang}: 전체 동의 라벨 정리`, lang === 'ko' ? allRow.text.includes('전체 동의') && !allRow.text.includes('14세') : allRow.text.includes('Agree to all') && !/age|Age/.test(allRow.text), JSON.stringify(allRow.text));
+    check(`${lang}: 전체 동의 '(선택 포함)' 투명화`, lang === 'ko' ? allRow.text.includes('전체 동의 (선택 포함)') : /Agree to all \(includes optional\)/i.test(allRow.text), JSON.stringify(allRow.text));
     const marketing = texts.find((t) => t.id === 'consent-marketing');
     check(`${lang}: 마케팅 '(선택)' 접미사`, lang === 'ko' ? marketing.text.includes('(선택)') : /\(optional\)/i.test(marketing.text));
-    const terms = texts.find((t) => t.id === 'consent-terms');
-    check(`${lang}: 약관 행 접미사 없음`, !/\(선택\)|\(optional\)/i.test(terms.text));
+    check(`${lang}: 마케팅 행에 '(필수)' 없음`, !reqPat.test(marketing.text));
 
     // ② 레이아웃: 동의 행 높이 >= 44, 게이트 컨테이너 maxWidth <= 400
     const metrics = await page.evaluate((sel) => {
@@ -105,7 +172,7 @@ function check(name, cond, extra = '') {
     await page.waitForTimeout(300);
     await page.screenshot({ path: shot(`${lang}-signup-gate-top-390`), fullPage: true });
 
-    // 1440px 데스크톱 — 카드 400px 유지 확인
+    // 1440px 데스크톱 — 카드 400px 유지 + 라벨 겹침 재확인
     const desk = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: lang === 'ko' ? 'ko-KR' : 'en-US' });
     const dpage = await desk.newPage();
     await dpage.emulateMedia({ reducedMotion: 'reduce' });
@@ -117,9 +184,13 @@ function check(name, cond, extra = '') {
     await dpage.getByTestId('login-hint').click();
     await dpage.waitForSelector('[data-testid="login-card"]', { timeout: 10000 });
     await dpage.waitForTimeout(600);
+    await dpage.fill('input[data-testid="login-email"]', 'probe@example.com');
+    await dpage.fill('input[data-testid="login-password"]', 'ProbePass1!');
+    await dpage.waitForTimeout(400);
+    await overlapChecks(dpage, lang, 'login1440');
     const cardW = await dpage.evaluate(() => Math.round(document.querySelector('[data-testid="login-card"]').getBoundingClientRect().width));
     check(`${lang}: 데스크톱(1440) 카드 폭 <= 400`, cardW <= 402, String(cardW));
-    await dpage.screenshot({ path: shot(`${lang}-login-1440`), fullPage: false });
+    await dpage.screenshot({ path: shot(`${lang}-login-filled-1440`), fullPage: false });
 
     check(`${lang}: 페이지 에러 없음`, pageErrors.length === 0, pageErrors.join('; ').slice(0, 160));
     await ctx.close(); await desk.close();
