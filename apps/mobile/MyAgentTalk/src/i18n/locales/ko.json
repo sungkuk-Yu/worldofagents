@@ -54,7 +54,13 @@
     "pttIdle": "길게 눌러 말하기",
     "pttMic": "누르는 동안 녹음",
     "aiNotice": "AI 에이전트가 생성한 응답입니다. 중요한 결정은 전문가와 상의하세요.",
-    "aiDisclosure": "AI 에이전트와 대화 중 — 모든 응답은 AI가 생성합니다"
+    "aiDisclosure": "AI 에이전트와 대화 중 — 모든 응답은 AI가 생성합니다",
+    "suggestTitle": "이어서 물어볼까요?"
+  },
+  "queue": {
+    "pending": "답변 대기",
+    "answered": "답변됨",
+    "skipped": "건너뜀"
   },
   "login": {
     "subtitle": "계정으로 로그인하거나 새 계정을 만드세요.",

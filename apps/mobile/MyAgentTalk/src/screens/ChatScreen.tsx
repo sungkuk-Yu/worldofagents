@@ -51,8 +51,8 @@ import {
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { colors, radii, spacing, typography, webScreenMotion, iconSize } from '../theme';
-import { PaperclipIcon } from '../components/Icon';
-import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft } from '../lib/chatLogic';
+import { PaperclipIcon, QueuePendingIcon, QueueAnsweredIcon, QueueSkippedIcon } from '../components/Icon';
+import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, queueItemForMessage, SuggestedQuestion } from '../lib/chatLogic';
 import { useChatSession } from '../hooks/useChatSession';
 
 interface Props {
@@ -106,7 +106,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
-    peers, talking, talk,
+    peers, talking, talk, queue, suggested,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -353,6 +353,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     return () => { viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); };
   }, []);
 
+  // 후속 질문 칩 전송 (t_1797f432 ③): 입력창 경유 없이 곧바로 send — 실패 시 원문 복원/재시도는 performSend 책임.
+  const sendSuggested = useCallback((q: SuggestedQuestion) => {
+    if (isDemo) return;
+    void send(q.text);
+  }, [isDemo, send]);
+
   const renderFooter = useCallback(() => <View>
     {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} />}
     {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
@@ -361,7 +367,18 @@ export default function ChatScreen({ navigation, route }: Props) {
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
       <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
     </Surface>)}
-  </View>, [typing, typingQuip, agentName, activeCount, streams, t]);
+    {/* 후속 질문 칩 (t_1797f432 ③): 백엔드가 run.completed에 생성해 준 예상 질문 2~3개 — 없으면 렌더 없음 */}
+    {!typing && !streams.length && suggested.length > 0 && !isDemo && (
+      <View style={styles.suggestRow} testID="suggested-questions">
+        <Text style={styles.suggestTitle}>{t('chat.suggestTitle')}</Text>
+        {suggested.map((q) => (
+          <Pressable key={q.id} accessibilityRole="button" onPress={() => sendSuggested(q)} testID={`suggested-${q.id}`} style={({ pressed }) => [styles.suggestChip, pressed && { backgroundColor: colors.surfaceHover }]}>
+            <Text style={styles.suggestChipText} numberOfLines={2}>{q.text}</Text>
+          </Pressable>
+        ))}
+      </View>
+    )}
+  </View>, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, t]);
 
   const renderHeader = useCallback(() => {
     if (!hasMoreHistory || isDemo) return <View style={{ height: spacing.sp2 }} />;
@@ -464,7 +481,20 @@ export default function ChatScreen({ navigation, route }: Props) {
                 <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} />
               </TouchableOpacity>
               : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} />}
-            {message.role === 'user' && <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
+            {message.role === 'user' && <View style={styles.userMetaRow}>
+              <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>
+              {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
+              {(() => {
+                const q = queueItemForMessage(queue, message);
+                if (!q) return null;
+                return <View style={styles.queueMark} testID={`queue-mark-${q.id}`} accessibilityLabel={t(`queue.${q.status}`)}>
+                  {q.status === 'pending' ? <QueuePendingIcon size={iconSize.tileSm} color={colors.text3} />
+                    : q.status === 'answered' ? <QueueAnsweredIcon size={iconSize.tileSm} color={colors.statusOk} />
+                    : <QueueSkippedIcon size={iconSize.tileSm} color={colors.text3} />}
+                  <Text style={styles.queueMarkText}>{t(`queue.${q.status}`)}</Text>
+                </View>;
+              })()}
+            </View>}
             {message.status === 'failed' && <View style={styles.msgHeader}>
               <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
               <Button onPress={() => deleteMessage(message.id)}>{t('chat.delete')}</Button>
@@ -739,6 +769,15 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
     color: colors.text3,
   },
+  // 질문 큐 체크포인트 (t_1797f432 ②) — user 카드 하단 상태 행: 전송 표시 + 큐 마커 한 줄
+  userMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
+  queueMark: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp1, minWidth: 0 },
+  queueMarkText: { ...typography.micro, color: colors.text3, flexShrink: 1, minWidth: 0 },
+  // 후속 질문 칩 (t_1797f432 ③) — 타이핑/스트리밍 종료 후 최종 답변 아래 2~3개, 탭 시 즉시 전송
+  suggestRow: { gap: spacing.sp2, paddingTop: spacing.sp1 },
+  suggestTitle: { ...typography.micro, color: colors.text3 },
+  suggestChip: { alignSelf: 'flex-start', maxWidth: '90%', borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp2, backgroundColor: colors.surface },
+  suggestChipText: { ...typography.caption, color: colors.text1 },
   // AI 상시 고지 바 — 저대비 micro 한 줄, 메시지가 쌓여도 유지 (t_eb7f13e9 항목 2)
   aiDisclosure: {
     ...typography.micro,

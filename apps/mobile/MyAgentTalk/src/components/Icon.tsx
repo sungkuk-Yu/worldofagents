@@ -67,3 +67,20 @@ export function FeedIcon({ size = 18, color = colors.text2, testID }: IconProps)
     <Path fill={color} d="M3,3H11V11H3V3M13,3H21V11H13V3M3,13H11V21H3V13M13,13H21V21H13V13M5,5V9H9V5H5M15,5V9H19V5H15M5,15V19H9V15H5M15,15V19H19V15H15Z" />
   </Svg>;
 }
+
+// 질문 큐 체크포인트 3종 (t_1797f432 ②) — 대기=빈 원 / 답변됨=초록 체크 / 스킵=회색 대시
+export function QueuePendingIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill="none" stroke={color} strokeWidth={1.8} d="M12,3A9,9 0 1,0 12,21A9,9 0 1,0 12,3Z" />
+  </Svg>;
+}
+export function QueueAnsweredIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M12,2A10,10 0 1,0 12,22A10,10 0 1,0 12,2M10.5,16.2L6.3,12L7.7,10.6L10.5,13.4L16.3,7.6L17.7,9L10.5,16.2Z" />
+  </Svg>;
+}
+export function QueueSkippedIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M4,11H20V13H4V11Z" />
+  </Svg>;
+}

@@ -451,6 +451,68 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
   return [...streams.filter((s) => s.runId !== runId), next];
 }
 
+// ── 질문 큐 체크포인트 (t_1797f432 ② / 백엔드 t_344e047a 계약) ──────────
+// 답변 실행 중 추가 발화가 유실되지 않고 서버 세션 큐(message_queue)에 적재된다.
+// WS `queue.updated`(전체 스냅샷) / GET messages 응답의 queue 배열로 수신 →
+// 사용자 발화 카드 하단에 상태 마커로 렌더한다 (대기=빈 원, 답변됨=초록 체크, 스킵=회색 대시).
+// 이벤트 미배포(백엔드 running) 환경에서는 배열이 항상 비어 있어 아무것도 렌더하지 않는다.
+export type QueueStatus = 'pending' | 'answered' | 'skipped';
+export interface QueueItem {
+  id: string;
+  content: string;
+  status: QueueStatus;
+  position: number;
+  /** 매칭된 user 메시지 id — 서버가 보내주면 우선, 없으면 content 정규화 대조 */
+  messageId?: string;
+}
+const QUEUE_STATUSES: QueueStatus[] = ['pending', 'answered', 'skipped'];
+const normalizeQueueContent = (s: string) => s.trim().replace(/\s+/g, ' ');
+
+/** 서버 배열(스냅샷) → 큐 항목 정규화. 형태가 아니면 조용히 빈 배열 (계약 미확정 방어). */
+export function normalizeQueueItems(raw: unknown): QueueItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: QueueItem[] = [];
+  for (const r of raw) {
+    if (!isRecord(r) || typeof r.id !== 'string') continue;
+    const status = QUEUE_STATUSES.includes(r.status as QueueStatus) ? (r.status as QueueStatus) : 'pending';
+    out.push({
+      id: r.id,
+      content: typeof r.content === 'string' ? r.content : '',
+      status,
+      position: typeof r.position === 'number' ? r.position : out.length,
+      messageId: typeof r.message_id === 'string' ? r.message_id : undefined,
+    });
+  }
+  return out.sort((a, b) => a.position - b.position);
+}
+
+/** user 메시지 → 큐 항목 매칭. message_id 우선, 없으면 공백 정규화 content 대조(미전송 낙관 행 포함). */
+export function queueItemForMessage(queue: QueueItem[], message: ChatMessage): QueueItem | undefined {
+  const byId = queue.find((q) => q.messageId === message.id);
+  if (byId) return byId;
+  if (!message.content) return undefined;
+  const key = normalizeQueueContent(message.content);
+  return queue.find((q) => normalizeQueueContent(q.content) === key);
+}
+
+// ── 후속 질문 칩 (t_1797f432 ③ / 백엔드 t_344e047a §3 계약) ─────────────
+// answer 완료 시 run.completed의 structured_payload.suggested_questions: [{id,text,locale}]
+// (또는 메시지 payload 동명의 필드) → 마지막 에이전트 카드 아래 칩으로 렌더, 탭 시 전송.
+// 백엔드 생성 실패 시 필드 자체가 없다 → normalize 결과 [] → 렌더 없음 (사용자 체감 0).
+export interface SuggestedQuestion { id: string; text: string; locale?: string }
+export function normalizeSuggestedQuestions(value: unknown): SuggestedQuestion[] {
+  if (!Array.isArray(value)) return [];
+  const out: SuggestedQuestion[] = [];
+  for (const r of value) {
+    if (!isRecord(r) || typeof r.text !== 'string' || !r.text.trim()) continue;
+    out.push({ id: typeof r.id === 'string' ? r.id : `sq-${out.length}`, text: r.text.trim(), locale: typeof r.locale === 'string' ? r.locale : undefined });
+    if (out.length >= 3) break; // 계약: 2~3개 — 초과분은 버린다
+  }
+  return out;
+}
+/** 큐/칩 상태가 화면에 남지 않도록 세션 전환 시 함께 초기화할 빈 참조 */
+export const EMPTY_QUEUE: QueueItem[] = [];
+
 /** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
 export function restoreFailedDraft(current: string, failed: string): string {
   return !current || current === failed ? failed : `${current}\n${failed}`;

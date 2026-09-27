@@ -10,6 +10,7 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
+  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -51,6 +52,10 @@ export interface UseChatSessionReturn {
     end: () => void;
     cancel: () => void;
   };
+  // 질문 큐 체크포인트 (t_1797f432 ②): 세션 message_queue 스냅샷 — 빈 배열이면 표시 없음
+  queue: QueueItem[];
+  /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
+  suggested: SuggestedQuestion[];
   // 기존 화면과 병행 배포를 위한 호환 필드
   typingQuip: string | null;
   isDemo: boolean;
@@ -111,6 +116,10 @@ export function useChatSession(
   // 연속성 상태 (t_eded715c): presence 피어 / PTT 녹음 중 표시
   const [peers, setPeers] = useState<string[]>([]);
   const [talking, setTalking] = useState(false);
+  // 질문 큐 체크포인트 (t_1797f432 ②) — 서버 스냅샷 그대로 보유. 이벤트 미수신 시 [] → 렌더 없음.
+  const [queue, setQueue] = useState<QueueItem[]>(EMPTY_QUEUE);
+  // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
+  const [suggested, setSuggested] = useState<SuggestedQuestion[]>([]);
   // 디바이스 라벨은 첫 감지값으로 고정(연결 유지 중 라벨이 바뀌면 presence가 요동침).
   // 화면이 opts.device를 주면 그 값을 쓰고, 없으면 창 폭/navigator 기반 순수 감지(RN import 없음).
   const deviceRef = useRef(opts.device ?? detectDeviceLabel(
@@ -158,6 +167,9 @@ export function useChatSession(
     setLoadingOlder(false);
     setReady(false);
     setHasOlder(false);
+    // 세션 전환 시 큐/후속 질문 잔상 제거 (t_1797f432) — 이전 세션 스냅샷이 새 화면에 새면 안 된다.
+    setQueue(EMPTY_QUEUE);
+    setSuggested([]);
     const stop = () => {
       disposed = true;
       ++runtime.generation;
@@ -213,6 +225,13 @@ export function useChatSession(
       if (!alive()) return;
       const allRows = normalizeServerMessages(env.data);
       updateMessages((prev) => mergeIncoming(prev, allRows.filter((m) => !m.parentMessageId)));
+      // 큐 스냅샷 복원 (t_1797f432 ②): 백엔드가 GET messages에 queue 배열을 실어주면 재진입 시에도
+      // 체크포인트 표시가 유지된다. 필드 없으면 조용히 스킵(WS queue.updated만으로도 동작).
+      const queueSnap = normalizeQueueItems((env as unknown as { queue?: unknown }).queue);
+      if (queueSnap.length) setQueue(queueSnap);
+      // 후속 질문 복원 (t_1797f432 ③): 마지막 에이전트 행 payload의 suggested_questions 세트 (없으면 빈 배열).
+      const lastAgent = [...allRows].reverse().find((m) => m.role === 'agent' && m.payload?.suggested_questions !== undefined);
+      if (lastAgent) setSuggested(normalizeSuggestedQuestions(lastAgent.payload?.suggested_questions));
       if (initial) {
         runtime.historyCursor = oldestCursor(allRows);
         setHasOlder(Boolean(env.meta?.has_more) && allRows.length > 0);
@@ -259,6 +278,13 @@ export function useChatSession(
             // favorite.updated를 카드 로컬 상태에 반영. seq 미채번이라 필터 앞에서 처리한다.
             if (type === 'favorite.updated') {
               if (typeof raw.message_id === 'string' && typeof raw.favorite === 'boolean') favoriteCbRef.current?.(raw.message_id, raw.favorite);
+              return;
+            }
+            // 질문 큐 스냅샷 (t_1797f432 ② / 백엔드 t_344e047a): queue.updated = 세션 큐 전체 교체.
+            // 허브 이벤트 로그 미채번일 수 있어 seq 필터 앞에서 처리한다 (presence/favorite와 동일 원칙).
+            // 배열 필드는 items|queue 어느 쪽으로도 수신 허용 — 백엔드 확정 시 한쪽으로 수렴 예정.
+            if (type === 'queue.updated') {
+              setQueue(normalizeQueueItems(raw.items ?? raw.queue));
               return;
             }
             if (type === 'audio.started') { runtime.audioOpen = true; setTalking(true); return; }
@@ -308,6 +334,15 @@ export function useChatSession(
               runtime.coordinator.observe(streamEvent as unknown as TurnEvent, sid);
               if (type === 'run.failed') setLastError('errors.run');
               if (type === 'run.cancelled') setLastError('errors.cancelled');
+              // 후속 질문 (t_1797f432 ③): run.completed의 structured_payload.suggested_questions [{id,text,locale}].
+              // 필드 없거나 형태 다르면 [] → 마지막 세트만 유지, 생성 실패는 조용히 무시(사용자 체감 0).
+              if (type === 'run.completed') {
+                const sp = raw.structured_payload ?? (raw.message as ServerMessageRow | undefined)?.structured_payload;
+                const next = normalizeSuggestedQuestions(isRecord(sp) ? sp.suggested_questions : undefined);
+                if (next.length) setSuggested(next);
+              }
+              // 큐 상태 전이 반영 대기용: 런이 끝났으면 서버가 발행하는 queue.updated를 우선 쓰지만,
+              // 미수신 시에도 마지막 스냅샷을 다시 읽지 않으므로 표시는 이벤트 의존(폴백=보수적 유지).
             }
           },
           onError: (msg) => {
@@ -414,6 +449,8 @@ export function useChatSession(
     const base = runtime.messages.find((m) => m.id === retryId)?.turnIndex ?? nextTurnIndex(runtime.messages);
     const sid = runtime.sid;
     setLastError(null);
+    // 후속 질문 칩은 발화 확정 시 1회 소모 (탭/직접 입력 모두) — 이전 턴의 칩이 남지 않는다.
+    setSuggested([]);
     updateMessages((prev) => appendOptimistic(prev, {
       id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
       // 첨부 낙관 프리뷰 — 서버 확정 시 message.new/confirm의 attachments 요약으로 대체된다 (t_4497cfce)
@@ -542,6 +579,8 @@ export function useChatSession(
     activeCount, streams, retryConnection, retryMessage, deleteMessage,
     send, retryLastSend, loadOlder, enterDemo, clearError,
     peers, talking, talk,
+    // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
+    queue, suggested,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,
     hasMoreHistory: hasOlder, loadingHistory: loadingOlder, ready,
   };
