@@ -54,6 +54,7 @@ import { colors, radii, spacing, typography, webScreenMotion, iconSize } from '.
 import { PaperclipIcon, QueuePendingIcon, QueueAnsweredIcon, QueueSkippedIcon } from '../components/Icon';
 import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, queueItemForMessage, SuggestedQuestion, buildQueueStrip } from '../lib/chatLogic';
 import QueueStrip from '../components/QueueStrip';
+import ThreadListModal from '../components/ThreadListModal';
 import { useChatSession } from '../hooks/useChatSession';
 
 interface Props {
@@ -110,7 +111,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
-    peers, talking, talk, queue, suggested,
+    peers, talking, talk, queue, suggested, threads,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -273,6 +274,24 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => () => { if (pendingClear.current) clearTimeout(pendingClear.current); }, []);
   const previousMessages = useRef<ChatMessage[]>([]);
   const groups = useMemo(() => groupByTurn(messages), [messages]);
+  // 답글 스레드 목록 모달 (t_2f45ccb1 확장 3) — 앱바 우측 버튼, 배지 = 활성(미종료) 스레드 수.
+  const [threadsOpen, setThreadsOpen] = useState(false);
+  const activeThreadCount = threads.filter((th) => !th.ended).length;
+  // 칩/모달 액션: 메시지 id → 카드(답글/갈라내기 대상) — 히스토리 밖이면 조용히 무시.
+  const openThreadOf = useCallback((messageId: string) => {
+    setThreadsOpen(false);
+    const m = messages.find((x) => x.id === messageId);
+    if (!m) return;
+    if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
+    inspectStore.set(m.id);
+    threadSheet.current?.open({ sessionId, rootMessageId: m.id, agentName, sessionTitle, presetCategory, canFork });
+  }, [messages, isDemo, sessionId, agentName, sessionTitle, presetCategory, canFork]);
+  const forkOf = useCallback((messageId: string) => {
+    const m = messages.find((x) => x.id === messageId);
+    if (!m) return;
+    if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
+    setForkMessage(m);
+  }, [messages, isDemo, sessionId]);
   // 상단 큐 스트립 행 (t_2f45ccb1) — 서버 queue 스냅샷 우선, 없으면 메시지 로컬 유도.
   const queueStrip = useMemo(() => buildQueueStrip(messages, queue), [messages, queue]);
   // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
@@ -435,6 +454,12 @@ export default function ChatScreen({ navigation, route }: Props) {
             {!isDemo && <DevicePresenceBadge peers={peers} />}
           </View>}
         </View>
+        {/* 답글 스레드 목록 (t_2f45ccb1 확장 3) — 배지 = 활성 스레드 수, 0이면 배지 없음 */}
+        {!selection.active && (
+          <TouchableOpacity onPress={() => setThreadsOpen(true)} style={styles.backButton} accessibilityLabel={t('queue.threadsTitle')} testID="threads-open">
+            <Text style={styles.backText}>{t('common.thread')}{activeThreadCount > 0 ? ` ${formatNumber(activeThreadCount, i18n.language)}` : ''}</Text>
+          </TouchableOpacity>
+        )}
         {selection.active ? <TouchableOpacity
           onPress={() => (allSelected ? clearSelection() : selectAll())}
           style={styles.backButton}
@@ -452,8 +477,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         </TouchableOpacity>}
       </View>
 
-      {/* 상단 질문 큐 스트립 (t_2f45ccb1) — 질문 원문+상태 칩 가로 라인. 0건 완전 숨김, >3건 스크롤. */}
-      <QueueStrip items={queueStrip} onJump={(id) => setQueueJump({ id, nonce: Date.now() })} />
+      {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기. */}
+      <QueueStrip items={queueStrip} canFork={canFork && !isDemo} onJump={(id) => setQueueJump({ id, nonce: Date.now() })} onReply={openThreadOf} onFork={forkOf} />
+      <ThreadListModal visible={threadsOpen} threads={threads} onClose={() => setThreadsOpen(false)} onOpenThread={openThreadOf} />
 
       {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.
           빈 상태의 chat.aiNotice와 달리 메시지가 쌓여도 사라지지 않는다 (AI 기본법 제31조 ①). */}

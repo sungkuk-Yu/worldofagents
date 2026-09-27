@@ -10,7 +10,7 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
-  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildQueueStrip,
+  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildQueueStrip, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -54,6 +54,8 @@ export interface UseChatSessionReturn {
   };
   // 질문 큐 체크포인트 (t_1797f432 ②): 세션 message_queue 스냅샷 — 빈 배열이면 표시 없음
   queue: QueueItem[];
+  /** 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 */
+  threads: ThreadIndexEntry[];
   /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
   suggested: SuggestedQuestion[];
   // 기존 화면과 병행 배포를 위한 호환 필드
@@ -118,6 +120,8 @@ export function useChatSession(
   const [talking, setTalking] = useState(false);
   // 질문 큐 체크포인트 (t_1797f432 ②) — 서버 스냅샷 그대로 보유. 이벤트 미수신 시 [] → 렌더 없음.
   const [queue, setQueue] = useState<QueueItem[]>(EMPTY_QUEUE);
+  // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 서버 로드 범위 내 스레드 목록/종료 배지/정렬.
+  const [threads, setThreads] = useState<ThreadIndexEntry[]>(EMPTY_THREADS);
   // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
   const [suggested, setSuggested] = useState<SuggestedQuestion[]>([]);
   // 디바이스 라벨은 첫 감지값으로 고정(연결 유지 중 라벨이 바뀌면 presence가 요동침).
@@ -195,6 +199,7 @@ export function useChatSession(
     setHasOlder(false);
     // 세션 전환 시 큐/후속 질문 잔상 제거 (t_1797f432) — 이전 세션 스냅샷이 새 화면에 새면 안 된다.
     setQueue(EMPTY_QUEUE);
+    setThreads(EMPTY_THREADS);
     setSuggested([]);
     const stop = () => {
       disposed = true;
@@ -251,6 +256,8 @@ export function useChatSession(
       if (!alive()) return;
       const allRows = normalizeServerMessages(env.data);
       updateMessages((prev) => mergeIncoming(prev, allRows.filter((m) => !m.parentMessageId)));
+      // 답글 스레드 인덱스 (t_2f45ccb1 확장 3): 답글 행은 메시지에 넣지 않지만 root_message_id/답글 수로 인덱스 갱신.
+      setThreads((prev) => mergeThreadIndex(prev, buildThreadIndex(allRows)));
       // 큐 스냅샷 복원 (t_1797f432 ②): 백엔드가 GET messages에 queue 배열을 실어주면 재진입 시에도
       // 체크포인트 표시가 유지된다. 필드 없으면 조용히 스킵(WS queue.updated만으로도 동작).
       const queueSnap = normalizeQueueItems((env as unknown as { queue?: unknown }).queue);
@@ -455,6 +462,7 @@ export function useChatSession(
       const nextCursor = oldestCursor(allRows);
       runtime.historyCursor = nextCursor;
       updateMessages((prev) => prependPage(prev, allRows.filter((m) => !m.parentMessageId)));
+      setThreads((prev) => mergeThreadIndex(prev, buildThreadIndex(allRows)));
       setHasOlder(nextCursor !== null && nextCursor < cursor && (env.meta?.has_more ?? allRows.length >= PAGE_SIZE));
     } catch (e) {
       if (generation === runtime.generation) setLastError(errorText(e));
@@ -607,6 +615,8 @@ export function useChatSession(
     peers, talking, talk,
     // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
     queue, suggested,
+    // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 기준
+    threads,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,
     hasMoreHistory: hasOlder, loadingHistory: loadingOlder, ready,
   };

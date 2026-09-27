@@ -63,7 +63,17 @@
     "skipped": "건너뜀",
     "chipAria": "{{status}} — {{text}}",
     "photoQuestion": "사진 질문",
-    "count": "전체 {{countText}}건"
+    "count": "질문 {{countText}}개",
+    "replyAction": "답글",
+    "forkAction": "갈라내기",
+    "threadsTitle": "답글 목록",
+    "threadsEmpty": "아직 답글이 달린 질문이 없어요.",
+    "filterActive": "활성",
+    "filterEnded": "종료",
+    "filterAll": "전체",
+    "endedBadge": "종료",
+    "replyCount": "답글 {{countText}}개",
+    "lastActivity": "마지막 활동 {{when}}"
   },
   "login": {
     "subtitle": "계정으로 로그인하거나 새 계정을 만드세요.",

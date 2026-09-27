@@ -63,7 +63,17 @@
     "skipped": "Skipped",
     "chipAria": "{{status}} — {{text}}",
     "photoQuestion": "Photo question",
-    "count": "{{countText}} total"
+    "count": "{{countText}} questions",
+    "replyAction": "Reply",
+    "forkAction": "Fork",
+    "threadsTitle": "Reply threads",
+    "threadsEmpty": "No questions have replies yet.",
+    "filterActive": "Active",
+    "filterEnded": "Ended",
+    "filterAll": "All",
+    "endedBadge": "Ended",
+    "replyCount": "{{countText}} replies",
+    "lastActivity": "Last activity {{when}}"
   },
   "login": {
     "subtitle": "Sign in to your account or create a new one.",

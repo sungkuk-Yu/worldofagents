@@ -144,6 +144,8 @@ export interface ChatMessage {
   dialogueType?: string | null;
   payload?: StructuredPayload;
   parentMessageId?: string;
+  /** 답글 체인의 루트 (messages.root_message_id) — 스레드 인덱스 그룹핑 키 */
+  rootMessageId?: string;
   threadReplyCount?: number;
   favorite?: boolean;
   taskOverrides?: Record<number, boolean>;

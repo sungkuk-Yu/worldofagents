@@ -20,6 +20,7 @@ export interface ServerMessageRow {
   dialogue_type?: string | null;
   structured_payload?: unknown;
   parent_message_id?: unknown;
+  root_message_id?: unknown;
   thread_reply_count?: unknown;
   run_id?: string;
   attachments?: unknown;
@@ -45,6 +46,7 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     dialogueType: typeof r.dialogue_type === 'string' ? r.dialogue_type : null,
     payload: isRecord(r.structured_payload) ? r.structured_payload : undefined,
     parentMessageId: typeof r.parent_message_id === 'string' ? r.parent_message_id : undefined,
+    rootMessageId: typeof r.root_message_id === 'string' ? r.root_message_id : undefined,
     threadReplyCount: typeof r.thread_reply_count === 'number' && Number.isInteger(r.thread_reply_count) && r.thread_reply_count >= 0 ? r.thread_reply_count : undefined,
     // 즐겨찾기 영속화 (백엔드 t_219c4d36) — GET messages 응답의 favorite 보존. 결측 시 undefined(로컬 상태 우선).
     favorite: typeof r.favorite === 'boolean' ? r.favorite : undefined,
@@ -507,13 +509,97 @@ export interface QueueStripItem {
   status: QueueStatus;
   /** 탭 점프 대상: answered=답변 카드, 그 외 질문 카드. 서버 전용 행은 message_id 있을 때만. */
   jumpMessageId?: string;
+  /** 질문(루트 user) 메시지 id — 답글/갈라내기 액션의 기준. 서버 전용 행(아직 messages 밖)이면 undefined. */
+  questionMessageId?: string;
+  /** 답글 수 (threadReplyCount) — 칩 액션 배지/스레드 목록 정렬용 */
+  replyCount: number;
+  createdAt?: string;
+  /** 세션 내 질문 순번 (1부터) — 칩 접두 표시 (대표님 9/28 확장 1) */
+  seq: number;
 }
 
 function hasQueuedAttachments(m: ChatMessage): boolean {
   return (Array.isArray(m.attachments) && m.attachments.length > 0) || !!m.pendingAttachments?.length;
 }
 
-/** 첨부/본문 질문 목록에서 상단 큐 스트립 행을 만든다 (turn_index 오름, 답글 제외). */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 답글(스레드) 인덱스 행 — 모달 렌더 단위 (대표님 9/28 확장 3·4). */
+export interface ThreadIndexEntry {
+  rootId: string;
+  rootText: string;
+  rootSeq: number;
+  replyCount: number;
+  /** 루트+답글 중 최신 활동 시각 (ISO) */
+  lastActivity: string;
+  /** 7일 무활동 = 종료 (슬랙 리서치 반영 — 읽기 전용 토글은 백엔드, 프론트는 배지/정렬만) */
+  ended: boolean;
+}
+
+/**
+ * 전체 서버 행(답글 포함)에서 스레드 인덱스를 만든다 — 답글이 딸린 루트만 행이 된다.
+ * 정렬: 활성 > 종료, 그룹 내 마지막 활동 최신순.
+ */
+export function buildThreadIndex(messages: ChatMessage[], now = Date.now()): ThreadIndexEntry[] {
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  const rootOf = (m: ChatMessage): ChatMessage | undefined => {
+    // 서버가 루트를 명시하면 그대로, 없으면 부모 체인을 역추적 (중간 페이징 유실 시 포기)
+    if (m.rootMessageId) return byId.get(m.rootMessageId);
+    let cur = m;
+    for (let hop = 0; cur.parentMessageId && hop < 20; hop += 1) {
+      const next = byId.get(cur.parentMessageId);
+      if (!next) return undefined; // 체인 중간이 페이징 밖
+      cur = next;
+    }
+    return cur.parentMessageId ? undefined : cur;
+  };
+  const seqOf = new Map<string, number>();
+  let seq = 0;
+  for (const q of messages.filter((m) => m.role === 'user' && !m.parentMessageId).sort((a, b) => a.turnIndex - b.turnIndex)) seqOf.set(q.id, ++seq);
+  const byRoot = new Map<string, { replies: ChatMessage[] }>();
+  for (const m of messages) {
+    if (!m.parentMessageId) continue;
+    const root = rootOf(m);
+    if (!root) continue;
+    const bucket = byRoot.get(root.id) ?? { replies: [] };
+    bucket.replies.push(m);
+    byRoot.set(root.id, bucket);
+  }
+  const out: ThreadIndexEntry[] = [];
+  // 답글 행이 히스토리에 없는 스레드도 서버 thread_reply_count(>0)가 있으면 인덱스에 선다 (MVP: 행 로드 전에도 배지 정확)
+  for (const root of messages) {
+    if (root.parentMessageId || byRoot.has(root.id) || !(root.threadReplyCount && root.threadReplyCount > 0)) continue;
+    byRoot.set(root.id, { replies: [] });
+  }
+  for (const [rootId, { replies }] of byRoot) {
+    const root = byId.get(rootId) as ChatMessage;
+    const sortedTimes = [...replies, root].map((m) => m.createdAt ?? '').sort();
+    const last = sortedTimes[sortedTimes.length - 1] ?? '';
+    const lastMs = Date.parse(last);
+    out.push({
+      rootId,
+      rootText: root.content.trim(),
+      rootSeq: seqOf.get(rootId) ?? 0,
+      replyCount: Math.max(replies.length, root.threadReplyCount ?? 0),
+      lastActivity: last,
+      ended: Number.isFinite(lastMs) ? now - lastMs > WEEK_MS : false,
+    });
+  }
+  return out.sort((a, b) => (a.ended === b.ended ? (b.lastActivity > a.lastActivity ? 1 : -1) : a.ended ? 1 : -1));
+}
+
+/** 페이지별 인덱스를 누적 병합 — 같은 root는 최신 활동/답글 수 큰 쪽 우선 (이전 페이지 유실 방지). */
+export function mergeThreadIndex(prev: ThreadIndexEntry[], fresh: ThreadIndexEntry[]): ThreadIndexEntry[] {
+  const byRoot = new Map(prev.map((e) => [e.rootId, e]));
+  for (const e of fresh) {
+    const cur = byRoot.get(e.rootId);
+    if (!cur || e.lastActivity >= cur.lastActivity) byRoot.set(e.rootId, { ...cur, ...e, replyCount: Math.max(cur?.replyCount ?? 0, e.replyCount) });
+  }
+  return [...byRoot.values()].sort((a, b) => (a.ended === b.ended ? (b.lastActivity > a.lastActivity ? 1 : -1) : a.ended ? 1 : -1));
+}
+
+/** 첨부/본문 질문 목록에서 상단 큐 스트립 행을 만든다 (turn_index 오름, 답글 제외).
+ *  seq = 세션 내 질문 순번 (대표님 9/28 확장 1 — user 메시지 시퀀스 재사용, 신규 컬럼 불요). */
 export function buildQueueStrip(messages: ChatMessage[], queue: QueueItem[]): QueueStripItem[] {
   const timeline = messages
     .filter((m) => m.role !== 'system' && !m.parentMessageId)
@@ -543,6 +629,10 @@ export function buildQueueStrip(messages: ChatMessage[], queue: QueueItem[]): Qu
       text,
       status,
       jumpMessageId: status === 'answered' && answer ? answer.id : m.id,
+      questionMessageId: m.id,
+      replyCount: m.threadReplyCount ?? 0,
+      createdAt: m.createdAt,
+      seq: items.length + 1,
     });
   }
 
@@ -550,7 +640,7 @@ export function buildQueueStrip(messages: ChatMessage[], queue: QueueItem[]): Qu
   const serverOnly = queue
     .filter((q) => !usedQueue.has(q.id) && q.content.trim() && !seenText.has(normalizeQueueContent(q.content)))
     .sort((a, b) => a.position - b.position)
-    .map((q): QueueStripItem => ({ id: q.id, text: q.content.trim(), status: q.status, jumpMessageId: q.messageId }));
+    .map((q, k): QueueStripItem => ({ id: q.id, text: q.content.trim(), status: q.status, jumpMessageId: q.messageId, replyCount: 0, seq: items.length + k + 1 }));
   return [...items, ...serverOnly];
 }
 
@@ -571,6 +661,7 @@ export function normalizeSuggestedQuestions(value: unknown): SuggestedQuestion[]
 }
 /** 큐/칩 상태가 화면에 남지 않도록 세션 전환 시 함께 초기화할 빈 참조 */
 export const EMPTY_QUEUE: QueueItem[] = [];
+export const EMPTY_THREADS: ThreadIndexEntry[] = [];
 
 /** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
 export function restoreFailedDraft(current: string, failed: string): string {
