@@ -62,7 +62,8 @@
     "answered": "Answered",
     "skipped": "Skipped",
     "chipAria": "{{status}} — {{text}}",
-    "photoQuestion": "Photo question"
+    "photoQuestion": "Photo question",
+    "count": "{{countText}} total"
   },
   "login": {
     "subtitle": "Sign in to your account or create a new one.",

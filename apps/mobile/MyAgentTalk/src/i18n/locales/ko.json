@@ -62,7 +62,8 @@
     "answered": "답변됨",
     "skipped": "건너뜀",
     "chipAria": "{{status}} — {{text}}",
-    "photoQuestion": "사진 질문"
+    "photoQuestion": "사진 질문",
+    "count": "전체 {{countText}}건"
   },
   "login": {
     "subtitle": "계정으로 로그인하거나 새 계정을 만드세요.",

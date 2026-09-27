@@ -1,9 +1,9 @@
 /**
  * 상단 질문 큐 스트립 e2e 스모크 — t_2f45ccb1
  * 백엔드 없이 run_c_fixtures 인터셉트로 계약 픽스처 렌더 (메모리 최소 토큰 경로, 9/26 교훈).
- * 검증: ① 서버 큐 스냅샷 4건 → 스트립 표시(3초과 = 스크롤, 배지 없음) ② 상태 아이콘 3종+원문 라벨
+ * 검증: ① 서버 큐 스냅샷 4건 → 스트립 표시(3초과 = 스크롤 + 개수 배지) ② 상태 아이콘 3종+원문 라벨
  *       ③ answered 칩 탭 → 답변 카드 하이라이트 ④ GET /queue 404 폴백 → 메시지 로컬 유도 스트립
- *       ⑤ 빈 세션(질문 0) → 스트립 DOM 부재(빈 회색 바 금지)
+ *       ⑤ 빈 세션(질문 0) → 스트립 DOM 부재(빈 회색 바 금지) ⑥ 1440 데스크톱 캡처
  * 실행: (정적서버) python3 -m http.server 8096 --bind 127.0.0.1 -d dist-queue
  *       APP_URL=http://localhost:8096 node tests/e2e/smoke_queue_strip.cjs
  */
@@ -51,11 +51,12 @@ const QUEUE_ROWS = [
     // 4개 칩 중 answered 2종 svg 노출 (path count 검증 — 이모지 텍스트 아님)
     const svgCount = await page.getByTestId('queue-strip').locator('svg').count();
     check('상태 아이콘은 SVG (3종 이상)', svgCount >= 4, `svg=${svgCount}`);
-    // 3건 초과 → 개수 배지 없이 스크롤 (스크롤 폭 ≥ 뷰포트 폭)
+    // 3건 초과 → 좌우 스크롤 + 개수 배지 (카드 스펙 3)
     const trackW = await page.getByTestId('queue-strip').locator('div').first().evaluate((el) => el.scrollWidth);
     const viewW = await page.getByTestId('queue-strip').locator('div').first().evaluate((el) => el.clientWidth);
-    check('4건 = 좌우 스크롤 (배지 없음)', trackW > viewW, `scroll=${trackW} view=${viewW}`);
-    check('개수 배지 금지', (await page.getByTestId('queue-strip').getByText(/\d+\s*건/).count()) === 0);
+    check('4건 = 좌우 스크롤', trackW > viewW, `scroll=${trackW} view=${viewW}`);
+    const badge = page.getByTestId('queue-count-badge');
+    check('개수 배지 = 4 (3건 초과)', (await badge.count()) === 1 && (await badge.innerText()).trim() === '4');
     await page.screenshot({ path: shot('01-strip-4chips') });
 
     // ── ③ answered 칩 탭 → 해당 카드로 점프+하이라이트 ──
@@ -64,6 +65,15 @@ const QUEUE_ROWS = [
     state.sockets.at(-1).send(JSON.stringify({ type: 'queue.updated', session_id: 'source', items: QUEUE_ROWS.slice(0, 3) }));
     await page.waitForTimeout(300);
     check('WS queue.updated 즉시 반영 (3건)', await page.getByTestId('queue-chip-q3').isVisible() && (await page.getByTestId('queue-chip-q4').count()) === 0);
+
+    // ── ③ 대기→답변됨 전이 — q4(pending)를 answered로 올린 스냅샷 교체 + 라벨 ellipsis 실측 ──
+    state.sockets.at(-1).send(JSON.stringify({ type: 'queue.updated', session_id: 'source', items: [...QUEUE_ROWS.slice(0, 3), { ...QUEUE_ROWS[3], status: 'answered' }] }));
+    await page.waitForTimeout(300);
+    const q4aria = await page.getByTestId('queue-chip-q4').getAttribute('aria-label');
+    check('q4 대기→답변됨 전이 (aria 상태 갱신)', !!q4aria && q4aria.includes('답변됨'), String(q4aria));
+    const ell = await page.getByTestId('queue-label-q4').evaluate((el) => ({ clipped: el.scrollWidth > el.clientWidth || getComputedStyle(el).textOverflow === 'ellipsis', lines: getComputedStyle(el).whiteSpace }));
+    check('원문 라벨 1줄 ellipsis', ell.lines === 'nowrap' || ell.clipped, JSON.stringify(ell));
+    await page.screenshot({ path: shot('05-pending-to-answered') });
 
     // ── ④ GET /queue 404 → 메시지 로컬 유도 스트립 ──
     const page2 = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR', reducedMotion: 'reduce' });
@@ -104,6 +114,19 @@ const QUEUE_ROWS = [
     const enAria = await page3.locator('[data-testid="queue-chip-e1"]').getAttribute('aria-label');
     check('EN 상태 라벨 병기 — chipAria 영어 문자열', !!enAria && enAria.includes('Waiting for a reply') && !enAria.includes('답변'), String(enAria));
     await page3.screenshot({ path: shot('04-en-labels') });
+
+    // ── ⑥ 1440 데스크톱 캡처 — 완료 기준 ④(390·1440 캡처 증거) ──
+    const page4 = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR', reducedMotion: 'reduce' });
+    page4.on('pageerror', (e) => errors.push(String(e)));
+    await installFixtures(page4);
+    await page4.route('**/api/sessions/source/queue', (r) => r.fulfill({ json: { ok: true, data: QUEUE_ROWS } }));
+    await page4.goto(APP, { waitUntil: 'networkidle' });
+    await page4.getByTestId('session-card').click();
+    await page4.getByTestId('queue-strip').waitFor({ timeout: 8000 });
+    const dBox = await page4.getByTestId('queue-strip').boundingBox();
+    const barBox = await page4.getByTestId('chat-appbar').boundingBox();
+    check('1440 = 스트립이 채팅 열 전체폭 (앱바와 동일 폭)', !!dBox && !!barBox && dBox.height > 0 && Math.abs(dBox.width - barBox.width) < 2, `strip=${dBox && Math.round(dBox.width)} appbar=${barBox && Math.round(barBox.width)}`);
+    await page4.screenshot({ path: shot('06-desktop-1440') });
     check('런타임 오류 없음', errors.length === 0, errors.slice(0, 2).join('|'));
   } finally {
     await browser.close();
