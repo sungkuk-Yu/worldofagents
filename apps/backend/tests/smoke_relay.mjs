@@ -119,19 +119,11 @@ function isMonotonicSubsequence(stages) {
   return true;
 }
 
-/** 실DB handshake 경합 보강 (t_135a19b5 smoke_queue 관례): connected 대기 → subscribe →
- *  subscribed 4s 대기, 실패 시 1회 재발송 후 15s 대기. DEV 인메모리는 즉시 통과. */
-async function subscribeHardened(ws, sessionId, label, extra = {}) {
-  if (!ws.events.some(e => e.type === 'connected')) {
-    await ws.waitFor(e => e.type === 'connected', { timeoutMs: 10000, label: `connected(${label})` });
-  }
+/** t_83946f45 원상회복: 서버 handshake가 open 직후 창을 보류 큐로 흡수하므로 connected
+ *  대기·subscribed 재시도 보강(t_135a19b5 관례 이식)은 불필요 — plain send+wait로 돌아간다. */
+async function subscribe(ws, sessionId, label, extra = {}) {
   ws.send({ type: 'subscribe', session_id: sessionId, locale: 'ko', ...extra });
-  try {
-    await ws.waitFor(e => e.type === 'subscribed', { timeoutMs: 4000, label });
-  } catch {
-    ws.send({ type: 'subscribe', session_id: sessionId, locale: 'ko', ...extra });
-    await ws.waitFor(e => e.type === 'subscribed', { timeoutMs: 15000, label: `${label}(retry)` });
-  }
+  await ws.waitFor(e => e.type === 'subscribed', { timeoutMs: 8000, label });
 }
 
 async function main() {
@@ -143,7 +135,7 @@ async function main() {
 
   const ws = new WsCollector(wsConnectUrl({ session_id: sec.sessionId, [TICKET_KEY]: await ticket(sec.token) }));
   await ws.connect();
-  await subscribeHardened(ws, sec.sessionId, 'subscribed');
+  await subscribe(ws, sec.sessionId, 'subscribed');
   ws.events.length = 0;
 
   ws.send({ type: 'message.send', session_id: sec.sessionId, content: `relay_${Date.now()} 계약 해지 유예기간은 보통 어떻게 돼?` });
@@ -170,7 +162,7 @@ async function main() {
   // ── 2. 재접속 재생: eventlog 보존 확인 ──
   const ws2 = new WsCollector(wsConnectUrl({ session_id: sec.sessionId, [TICKET_KEY]: await ticket(sec.token) }));
   await ws2.connect();
-  await subscribeHardened(ws2, sec.sessionId, 'subscribed(재생)', { last_seq: 0 });
+  await subscribe(ws2, sec.sessionId, 'subscribed(재생)', { last_seq: 0 });
   const replayed = ws2.events.filter(e => e.type === 'relay.updated' && e.run_id === runId);
   check('재접속 재생: relay.updated eventlog 보존', replayed.length === relay.length && replayed.length > 0,
     `${replayed.length}/${relay.length}`);
@@ -179,7 +171,7 @@ async function main() {
   const plain = await signupUser('plain', false);
   const ws3 = new WsCollector(wsConnectUrl({ session_id: plain.sessionId, [TICKET_KEY]: await ticket(plain.token) }));
   await ws3.connect();
-  await subscribeHardened(ws3, plain.sessionId, 'subscribed(제어)');
+  await subscribe(ws3, plain.sessionId, 'subscribed(제어)');
   ws3.events.length = 0;
   ws3.send({ type: 'message.send', session_id: plain.sessionId, content: `plain_${Date.now()} 오늘 뭐 먹지?` });
   const pStarted = await ws3.waitFor(e => e.type === 'run.started', { timeoutMs: 15000, label: 'run.started(제어)' });
