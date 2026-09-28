@@ -99,10 +99,13 @@ function check(name, cond, extra = '') {
     }
     await page.screenshot({ path: path.join(OUT, '03-after-tap.png') });
 
-    // ④ 새로고침 → 히스토리 재현 무칩 (3초 창+实时 스텔스 가드)
+    // ④ 새로고침 → 세션 재진입 = 히스토리 재현: stale 공감 행에 칩 없어야 (실시간 created_at 가드 라이브 실측)
     await sleep(5000); // 잔여 턴 settle
     await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(1500);
+    await page.getByTestId('session-card').first().click({ timeout: 20000 });
     await waitForChatEntered(page);
+    await openKeyboardIfVoice(page);
     await page.getByTestId('message-list').waitFor({ timeout: 20000 });
     await sleep(1500);
     check('LIVE ④ 새로고침 후 히스토리 공감 행에 칩 미노출', (await page.getByTestId('ack-chips').count()) === 0);
