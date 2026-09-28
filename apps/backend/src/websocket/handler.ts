@@ -89,6 +89,37 @@ export function broadcastToSession(sessionId: string, message: ServerMessage): v
   for (const socket of set) sendJson(socket, stamped);
 }
 
+/** 유실 메커니즘 (t_83946f45 실측 재현): @fastify/websocket 8.3.1은 handleUpgrade 직후
+ *  createWebSocketStream으로 raw 소켓에 자기 'message' 리스너를 선점 붙인다. handshake의
+ *  awaited 왕복(JWT·티켓·소유권 실DB 수백 ms) 끝에 리스너를 붙이면, 그 사이에 도착한
+ *  프레임은 이미 스트림 래퍼가 삼켜 orphan 버퍼로 폐기된다 — 무한 버퍼가 아니라 유실.
+ *  따라서 리스너는 websocketHandler 첫 동기 라인에 붙이고(창 0), 검증 완료 전 프레임만
+ *  아래 큐로 보류했다가 순서대로 처리한다. */
+const pendingIngress = new WeakMap<object, Array<{ raw: Buffer | string; isBinary?: boolean }>>();
+/** 16 캡: 초과 시 가장 오래된 것부터 폐기 (무한 메모리·순서 왜곡 방지). */
+const INGRESS_QUEUE_CAP = 16;
+
+function queueIngress(socket: WSSocket, raw: Buffer | string, isBinary?: boolean): void {
+  const q = pendingIngress.get(socket) || [];
+  q.push({ raw, isBinary });
+  if (q.length > INGRESS_QUEUE_CAP) q.shift();
+  pendingIngress.set(socket, q);
+}
+
+function drainIngress(socket: WSSocket, deliver: (raw: Buffer | string, isBinary?: boolean) => void): void {
+  const q = pendingIngress.get(socket);
+  if (!q || q.length === 0) return;
+  pendingIngress.delete(socket);
+  for (const item of q) deliver(item.raw, item.isBinary);
+}
+
+/** subscribed 회신 단일 지점 — send 후 state.subscribedSent 기록 (t_83946f45:
+ *  ack-less message.send의 implicit subscribe 판정이 이 플래그에 의존한다). */
+function sendSubscribed(socket: WSSocket, state: ConnState): void {
+  state.subscribedSent = true;
+  sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!), devices: presenceOf(state.sessionId!) });
+}
+
 interface AudioSession {
   buffer: AudioStreamBuffer;
   startedAt: number;
@@ -107,6 +138,8 @@ interface ConnState {
   channels: WSChannel[];
   audio: AudioSession | null;
   lastActivity: number;
+  /** subscribed 회신을 보냈는지 (t_83946f45 ack-less message.send → implicit subscribe 판정). */
+  subscribedSent: boolean;
 }
 
 export async function websocketHandler(connection: any, request: FastifyRequest) {
@@ -120,7 +153,39 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     channels: ['audio', 'transcript', 'neuron_status', 'task'],
     audio: null,
     lastActivity: Date.now(),
+    subscribedSent: false,
   };
+
+  // ── t_83946f45 첫 발화 유실 방지: 리스너를 첫 동기 경로에 붙여 유실 창을 0으로 만든다.
+  // (아래 인증·소유권 검증의 await 왕복 실DB에서 수백 ms — 옛 구조는 그 뒤에 리스너를 붙여
+  //  open 직후 도착한 subscribe/message.send가 스트림 래퍼에 삼켜져 폐기됐다.)
+  // 검증 완료 전에 도착한 프레임만 큐에 보류하고 순서대로 처리한다.
+  let handshakeDone = false;
+  let closed = false;
+  let pingInterval: ReturnType<typeof setInterval> | undefined;
+  let checkAlive: ReturnType<typeof setInterval> | undefined;
+
+  function cleanup(terminate = false) {
+    clearInterval(pingInterval);
+    clearInterval(checkAlive);
+    if (state.sessionId) unregisterConnection(state.sessionId, socket);
+    if (terminate) socket.terminate?.();
+  }
+
+  socket.on('message', (raw: Buffer | string, isBinary?: boolean) => {
+    // handshake 후 Promise를 그대로 반환한다 — old 구조(async 리스너)와 동일하게
+    // 'await send(...)'가 처리 완료를 기다리는 테스트·호출 관례를 보존 (t_83946f45).
+    if (handshakeDone) return handleMessage(raw, isBinary);
+    queueIngress(socket, raw, isBinary);
+    return undefined;
+  });
+  socket.on('close', () => {
+    closed = true;
+    handshakeDone = true; // 종료 후 드레인 금지 — 큐는 약한 참조라 자동 소멸
+    logger.info(`WebSocket disconnected: user=${state.userId}`);
+    cleanup(false);
+  });
+  socket.on('error', () => { handshakeDone = true; cleanup(true); });
 
   // 헤더 JWT 또는 일회용 티켓만 인증에 사용한다.
   try {
@@ -176,14 +241,19 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     timestamp: new Date().toISOString(),
   });
 
+  // 검증·소유권 왕복이 끝나고 소켓이 이미 닫혔으면(클라이언트 즉시 재접속 등) 이후 작업을 하지 않는다.
+  if (closed) return;
+
   if (state.sessionId) {
     const session = state.userId ? await assertSessionOwnership(state.sessionId, state.userId) : null;
+    // 왕복 중에 소켓이 닫혔으면(joinSession 이후 close는 허브 등록 누수 방지) 여기서 중단한다.
+    if (closed) return;
     if (session) joinSession(session.id);
     else state.sessionId = null;
   }
 
   // 프로토콜 레벨 ping → pong (ws 표준)
-  const pingInterval = setInterval(() => {
+  pingInterval = setInterval(() => {
     try {
       socket.ping?.();
     } catch {
@@ -191,21 +261,14 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     }
   }, config.ws.pingIntervalMs);
 
-  const checkAlive = setInterval(() => {
+  checkAlive = setInterval(() => {
     if (Date.now() - state.lastActivity > config.ws.pongTimeoutMs) {
       logger.info(`WebSocket heartbeat timeout, closing: user=${state.userId}`);
       cleanup(true);
     }
   }, config.ws.pingIntervalMs);
 
-  function cleanup(terminate = false) {
-    clearInterval(pingInterval);
-    clearInterval(checkAlive);
-    if (state.sessionId) unregisterConnection(state.sessionId, socket);
-    if (terminate) socket.terminate?.();
-  }
-
-  socket.on('message', async (raw: Buffer | string, isBinary?: boolean) => {
+  async function handleMessage(raw: Buffer | string, isBinary?: boolean): Promise<void> {
     state.lastActivity = Date.now();
 
     // 바이너리 프레임 = 오디오 청크 (텍스트 JSON 프레임도 Buffer로 내려오므로 isBinary로 구분)
@@ -243,7 +306,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             meta.device = normalizeDeviceLabel(message.device);
             broadcastPresence(state.sessionId!);
           }
-          sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!), devices: presenceOf(state.sessionId!) });
+          sendSubscribed(socket, state);
           if (typeof message.last_seq === 'number' && Number.isFinite(message.last_seq)) {
             for (const event of replaySince(state.sessionId!, message.last_seq)) sendJson(socket, event);
           }
@@ -261,6 +324,11 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: '메시지 내용(content)은 필수입니다.' });
             break;
           }
+          // t_83946f45: ack 없이 message.send가 먼저 와도 성공한다. 위 공통 경로에서
+          // 소유권 검증 + joinSession(허브 등록)이 끝났으므로, 아직 subscribed 회신이
+          // 없으면 여기서 implicit subscribe로 보낸다 — 대기 창에 유실됐던 구구조와 달리
+          // 첫 발화의 run.* 이벤트가 이 소켓으로 확실히 라우팅된다.
+          if (!state.subscribedSent) sendSubscribed(socket, state);
           let thread;
           if (message.parent_message_id !== undefined) {
             if (typeof message.parent_message_id !== 'string' || !message.parent_message_id) {
@@ -326,13 +394,11 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
         message: err?.message || '처리 중 오류가 발생했습니다.',
       });
     }
-  });
+  }
 
-  socket.on('close', () => {
-    logger.info(`WebSocket disconnected: user=${state.userId}`);
-    cleanup(false);
-  });
-  socket.on('error', () => cleanup(true));
+  // handshake 완료: 검증 중에 보류된 프레임을 도착 순서대로 처리한다 (t_83946f45).
+  handshakeDone = true;
+  drainIngress(socket, (raw, isBinary) => void handleMessage(raw, isBinary));
 }
 
 // ── 오디오 스트리밍 ────────────────────────────────────

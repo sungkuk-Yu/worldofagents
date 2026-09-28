@@ -137,17 +137,11 @@ async function main() {
   const wsTicket = ticketRes.json?.data?.ticket;
   const ws = new WsCollector(`${WS_BASE}/ws?session_id=${sessionId}&${['tick','et'].join('')}=${wsTicket}`);
   await ws.connect();
-  // 실DB(토큰·소유권 DB 왕복 지연)에선 서버 message 리스너 등록 전에 보낸 subscribe/message.send가
-  // 유실될 수 있다 — connected 수신 후 subscribe하고 subscribed 확인까지 재시도, 그 다음 발화 전송.
-  // DEV 인메모리는 즉시 통과 (t_135a19b5 실DB 재현).
-  await ws.waitFor(e => e.type === 'connected', { label: 'connected', timeoutMs: 10000 });
+  // t_83946f45: 서버가 handshake 리스너를 open 직후 창으로 붙이고 보류 큐로 드레인하므로,
+  // connected/subscribed 회신 없이 open 직후 바로 사출한다 — 이 2줄 자체가 실DB 레이스
+  // 회귀 프로브(구경쟁 코드에선 이 subscribe+발화가 handshake 왕복에 유실됐다, t_135a19b5
+  // 의 connected-대기·재시도 보강은 이 수정으로 불필요 → 원상회복).
   ws.send({ type: 'subscribe', session_id: sessionId, locale: 'ko' });
-  try {
-    await ws.waitFor(e => e.type === 'subscribed', { label: 'subscribed', timeoutMs: 4000 });
-  } catch {
-    ws.send({ type: 'subscribe', session_id: sessionId, locale: 'ko' });
-    await ws.waitFor(e => e.type === 'subscribed', { label: 'subscribed(retry)', timeoutMs: 15000 });
-  }
   // 첫 턴을 WS로 실행 중…
   ws.send({ type: 'message.send', session_id: sessionId, content: '이산 노동 사건에서 해고 무효 확인 소송의 판례 흐름을 설명해줘. 길게.' });
   await ws.waitFor(e => e.type === 'run.started', { label: 'run.started' });
