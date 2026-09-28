@@ -17,6 +17,7 @@ import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
 import { listTasksBySession, createTaskInSession } from './tasks';
+import { sessionTitleOf } from '../lib/sessionTitle';
 
 /** INT4RANGE 문자열과 기존 개발 저장소 객체를 함께 읽는다. */
 export function parseRangeUpper(v: unknown): number | null {
@@ -27,13 +28,7 @@ export function parseRangeUpper(v: unknown): number | null {
   return Number.isFinite(upper) ? upper : null;
 }
 
-/** 세션 제목 — 006 캐논 sessions.title 컬럼 우선, 없으면 metadata.title 폴백 (포크 시 기록). */
-function sessionTitleOf(session: SessionsRow): string | null {
-  if (typeof session.title === 'string' && session.title.trim()) return session.title.trim();
-  const meta = session.metadata as Record<string, unknown> | null;
-  const title = meta && typeof meta.title === 'string' ? meta.title.trim() : '';
-  return title || null;
-}
+// 세션 제목 캐논 규칙(006: title 컬럼 우선 → metadata.title 폴백)은 lib/sessionTitle.ts 단일 소스 (t_cc52fd4f).
 
 const SESSION_STATUSES = ['active', 'suspended', 'archived'] as const;
 
@@ -193,8 +188,8 @@ export async function sessionRoutes(app: FastifyInstance) {
         user_id: original.user_id, agent_id: original.agent_id, persona_id: original.persona_id,
         status: 'active', stream_channel_id: null, created_at: now, last_activity_at: now,
         // 006(A4): 캐논 title 컬럼 — new_session_title 우선, 없으면 원본 제목 승계 (metadata.title는 하위 호환 유지).
-        title: (body.new_session_title as string | undefined)?.trim()
-          ?? (typeof original.title === 'string' && original.title.trim() ? original.title.trim() : null),
+        // 원본 제목 해석은 세션 목록과 동일 캐논 규칙(sessionTitleOf) 사용 (t_cc52fd4f).
+        title: (body.new_session_title as string | undefined)?.trim() || sessionTitleOf(original) || null,
         metadata: { ...(original.metadata as Record<string, unknown>),
           ...(body.new_session_title ? { title: (body.new_session_title as string).trim() } : {}) },
         forked_from: { session_id: original.id, message_id: point.id, turn_index: point.turn_index, forked_at: now },

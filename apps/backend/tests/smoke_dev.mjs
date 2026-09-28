@@ -85,6 +85,11 @@ async function main() {
   check('POST /:id/messages → 201 + empathy_response', r.status === 201 && r.json?.ok && typeof r.json?.data?.empathy_response === 'string' && r.json?.data?.empathy_response.length > 0, `dialogue=${r.json?.data?.dialogue_type}, engine=${r.json?.data?.engine}`);
   check('  └ activation_plan에 empathy 포함', (r.json?.data?.activation_plan?.activate || []).includes('empathy'));
 
+  // 7b. 세션 제목 자동 채움 (t_cc52fd4f ③ — 첫 사용자 메시지 요약, 세션 상세에 반영)
+  r = await req('GET', `/api/sessions/${sessionId}`, { token });
+  check('  └ 첫 턴 후 세션 title = 첫 메시지 요약', r.json?.ok && typeof r.json?.data?.title === 'string'
+    && r.json.data.title.startsWith('안녕하세요'), `title=${r.json?.data?.title}`);
+
   // 8. 뉴런 연결 이력
   r = await req('GET', `/api/sessions/${sessionId}/neurons/history`, { token });
   check('GET /:id/neurons/history → 이벤트 기록', r.json?.ok && Array.isArray(r.json?.data) && r.json?.data.length > 0, `${r.json?.data?.length} events`);
@@ -93,9 +98,11 @@ async function main() {
   r = await req('GET', `/api/sessions/${sessionId}/tasks`, { token });
   check('GET /sessions/:id/tasks → 200 + 배열', r.status === 200 && r.json?.ok && Array.isArray(r.json?.data), `status=${r.status}`);
 
-  // 10. 스킬 랭킹 (seed 3종)
+  // 10. 스킬 랭킹 (devstore 공식 카탈로그 4종 — 010/006과 대칭, t_cc52fd4f ②)
   r = await req('GET', '/api/skills?sort=ranking', { token });
   check('GET /api/skills?sort=ranking → 데이터 존재', r.json?.ok && (r.json?.data || []).length >= 3, `${(r.json?.data || []).length} skills`);
+  check('  └ 공식 4종 slug 포함', ['calendar-sync', 'email-assistant', 'translation-neuron', 'data-analysis']
+    .every(slug => (r.json?.data || []).some(s => s.slug === slug)));
   check('  └ composite_score 정렬(내림차순)', (r.json?.data || []).every((s, i, arr) => i === 0 || arr[i - 1].composite_score >= s.composite_score));
 
   // 11. WebSocket connected (dev 모드 anon 허용)

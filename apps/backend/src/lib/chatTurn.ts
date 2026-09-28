@@ -14,6 +14,7 @@ import { serializeMessage } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
+import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
 
 export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' }>;
 
@@ -53,6 +54,17 @@ export async function runTextTurn(
   try {
     if (session.user_id !== userId) throw new ApiError('FORBIDDEN', '세션 소유자만 메시지를 보낼 수 있습니다.');
     if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션입니다.');
+    // 세션 제목 자동 채움 (t_cc52fd4f ③, 대표님 9/28): 첫 사용자 메시지 요약 — 캐논 title
+    // 컬럼·metadata.title 모두 비어 있는 세션에만, WHERE title IS NULL 가드로 원-라운드트립
+    // 선착 세팅(동시 첫 턴 레이스 안전). 실패해도 턴을 오염시키지 않는다(목록은 폴백 규칙 유지).
+    // REST sendMessage / WS message.send / PTT 트랜스크립트 / 큐 드레인 전 경로가 이 결절점 통과.
+    if (!sessionTitleOf(session)) {
+      const derived = deriveSessionTitle(content);
+      if (derived) {
+        session.title = derived; // 이 run 내 재세팅 방지 (동일 객체 재호출 대비)
+        await setSessionTitleIfEmpty(db, session.id, derived).catch(() => undefined);
+      }
+    }
     // 답변 대기 (t_811e176c) — 발화 = 회신: 이전 미해소 pending 해소 체인을 여기서 시작하되
     // await는 배지 발행 직전으로 미룬다 (run.started 이전 대기 홉 추가 = fake-timer 테스트
     // 파손 — 기존 이벤트 타이밍 계약 보존). 배지 스냅샷은 아래에서 이번 턴 답변 판정과
