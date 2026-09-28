@@ -76,6 +76,7 @@ export const NEURON_NAMES: Record<string, string> = {
   visual: '비주얼 에이뉴런',
   router: '라우터',
   grounding: '검색그라운딩',
+  bridge: '비서실 브리지',
 };
 
 export function sendJson(socket: { send: (data: string) => void }, message: ServerMessage): void {

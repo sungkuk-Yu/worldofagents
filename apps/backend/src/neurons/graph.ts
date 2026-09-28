@@ -25,6 +25,7 @@ import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
+import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 
 export type NeuronStage = 'thinking' | 'organizing' | 'finalizing' | 'rendering';
@@ -100,6 +101,8 @@ export interface NeuronState {
   photoEditPending?: boolean;
   /** 예/아니오 확인 발화 에코 억제 (t_135a19b5, 대표님 9/28 정정) — true면 empathy 뉴런 skip. */
   empathySuppressed?: boolean;
+  /** 김비서 room 브리지 (t_620d5549) — true면 answerNode가 로컬 LLM 대신 Hermes kimsecretary를 호출. */
+  secretaryBridge?: boolean;
   // 컴포즈
   finalResponse: { empathy: string | null; answer: string | null; visualsRequested: boolean };
   events: NeuronStatusEvent[];
@@ -269,6 +272,43 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') };
   ctx.emit(start);
   let answerResponse: string;
+  // ── 앱 속 실 김비서 브리지 (t_620d5549) — '김비서' room 턴은 로컬 LLM이 아니라
+  // Hermes kimsecretary(A2A localhost)로 보낸다. 실패·타임아웃은 원인 문장 폴백으로
+  // 전환(턴 사망 금지). 성패와 무관하게 이후 structured/저장 경로는 기존과 동일. ──
+  if (state.secretaryBridge && ctx.db) {
+    ctx.emit({ neuron: 'bridge', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') });
+    let bridgeResult: { text: string; state: string } | null = null;
+    let bridgeFailReason = '';
+    try {
+      bridgeResult = await sendTurnToSecretary(ctx.db, state.sessionId, state.userMessage, state.history);
+    } catch (err) {
+      bridgeFailReason = (err as BridgeError)?.kind || 'transport';
+      if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) bridgeFailReason = 'transport';
+    }
+    if (bridgeResult) {
+      answerResponse = bridgeResult.text;
+      ctx.llm = { used: false, model: 'hermes:kimsecretary', fallback: false, provider: 'secretary-bridge' };
+      ctx.emit({ neuron: 'bridge', status: 'idle', stage: 'organizing', quip: quipText(state, 'organizing') });
+    } else {
+      answerResponse = bridgeFallbackText(state.locale, bridgeFailReason);
+      ctx.llm = { used: false, model: null, fallback: true, reason: `BRIDGE_${bridgeFailReason.toUpperCase()}` };
+      ctx.emit({ neuron: 'bridge', status: 'degraded', stage: 'organizing', quip: quipText(state, 'organizing') });
+    }
+    // 브리지 답변은 로컬 structured 분류·후속 질문 LLM만 추가 경유 (원문 재작성 금지).
+    let bridgeStructured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
+    const bridgeReply = detectReplyRequest(answerResponse);
+    if (bridgeReply) bridgeStructured = { ...bridgeStructured, structured_payload: { ...bridgeStructured.structured_payload, reply_request: bridgeReply } };
+    if (!ctx.signal?.aborted) {
+      const contextLines = [...(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
+        `user: ${state.userMessage.slice(0, 200)}`, `agent: ${answerResponse.slice(0, 400)}`];
+      const questions = await generateSuggestedQuestions(contextLines.join('\n'), state.locale, { signal: ctx.signal });
+      if (questions?.length) bridgeStructured = { ...bridgeStructured, structured_payload: { ...bridgeStructured.structured_payload, suggested_questions: questions } };
+    }
+    ctx.classificationCancelled = Boolean(ctx.signal?.aborted);
+    const bridgeEnd: NeuronStatusEvent = { neuron: 'answer', status: 'idle', stage: 'finalizing', quip: quipText(state, 'finalizing') };
+    ctx.emit(bridgeEnd);
+    return { answerResponse, structured: bridgeStructured, grounding: null, llm: ctx.llm, events: [...state.events, start, bridgeEnd] };
+  }
   // ── 전문가 그라운딩 (t_d54bc456) — 법률·회계 등 전문가 카테고리는 Perplexity
   // 최신 웹 검색 근거 + 출처를 반드시 동반한다. 키 미설정 시 시도하지 않는다
   // (DEV/unit 테스트는 실 키 없이도 기존 동작 그대로). ──
@@ -480,6 +520,7 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     grounding: Annotation,
     photoEditPending: Annotation,
     empathySuppressed: Annotation,
+    secretaryBridge: Annotation,
     finalResponse: Annotation,
     events: Annotation,
     engine: Annotation,
@@ -586,6 +627,10 @@ export async function processTurn(
       const empathySuppressed = isConfirmationUtterance(userMessage)
         && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || []));
 
+      // 앱 속 실 김비서 브리지 (t_620d5549): 엔드포인트 설정 + 에이전트 이름 '김비서' 정합 시
+      // answerNode가 로컬 LLM 대신 Hermes kimsecretary를 부른다. 그 외 room은 false — 기존 동작 1:1.
+      const secretaryBridge = isBridgeConfigured() && isKimSecretaryAgent((agentRow as { name?: string } | null)?.name);
+
       const initial: NeuronState = {
         locale,
         sessionId,
@@ -612,6 +657,7 @@ export async function processTurn(
         grounding: null,
         photoEditPending,
         empathySuppressed,
+        secretaryBridge,
         finalResponse: { empathy: null, answer: null, visualsRequested: false },
         events: [],
         engine: 'simple',
