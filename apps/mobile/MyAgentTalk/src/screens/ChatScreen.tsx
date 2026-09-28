@@ -55,6 +55,7 @@ import * as Haptics from 'expo-haptics';
 import { colors, webScreenMotion } from '../theme';
 import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
 import QueueStrip from '../components/QueueStrip';
+import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
@@ -91,7 +92,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
-    peers, talking, talk, queue, suggested, threads, applyQueueSnapshot,
+    peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
     pendingReplies, applyPendingSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
@@ -398,7 +399,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
     streams={streams} suggested={suggested} isDemo={isDemo} onSendSuggested={sendSuggested}
-  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested]);
+    hideQuip={!!relay}
+  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, relay]);
 
   const renderHeader = useCallback(() => <ChatFeedHeader
     hasMoreHistory={hasMoreHistory} loadingHistory={loadingHistory} isDemo={isDemo} onLoadHistory={() => void loadHistory()}
@@ -526,6 +528,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) })}</Text>
         <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
       </View>}
+      {/* 비서실 백스테이지 릴레이 자막 (t_961ca593 Phase B 案①) — 입력 콘솔 위 상시 1줄, stage 전환 페이드.
+          relay=null(비서 외 페르소나=이벤트 0건, 데모 포함)이면 렌더 0 — 기존 레이아웃 DOM 불변. */}
+      <RelayCaptionStrip caption={relay} />
       {/* 하단 입력 영역 (t_91cb659c): 첨부 스테이지 + 음성 콘솔(1차) + 키보드 입력바(2차) 조립은 ChatInputConsole 소유
           (초장문 안내 한 줄 포함).
           t_e735d936 요구 1 유지: 웹 모바일은 기본이 음성 콘솔(조이스틱 홀드-투-톡), 입력창은 키보드를
