@@ -12,6 +12,8 @@ import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useLayout } from '../hooks/useLayout';
 import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
+import PendingReplyModal from '../components/PendingReplyModal';
+import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
 import { getPttKey, getPttMode } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
@@ -90,6 +92,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot,
+    pendingReplies, applyPendingSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -268,6 +271,29 @@ export default function ChatScreen({ navigation, route }: Props) {
   }, [messages, isDemo, sessionId, setForkMessage, setUnavailableError]);
   // 상단 큐 스트립 (t_2f45ccb1 → t_91cb659c 응집): 칩 행 빌드 · GET /queue 보조 폴링 · 칩 탭 점프 요청은 useQueueStrip 소유.
   const strip = useQueueStrip({ sessionId, live: !isDemo, messages, queue, applyQueueSnapshot });
+  // 답변 대기 (t_363c0faa): GET /pending 보조 폴링(부트스트랩 1회 + 미해소 중 15초 + 런 종료 직후 1회)은
+  // usePendingReplies가 소유 — WS reply.pending.updated가 단일 상태원천 (queue 계층 원칙 동일).
+  usePendingReplies({ sessionId, live: !isDemo, pendingCount: pendingReplies.length, typing, applyPendingSnapshot });
+  const [pendingOpen, setPendingOpen] = useState(false);
+  // freeform 행 탭 = 카드 점프 + 입력창 개방 (키보드 계층 신호는 콘솔이 소유, nonce로 재요청 가능)
+  const [composeNonce, setComposeNonce] = useState(0);
+  const requestJump = strip.requestJump; // 안정 ref — memo deps는 개별 함수로 (t_70cbbd6b 관례)
+  // 예/아니오 빠른 회신 (t_043539ff 조이스틱 대응 — 발화 '예'/'아니오' 동일): suggested 칩(sendSuggested)과
+  // 동일 전송 경로. 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
+  const sendPendingReply = useCallback((utterance: string) => {
+    if (isDemo) return;
+    void send(utterance).then((res) => {
+      if (!res.ok) {
+        setInput((current) => restoreFailedDraft(current, utterance));
+        setSendFailed(true);
+      }
+    });
+  }, [isDemo, send, setInput, setSendFailed]);
+  const jumpComposePending = useCallback((messageId: string) => {
+    setPendingOpen(false); // 시트를 닫아야 점프한 카드와 입력창이 보인다
+    requestJump(messageId);
+    setComposeNonce((n) => n + 1);
+  }, [requestJump]);
   // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
   const firstAgentMessageId = useMemo(() => messages.find((m) => m.role === 'agent')?.id, [messages]);
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
@@ -394,14 +420,24 @@ export default function ChatScreen({ navigation, route }: Props) {
         peers={peers}
         connection={connection}
         activeThreadCount={activeThreadCount}
+        pendingReplyCount={pendingReplies.length}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
+        onOpenPending={() => setPendingOpen(true)}
         onBeginSelection={() => beginSelection()}
       />
 
       {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기. */}
       <QueueStrip items={strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
       <ThreadListModal visible={threadsOpen} threads={threads} onClose={() => setThreadsOpen(false)} onOpenThread={openThreadOf} />
+      {/* 답변 대기 모달 (t_363c0faa) — 발췌 목록 + 예/아니오 빠른 회신 + freeform 점프. 해소 스냅샷(count 0) 시 자동 닫힘. */}
+      <PendingReplyModal
+        visible={pendingOpen}
+        items={pendingReplies}
+        onClose={() => setPendingOpen(false)}
+        onQuickReply={(_messageId, utterance) => sendPendingReply(utterance)}
+        onJumpCompose={jumpComposePending}
+      />
 
       {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.
           빈 상태의 chat.aiNotice와 달리 메시지가 쌓여도 사라지지 않는다 (AI 기본법 제31조 ①). */}
@@ -512,6 +548,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         onHoldEnd={ptt.endHold}
         onHoldAbort={ptt.abortHold}
         onSendAck={sendAck}
+        forceOpenKeyboard={composeNonce}
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />

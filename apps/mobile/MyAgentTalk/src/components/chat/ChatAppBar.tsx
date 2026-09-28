@@ -7,7 +7,8 @@ import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../../i18n/format';
 import DevicePresenceBadge from '../DevicePresenceBadge';
-import { colors } from '../../theme';
+import { PendingReplyIcon } from '../Icon';
+import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { ChatSelection } from '../../hooks/useChatSelection';
 
@@ -18,12 +19,15 @@ interface Props {
   peers: string[];
   connection: 'live' | 'connecting' | 'reconnecting' | 'offline';
   activeThreadCount: number;
+  /** 답변 대기 건수 (t_363c0faa) — 답글 버튼 관례: 0이면 배지 없음(버튼은 유지), >0 amber 배지 */
+  pendingReplyCount: number;
   onBack: () => void;
   onOpenThreads: () => void;
+  onOpenPending: () => void;
   onBeginSelection: () => void;
 }
 
-export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, onBack, onOpenThreads, onBeginSelection }: Props) {
+export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, onBack, onOpenThreads, onOpenPending, onBeginSelection }: Props) {
   const { t, i18n } = useTranslation();
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
@@ -35,6 +39,16 @@ export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, con
       <TouchableOpacity onPress={selection.active ? selection.exit : onBack} style={styles.backButton} accessibilityLabel={t(selection.active ? 'common.cancel' : 'common.back')}>
         <Text style={styles.backText}>{selection.active ? '✕' : t('common.backIcon')}</Text>
       </TouchableOpacity>
+      {/* 답변 대기 (t_363c0faa) — 앱바 좌측 유지 버튼(대표님 9/28 지시): 발췌+예/아니오 빠른 회신 모달로.
+          답글 버튼과 동일 관례 — 배지 = 미해소 건수, 0이면 숫자 없이 아이콘만. */}
+      {!selection.active && (
+        <TouchableOpacity onPress={onOpenPending} style={styles.backButton} accessibilityLabel={t('pending.button')} testID="pending-open">
+          <View style={styles.pendingButtonFace}>
+            <PendingReplyIcon size={iconSize.tileSm} color={pendingReplyCount > 0 ? colors.statusWarn : colors.text2} />
+            {pendingReplyCount > 0 && <Text style={styles.pendingBadge} testID="pending-count">{formatNumber(pendingReplyCount, i18n.language)}</Text>}
+          </View>
+        </TouchableOpacity>
+      )}
       <View style={styles.headerBody}>
         <Text style={styles.appbarTitle} numberOfLines={1}>{selection.active ? t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) }) : sessionTitle}</Text>
         {!selection.active && <View style={styles.subtitleRow}>
