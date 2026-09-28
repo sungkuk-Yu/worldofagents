@@ -423,3 +423,22 @@ test('새 run 프로토콜의 뉴런 상태는 이중 작업이나 종료 후 �
   runs.observe({ type: 'neuron.status', status: 'processing' }, 's');
   assert.equal(tracker.active, false);
 });
+
+// ── t_70cbbd6b: groupByTurn (ChatScreen→lib 순수 추출) 회귀 고정 ──
+import { groupByTurn, TurnGroup } from '../../src/lib/chatLogic';
+const msg = (id: string, turnIndex: number, role: 'user' | 'agent' | 'system', runId?: string): ChatMessage =>
+  ({ id, turnIndex, role, content: id, createdAt: '2026-09-28T00:00:00Z', pending: false, runId });
+test('groupByTurn — 동일 runId 연속 에이전트 행은 한 턴 카드로 병합', () => {
+  const groups: TurnGroup[] = groupByTurn([msg('u1', 1, 'user'), msg('a1', 2, 'agent', 'r1'), msg('a2', 3, 'agent', 'r1'), msg('a3', 4, 'agent', 'r2')]);
+  assert.deepEqual(groups.map((g) => g.items.map((m) => m.id)), [['u1'], ['a1', 'a2'], ['a3']]);
+  assert.equal(groups[0].key, 'u1');
+  assert.equal(groups[2].key, 'a3');
+});
+test('groupByTurn — runId 없으면 turnIndex로 그룹 (레거시 경로)', () => {
+  const groups = groupByTurn([msg('a1', 2, 'agent'), msg('a2', 2, 'agent'), msg('a3', 3, 'agent')]);
+  assert.deepEqual(groups.map((g) => g.items.map((m) => m.id)), [['a1', 'a2'], ['a3']]);
+});
+test('groupByTurn — user/system은 항상 단독 그룹, runId 있어도 role 다르면 분리', () => {
+  const groups = groupByTurn([msg('a1', 1, 'agent', 'r1'), msg('s1', 1, 'system'), msg('a2', 1, 'agent', 'r1')]);
+  assert.deepEqual(groups.map((g) => g.items.map((m) => m.id)), [['a1'], ['s1'], ['a2']]);
+});

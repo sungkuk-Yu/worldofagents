@@ -667,3 +667,24 @@ export const EMPTY_THREADS: ThreadIndexEntry[] = [];
 export function restoreFailedDraft(current: string, failed: string): string {
   return !current || current === failed ? failed : `${current}\n${failed}`;
 }
+
+// ── 턴 그룹핑 (t_70cbbd6b: ChatScreen→lib 순수 추출, 로직 무변경) ──
+// 같은 turnIndex 의 연속 에이전트 메시지를 하나의 턴 카드로 그룹
+export interface TurnGroup {
+  key: string;
+  role: 'user' | 'system' | 'agent';
+  items: ChatMessage[];
+}
+
+export function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
+  const groups: TurnGroup[] = [];
+  for (const m of messages) {
+    const last = groups[groups.length - 1];
+    if (m.role === 'agent' && last && last.role === 'agent' && (m.runId ? last.items[0].runId === m.runId : last.items[0].turnIndex === m.turnIndex)) {
+      last.items.push(m);
+    } else {
+      groups.push({ key: m.id, role: m.role, items: [m] });
+    }
+  }
+  return groups;
+}

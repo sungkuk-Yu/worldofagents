@@ -1,9 +1,11 @@
-import CardFrame from '../cards/CardFrame';
 import ForkDialog from '../components/ForkDialog';
 import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
-import TypingCard from '../components/TypingCard';
 import PttBannerComponent from '../components/PttBanner';
-import DevicePresenceBadge from '../components/DevicePresenceBadge';
+import ChatAppBar from '../components/chat/ChatAppBar';
+import ChatTurnRow from '../components/chat/ChatTurnRow';
+import { ChatFeedFooter, ChatFeedHeader } from '../components/chat/ChatFeed';
+import { useChatSelection } from '../hooks/useChatSelection';
+import { styles } from './chatScreenStyles';
 import ContextPanel from '../components/ContextPanel';
 import { useCardActions } from '../hooks/useCardActions';
 import { usePushToTalk } from '../hooks/usePushToTalk';
@@ -40,46 +42,23 @@ import {
   KeyboardAvoidingView,
   Platform,
   NativeSyntheticEvent, NativeScrollEvent,
-  Pressable,
-  StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
 import {
   Button,
-  Surface,
   Text,
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
-import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
-import { ChatMessage, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
-import QueueStrip, { QueueMessageMark } from '../components/QueueStrip';
+import { colors, webScreenMotion } from '../theme';
+import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
+import QueueStrip from '../components/QueueStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import { useChatSession } from '../hooks/useChatSession';
 
 interface Props {
   navigation: any;
   route: any;
-}
-
-// 같은 turnIndex 의 연속 에이전트 메시지를 하나의 턴 카드로 그룹
-interface TurnGroup {
-  key: string;
-  role: 'user' | 'system' | 'agent';
-  items: ChatMessage[];
-}
-
-function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
-  const groups: TurnGroup[] = [];
-  for (const m of messages) {
-    const last = groups[groups.length - 1];
-    if (m.role === 'agent' && last && last.role === 'agent' && (m.runId ? last.items[0].runId === m.runId : last.items[0].turnIndex === m.turnIndex)) {
-      last.items.push(m);
-    } else {
-      groups.push({ key: m.id, role: m.role, items: [m] });
-    }
-  }
-  return groups;
 }
 
 export default function ChatScreen({ navigation, route }: Props) {
@@ -199,24 +178,16 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 다중 선택 모드 (대표님 지시 9/26 — "복수로 누를수 있게, 다음대화에서 이어가거나 보관"):
   // 진입 = 앱바 '선택' 버튼 또는 카드 롱프레스. 보관 = 선택 카드 일괄 즐겨찾기(서버 PATCH),
   // 이어가기 = 가장 최근 선택 카드 지점의 포크(ForkDialog 재사용 — 백엔드 선택적 포크 없는 MVP는 계보 preserved 방식).
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const selection = { active: selectionMode, ids: selectedIds };
-  const selectionMessages = useMemo(() => messages.filter((m) => selectedIds.includes(m.id)), [messages, selectedIds]);
-  const selectableIds = useMemo(() => messages.filter((m) => !m.pending && m.status !== 'failed').map((m) => m.id), [messages]);
-  const allSelected = selectableIds.length > 0 && selectedIds.length === selectableIds.length;
-  const exitSelection = useCallback(() => { setSelectionMode(false); setSelectedIds([]); }, []);
-  const toggleSelect = useCallback((id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])), []);
-  const selectAll = useCallback(() => setSelectedIds(selectableIds), [selectableIds]);
-  const clearSelection = useCallback(() => setSelectedIds([]), []);
-  const beginSelection = useCallback((withId?: string) => { setSelectionMode(true); if (withId) setSelectedIds([withId]); }, []);
+  // 선택 모드/ID 집합/파생값은 useChatSelection 소유 (t_70cbbd6b 순수 추출).
+  const selection = useChatSelection(messages);
+  const { selectedMessages: selectionMessages, exit: exitSelection, toggle: toggleSelect, begin: beginSelection } = selection;
   const forkSelected = useCallback(() => {
     const lastAgent = [...selectionMessages].reverse().find((m) => m.role === 'agent');
     const target = lastAgent ?? selectionMessages[selectionMessages.length - 1];
     if (!target || isDemo || !sessionId || target.pending || target.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
     setForkMessage(target);
     exitSelection();
-  }, [selectionMessages, isDemo, sessionId, exitSelection]);
+  }, [selectionMessages, isDemo, sessionId, exitSelection, setForkMessage, setUnavailableError]);
   const [sendFailed, setSendFailed] = useState(false);
   const listRef = useRef<FlatList<TurnGroup>>(null);
 
@@ -287,13 +258,13 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
     inspectStore.set(m.id);
     threadSheet.current?.open({ sessionId, rootMessageId: m.id, agentName, sessionTitle, presetCategory, canFork });
-  }, [messages, isDemo, sessionId, agentName, sessionTitle, presetCategory, canFork]);
+  }, [messages, isDemo, sessionId, agentName, sessionTitle, presetCategory, canFork, setThreadsOpen, setUnavailableError]);
   const forkOf = useCallback((messageId: string) => {
     const m = messages.find((x) => x.id === messageId);
     if (!m) return;
     if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
     setForkMessage(m);
-  }, [messages, isDemo, sessionId]);
+  }, [messages, isDemo, sessionId, setForkMessage, setUnavailableError]);
   // 상단 큐 스트립 (t_2f45ccb1 → t_91cb659c 응집): 칩 행 빌드 · GET /queue 보조 폴링 · 칩 탭 점프 요청은 useQueueStrip 소유.
   const strip = useQueueStrip({ sessionId, live: !isDemo, messages, queue, applyQueueSnapshot });
   // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
@@ -389,45 +360,14 @@ export default function ChatScreen({ navigation, route }: Props) {
     void send(q.text);
   }, [isDemo, send]);
 
-  const renderFooter = useCallback(() => <View>
-    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} />}
-    {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
-      <Text style={styles.msgRoleAgent}>{agentName}</Text>
-      <Text style={styles.msgText}>{stream.text}</Text>
-      <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
-      <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
-    </Surface>)}
-    {/* 후속 질문 칩 (t_1797f432 ③): 백엔드가 run.completed에 생성해 준 예상 질문 2~3개 — 없으면 렌더 없음 */}
-    {!typing && !streams.length && suggested.length > 0 && !isDemo && (
-      <View style={styles.suggestRow} testID="suggested-questions">
-        <Text style={styles.suggestTitle}>{t('chat.suggestTitle')}</Text>
-        {suggested.map((q) => (
-          <Pressable key={q.id} accessibilityRole="button" onPress={() => sendSuggested(q)} testID={`suggested-${q.id}`} style={({ pressed }) => [styles.suggestChip, pressed && { backgroundColor: colors.surfaceHover }]}>
-            <Text style={styles.suggestChipText} numberOfLines={2}>{q.text}</Text>
-          </Pressable>
-        ))}
-      </View>
-    )}
-  </View>, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, t]);
+  const renderFooter = useCallback(() => <ChatFeedFooter
+    typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
+    streams={streams} suggested={suggested} isDemo={isDemo} onSendSuggested={sendSuggested}
+  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested]);
 
-  const renderHeader = useCallback(() => {
-    if (!hasMoreHistory || isDemo) return <View style={{ height: spacing.sp2 }} />;
-    return (
-      <View style={styles.loadMoreWrap}>
-        <Button mode="text" onPress={() => void loadHistory()} disabled={loadingHistory} testID="load-older" textColor={colors.text2}>
-          {loadingHistory ? t('common.loading') : t('chat.history')}
-        </Button>
-      </View>
-    );
-  }, [hasMoreHistory, isDemo, loadHistory, loadingHistory, t]);
-
-  // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
-  // AI 고지 상시 표기 (t_eb7f13e9 항목 2, AI 기본법 제31조 ①): 빈 상태 안내에 이어 첫 진입 후에도
-  // 앱바 아래 한 줄로 고정. 데모 세션은 백엔드 미연결이라 배너만 동일 노출(오인 방지 고지는 유지).
-  const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
-  const subtitle = isDemo ? t('chat.demoSubtitle') : {
-    connecting: t('chat.connecting'), live: t('chat.live'), reconnecting: t('chat.reconnecting'), offline: t('chat.offline'),
-  }[connection];
+  const renderHeader = useCallback(() => <ChatFeedHeader
+    hasMoreHistory={hasMoreHistory} loadingHistory={loadingHistory} isDemo={isDemo} onLoadHistory={() => void loadHistory()}
+  />, [hasMoreHistory, isDemo, loadHistory, loadingHistory]);
 
   return (
     <View style={styles.shell}>
@@ -437,47 +377,18 @@ export default function ChatScreen({ navigation, route }: Props) {
       keyboardVerticalOffset={0}
     >
       {/* 커스텀 헤더 — 웹 export에서 Paper Appbar 아이콘 글리프 깨짐 방지 (다른 화면과 동일한 ← 텍스트 패턴)
-          선택 모드(대표님 9/26): 좌측 ✕ / 제목 = "N개 선택" / 우측 전체선택·전체해제 */}
-      <View style={styles.appbar} testID="chat-appbar">
-        <TouchableOpacity onPress={selection.active ? exitSelection : () => navigation.goBack()} style={styles.backButton} accessibilityLabel={t(selection.active ? 'common.cancel' : 'common.back')}>
-          <Text style={styles.backText}>{selection.active ? '✕' : t('common.backIcon')}</Text>
-        </TouchableOpacity>
-        <View style={styles.headerBody}>
-          <Text style={styles.appbarTitle} numberOfLines={1}>{selection.active ? t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) }) : sessionTitle}</Text>
-          {!selection.active && <View style={styles.subtitleRow}>
-            <Text
-              style={[styles.appbarSubtitle, { color: isDemo ? colors.statusWarn : connectionColor }]}
-              numberOfLines={1}
-              testID="chat-status-line"
-            >
-              {t('chat.statusIndicator', { status: subtitle })}
-            </Text>
-            {/* 크로스 디바이스 presence — 같은 세션을 다른 기기가 실시간으로 보는 중 (t_eded715c) */}
-            {!isDemo && <DevicePresenceBadge peers={peers} />}
-          </View>}
-        </View>
-        {/* 답글 스레드 목록 (t_2f45ccb1 확장 3) — 배지 = 활성 스레드 수, 0이면 배지 없음 */}
-        {!selection.active && (
-          <TouchableOpacity onPress={() => setThreadsOpen(true)} style={styles.backButton} accessibilityLabel={t('queue.threadsTitle')} testID="threads-open">
-            <Text style={styles.backText}>{t('common.thread')}{activeThreadCount > 0 ? ` ${formatNumber(activeThreadCount, i18n.language)}` : ''}</Text>
-          </TouchableOpacity>
-        )}
-        {selection.active ? <TouchableOpacity
-          onPress={() => (allSelected ? clearSelection() : selectAll())}
-          style={styles.backButton}
-          accessibilityLabel={t(allSelected ? 'selection.clearAll' : 'selection.selectAll')}
-          testID="selection-toggle-all"
-        >
-          <Text style={styles.backText}>{t(allSelected ? 'selection.clearAll' : 'selection.selectAll')}</Text>
-        </TouchableOpacity> : <TouchableOpacity
-          onPress={() => beginSelection()}
-          style={styles.backButton}
-          accessibilityLabel={t('selection.enter')}
-          testID="selection-enter"
-        >
-          <Text style={styles.backText}>{t('selection.enter')}</Text>
-        </TouchableOpacity>}
-      </View>
+          선택 모드(대표님 9/26): 좌측 ✕ / 제목 = "N개 선택" / 우측 전체선택·전체해제 — ChatAppBar 소유 (t_70cbbd6b) */}
+      <ChatAppBar
+        selection={selection}
+        sessionTitle={sessionTitle}
+        isDemo={isDemo}
+        peers={peers}
+        connection={connection}
+        activeThreadCount={activeThreadCount}
+        onBack={() => navigation.goBack()}
+        onOpenThreads={() => setThreadsOpen(true)}
+        onBeginSelection={() => beginSelection()}
+      />
 
       {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기. */}
       <QueueStrip items={strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
@@ -505,33 +416,25 @@ export default function ChatScreen({ navigation, route }: Props) {
       <FlatList
         ref={listRef}
         data={groups}
-        renderItem={({ item }) => <View>
-          {times.get(item.key) && <Text style={styles.pendingMark}>{times.get(item.key)}</Text>}
-          {item.items.map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
-            {/* t_64af90b0 #3 — 에이전트명 헤더는 대화의 첫 에이전트 메시지만 노출, 이후 생략 (Linear/Slack식).
-                다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
-            {selection.active
-              ? <TouchableOpacity
-                onPress={() => toggleSelect(message.id)}
-                style={selectedIds.includes(message.id) ? styles.selectedRow : undefined}
-                testID={`select-${message.id}`}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: selectedIds.includes(message.id) }}
-              >
-                <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />
-              </TouchableOpacity>
-              : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />}
-            {message.role === 'user' && <View style={styles.userMetaRow}>
-              <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>
-              {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
-              <QueueMessageMark queue={queue} message={message} />
-            </View>}
-            {message.status === 'failed' && <View style={styles.msgHeader}>
-              <Button onPress={() => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}>{t('chat.resend')}</Button>
-              <Button onPress={() => deleteMessage(message.id)}>{t('chat.delete')}</Button>
-            </View>}
-          </View>)}
-        </View>}
+        renderItem={({ item }) => <ChatTurnRow
+          group={item}
+          timeLabel={times.get(item.key)}
+          highlightId={highlightId}
+          decorate={decorate}
+          handlers={handlers}
+          presetCategory={presetCategory}
+          canFork={canFork}
+          agentName={agentName}
+          firstAgentMessageId={firstAgentMessageId}
+          sessionTitle={sessionTitle}
+          isDemo={isDemo}
+          queue={queue}
+          selectionActive={selection.active}
+          selectedIds={selection.ids}
+          onToggleSelect={toggleSelect}
+          onResend={(message) => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}
+          onDelete={deleteMessage}
+        />}
         CellRendererComponent={renderCell}
         onScrollBeginDrag={() => { prependAnchor.current = null; }}
         onScroll={onScroll}
@@ -573,7 +476,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       )}
       {/* 다중 선택 액션 바 — t_a0e998cc(대표님 9/26): 보관(즐겨찾기 중복)·볼트로(기본 저장) 제거, 이어가기만 남김 */}
       {selection.active && <View style={styles.selectionBar} testID="selection-bar">
-        <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selectedIds.length, i18n.language) })}</Text>
+        <Text style={styles.selectionCount}>{t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) })}</Text>
         <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
       </View>}
       {/* 하단 입력 영역 (t_91cb659c): 첨부 스테이지 + 음성 콘솔(1차) + 키보드 입력바(2차) 조립은 ChatInputConsole 소유
@@ -616,227 +519,3 @@ export default function ChatScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  appbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingHorizontal: spacing.sp2,
-    paddingTop: spacing.sp3,
-    paddingBottom: spacing.sp2,
-  },
-  backButton: {
-    width: spacing.sp10,
-    height: spacing.sp10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backText: {
-    ...typography.headline,
-    color: colors.text1,
-  },
-  headerBody: {
-    minWidth: 0,
-    flexShrink: 1,
-    flex: 1,
-    marginLeft: spacing.sp1,
-    marginRight: spacing.sp2,
-  },
-  appbarTitle: {
-    ...typography.headline,
-    letterSpacing: -0.2,
-    color: colors.text1,
-  },
-  appbarSubtitle: {
-    ...typography.micro,
-    marginTop: spacing.sp1,
-  },
-  demoBadge: {
-    backgroundColor: colors.surfaceRaise,
-    borderRadius: radii.xs,
-    paddingHorizontal: spacing.sp2,
-    paddingVertical: spacing.sp1,
-    marginRight: spacing.sp3,
-  },
-  demoBadgeText: {
-    ...typography.micro,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: colors.statusWarn,
-  },
-  errorBar: {
-    flexWrap: 'wrap',
-    backgroundColor: colors.surfaceRaise,
-    paddingHorizontal: spacing.sp4,
-    paddingVertical: spacing.sp2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceRaise,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sp2,
-  },
-  errorText: {
-    ...typography.caption,
-    color: colors.statusErr,
-    flex: 1,
-  },
-  retryButton: {
-    borderWidth: 1,
-    borderColor: colors.statusErr,
-    borderRadius: radii.xs,
-    paddingHorizontal: spacing.sp3,
-    paddingVertical: spacing.sp1,
-  },
-  retryText: {
-    ...typography.caption,
-    fontWeight: '600',
-    color: colors.statusErr,
-  },
-  // 즐겨찾기 딥링크 하이라이트 (Wave1) — 액센트 좌측 밴드 + 연그린 tint (말풍선 금지 #54 — 영역 강조)
-  focusHighlight: { borderLeftWidth: 3, borderLeftColor: colors.accent, backgroundColor: colors.accentTint, borderRadius: radii.md },
-  // 다중 선택 (대표님 9/26) — 선택 행=연그린 밴드, 액션 바=입력창 위 플로팅
-  selectedRow: { borderLeftWidth: 3, borderLeftColor: colors.accent, backgroundColor: colors.accentTint, borderRadius: radii.md },
-  selectionBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginHorizontal: spacing.sp3, marginBottom: spacing.sp1, padding: spacing.sp2, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
-  selectionCount: { ...typography.caption, color: colors.text2, flex: 1, minWidth: 0 },
-  // Wave 2 저장 결과 토스트 — 입력창 위 고정, 노트/보드 딥링크 버튼 포함
-  resultToast: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginHorizontal: spacing.sp3, marginBottom: spacing.sp1, padding: spacing.sp2, backgroundColor: colors.accentTint, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
-  toastText: { ...typography.caption, color: colors.text1, flex: 1, minWidth: 0 },
-  listContent: {
-    paddingHorizontal: spacing.sp3,
-    paddingVertical: spacing.sp3,
-    gap: spacing.sp2,
-    flexGrow: 1,
-  },
-  // 전폭 사각형 카드 스택 — 메신저 말풍선 관습(좌우 배치) 배제
-  msgCard: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    paddingHorizontal: spacing.sp3,
-    paddingVertical: spacing.sp3,
-  },
-  msgCardAgent: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-  },
-  msgHeader: {
-    flexWrap: 'wrap',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sp2,
-    marginBottom: spacing.sp1,
-  },
-  msgRole: {
-    ...typography.micro,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    minWidth: 0,
-    flexShrink: 1,
-  },
-  msgRoleUser: {
-    color: colors.accent,
-  },
-  msgRoleAgent: {
-    color: colors.text2,
-  },
-  neuronChip: {
-    minWidth: 0,
-    flexShrink: 1,
-    backgroundColor: colors.border,
-    borderRadius: radii.xs,
-    paddingHorizontal: spacing.sp2,
-    paddingVertical: spacing.sp1,
-  },
-  neuronChipText: {
-    ...typography.micro,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-    color: colors.accent,
-  },
-  pendingMark: {
-    ...typography.micro,
-    minWidth: 0,
-    flexShrink: 1,
-    marginLeft: 'auto',
-    color: colors.text3,
-  },
-  // 질문 큐 체크포인트 (t_1797f432 ②) — user 카드 하단 상태 행: 전송 표시 + 큐 마커 한 줄
-  userMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
-  // 후속 질문 칩 (t_1797f432 ③) — 타이핑/스트리밍 종료 후 최종 답변 아래 2~3개, 탭 시 즉시 전송
-  suggestRow: { gap: spacing.sp2, paddingTop: spacing.sp1 },
-  suggestTitle: { ...typography.micro, color: colors.text3 },
-  suggestChip: { alignSelf: 'flex-start', maxWidth: '90%', borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp2, backgroundColor: colors.surface },
-  suggestChipText: { ...typography.caption, color: colors.text1 },
-  // AI 상시 고지 바 — 저대비 micro 한 줄, 메시지가 쌓여도 유지 (t_eb7f13e9 항목 2)
-  aiDisclosure: {
-    ...typography.micro,
-    color: colors.text3,
-    paddingHorizontal: spacing.sp4,
-    paddingTop: spacing.sp1,
-    paddingBottom: spacing.sp1,
-    minWidth: 0,
-  },
-  msgText: {
-    ...typography.body,
-    color: colors.text1,
-  },
-  empathyText: {
-    ...typography.body,
-    lineHeight: typography.bodyBold.lineHeight,
-    color: colors.text2,
-    fontStyle: 'italic',
-    marginBottom: spacing.sp1,
-  },
-  systemRow: {
-    alignItems: 'center',
-    marginVertical: spacing.sp1,
-  },
-  systemText: {
-    ...typography.caption,
-    color: colors.statusErr,
-    backgroundColor: colors.surfaceRaise,
-    paddingHorizontal: spacing.sp2,
-    paddingVertical: spacing.sp1,
-    borderRadius: radii.xs,
-    overflow: 'hidden',
-  },
-  typingQuip: {
-    ...typography.subhead,
-    color: colors.text2,
-    fontStyle: 'italic',
-  },
-  loadMoreWrap: {
-    alignItems: 'center',
-    paddingVertical: spacing.sp1,
-  },
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: spacing.sp10,
-    paddingHorizontal: spacing.sp8,
-  },
-  emptyTitle: {
-    ...typography.title2,
-    letterSpacing: -0.24,
-    color: colors.text1,
-    marginBottom: spacing.sp2,
-    textAlign: 'center',
-  },
-  emptySub: {
-    ...typography.subhead,
-    color: colors.text3,
-    textAlign: 'center',
-  },
-  // ── 반응형 2트랙 (t_eded715c) ──
-  // shell: 채팅 본문 + (PC wide) 우측 컨텍스트 패널을 나란히. 모바일에서는 패널 미렌더라 단일 컬럼과 동일.
-  // 입력바/스테이지/클립 스타일은 ChatInputConsole로 이동 (t_91cb659c)
-  shell: { flex: 1, flexDirection: 'row', backgroundColor: colors.bg },
-  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginTop: spacing.sp1 },
-});
