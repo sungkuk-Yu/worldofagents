@@ -1,13 +1,12 @@
 // 공감 재질문 카드 하단 예/아니요 버튼 행 순수 로직 단위 테스트 — src/lib/ackChips.ts
-// (t_043539ff 소형 척 → t_c62a2eb7 텔레그램식 50/50 대형 버튼 격상)
-// t_c62a2eb7 변경점: ① 3초 창(deadline) 폐기 — 발화 진행(뒤의 user 행)까지 유지 ② template_id 어미
-// 라벨 바인딩(ackLabelKeysFor) 신설 ③ 시작각 모듈 캐시 폐기(시각 수명 없음).
+// (t_043539ff 소형 척 → t_c62a2eb7 텔레그램식 50/50 대형 버튼 격상 → t_1b123e59 라벨/순서 고정)
+// t_c62a2eb7 변경점: ① 3초 창(deadline) 폐기 — 발화 진행(뒤의 user 행)까지 유지 ③ 시작각 모듈 캐시 폐기.
+// t_1b123e59 변경점: ② template_id 어미 라벨 바인딩(ackLabelKeysFor) 폐기 — 라벨 무조건 '예'/'아니요'.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as ackChips from '../../src/lib/ackChips';
 import {
   ACK_LIVE_STALE_MS,
-  ACK_MATCH_TEMPLATE_IDS,
-  ackLabelKeysFor,
   isEmpathyEchoMessage,
   visibleAckChip,
 } from '../../src/lib/ackChips';
@@ -79,24 +78,9 @@ test('공감 행 없으면 null', () => {
   assert.equal(visibleAckChip([], T0), null);
 });
 
-// ── t_c62a2eb7 #4 문구 바인딩 — 백엔드 t_44f8896c structured_payload.template_id 계약 ──
+// ── t_1b123e59 라벨 고정 — 템플릿 바인딩(t_c62a2eb7 #4) 폐기 regression 가드 ──
 
-test('ackLabelKeysFor — eq_confirm("~맞죠?" 어미)만 맞아요/아니에오 키 (부모 카드 button_label_rule)', () => {
-  const m = empathy({ payload: { template_id: 'eq_confirm', empathy_question: '이거 맞죠? 출장 일정' } as ChatMessage['payload'] });
-  assert.deepEqual(ackLabelKeysFor(m), { yesKey: 'chat.ackMatchYes', noKey: 'chat.ackMatchNo' });
-});
-
-test('ackLabelKeysFor — 나머지 템플릿/결측(구 행)은 기본 예/아니요 키 (부모 카드 fallback 규약)', () => {
-  // eq_align은 '맞나요? …'형(요형 종결)이라 '~맞죠?' 어미 요건에 해당하지 않음 → 기본 유지
-  for (const tid of ['eq_proceed', 'eq_understand', 'eq_align', 'unknown_template']) {
-    assert.deepEqual(ackLabelKeysFor(empathy({ payload: { template_id: tid } as ChatMessage['payload'] })),
-      { yesKey: 'chat.ackYes', noKey: 'chat.ackNo' }, tid);
-  }
-  assert.deepEqual(ackLabelKeysFor(empathy()), { yesKey: 'chat.ackYes', noKey: 'chat.ackNo' });          // payload 결측
-  assert.deepEqual(ackLabelKeysFor(empathy({ payload: { template_id: null } as ChatMessage['payload'] })),
-    { yesKey: 'chat.ackYes', noKey: 'chat.ackNo' });                                                     // 백엔드 null 발행
-});
-
-test('ACK_MATCH_TEMPLATE_IDS는 재질문 풀(t_44f8896c)의 "~맞죠?" 어미 1종 (eq_confirm)', () => {
-  assert.deepEqual([...ACK_MATCH_TEMPLATE_IDS], ['eq_confirm']);
+test('t_1b123e59 #1: ackChips는 라벨 바인딩을 노출하지 않는다 — eq_confirm이어도 예/아니요 고정 (원문②)', () => {
+  assert.ok(!('ackLabelKeysFor' in ackChips), 'ackLabelKeysFor 폐기 — template_id→맞아요 바인딩 부재 보장');
+  assert.ok(!('ACK_MATCH_TEMPLATE_IDS' in ackChips), 'ACK_MATCH_TEMPLATE_IDS 폐기');
 });

@@ -10,7 +10,7 @@
  *       ④ 새로고침 히스토리 재현 무버튼 (stale 가드)
  * 실행: APP_URL=http://localhost:8083 node tests/e2e/verify_ack_live.cjs
  */
-const GATE_LABELS = ['예', '아니요', '맞아요', '아니에오'];
+const GATE_LABELS = ['예', '아니요'];
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
@@ -70,8 +70,8 @@ function check(name, cond, extra = '') {
     const shown = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
     check('LIVE ① 발화 후 재질문 카드 하단 예/아니요 버튼 행 노출', shown);
     const labels = shown ? await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="ack-chips"] > *')).map((k) => k.textContent.trim())) : [];
-    check('LIVE ① 라벨 = 게이트 허용 텍스트 한 쌍 (예/아니요 또는 맞죠어미 맞아요/아니에오, #4)',
-      labels.length === 2 && GATE_LABELS.includes(labels[0]) && GATE_LABELS.includes(labels[1]) && labels[0] !== labels[1],
+    check('LIVE ① 라벨 = 예(좌)/아니요(우) 고정 (t_1b123e59: 맞아요 폐기, template_id 무관)',
+      labels.length === 2 && labels[0] === '예' && labels[1] === '아니요',
       JSON.stringify(labels));
     await page.screenshot({ path: path.join(OUT, '01-live-buttons.png') });
     if (!shown) throw new Error('버튼 행 미노출 — 후속 검사 불가');
@@ -83,7 +83,7 @@ function check(name, cond, extra = '') {
 
     // ③ affirmative 탭 → POST 발화 정확히 1회 왕복 + 발화 진행으로 구 버튼 행 소멸
     const before = posts.length;
-    const yesLabel = labels.length === 2 ? labels[1] : '예'; // 우측 affirmative (순서: 좌 부정/우 affirmative)
+    const yesLabel = labels.length === 2 ? labels[0] : '예'; // 좌측 affirmative (t_1b123e59 순서: 좌 '예'/우 '아니요')
     await page.getByTestId('ack-chip-yes').click({ timeout: 3000 }).catch(() => {});
     let tapped = false;
     for (let i = 0; i < 16 && !tapped; i++) { tapped = posts.slice(before).some((c) => c === yesLabel); if (!tapped) await sleep(250); }

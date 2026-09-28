@@ -2,8 +2,9 @@
  * 예/아니요 텔레그램식 50/50 대형 버튼 + 조이스틱 홀드-arm e2e 스모크
  * — t_043539ff(소형 척) → t_c62a2eb7(대표님 9/28 "예와 아니요가 반반씩 텔레그램 형태로, 크게")
  * 검증:
- *   ① 발화 후 공감 재질문 카드 하단 버튼 행 노출 — eq_confirm: 좌 '아니에오'/우 '맞아요' 어미 바인딩(#4),
- *      50/50 폭 분할, 버튼 높이 ≥44px, 구분선 1px, affirmative('예'/'맞아요')만 초록 채움
+ *   ① 발화 후 공감 재질문 카드 하단 버튼 행 노출 — 라벨 고정: 좌 '예'/우 '아니요' (t_1b123e59:
+ *      원문① affirmative 좌측 고정 + 원문② "맞아요가 아니고 예/아니요 로만" — template_id 바인딩 폐기),
+ *      50/50 폭 분할, 버튼 높이 ≥44px, 구분선 1px, affirmative('예')만 초록 채움
  *   ② 3초 후에도 버튼 행 유지(t_c62a2eb7 #2: 소형 척 3초 소멸 폐기 — 상시 확인 가능)
  *   ③ '예' 탭 = POST 발화 1회, payload = 라벨과 동일 텍스트(게이트 계약 텍스트)
  *   ④ 탭 후 해당 버튼 행 소멸(연속 질문 스팸 방지 — 발화 진행이 수명), 다음 턴은 신규 카드에만
@@ -75,19 +76,19 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     const visible = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
     check('① 재질문 카드 하단 예/아니요 버튼 행 노출', visible);
     const m1 = visible ? await measureRow(page) : null;
-    check('① 구성: 부정계+affirmative 2개 버튼', !!m1 && m1.btns.length === 2 && m1.texts[0] !== m1.texts[1],
+    check('① 구성: affirmative+부정계 2개 버튼', !!m1 && m1.btns.length === 2 && m1.texts[0] !== m1.texts[1],
       m1 ? JSON.stringify(m1.texts) : 'no row');
-    check('① 어미 바인딩: eq_confirm → 라벨 "아니에오/맞아요" (#4)', !!m1 && m1.texts[0] === '아니에오' && m1.texts[1] === '맞아요',
+    check('① 라벨 고정: 좌 예/우 아니요 — eq_confirm이어도 맞아요 폐기 (t_1b123e59)', !!m1 && m1.texts[0] === '예' && m1.texts[1] === '아니요',
       m1 ? `labels=${JSON.stringify(m1.texts)}` : '');
     if (m1) {
-      const [no, yes] = m1.btns;
+      const [yes, no] = m1.btns; // t_1b123e59: 좌 affirmative / 우 부정계
       const split5050 = Math.abs(no.w - yes.w) <= 1.5 && Math.abs(no.w + yes.w - m1.rowW) <= 2;
-      check('① 카드 폭 50/50 분할 (텔레그램 reply keyboard)', split5050, `no=${no.w.toFixed(1)} yes=${yes.w.toFixed(1)} row=${m1.rowW.toFixed(1)}`);
-      check('① 버튼 높이 ≥44px', no.h >= 44 && yes.h >= 44, `h=${no.h.toFixed(0)}/${yes.h.toFixed(0)}`);
-      check('① 테두리/구분선 1px', m1.rowBorder === '1px' && no.divider === '1px', `borderTop=${m1.rowBorder} divider=${no.divider}`);
-      check("① 채움은 '예'만 초록(affirmative 강조), '아니에오'는 극회색 테두리형",
+      check('① 카드 폭 50/50 분할 (텔레그램 reply keyboard)', split5050, `yes=${yes.w.toFixed(1)} no=${no.w.toFixed(1)} row=${m1.rowW.toFixed(1)}`);
+      check('① 버튼 높이 ≥44px', no.h >= 44 && yes.h >= 44, `h=${yes.h.toFixed(0)}/${no.h.toFixed(0)}`);
+      check('① 테두리/구분선 1px', m1.rowBorder === '1px' && yes.divider === '1px', `borderTop=${m1.rowBorder} divider=${yes.divider}`);
+      check("① 채움은 좌측 '예'만 초록(affirmative 강조), 우측 '아니요'는 극회색 테두리형",
         yes.bg === 'rgb(0, 168, 107)' && no.bg === 'rgb(255, 255, 255)', `yesBg=${yes.bg} noBg=${no.bg}`);
-      check("① 텍스트 배색: 예=onPrimary 화이트, 아니에오=text2", yes.color === 'rgb(255, 255, 255)' && no.color === 'rgb(90, 100, 114)',
+      check("① 텍스트 배색: 예=onPrimary 화이트, 아니요=text2", yes.color === 'rgb(255, 255, 255)' && no.color === 'rgb(90, 100, 114)',
         `yesColor=${yes.color} noColor=${no.color}`);
     }
     await page.screenshot({ path: shot('01-buttons-visible') });
@@ -104,18 +105,18 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     await page.waitForTimeout(400);
     const after = sends(state);
     check('③ 버튼 탭 = POST 발화 1회', after.length === before + 1, JSON.stringify(after.slice(before)));
-    check('③ payload = 라벨과 동일 "맞아요" (eq_confirm 바인딩 = 게이트 계약 텍스트)', after[after.length - 1] === '맞아요');
+    check('③ payload = 라벨과 동일 "예" (고정 라벨 = 게이트 계약 텍스트, t_1b123e59)', after[after.length - 1] === '예');
     await page.waitForTimeout(200);
     const domIds = await page.evaluate(() => document.querySelectorAll('[data-testid="ack-chips"]').length);
     check('④ 탭 후 이전 버튼 행 잔존 없음(≤1 = 다음 턴 신규만)', domIds <= 1, `rows=${domIds}`);
 
-    // ── ③b 두 번째 턴((eq_proceed — 기본 라벨) + 아니에오계 탭 payload) ──
+    // ── ③b 두 번째 턴(eq_proceed) — 라벨 고정: 템플릿 무관 동일 '예'/'아니요' ──
     await page.getByTestId('chat-input').fill('회의실을 잡을까');
     await page.getByTestId('send-button').click();
     const row2 = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
     check('③b 다음 턴 재질문(eq_proceed)에도 버튼 행', row2);
     const m2 = row2 ? await measureRow(page) : null;
-    check('③b 기본 어미 바인딩: eq_proceed → "아니요/예"', !!m2 && m2.texts[0] === '아니요' && m2.texts[1] === '예',
+    check('③b 라벨 고정: eq_proceed에서도 좌 예/우 아니요 (#4 바인딩 폐기)', !!m2 && m2.texts[0] === '예' && m2.texts[1] === '아니요',
       m2 ? `labels=${JSON.stringify(m2.texts)}` : '');
     if (row2) {
       const b2 = sends(state).length;

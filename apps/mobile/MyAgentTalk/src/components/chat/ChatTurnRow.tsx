@@ -64,8 +64,9 @@ export default function ChatTurnRow({
       </View>}
       {/* t_c62a2eb7: 공감 재질문 카드 하단 예/아니요 텔레그램식 50/50 대형 버튼 — 재질문 카드가
           보이는 동안 유지(발화 진행 시에만 소멸, 화면 useAckChip)·메인 피드행만 ·
-          버튼 대상 행과 일치하는 카드 아래에만 렌더. 탭 = send(라벨) 1회 (라벨=template_id 어미 바인딩). */}
-      {!selectionActive && message.id === ackChipId && onSendAck && <AckChipRow message={message} onPressAck={onSendAck} />}
+          버튼 대상 행과 일치하는 카드 아래에만 렌더. 탭 = send(라벨) 1회 (t_1b123e59: 라벨 고정 '예/아니요',
+          t_c62a2eb7 #4 template_id 어미 바인딩 폐기 — 원문② "맞아요가 아니고 예/아니오 로만"). */}
+      {!selectionActive && message.id === ackChipId && onSendAck && <AckChipRow onPressAck={onSendAck} />}
       {message.status === 'failed' && <View style={styles.msgHeader}>
         <Button onPress={() => onResend(message)}>{t('chat.resend')}</Button>
         <Button onPress={() => onDelete(message.id)}>{t('chat.delete')}</Button>

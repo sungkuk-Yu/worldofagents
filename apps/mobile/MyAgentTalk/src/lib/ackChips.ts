@@ -4,8 +4,9 @@
 //   - empathy 행 content=재질문("이거 맞냐" 템플릿 4종 회전),
 //     structured_payload = { empathy_full(복창 원문), empathy_question, template_id, empathy_ack }.
 //   - 확인 발화 수신 시 복창 재생성 skip + answer 강제 활성 — isConfirmationUtterance 정확 일치 집합.
-//     기본 '예'/'아니요'(en 'Yes'/'No') + '~맞죠?' 어미용 '맞아요'/'아니에오'(en 'Yeah'/'Nope') —
-//     4종 모두 백엔드 집합에 등재되어 있으므로 라벨=발화 payload로 그대로 안전.
+// 라벨 계약 (t_1b123e59, 대표님 9/28 원문② "맞아요가 아니고 예/아니요 로만 해야되"):
+//   - 템플릿 바인딩(eq_confirm→'맞아요/아니에오', t_c62a2eb7 #4) 폐기 — template_id 무관 모든
+//     재질문 카드 버튼은 고정 '예'/'아니요'(en 'Yes'/'No'). 두 발화 모두 백엔드 게이트 집합 등재.
 // 노출 계약 (t_c62a2eb7 #2):
 //   - 소형 척의 3초 수명 폐기 — 재질문 카드가 보이는 동안 버튼 행 유지(상시 확인 가능).
 //     소멸은 발화 진행으로만: 해당 empathy 행보다 turnIndex가 큰 user 행(칩 탭 낙관/직접 발화/큐 드레인)
@@ -43,29 +44,4 @@ export function visibleAckChip(messages: ChatMessage[], now: number, staleMs: nu
   const createdMs = last.createdAt ? Date.parse(last.createdAt) : NaN;
   if (!Number.isFinite(createdMs) || now - createdMs > staleMs) return null;
   return { id: last.id };
-}
-
-/**
- * '~맞죠?' 어미 재질문 id — 부모 카드(t_44f8896c) contract_for_child.button_label_rule 확정 해석:
- * eq_confirm('이거 맞죠? {요약}')만 '맞아요/아니에오' 라벨 대상. eq_align('맞나요? …')은 '~맞나요?'형이라
- * 어미 요건에 해당하지 않아 기본 예/아니요 유지. 본문 정규식 대신 template_id 키로 판정하는 이유:
- * '{요약}' 삽입으로 문장 어미가 가변(eq_confirm도 요약 뒤로 '이거 맞죠?'가 문두로 밀림).
- */
-export const ACK_MATCH_TEMPLATE_IDS: ReadonlySet<string> = new Set(['eq_confirm']);
-
-export interface AckLabelKeys {
-  yesKey: string;
-  noKey: string;
-}
-
-/**
- * 라벨 바인딩 (t_c62a2eb7 #4): 백엔드 structured_payload.template_id가 '~맞죠?' 형 어미
- * (eq_confirm)면 chat.ackMatchYes/No('맞아요'/'아니에오'), 그 외·template_id 결측(구 행)은
- * 기본 chat.ackYes/No('예'/'아니요') — 부모 카드(t_44f8896c) contract_for_child.fallback 규약.
- * 반환값은 i18n 키 — 렌더 라벨과 탭 payload가 같은 키에서 파생되어 발화=문구 불일치를 원천 차단.
- */
-export function ackLabelKeysFor(m: ChatMessage): AckLabelKeys {
-  const tid = typeof m.payload?.template_id === 'string' ? (m.payload.template_id as string) : null;
-  if (tid && ACK_MATCH_TEMPLATE_IDS.has(tid)) return { yesKey: 'chat.ackMatchYes', noKey: 'chat.ackMatchNo' };
-  return { yesKey: 'chat.ackYes', noKey: 'chat.ackNo' };
 }

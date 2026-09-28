@@ -61,8 +61,6 @@
     "suggestTitle": "Follow up?",
     "ackYes": "Yes",
     "ackNo": "No",
-    "ackMatchYes": "Yeah",
-    "ackMatchNo": "Nope",
     "ackHoldArmedYes": "Yes — release to send",
     "ackHoldArmedNo": "No — release to send"
   },
