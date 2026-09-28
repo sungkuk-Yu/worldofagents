@@ -48,25 +48,52 @@ function llmFetch(suggestions?: string[]) {
   });
 }
 
-describe('① 공감 확인음 + 답변 리드 지연', () => {
-  it('공감 행은 생성·저장 유지, 노출 텍스트는 짧은 확인음, 원문은 empathy_full 보존', async () => {
+describe('① 공감 확인음 + 답변 리드 지연 (t_135a19b5 정정: 복창 원문 노출)', () => {
+  it('공감 행 content = 복창 원문(에코 문장), 짧은 확인음은 empathy_ack에 분류 보존', async () => {
     vi.stubGlobal('fetch', llmFetch());
     const events: TurnEmitEvent[] = [];
     const result = await runTextTurn(db, session, 'user', '왜 그런가요?', { locale: 'ko', emit: e => events.push(e) });
 
     const empathyRow = store.tables.messages.find(m => m.source_neuron === 'empathy');
-    // 노출 최소화: 화면 텍스트(content)는 "예/아니오" 수준 ack.
-    expect(empathyRow?.content).toBe(QUIPS.ack.warm.ko);
-    // 생성 유지: 복명복창 원문이 사라지지 않고 감사 기록으로 남는다.
-    expect((empathyRow?.structured_payload as any).empathy_full).toBeTruthy();
-    expect((empathyRow?.structured_payload as any).empathy_full).not.toBe(empathyRow?.content);
+    // t_135a19b5 정정: 화면 노출 텍스트(content)는 복창 원문 그대로 — 확인음이 아니다.
+    expect(empathyRow?.content).toContain('왜 그런가요?');
+    expect(empathyRow?.content).not.toBe(QUIPS.ack.warm.ko);
+    // 분류(yes/no 수준 짧은 확인음)는 structured_payload.empathy_ack에 유지.
+    expect((empathyRow?.structured_payload as any).empathy_ack).toBe(QUIPS.ack.warm.ko);
     // 호환: empathy message_id는 계속 발행된다.
     expect(result.empathyMessageId).toBeTruthy();
-    expect(result.empathyResponse).toBe(QUIPS.ack.warm.ko); // 계약 필드는 화면 노출값
+    expect(result.empathyResponse).toBe(empathyRow?.content); // 계약 필드 = 화면 노출값(복창 원문)
     expect(events.at(-1)).toMatchObject({ type: 'run.completed', message_ids: { empathy: result.empathyMessageId } });
-    // 메시지 이벤트의 공감 content도 짧다.
+    // 메시지 이벤트의 공감 content도 복창 원문과 동일.
     const empathyMsg = events.find(e => e.type === 'message.new' && (e as any).message.source_neuron === 'empathy') as any;
-    expect(empathyMsg.message.content).toBe(QUIPS.ack.warm.ko);
+    expect(empathyMsg.message.content).toBe(empathyRow?.content);
+  });
+
+  it('예/아니오 게이트: 직전 empathy 행 뒤 짧은 확인 발화에는 공감 행을 만들지 않는다 (중복 에코 방지)', async () => {
+    vi.stubGlobal('fetch', llmFetch());
+    await runTextTurn(db, session, 'user', '왜 그런가요?', { emit: () => undefined });
+    const before = store.tables.messages.filter(m => m.source_neuron === 'empathy').length;
+    expect(before).toBe(1);
+    const events: TurnEmitEvent[] = [];
+    const result = await runTextTurn(db, session, 'user', '예', { emit: e => events.push(e) });
+    // 공감 행 미생성 + empathy message_id는 null, 답변은 직결(침묵 금지).
+    expect(store.tables.messages.filter(m => m.source_neuron === 'empathy').length).toBe(before);
+    expect(result.empathyMessageId).toBeNull();
+    expect(result.empathyResponse).toBeNull();
+    expect(result.answerMessageId).toBeTruthy();
+    expect(result.activationPlan.reason).toContain('confirm_gate=answer_forced');
+    expect(events.at(-1)).toMatchObject({ type: 'run.completed', message_ids: { empathy: null } });
+    // '아니요' 변형도 동일 게이트.
+    const r2 = await runTextTurn(db, session, 'user', '아니요', { emit: () => undefined });
+    expect(r2.empathyMessageId).toBeNull();
+    expect(r2.answerMessageId).toBeTruthy();
+  });
+
+  it('게이트 비적용: 확인 발화라도 직전 턴에 empathy 행이 없으면 복창 정상 생성', async () => {
+    vi.stubGlobal('fetch', llmFetch());
+    const result = await runTextTurn(db, session, 'user', '네', { emit: () => undefined });
+    expect(result.empathyMessageId).toBeTruthy();
+    expect(result.empathyResponse).toContain('네');
   });
 
   it('접수 직후 run.progress 확인음(ack)이 나간다 (stage는 계약 코드 thinking)', async () => {

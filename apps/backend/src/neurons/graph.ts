@@ -97,6 +97,8 @@ export interface NeuronState {
   grounding: GroundingResult | null;
   /** photo_edit 지시+이미지 첨부 동반 (t_78ffba4f) — routerNode가 answer 강제 활성에 사용. */
   photoEditPending?: boolean;
+  /** 예/아니오 확인 발화 에코 억제 (t_135a19b5, 대표님 9/28 정정) — true면 empathy 뉴런 skip. */
+  empathySuppressed?: boolean;
   // 컴포즈
   finalResponse: { empathy: string | null; answer: string | null; visualsRequested: boolean };
   events: NeuronStatusEvent[];
@@ -164,16 +166,40 @@ function waitOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
+  // 예/아니오 게이트 (t_135a19b5, 대표님 9/28 정정): 직전 empathy 행 뒤의 짧은 확인 발화에는
+  // 복창을 생성하지 않는다 — 중복 에코 루프 방지, 답변으로 직결.
+  if (state.empathySuppressed) return {};
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
-  // 공감 문장 생성은 유지(DB 기록·컨텍스트)하되, 화면 노출은 "예/아니오" 수준 짧은 확인음으로
-  // 대체한다 (t_344e047a ①, 대표님 9/28 정정: 복명복창 노출 금지, 생성 자체는 끄지 말 것).
+  // t_135a19b5 정정: 복창 원문(에코 문장)을 그대로 노출한다. t_344e047a의 짧은 확인음
+  // 대체는 오적용이었음 — 확인음(yes/no 분류)은 행의 structured_payload.empathy_ack에 보존.
   const response = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
   ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') });
   return {
     empathyResponse: response,
     events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') }],
   };
+}
+
+/** 짧은 확인 발화(3초 예/아니오 칩 tapped 산출물 포함) 판별 — 순수 확인만, 부분일치 금지. */
+const CONFIRMATION_UTTERANCES = new Set([
+  '예', '네', '요', 'ㅇ', 'ㄴ', '응', '어', '넵', '넹', 'ㅇㅋ', 'ㄴㄴ',
+  '아니', '아니요', '아니오', 'yes', 'no', 'yeah', 'yep', 'nope', 'nah', 'y', 'n', 'ok', 'okay',
+]);
+export function isConfirmationUtterance(text: string): boolean {
+  const t = text.trim().toLowerCase().replace(/[.!~〜？?。，,\s]+$/g, '');
+  return t.length > 0 && t.length <= 8 && CONFIRMATION_UTTERANCES.has(t);
+}
+
+/** 직전 턴 컨텍스트에 empathy 행이 있었나 (history 최신 3행: [user, empathy, answer]) */
+function hasTrailingEmpathyRow(history: HistoryMessage[]): boolean {
+  return history.slice(-3).some(m => m.role === 'agent' && m.source_neuron === 'empathy');
+}
+
+/** 직전 발화(history의 최신 user 행)도 짧은 확인이었나 — 연속 예/아니오 체인 유지 (카드 #4). */
+function previousTurnWasConfirmation(history: HistoryMessage[]): boolean {
+  const lastUser = [...history].reverse().find(m => m.role === 'user');
+  return lastUser ? isConfirmationUtterance(String(lastUser.content ?? '')) : false;
 }
 
 async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
@@ -214,6 +240,12 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   if (photoEditForced) {
     activationPlan = [...new Set([...activationPlan, 'answer'])];
     reason = `${reason}, photo_edit=answer_forced`;
+  }
+  // 예/아니오 게이트 (t_135a19b5): 확인 발화는 복창 없이 답변으로 직결 — information처럼
+  // plan이 answer 없이 끝나면 응답이 완전 침묵이 되므로 강제 활성한다.
+  if (state.empathySuppressed && !activationPlan.includes('answer')) {
+    activationPlan = [...activationPlan, 'answer'];
+    reason = `${reason}, confirm_gate=answer_forced`;
   }
   return {
     dialogueType,
@@ -435,6 +467,8 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     expertise: Annotation,
     groundEnabled: Annotation,
     grounding: Annotation,
+    photoEditPending: Annotation,
+    empathySuppressed: Annotation,
     finalResponse: Annotation,
     events: Annotation,
     engine: Annotation,
@@ -535,6 +569,12 @@ export async function processTurn(
       // 최종 payload는 link 결과(첨부 URL)로 아래에서 확정 — 판정 규칙은 photoEditCard.ts 단일 소스.
       const photoEditPending = photoEditDirectivePending(userMessage, opts.attachmentIds?.length ?? 0);
 
+      // 예/아니오 게이트 (t_135a19b5, 대표님 9/28 정정): 프론트 3초 예/아니오 칩(또는 직접 입력)의
+      // 짧은 확인 발화이자 직전 턴 컨텍스트에 empathy 행(또는 직전 발화도 확인 — 연속 체인)이면
+      // 복창을 생성하지 않는다 — 중복 에코 루프 방지. 답변은 직결(침묵 금지, routerNode 강제 활성).
+      const empathySuppressed = isConfirmationUtterance(userMessage)
+        && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || []));
+
       const initial: NeuronState = {
         locale,
         sessionId,
@@ -560,6 +600,7 @@ export async function processTurn(
         groundEnabled,
         grounding: null,
         photoEditPending,
+        empathySuppressed,
         finalResponse: { empathy: null, answer: null, visualsRequested: false },
         events: [],
         engine: 'simple',
@@ -656,9 +697,8 @@ export async function processTurn(
 
       checkCancelled();
       if (final.empathyResponse) {
-        // ① 노출 최소화 (t_344e047a, 대표님 9/28 정정): 공감 문장 생성은 유지하되,
-        // 행에 저장되는 화면 노출 텍스트는 "예/아니오" 수준의 짧은 확인음으로 대체한다.
-        // 복명복창 원문은 structured_payload.empathy_full에 감사용으로 보존한다 (DB 기록 유지).
+        // t_135a19b5 정정 (대표님 9/28 08:40): 화면 노출은 복창 원문(에코 문장) 그대로 복원.
+        // "예/아니오" 수준 짧은 확인음(yes/no 분류)은 대체가 아니라 structured_payload.empathy_ack에 보존.
         const empathyAck = pickQuip('ack', locale, persona?.tone);
         const { data: m, error } = await db
           .from('messages')
@@ -671,9 +711,9 @@ export async function processTurn(
             locale,
             ai_generated: true,
             message_type: 'text',
-            content: empathyAck,
+            content: final.empathyResponse,
             dialogue_type: null,
-            structured_payload: { empathy_full: final.empathyResponse },
+            structured_payload: { empathy_ack: empathyAck },
             stt_metadata: null,
             source_neuron: 'empathy',
             attachments: [],
@@ -685,7 +725,8 @@ export async function processTurn(
         if (error || !m) throw new ApiError('INTERNAL_ERROR', error?.message || '공감 메시지 저장 실패');
         empathyMessage = m;
         empathyMessageId = m.id;
-        empathyVisible = empathyAck;
+        // 계약 필드 = 화면 노출 텍스트 = 복창 원문 (t_135a19b5).
+        empathyVisible = final.empathyResponse;
       }
 
       if (final.answerResponse) {

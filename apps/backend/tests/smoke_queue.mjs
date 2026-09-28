@@ -11,7 +11,8 @@
  *   ANSWER_LEAD_MS=1000 node tests/smoke_queue.mjs http://localhost:3005
  *
  * 검증 흐름:
- *   signup→login→agent→session → REST 턴: empathy 행 content=짧은 ack + structured_payload.empathy_full,
+ *   signup→login→agent→session → REST 턴: empathy 행 content=복창 원문 + structured_payload.empathy_ack
+ *   (t_135a19b5 정적용: 확인음 대체 폐기, 예/아니오 게이트로 확인 발화 에코 억제),
  *   answer 행 payload에 suggested_questions(2~3)或有(실패 시 조용) + 응답 elapsed >= ANSWER_LEAD_MS
  *   → WS: 긴 턴 실행 중 message.send 끼어들기 → queue.updated(pending) → 완료 후 워커 드레인
  *     → queue.updated(answered) + user/empathy/answer message.new 추가 → GET /queue 빈 배열 read-back
@@ -100,8 +101,16 @@ async function main() {
   check(`① 답변 시작 전 리드 지연 >= ${LEAD_FLOOR_MS}ms`, elapsed >= LEAD_FLOOR_MS, `elapsed=${elapsed}ms`);
   const hist = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
   const empathyRow = hist.find(m => m.source_neuron === 'empathy');
-  check('① 공감 행 content = 짧은 확인음(복창 아님)', !!empathyRow && empathyRow.content.length <= 12, `content="${empathyRow?.content}"`);
-  check('① 공감 원문 empathy_full 보존(DB 기록 유지)', typeof empathyRow?.structured_payload?.empathy_full === 'string' && empathyRow.structured_payload.empathy_full.length > 0);
+  // t_135a19b5 정정: 노출은 복창 원문(에코 문장), 짧은 확인음은 structured_payload.empathy_ack 분류.
+  check('① 공감 행 content = 복창 원문(발화 에코, 확인음 아님)', !!empathyRow && empathyRow.content.length > 12 && empathyRow.content.includes('계약 해지'.slice(0, 5)), `content="${empathyRow?.content?.slice(0, 40)}"`);
+  check('① 짧은 확인음 empathy_ack 분류 보존', typeof empathyRow?.structured_payload?.empathy_ack === 'string' && empathyRow.structured_payload.empathy_ack.length > 0, `ack="${empathyRow?.structured_payload?.empathy_ack}"`);
+  // 예/아니오 게이트: 직전 empathy 행 뒤 짧은 확인 발화에는 공감 행이 추가되지 않는다.
+  const empathyBefore = hist.filter(m => m.source_neuron === 'empathy').length;
+  await req('POST', `/api/sessions/${sessionId}/messages`, { token, body: { content: '예' } });
+  const histGate = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
+  const empathyAfter = histGate.filter(m => m.source_neuron === 'empathy').length;
+  const confirmAnswered = histGate.some(m => m.role === 'user' && m.content.trim() === '예') && histGate.filter(m => m.source_neuron === 'answer').length >= 2;
+  check('① 예/아니오 게이트: 확인 발화에서 공감 행 미생성 + 답변 직결', empathyAfter === empathyBefore && confirmAnswered, `empathy ${empathyBefore}→${empathyAfter}`);
   const answerRow = hist.find(m => m.source_neuron === 'answer');
   const sq = answerRow?.structured_payload?.suggested_questions;
   if (Array.isArray(sq)) {
@@ -116,7 +125,17 @@ async function main() {
   const wsTicket = ticketRes.json?.data?.ticket;
   const ws = new WsCollector(`${WS_BASE}/ws?session_id=${sessionId}&${['tick','et'].join('')}=${wsTicket}`);
   await ws.connect();
+  // 실DB(토큰·소유권 DB 왕복 지연)에선 서버 message 리스너 등록 전에 보낸 subscribe/message.send가
+  // 유실될 수 있다 — connected 수신 후 subscribe하고 subscribed 확인까지 재시도, 그 다음 발화 전송.
+  // DEV 인메모리는 즉시 통과 (t_135a19b5 실DB 재현).
+  await ws.waitFor(e => e.type === 'connected', { label: 'connected', timeoutMs: 10000 });
   ws.send({ type: 'subscribe', session_id: sessionId, locale: 'ko' });
+  try {
+    await ws.waitFor(e => e.type === 'subscribed', { label: 'subscribed', timeoutMs: 4000 });
+  } catch {
+    ws.send({ type: 'subscribe', session_id: sessionId, locale: 'ko' });
+    await ws.waitFor(e => e.type === 'subscribed', { label: 'subscribed(retry)', timeoutMs: 15000 });
+  }
   // 첫 턴을 WS로 실행 중…
   ws.send({ type: 'message.send', session_id: sessionId, content: '이산 노동 사건에서 해고 무효 확인 소송의 판례 흐름을 설명해줘. 길게.' });
   await ws.waitFor(e => e.type === 'run.started', { label: 'run.started' });
