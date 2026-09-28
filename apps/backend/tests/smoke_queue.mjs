@@ -11,7 +11,7 @@
  *   ANSWER_LEAD_MS=1000 node tests/smoke_queue.mjs http://localhost:3005
  *
  * 검증 흐름:
- *   signup→login→agent→session → REST 턴: empathy 행 content=복창 원문 + structured_payload.empathy_ack
+ *   signup→login→agent→session → REST 턴: empathy 행 content=재질문(t_44f8896c) + structured_payload.empathy_full/empathy_ack/template_id
  *   (t_135a19b5 정적용: 확인음 대체 폐기, 예/아니오 게이트로 확인 발화 에코 억제),
  *   answer 행 payload에 suggested_questions(2~3)或有(실패 시 조용) + 응답 elapsed >= ANSWER_LEAD_MS
  *   → WS: 긴 턴 실행 중 message.send 끼어들기 → queue.updated(pending) → 완료 후 워커 드레인
@@ -101,11 +101,17 @@ async function main() {
   check(`① 답변 시작 전 리드 지연 >= ${LEAD_FLOOR_MS}ms`, elapsed >= LEAD_FLOOR_MS, `elapsed=${elapsed}ms`);
   const hist = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
   const empathyRow = hist.find(m => m.source_neuron === 'empathy');
-  // t_135a19b5 정정: 노출은 복창 원문(에코 문장), 짧은 확인음은 structured_payload.empathy_ack 분류.
-  check('① 공감 행 content = 복창 원문(발화 에코, 확인음 아님)', !!empathyRow && empathyRow.content.length > 12 && empathyRow.content.includes('계약 해지'.slice(0, 5)), `content="${empathyRow?.content?.slice(0, 40)}"`);
+  // t_44f8896c (대표님 9/28): 노출 content=재질문('이거 맞냐' 템플릿 풀), 복창 원문은 empathy_full 보존.
+  check('① 공감 행 content = 재질문(복창 아님, 발화 키워드 포함)', !!empathyRow && empathyRow.content.length > 8 && empathyRow.content.includes('계약'.slice(0, 2)) && empathyRow.content !== empathyRow.structured_payload?.empathy_full, `content="${empathyRow?.content?.slice(0, 40)}"`);
+  check('① structured_payload: empathy_full(원문)+empathy_question+template_id', typeof empathyRow?.structured_payload?.empathy_full === 'string' && empathyRow.structured_payload.empathy_question === empathyRow.content && typeof empathyRow.structured_payload.template_id === 'string' && empathyRow.structured_payload.template_id.startsWith('eq_'), `tpl=${empathyRow?.structured_payload?.template_id}`);
   check('① 짧은 확인음 empathy_ack 분류 보존', typeof empathyRow?.structured_payload?.empathy_ack === 'string' && empathyRow.structured_payload.empathy_ack.length > 0, `ack="${empathyRow?.structured_payload?.empathy_ack}"`);
+  // 회전 시드 (t_44f8896c): 같은 세션 연속 empathy 행은 다른 template_id — 직전 재사용 금지.
+  await req('POST', `/api/sessions/${sessionId}/messages`, { token, body: { content: '가상화폐 과세 기준 알려줘' } });
+  const histRot = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
+  const rotRows = histRot.filter(m => m.source_neuron === 'empathy');
+  check('① 회전: 연속 empathy template_id 재사용 금지', rotRows.length >= 2 && rotRows.at(-1).structured_payload?.template_id !== rotRows.at(-2).structured_payload?.template_id, `ids=${rotRows.map(r => r.structured_payload?.template_id).join(',')}`);
   // 예/아니오 게이트: 직전 empathy 행 뒤 짧은 확인 발화에는 공감 행이 추가되지 않는다.
-  const empathyBefore = hist.filter(m => m.source_neuron === 'empathy').length;
+  const empathyBefore = histRot.filter(m => m.source_neuron === 'empathy').length;
   await req('POST', `/api/sessions/${sessionId}/messages`, { token, body: { content: '예' } });
   const histGate = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
   const empathyAfter = histGate.filter(m => m.source_neuron === 'empathy').length;

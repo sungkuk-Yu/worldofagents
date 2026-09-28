@@ -59,7 +59,7 @@ export interface NodeContext {
   db?: DbClient;
 }
 
-type HistoryMessage = { role: string; content: string; source_neuron?: string | null };
+type HistoryMessage = { role: string; content: string; source_neuron?: string | null; structured_payload?: Record<string, unknown> | null };
 
 /** 뉴런 이벤트 quip: 페르소나 말투(tone_config.quip_tone/formality) + 세션 로케일 조합. */
 function quipText(state: NeuronState, key: QuipKey): string {
@@ -100,6 +100,11 @@ export interface NeuronState {
   photoEditPending?: boolean;
   /** 예/아니오 확인 발화 에코 억제 (t_135a19b5, 대표님 9/28 정정) — true면 empathy 뉴런 skip. */
   empathySuppressed?: boolean;
+  /** 공감 재질문 (t_44f8896c) — 직전 empathy 행의 template_id. 회전 시드(연속 재사용 금지). */
+  empathyLastTemplateId?: string | null;
+  /** 공감 재질문 (t_44f8896c) — 행 content는 재질문 문장, 복창 원문(에코)은 empathy_full로 보존. */
+  empathyEcho?: string | null;
+  empathyTemplateId?: string | null;
   // 컴포즈
   finalResponse: { empathy: string | null; answer: string | null; visualsRequested: boolean };
   events: NeuronStatusEvent[];
@@ -174,12 +179,15 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
   if (state.empathySuppressed) return {};
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
-  // t_135a19b5 정정: 복창 원문(에코 문장)을 그대로 노출한다. t_344e047a의 짧은 확인음
-  // 대체는 오적용이었음 — 확인음(yes/no 분류)은 행의 structured_payload.empathy_ack에 보존.
-  const response = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
+  // 복창 원문(에코 문장)은 empathy_full로 보존 (t_135a19b5), 화면 노출은 재질문으로 교체
+  // (t_44f8896c, 대표님 9/28: "단순 복창이 아니고, 좀 다채롭게 이거 맞냐는 식으로 재 질문").
+  const echo = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
+  const { text, templateId } = buildEmpathyRequestion(state.userMessage, state.empathyLastTemplateId, state.locale);
   ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') });
   return {
-    empathyResponse: response,
+    empathyResponse: text,
+    empathyEcho: echo,
+    empathyTemplateId: templateId,
     events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') }],
   };
 }
@@ -203,6 +211,13 @@ function hasTrailingEmpathyRow(history: HistoryMessage[]): boolean {
 function previousTurnWasConfirmation(history: HistoryMessage[]): boolean {
   const lastUser = [...history].reverse().find(m => m.role === 'user');
   return lastUser ? isConfirmationUtterance(String(lastUser.content ?? '')) : false;
+}
+
+/** 공감 재질문 회전 시드 (t_44f8896c): history에서 최신 empathy 행의 template_id. */
+function lastEmpathyTemplateId(history: HistoryMessage[]): string | null {
+  const last = [...history].reverse().find(m => m.role === 'agent' && m.source_neuron === 'empathy');
+  const id = last?.structured_payload?.template_id;
+  return typeof id === 'string' ? id : null;
 }
 
 async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
@@ -410,6 +425,59 @@ function buildEmpathyTemplate(message: string, dialogueType: DialogueType, _prom
   }
 }
 
+// ── 공감 재질문 템플릿 풀 (t_44f8896c, 대표님 9/28) ──
+// "단순 복창이 아니고, 좀 다채롭게 이거 맞냐는 식으로 재 질문" — 복창 원문은
+// structured_payload.empathy_full로 보존되고, 화면 노출(content)과 empathy_response는
+// 아래 재질문 문장이 된다. 규칙 기반(LLL 0회), {요약}에 발화 키워드 압축을 주입한다.
+
+type EmpathyTemplate = { id: string; ko: string; en: string };
+
+/** pool 인덱스 = 회전 순서. template_id는 프론트 버튼 문구 결정 키로도 쓰인다. */
+export const EMPATHY_REQUESTION_TEMPLATES: EmpathyTemplate[] = [
+  { id: 'eq_confirm', ko: '이거 맞죠? {요약}', en: 'Quick check — "{요약}", right?' },
+  { id: 'eq_proceed', ko: '{요약} — 맞으면 계속 진행할게요', en: '"{요약}" — if that\'s right, I\'ll keep going' },
+  { id: 'eq_understand', ko: '제 이해가 맞다면 {요약}', en: 'If I read you right, it\'s about "{요약}"' },
+  { id: 'eq_align', ko: '맞나요? {요약} 쪽으로 받아들이면 돼요', en: 'Sound good? I\'ll take it as "{요약}"' },
+];
+
+/** 발화 → {요약} 키워드 압축 (규칙 기반, LLM 0회): 문두 불요 소거 + 구두점 제거 + 24자 절단. */
+export function empathyKeywordSummary(message: string): string {
+  const cleaned = message
+    .replace(/^(안녕하세요|반갑습니다|그럼|그래서|근데|그런데|있잖아|있죠|저희|우리)\s*[,!?]?\s*/i, '')
+    .replace(/[。．.，,、!！?？~〜'"\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const head = cleaned || message.trim();
+  return head.length > 24 ? head.slice(0, 24).trimEnd() + '…' : head;
+}
+
+/**
+ * 재질문 생성 — 시드(lastTemplateId)로 회전: 같은 세션에서 직전 template_id 연속 재사용 금지.
+ * 시드 미지원(pool 밖 id/동일 id)은 pool 인덱스 해시로 폴백(결정적, 세션 일관).
+ */
+export function buildEmpathyRequestion(
+  message: string,
+  lastTemplateId: string | null | undefined,
+  locale: Locale,
+): { text: string; templateId: string } {
+  const pool = EMPATHY_REQUESTION_TEMPLATES;
+  const summary = empathyKeywordSummary(message);
+  const prev = lastTemplateId ? pool.findIndex(t => t.id === lastTemplateId) : -1;
+  let idx: number;
+  if (prev >= 0) {
+    idx = (prev + 1) % pool.length; // 연속 재사용 금지 확정 회전
+  } else {
+    // 시드 없음: 발화 해시로 골랐더라도 prev와 겹치면 다음으로 민다.
+    let h = 0;
+    for (const ch of message) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+    idx = h % pool.length;
+    if (idx === prev) idx = (idx + 1) % pool.length;
+  }
+  const t = pool[idx];
+  const raw = locale === 'en' ? t.en : t.ko;
+  return { text: raw.split('{요약}').join(summary), templateId: t.id };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildAnswerTemplate(message: string, _dialogueType: DialogueType, prompt: string, locale: Locale): string {
   if (locale === 'en') return `I have reviewed "${message.trim().slice(0, 50)}". Please share your specific goals and deadline so I can help further.`;
@@ -480,6 +548,9 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     grounding: Annotation,
     photoEditPending: Annotation,
     empathySuppressed: Annotation,
+    empathyLastTemplateId: Annotation,
+    empathyEcho: Annotation,
+    empathyTemplateId: Annotation,
     finalResponse: Annotation,
     events: Annotation,
     engine: Annotation,
@@ -567,7 +638,7 @@ export async function processTurn(
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
         history = [root, ...(replies || []).reverse()];
       } else if (!history) {
-        const { data, error } = await db.from('messages').select('role,content,source_neuron,turn_index').eq('session_id', sessionId)
+        const { data, error } = await db.from('messages').select('role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
           .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3));
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
         history = (data || []).reverse();
@@ -612,6 +683,9 @@ export async function processTurn(
         grounding: null,
         photoEditPending,
         empathySuppressed,
+        empathyLastTemplateId: lastEmpathyTemplateId(history || []),
+        empathyEcho: null,
+        empathyTemplateId: null,
         finalResponse: { empathy: null, answer: null, visualsRequested: false },
         events: [],
         engine: 'simple',
@@ -708,8 +782,9 @@ export async function processTurn(
 
       checkCancelled();
       if (final.empathyResponse) {
-        // t_135a19b5 정정 (대표님 9/28 08:40): 화면 노출은 복창 원문(에코 문장) 그대로 복원.
-        // "예/아니오" 수준 짧은 확인음(yes/no 분류)은 대체가 아니라 structured_payload.empathy_ack에 보존.
+        // t_135a19b5 정정 (대표님 9/28 08:40): 짧은 확인음(yes/no 분류)은 structured_payload.empathy_ack에 보존.
+        // t_44f8896c (대표님 9/28): content=재질문 문장으로 교체, 복창 원문(에코 문장)은 empathy_full로 보존.
+        // 프론트는 empathy_question/template_id로 버튼 문구를 재질문에 맞게 결정할 수 있다.
         const empathyAck = pickQuip('ack', locale, persona?.tone);
         const { data: m, error } = await db
           .from('messages')
@@ -724,7 +799,12 @@ export async function processTurn(
             message_type: 'text',
             content: final.empathyResponse,
             dialogue_type: null,
-            structured_payload: { empathy_ack: empathyAck },
+            structured_payload: {
+              empathy_ack: empathyAck,
+              empathy_full: final.empathyEcho ?? null,
+              empathy_question: final.empathyResponse,
+              template_id: final.empathyTemplateId ?? null,
+            },
             stt_metadata: null,
             source_neuron: 'empathy',
             attachments: [],
@@ -736,7 +816,7 @@ export async function processTurn(
         if (error || !m) throw new ApiError('INTERNAL_ERROR', error?.message || '공감 메시지 저장 실패');
         empathyMessage = m;
         empathyMessageId = m.id;
-        // 계약 필드 = 화면 노출 텍스트 = 복창 원문 (t_135a19b5).
+        // 계약 필드 = 화면 노출 텍스트 = 재질문 문장 (t_44f8896c; 복창 원문은 empathy_full에 보존).
         empathyVisible = final.empathyResponse;
       }
 

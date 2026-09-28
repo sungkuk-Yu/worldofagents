@@ -1,0 +1,360 @@
+{
+ "ids": [
+  "ai-disclosure",
+  "ai-generated-badge",
+  "ai-generated-badge",
+  "ai-generated-badge",
+  "ai-generated-badge",
+  "ai-generated-badge",
+  "ai-generated-badge",
+  "ai-generated-badge",
+  "attach-button",
+  "board-button",
+  "button",
+  "button-container",
+  "button-text",
+  "card-export-file",
+  "card-export-info",
+  "card-export-multi",
+  "card-export-table",
+  "card-export-task",
+  "card-export-text",
+  "card-export-unknown",
+  "card-favorite",
+  "card-favorite",
+  "card-favorite",
+  "card-favorite",
+  "card-favorite",
+  "card-favorite",
+  "card-favorite",
+  "card-fork",
+  "card-fork",
+  "card-fork",
+  "card-fork",
+  "card-fork",
+  "card-fork",
+  "card-fork",
+  "card-thread-start",
+  "card-thread-start",
+  "card-thread-start",
+  "card-thread-start",
+  "card-thread-start",
+  "card-thread-start",
+  "card-thread-start",
+  "chat-appbar",
+  "chat-input",
+  "chat-status-line",
+  "context-panel",
+  "error-bar",
+  "favorites-button",
+  "feed-button",
+  "message-agent",
+  "message-agent",
+  "message-agent",
+  "message-agent",
+  "message-agent",
+  "message-agent",
+  "message-agent",
+  "message-list",
+  "new-chat-button",
+  "new-chat-button",
+  "selection-enter",
+  "send-button",
+  "session-card",
+  "session-card",
+  "session-list",
+  "session-list",
+  "settings-button",
+  "sidebar-logo",
+  "sidebar-settings-button",
+  "text-input-outline",
+  "threads-open",
+  "vault-button",
+  "voice-button"
+ ],
+ "cards": [
+  {
+   "id": "card-export-text",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    195,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    191,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글 1개",
+   "rect": [
+    372,
+    250,
+    41
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    425,
+    250,
+    44
+   ]
+  },
+  {
+   "id": "card-export-info",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    322,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    318,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글",
+   "rect": [
+    372,
+    377,
+    22
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    406,
+    377,
+    44
+   ]
+  },
+  {
+   "id": "card-export-table",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    449,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    445,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글",
+   "rect": [
+    372,
+    639,
+    22
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    406,
+    639,
+    44
+   ]
+  },
+  {
+   "id": "card-export-file",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    711,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    707,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글",
+   "rect": [
+    372,
+    819,
+    22
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    406,
+    819,
+    44
+   ]
+  },
+  {
+   "id": "card-export-task",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    891,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    887,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글",
+   "rect": [
+    372,
+    946,
+    22
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    406,
+    946,
+    44
+   ]
+  },
+  {
+   "id": "card-export-multi",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    1018,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    1014,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글",
+   "rect": [
+    372,
+    1092,
+    22
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    406,
+    1092,
+    44
+   ]
+  },
+  {
+   "id": "card-export-unknown",
+   "cls": "css-g5y9jx r-1loqt21 r-1otgn73",
+   "text": "",
+   "rect": [
+    1023,
+    1164,
+    18
+   ]
+  },
+  {
+   "id": "card-favorite",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-tuq35u",
+   "text": "",
+   "rect": [
+    1049,
+    1160,
+    26
+   ]
+  },
+  {
+   "id": "card-thread-start",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "답글",
+   "rect": [
+    372,
+    1219,
+    22
+   ]
+  },
+  {
+   "id": "card-fork",
+   "cls": "css-g5y9jx r-1i6wzkk r-lrvibr r-1loqt21 r-1otgn73 r-1wbh5a2 r-bcqeeo r-11f147o",
+   "text": "갈라내기",
+   "rect": [
+    406,
+    1219,
+    44
+   ]
+  }
+ ],
+ "appbarCls": "css-g5y9jx r-1awozwy r-14lw9ot r-jmpwmb r-qklmqi r-18u37iz r-xd6kpl r-is05cd r-ttdzmv",
+ "appbarText": "←Original project● 연결이 끊겼어요답글 1선택",
+ "bodyText": " You need to enable JavaScript to run this app. MAT에이전트와 새 대화김비서Original projectMAT에이전트와 새 대화김비서Original project←Original project● 연결이 끊겼어요답글 1선택AI 에이전트와 대화 중 — 모든 응답은 AI가 생성합니다연결 오류재시도09월 26일 12:00김비서Test content textAI 생성답글 1개갈라내기Real fieldServer valueAI 생성답글갈라내기Amount123456789AI 생성답글갈라내기report.pdfTest content file파일 열기AI 생성답글갈라내기☐Review draft미완료AI 생성답글갈라내기ExpertExpert resultAI 생성답글갈라내기Test content unknownAI 생성답글갈라내기전송볼트 노트전체노트가 아직 없어요.즐겨찾기전체즐겨찾기한 카드가 아직 없어요. "
+}

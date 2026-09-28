@@ -12,6 +12,7 @@ import {
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
+  RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -55,6 +56,8 @@ export interface UseChatSessionReturn {
   };
   // 질문 큐 체크포인트 (t_1797f432 ②): 세션 message_queue 스냅샷 — 빈 배열이면 표시 없음
   queue: QueueItem[];
+  /** 비서실 릴레이 자막 (t_961ca593 Phase B): relay.updated 최신 1줄 — 이벤트 0건(비서 외 페르소나)이면 null → 렌더 없음 */
+  relay: RelayCaption | null;
   /** GET /queue 보조 폴링이 쓰는 queue 스냅샷 적용기 (안정 ref, t_91cb659c 스트립 훅 응집) */
   applyQueueSnapshot: (items: QueueItem[]) => void;
   // 답변 대기 (t_363c0faa / 백엔드 t_811e176c): 회신 필요 메시지 스냅샷 — 빈 배열이면 배지/칩 렌더 없음
@@ -133,6 +136,8 @@ export function useChatSession(
   const [threads, setThreads] = useState<ThreadIndexEntry[]>(EMPTY_THREADS);
   // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
   const [suggested, setSuggested] = useState<SuggestedQuestion[]>([]);
+  // 비서실 릴레이 자막 (t_961ca593 Phase B) — 최신 1줄 휘발성 연출. 이벤트 0건(비서 외 페르소나)이면 항상 null → 렌더 없음.
+  const [relay, setRelay] = useState<RelayCaption | null>(null);
   // 디바이스 라벨은 첫 감지값으로 고정(연결 유지 중 라벨이 바뀌면 presence가 요동침).
   // 화면이 opts.device를 주면 그 값을 쓰고, 없으면 창 폭/navigator 기반 순수 감지(RN import 없음).
   const deviceRef = useRef(opts.device ?? detectDeviceLabel(
@@ -160,6 +165,9 @@ export function useChatSession(
     const generation = ++runtime.generation;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    // 'done' 자막 홀드 타이머 (t_961ca593) — 서버는 done과 run.completed를 같은 틱에 낸다;
+    // 즉시 정리하면 마지막 자막이 0프레이드로 소실 → 홀드 후 페이드아웃(제로잔류).
+    let relayHoldTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let connectedOnce = false;
     let socketVersion = 0;
@@ -176,6 +184,7 @@ export function useChatSession(
     // 외부 세션이 바뀌면 이전 스트림 표시를 초기화한다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStreams([]);
+    setRelay(null); // 릴레이 자막도 세션 전환 잔류 금지 (t_961ca593) — 위 disable이 인접 setState 묶음을 커버
     setPeers([]);
     setTalking(false);
     runtime.audioOpen = false;
@@ -196,6 +205,7 @@ export function useChatSession(
       disposed = true;
       ++runtime.generation;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (relayHoldTimer) clearTimeout(relayHoldTimer); // done 홀드도 화면 수명 내 자원 (t_961ca593)
       runtime.socket?.close();
       runtime.socket = null;
       runtime.tracker.endAll();
@@ -292,6 +302,13 @@ export function useChatSession(
               });
             } else if (status === 'disconnected') reconnect();
           },
+          // 릴레이 자막 전용 경로 (t_961ca593 Phase B): api.ts switch case 'relay.updated' → 여기.
+          // seq 재생 필터와 무관한 휘발성 연출(presence/favorite/queue와 동일 원칙) — 커튼 멱등은
+          // applyRelayEvent(단조·dedup)가 보장하므로 eventlog 재생 이중 도착도 안전하다.
+          onRelay: (msg) => {
+            if (!current() || disconnected || (msg.session_id && msg.session_id !== sid)) return;
+            setRelay((prev) => applyRelayEvent(prev, msg as unknown as Record<string, unknown>));
+          },
           onRaw: (raw) => {
             if (!current() || disconnected || (raw.session_id && raw.session_id !== sid)) return;
             const type = raw.type;
@@ -319,6 +336,10 @@ export function useChatSession(
               setPendingReplies(normalizeReplyPending(raw));
               return;
             }
+            // 릴레이 자막 (t_961ca593 Phase B): 휘발성 연출 — seq 필터 앞의 전용 onRelay 경로에서만 처리한다.
+            // 턴 파이프라인(run.*/streams/coordinator)에 넣지 않으며(계약: message 아님), 재생 이중 도착은
+            // applyRelayEvent 커튼(단조·dedup)로 무해. 여기를 early-return해 default 분기 유입을 막는다.
+            if (type === 'relay.updated') return;
             if (type === 'audio.started') { runtime.audioOpen = true; setTalking(true); return; }
             if (type === 'audio.vad') {
               // 서버 안전망(홀드 상한/무음 타임아웃)/릴리스 종료 → UI 녹음 상태 해제
@@ -366,6 +387,26 @@ export function useChatSession(
               runtime.coordinator.observe(streamEvent as unknown as TurnEvent, sid);
               if (type === 'run.failed') setLastError('errors.run');
               if (type === 'run.cancelled') setLastError('errors.cancelled');
+              // 릴레이 자막 정리 (t_961ca593): run.completed/failed/cancelled = 백스테이지 종료.
+              // 'done' 자막이 떠 있으면 1.2s 홀드 후 정리(서버는 done과 run.completed를 같은 틱에 보낸다 —
+              // 즉시 정리 시 최종 자막이 0프레이드로 소실). 미도달/다름 stage는 즉시 정리 후 컴포넌트 페이드아웃.
+              if (type === 'run.completed' || type === 'run.failed' || type === 'run.cancelled') {
+                const runIdEnd = typeof raw.run_id === 'string' ? raw.run_id : undefined;
+                setRelay((prev) => {
+                  const owned = prev && (runIdEnd === undefined || prev.runId === runIdEnd);
+                  if (owned && prev!.stage === 'done') {
+                    // 홀드 — 타이머가 만료 시점에도 같은 done 자막이면 정리(새 run이 덮었으면 스킵).
+                    if (relayHoldTimer) clearTimeout(relayHoldTimer);
+                    const doneRun = prev!.runId;
+                    relayHoldTimer = setTimeout(() => {
+                      if (!current()) return;
+                      setRelay((cur) => (cur && cur.runId === doneRun && cur.stage === 'done' ? null : cur));
+                    }, 1200);
+                    return prev;
+                  }
+                  return clearRelayOnRunEnd(prev, runIdEnd);
+                });
+              }
               // 후속 질문 (t_1797f432 ③): run.completed의 structured_payload.suggested_questions [{id,text,locale}].
               // 필드 없거나 형태 다르면 [] → 마지막 세트만 유지, 생성 실패는 조용히 무시(사용자 체감 0).
               if (type === 'run.completed') {
@@ -614,6 +655,8 @@ export function useChatSession(
     peers, talking, talk,
     // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
     queue, suggested,
+    // 비서실 릴레이 자막 (t_961ca593 Phase B) — 이벤트 없으면 null (렌더 없음)
+    relay,
     /** 스트립 보조 폴링의 단일 queue 상태 적용기 (t_91cb659c) — useQueueStrip에 전달 */
     applyQueueSnapshot,
     // 답변 대기 (t_363c0faa) — reply.pending.updated 단일 상태원천 + GET /pending 보조 적용기

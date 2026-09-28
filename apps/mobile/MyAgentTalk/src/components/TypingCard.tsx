@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../i18n/format';
 import { colors, radii, spacing, typography } from '../theme';
 
-export default function TypingCard({ quip, agentName, count }: { quip: string | null; agentName: string; count: number }) {
+export default function TypingCard({ quip, agentName, count, hideQuip }: { quip: string | null; agentName: string; count: number; /** 릴레이 자막 스트립(t_961ca593)이 같은 런의 자막을 소유할 때 중복 라인 억제 */ hideQuip?: boolean }) {
   const { t, i18n } = useTranslation();
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -41,7 +41,7 @@ export default function TypingCard({ quip, agentName, count }: { quip: string | 
         </View>
       </View>
       {count > 1 && <Text style={styles.quip}>{t('chat.tasks', { countText: formatNumber(count, i18n.language) })}</Text>}
-      <Text style={styles.quip}>{t(quip || 'quip.default')}</Text>
+      {!hideQuip && <Text style={styles.quip}>{t(quip || 'quip.default')}</Text>}
     </Surface>
   );
 }

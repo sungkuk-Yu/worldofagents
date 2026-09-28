@@ -541,6 +541,10 @@ export type ServerMessage = (
   /** 답변 대기 스냅샷 (t_363c0faa / 백엔드 t_811e176c) — queue.updated 관례 동일. items 행:
    *  {message_id, turn_index, excerpt, reply_kind: yesno|freeform|both}. 발화 해소 시 count 0 스냅샷. */
   | { type: 'reply.pending.updated'; session_id: string; count: number; items: Record<string, unknown>[] }
+  /** 비서실 백스테이지 릴레이 자막 (t_583d9fed 案1 / 프론트 t_961ca593): secretary 페르소나 턴 한정 휘발성 연출.
+   *  stage=언어중립 코드(RELAY_ORDER 단조), quip=서버 로케일 폴백 문구 — 화면은 i18n relay.<stage> 우선.
+   *  DB 미저장·message 아님(피드 메시지 목록 금지). eventlog 재생 대상(seq 채번). */
+  | (TurnIdentity & { type: 'relay.updated'; session_id: string; run_id: string; stage: string; quip: string })
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'audio.started'; session_id: string; config: Record<string, unknown> }
@@ -555,6 +559,9 @@ export interface VoiceSocketHandlers {
   onFinal?: (msg: Extract<ServerMessage, { type: 'transcript.final' }>) => void;
   onNeuronStatus?: (msg: Extract<ServerMessage, { type: 'neuron.status' }>) => void;
   onTaskStatus?: (msg: Extract<ServerMessage, { type: 'task.status' }>) => void;
+  /** 릴레이 자막 (t_961ca593) — seq 재생 필터와 무관한 휘발성 연출(queue/presence와 동일 원칙):
+   *  커튼 멱등(단조·dedup)은 수신 측 applyRelayEvent가 보장하므로 전용 핸들러로 즉시 전달한다. */
+  onRelay?: (msg: Extract<ServerMessage, { type: 'relay.updated' }>) => void;
   onError?: (
     msg: Extract<ServerMessage, { type: 'error' }> | Extract<ServerMessage, { type: 'session.error' }>
   ) => void;
@@ -648,6 +655,9 @@ export function connectVoiceSocket(sessionId: string | null, handlers: VoiceSock
           break;
         case 'task.status':
           handlers.onTaskStatus?.(msg);
+          break;
+        case 'relay.updated':
+          handlers.onRelay?.(msg);
           break;
         case 'error':
         case 'session.error':

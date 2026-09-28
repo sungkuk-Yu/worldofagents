@@ -64,6 +64,13 @@
     "ackHoldArmedYes": "Yes — release to send",
     "ackHoldArmedNo": "No — release to send"
   },
+  "relay": {
+    "briefing": "Got it — routing this to the right desk now",
+    "research": "The research desk is on it right now",
+    "drafting": "A draft came in, polishing it now",
+    "wrapping": "Team work is done, wrapping it up",
+    "done": "All wrapped up — I signed off as one voice"
+  },
   "queue": {
     "pending": "Waiting for a reply",
     "answered": "Answered",
