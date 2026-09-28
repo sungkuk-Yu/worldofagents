@@ -14,6 +14,7 @@ import {
   enqueueQuestion, listQueue, markQueueStatus, queueSnapshot, skipAllPending,
 } from '../../src/lib/questionQueue';
 import { parseSuggestedQuestions } from '../../src/lib/suggestedQuestions';
+import { EMPATHY_REQUESTION_TEMPLATES } from '../../src/neurons/graph';
 import { DbClient, getStore as getStoreRef } from '../../src/lib/supabase';
 import { SessionsRow } from '../../src/types/db';
 
@@ -48,25 +49,45 @@ function llmFetch(suggestions?: string[]) {
   });
 }
 
-describe('① 공감 확인음 + 답변 리드 지연 (t_135a19b5 정정: 복창 원문 노출)', () => {
-  it('공감 행 content = 복창 원문(에코 문장), 짧은 확인음은 empathy_ack에 분류 보존', async () => {
+describe('① 공감 재질문 + 답변 리드 지연 (t_44f8896c: 복창→재질문, t_135a19b5 게이트 유지)', () => {
+  it('공감 행 content = 재질문 문장, 복창 원문은 empathy_full·재질문은 empathy_question·template_id 저장', async () => {
     vi.stubGlobal('fetch', llmFetch());
     const events: TurnEmitEvent[] = [];
     const result = await runTextTurn(db, session, 'user', '왜 그런가요?', { locale: 'ko', emit: e => events.push(e) });
 
     const empathyRow = store.tables.messages.find(m => m.source_neuron === 'empathy');
-    // t_135a19b5 정정: 화면 노출 텍스트(content)는 복창 원문 그대로 — 확인음이 아니다.
-    expect(empathyRow?.content).toContain('왜 그런가요?');
+    // t_44f8896c (대표님 9/28): 화면 노출(content)은 복창이 아닌 '이거 맞냐' 재질문.
+    const payload = empathyRow?.structured_payload as any;
+    expect(EMPATHY_REQUESTION_TEMPLATES.some(t => t.ko.includes('{요약}'))).toBe(true);
+    expect(payload.template_id).toBeTruthy();
+    expect(payload.empathy_question).toBe(empathyRow?.content);
+    // 복창 원문(에코 문장)은 empathy_full로 보존 — 폐기 아니다.
+    expect(payload.empathy_full).toContain('왜 그런가요?');
+    expect(empathyRow?.content).not.toBe(payload.empathy_full);
+    expect(empathyRow?.content).toContain('왜 그런가요'); // {요약}에 발화 키워드 주입
     expect(empathyRow?.content).not.toBe(QUIPS.ack.warm.ko);
     // 분류(yes/no 수준 짧은 확인음)는 structured_payload.empathy_ack에 유지.
-    expect((empathyRow?.structured_payload as any).empathy_ack).toBe(QUIPS.ack.warm.ko);
+    expect(payload.empathy_ack).toBe(QUIPS.ack.warm.ko);
     // 호환: empathy message_id는 계속 발행된다.
     expect(result.empathyMessageId).toBeTruthy();
-    expect(result.empathyResponse).toBe(empathyRow?.content); // 계약 필드 = 화면 노출값(복창 원문)
+    expect(result.empathyResponse).toBe(empathyRow?.content); // 계약 필드 = 화면 노출값(재질문)
     expect(events.at(-1)).toMatchObject({ type: 'run.completed', message_ids: { empathy: result.empathyMessageId } });
-    // 메시지 이벤트의 공감 content도 복창 원문과 동일.
+    // 메시지 이벤트의 공감 content도 재질문과 동일.
     const empathyMsg = events.find(e => e.type === 'message.new' && (e as any).message.source_neuron === 'empathy') as any;
     expect(empathyMsg.message.content).toBe(empathyRow?.content);
+  });
+
+  it('회전 시드: 같은 세션 연속 턴에서 template_id 재사용 금지 (t_44f8896c)', async () => {
+    vi.stubGlobal('fetch', llmFetch());
+    const r1 = await runTextTurn(db, session, 'user', '매출 리포트 정리해줘', { emit: () => undefined });
+    const r2 = await runTextTurn(db, session, 'user', '거듭제곱 계산 알려줘', { emit: () => undefined });
+    const rows = store.tables.messages.filter(m => m.source_neuron === 'empathy');
+    expect(rows.length).toBe(2);
+    const [p1, p2] = rows.map(m => (m.structured_payload as any).template_id);
+    expect(p1).not.toBe(p2); // 직전 템플릿 연속 재사용 금지
+    expect(EMPATHY_REQUESTION_TEMPLATES.map(t => t.id)).toContain(p2);
+    // 재질문 문장도 서로 달라야 한다 (다채롭게).
+    expect(r1.empathyResponse).not.toBe(r2.empathyResponse);
   });
 
   it('예/아니오 게이트: 직전 empathy 행 뒤 짧은 확인 발화에는 공감 행을 만들지 않는다 (중복 에코 방지)', async () => {

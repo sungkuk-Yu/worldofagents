@@ -403,6 +403,8 @@ POST /sessions/:session_id/messages
 }
 ```
 
+> **공감 행 계약 (t_44f8896c, 대표님 9/28)**: `empathy_response`와 empathy 행 `content`는 복창이 아닌 **재질문** 문장("이거 맞죠? {요약}" 등 규칙 기반 템플릿 풀 4종, LLM 0회, 세션 내 직전 template_id 연속 재사용 금지). 행 `structured_payload`에 `empathy_full`(복창 원문 보존) + `empathy_question`(재질문=content) + `template_id`(`eq_confirm|eq_proceed|eq_understand|eq_align`) + `empathy_ack`를 저장 — 프론트는 `empathy_question`/`template_id`로 예/아니요 버튼 문구를 재질문 어미에 맞게 결정한다. 예/아니오 게이트(t_135a19b5) 불변: 순수 확인 발화 + 직전 empathy 행이면 empathy 행 미생성(`empathy_message_id=null`)·answer 강제.
+
 #### 메시지 피드백 (좋아요/싫어요)
 ```
 POST /sessions/:session_id/messages/:message_id/feedback
