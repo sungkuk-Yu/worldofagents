@@ -6,7 +6,7 @@ const buffers = new Map<string, StampedMessage[]>();
 const recordedTypes = new Set([
   'message.new', 'run.started', 'run.progress', 'run.completed', 'run.failed', 'run.cancelled',
   'answer.delta', 'answer.done', 'neuron.status', 'transcript.partial', 'transcript.final', 'queue.update',
-  'queue.updated',
+  'queue.updated', 'relay.updated',
 ]);
 
 /** 연결 유무와 무관하게 세션별 최근 500개 이벤트를 기록한다. */

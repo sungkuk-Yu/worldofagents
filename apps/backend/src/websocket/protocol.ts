@@ -2,6 +2,7 @@ import type { Locale } from '../lib/locale';
 import type { DialogueCardType, DialogueType, MessagesRow } from '../types/db';
 import type { GroundingSummary } from '../lib/perplexity';
 import type { PttMode } from '../lib/pushToTalk';
+import type { RelayStage } from '../lib/relay';
 
 export type SavedMessage = MessagesRow;
 
@@ -57,6 +58,9 @@ export type ServerMessage =
   /** 질문 큐 체크포인트 (t_344e047a) — 메시지 유실 방지 대기열 스냅샷. status는 언어중립 코드,
    *  화면 문구는 프론트 i18n t() 키(pending→빈 원 / answered→초록 체크 / skipped→회색 대시). */
   | { type: 'queue.updated'; seq?: number; session_id: string; pending_count: number; items: Array<{ id: string; content: string; status: 'pending' | 'answered' | 'skipped'; position: number }> }
+  /** 비서실 백스테이지 릴레이 자막 (t_583d9fed 案1) — 비서 페르소나 턴에서만 발행되는 휘발성 연출 이벤트.
+   *  stage는 언어중립 코드, 화면 문구는 quip(폴백) 또는 프론트 i18n(relay.<stage>). 최종 답변은 기존 run.completed의 통합 메시지(B1). */
+  | { type: 'relay.updated'; seq?: number; session_id: string; run_id: string; stage: RelayStage; quip: string }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'pong'; ts: number }

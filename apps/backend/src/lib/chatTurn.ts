@@ -1,5 +1,7 @@
 import { config } from '../config';
 import { Locale, PATIENCE_PLAN, patienceQuipAt, pickQuip, QuipKey } from './locale';
+import { RelayCurtain, relayStageForEvent } from './relay';
+import type { RelayStage } from './relay';
 import { registerRun, hasActiveRun } from '../websocket/eventlog';
 import { randomUUID } from 'node:crypto';
 import { DbClient } from './supabase';
@@ -11,7 +13,7 @@ import { ApiError } from './errors';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
 
-export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' }>;
+export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' }>;
 
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
@@ -53,6 +55,16 @@ export async function runTextTurn(
     if (error) throw new ApiError('INTERNAL_ERROR', error.message);
     // 접수 문구는 페르소나 말투를 반영한다 (formal→빠릿하게(brisk), casual→캐주얼하게(playful)).
     personaTone = (persona as { tone_config?: Record<string, unknown> } | null)?.tone_config ?? null;
+    // 비서실 백스테이지 릴레이 자막 (t_583d9fed 案1, 대표님 9/28 "일단 a이고"): relationship_type='secretary'
+    // 페르소나의 턴에서만 뉴런 릴레이 실체를 자막으로 노출한다. 최종 답변은 기존 계약대로 하나의 통합 메시지(B1)이고,
+    // channels/메시지 마이그레이션은 없다. 비서 외 페르소나에서는 이벤트가 0건 — 기존 흐름과 1:1 동일.
+    const isSecretaryTurn = (persona as { relationship_type?: string } | null)?.relationship_type === 'secretary';
+    const relayCurtain = new RelayCurtain(locale);
+    const emitRelay = (stage: RelayStage) => {
+      if (!isSecretaryTurn) return;
+      const text = relayCurtain.advance(stage);
+      if (text !== null) opts.emit({ type: 'relay.updated', ...base, stage, quip: text });
+    };
     opts.emit({ type: 'run.started', ...base, quip: quip('started') });
     // ① 짧은 확인음 (t_344e047a, 대표님 9/28 정정): 공감 복명복창을 대체하는 "예/아니오"
     // 수준 확인음을 접수 직후 run.progress(stage=thinking, 계약 코드 유지)로 내보낸다.
@@ -79,8 +91,12 @@ export async function runTextTurn(
         lastStage = stage;
         opts.emit({ type: 'run.progress', ...base, stage, quip: quip(stage) });
       },
-      emitEvent: e => opts.emit({ type: 'neuron.status', session_id: session.id,
-        neuron: { slug: e.neuron, name: NEURON_NAMES[e.neuron] || e.neuron }, status: e.status, stage: e.stage, quip: e.quip }),
+      emitEvent: e => {
+        opts.emit({ type: 'neuron.status', session_id: session.id,
+          neuron: { slug: e.neuron, name: NEURON_NAMES[e.neuron] || e.neuron }, status: e.status, stage: e.stage, quip: e.quip });
+        const relayStage = relayStageForEvent(e);
+        if (relayStage) emitRelay(relayStage);
+      },
       onAnswerDelta: (delta, index) => {
         partialText += delta;
         opts.emit({ type: 'answer.delta', ...base, delta, index });
@@ -89,8 +105,12 @@ export async function runTextTurn(
     for (const message of [result.messages.user, result.messages.empathy, result.messages.answer]) {
       if (message) opts.emit({ type: 'message.new', ...base, message });
     }
+    // 비서실 마무리·종료 비트 — 커튼이 단조 증가만 허용하므로 visual이 먼저 'wrapping'을 받은
+    // 턴은 dedup된다. run.completed는 항상 마지막 이벤트로 남긴다(phase2-contract 계약).
+    emitRelay('wrapping');
     opts.emit({ type: 'answer.done', ...base, ai_generated: true, locale, text: result.answerResponse || '', message_id: result.answerMessageId,
       llm: { ...result.llm, usage: result.llm.usage ?? null }, grounding: result.grounding });
+    emitRelay('done');
     opts.emit({ type: 'run.completed', ...base,
       structured: { dialogue_type: result.structured.dialogue_type, structured_payload: result.structured.structured_payload },
       classifier: { type: result.dialogueType, stage: result.dialogueStage, confidence: result.dialogueConfidence },

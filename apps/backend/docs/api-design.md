@@ -957,7 +957,7 @@ REST `POST /api/sessions/:id/messages`, WS 텍스트 입력과 음성 확정 입
 {"type":"subscribed","session_id":"세션 UUID","channels":["audio","transcript","neuron_status","task"],"current_seq":20}
 ```
 
-`message.new`, `run.*`, `answer.delta/done`, `neuron.status`, `transcript.partial/final`, `queue.update`에는 세션별 1부터 단조 증가하는 `seq`가 붙는다. 연결이 없어도 기록하며 세션별 최근 500개만 메모리에 보관한다. `connected/subscribed/error/pong/ping`은 seq와 재생 대상에서 제외한다. 프로세스 재시작 시 번호와 버퍼는 소실된다. last_seq를 생략하면 재생하지 않는다. 버퍼 보관 범위를 벗어난 이력은 REST 메시지 조회로 복구해야 하며, 재시작 후에는 last_seq를 0으로 초기화한다. 클라이언트는 seq로 중복 수신을 제거한다.
+`message.new`, `run.*`, `answer.delta/done`, `neuron.status`, `transcript.partial/final`, `queue.update`, `relay.updated`에는 세션별 1부터 단조 증가하는 `seq`가 붙는다. 연결이 없어도 기록하며 세션별 최근 500개만 메모리에 보관한다. `connected/subscribed/error/pong/ping`은 seq와 재생 대상에서 제외한다. 프로세스 재시작 시 번호와 버퍼는 소실된다. last_seq를 생략하면 재생하지 않는다. 버퍼 보관 범위를 벗어난 이력은 REST 메시지 조회로 복구해야 하며, 재시작 후에는 last_seq를 0으로 초기화한다. 클라이언트는 seq로 중복 수신을 제거한다.
 
 ### 실행 상태와 취소
 
@@ -976,6 +976,7 @@ REST `POST /api/sessions/:id/messages`, WS 텍스트 입력과 음성 확정 입
 - `message.new`: `{type, session_id, run_id, seq, message}`. message는 저장된 messages 행 전체다. 성공 시 사용자 → 공감 → 답변 순으로 전송하며 없는 응답 행은 생략한다.
 - `answer.delta`: `{type, session_id, run_id, seq, delta, index}`. index는 실행별 0부터 증가한다.
 - `answer.done`: `{type, session_id, run_id, seq, text, message_id, llm: {used, model, fallback, usage}}`. PersonaGuard를 적용한 최종 텍스트다. 답변이 없으면 text는 빈 문자열, message_id는 null이다.
+- `relay.updated` (t_583d9fed 案1 비서실 백스테이지): `{type, session_id, run_id, seq, stage, quip}`. 세션 페르소나의 `relationship_type`이 `secretary`인 턴에서만 발행되는 휘발성 연출 이벤트로, 백엔드 뉴런 릴레이(배정→자료→초안→마무리→통합)를 자막처럼 노출한다. `stage`는 언어중립 코드 `briefing | research | drafting | wrapping | done`이며 실행 안에서 RELAY_ORDER 순서대로 단조 증가(역순·중복 없음, 미도달 단계는 생략 가능)한다. 화면 문구는 `quip`(폴백) 또는 프론트 i18n 키 `relay.<stage>`. 이 이벤트는 대화 메시지가 아니고 DB에 저장되지 않으므로 피드 렌더 대상이 아니며, 미처리 클라이언트는 type switch default로 안전하게 무시한다. 최종 답변 계약은 불변: `run.completed`의 단일 통합 메시지.
 
 성공 시 `message.new`들 → `answer.done` → `run.completed` 순서다. 뉴런 상태와 트랜스크립트 이벤트도 유지한다. LLM 장애 시 템플릿 폴백 또는 PersonaGuard에 의해 텍스트가 달라질 수 있으므로 누적 델타를 answer.done.text로 교체한다.
 
