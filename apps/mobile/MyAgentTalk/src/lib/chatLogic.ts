@@ -423,6 +423,46 @@ export function createSequenceTracker() {
   };
 }
 
+// ── 비서실 백스테이지 릴레이 자막 (Phase B, t_961ca593) ──────────────────
+// WS `relay.updated` = 휘발성 연출 이벤트(DB 미저장·message 아님) — 피드 메시지 목록에 절대 넣지 않는다.
+// 계약(t_583d9fed/api-design §relay.updated): stage는 언어중립 코드, 실행(run_id) 안에서 RELAY_ORDER
+// 단조 증가·중복 없음·미도달 단계 생략 가능. 프론트는 같은 커튼 규칙을 적용해 역주행/중복 이벤트를 무시하고
+// (재접속 eventlog 재생 이중 적용 방지), 화면 문구는 i18n 키 `relay.<stage>` 우선 · 서버 quip 폴백.
+// 비서 외 페르소나에서는 이벤트 0건 — 렌더 조건 없이 도착하면 그대로 그린(조건 분기 불필요).
+export type RelayStage = 'briefing' | 'research' | 'drafting' | 'wrapping' | 'done';
+export const RELAY_ORDER: RelayStage[] = ['briefing', 'research', 'drafting', 'wrapping', 'done'];
+
+export interface RelayCaption {
+  runId: string;
+  stage: RelayStage;
+  /** 서버 로케일별 폴백 문구 (i18n 키 부재 시에만 노출) */
+  quip: string | null;
+}
+
+/** relay.updated 프레임 → 유효 자막 이벤트, 아니면 null (필드 타입 가드 — malformed 이벤트는 조용히 무해). */
+export function normalizeRelayEvent(raw: Record<string, unknown>): { runId: string; stage: RelayStage; quip: string | null } | null {
+  if (raw.type !== 'relay.updated') return null;
+  if (typeof raw.run_id !== 'string' || !raw.run_id) return null;
+  const stage = raw.stage;
+  if (typeof stage !== 'string' || !RELAY_ORDER.includes(stage as RelayStage)) return null;
+  return { runId: raw.run_id, stage: stage as RelayStage, quip: typeof raw.quip === 'string' && raw.quip ? raw.quip : null };
+}
+
+/** 자막 커튼 적용기 — 서버 RelayCurtain과 동일 규칙(단조·dedup)의 프론트측 보존.
+ *  같은 run에서 같거나 이전 stage면 prev 반환(멱등 — eventlog 재생 이중 도착 안전), 새 run은 교체. */
+export function applyRelayEvent(prev: RelayCaption | null, raw: Record<string, unknown>): RelayCaption | null {
+  const ev = normalizeRelayEvent(raw);
+  if (!ev) return prev;
+  if (prev && prev.runId === ev.runId && RELAY_ORDER.indexOf(ev.stage) <= RELAY_ORDER.indexOf(prev.stage)) return prev;
+  return { runId: ev.runId, stage: ev.stage, quip: ev.quip };
+}
+
+/** 런 종료(run.completed/failed/cancelled) — 해당 run의 자막 정리(fade-out 트리거). run_id 없으면 현 자막 정리. */
+export function clearRelayOnRunEnd(prev: RelayCaption | null, runId?: unknown): RelayCaption | null {
+  if (!prev) return prev;
+  return typeof runId !== 'string' || prev.runId === runId ? null : prev;
+}
+
 export interface StreamingAnswer { runId: string; text: string; messageId?: string; index: number; quip: string; done: boolean }
 export function reduceStreams(streams: StreamingAnswer[], event: Record<string, unknown>, messages: ChatMessage[]): StreamingAnswer[] {
   const runId = event.run_id;

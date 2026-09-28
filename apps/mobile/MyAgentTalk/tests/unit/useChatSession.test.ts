@@ -366,6 +366,49 @@ test('메인 히스토리가 스레드 답변뿐인 페이지도 다음 커서�
   assert.equal(h.render().hasOlder, false);
 });
 
+// ── 비서실 릴레이 자막 (t_961ca593 Phase B) — 전용 onRelay 경로 + 커튼 + 런 종료/done 홀드 ──
+test('relay.updated — onRelay 수신 시 최신 1줄 갱신, 역주행·중복 무시, 피드 메시지 무영향', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  assert.equal(h.render().relay, null, '이벤트 0건(비서 외 페르소나 관측) = null');
+  const before = h.render().messages.length;
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r1', stage: 'briefing', quip: '접수했어요' } as never);
+  assert.deepEqual(h.render().relay, { runId: 'r1', stage: 'briefing', quip: '접수했어요' });
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r1', stage: 'research', quip: '자료 검색' } as never);
+  assert.equal(h.render().relay?.stage, 'research');
+  // 중복·역주행(재접속 eventlog 이중 도착 시뮬) — 같은 객체 유지(리렌더 소스 안정)
+  const cur = h.render().relay;
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r1', stage: 'research', quip: '자료 검색' } as never);
+  assert.equal(h.render().relay, cur);
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r1', stage: 'briefing', quip: '접수' } as never);
+  assert.equal(h.render().relay, cur);
+  // 휘발성 연출 계약: messages 병합 절대 금지
+  assert.equal(h.render().messages.length, before);
+  // 세션 다른 이벤트 혼재 무해 — onRaw relay.updated early-return (coordinator/streams 유입 없음)
+  h.sockets[0].onRaw?.({ type: 'relay.updated', session_id: 'session', run_id: 'r1', stage: 'drafting', quip: 'x' });
+  assert.equal(h.render().relay, cur, 'onRaw 경로는 커튼 갱신 없이 조용히 무시(전용 경로 단일 원천)');
+  assert.equal(h.render().typing, false, 'relay가 타이핑 상태를 켜지 않는다');
+});
+
+test('run.completed — 일반 stage 즉시 정리, done은 홀드 후 제로잔류', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = harness(t); h.render(); await flush();
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r1', stage: 'wrapping', quip: '정리 중' } as never);
+  assert.equal(h.render().relay?.stage, 'wrapping');
+  h.sockets[0].onRaw?.({ type: 'run.completed', session_id: 'session', run_id: 'r1' });
+  assert.equal(h.render().relay, null, 'done 미도달 = 런 종료 즉시 정리');
+  // done 홀드 경로
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r2', stage: 'done', quip: '끝' } as never);
+  h.sockets[0].onRaw?.({ type: 'run.completed', session_id: 'session', run_id: 'r2' });
+  assert.equal(h.render().relay?.stage, 'done', 'done 자막은 홀드 유지(0프레임 소실 방지)');
+  t.mock.timers.runAll();
+  h.render();
+  assert.equal(h.render().relay, null, '홀드 만료 = 제로잔류');
+  // 남의 run 종료는 현 자막 무해
+  h.sockets[0].onRelay?.({ type: 'relay.updated', session_id: 'session', run_id: 'r3', stage: 'research', quip: 'x' } as never);
+  h.sockets[0].onRaw?.({ type: 'run.completed', session_id: 'session', run_id: 'other' });
+  assert.equal(h.render().relay?.runId, 'r3');
+});
+
 test('스레드 전송 실패와 재전송도 원문 및 부모 ID를 보존한다', async (t) => {
   const h = harness(t, 'session', { rootMessageId: 'root' });
   t.mock.method(apiModule.api, 'getThread', async () => ({ root: { id: 'root', content: 'root' }, replies: [] }));

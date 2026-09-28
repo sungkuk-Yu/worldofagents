@@ -60,6 +60,13 @@
     "aiDisclosure": "AI 에이전트와 대화 중 — 모든 응답은 AI가 생성합니다",
     "suggestTitle": "이어서 물어볼까요?"
   },
+  "relay": {
+    "briefing": "접수했어요, 담당 팀에 바로 전달합니다",
+    "research": "자료 팀이 지금 찾고 있어요",
+    "drafting": "초안이 올라와서 다듬는 중이에요",
+    "wrapping": "팀 작업이 끝났어요, 정리하고 있어요",
+    "done": "정리 끝났어요, 제 이름으로 챙겼습니다"
+  },
   "queue": {
     "pending": "답변 대기",
     "answered": "답변됨",

@@ -18,13 +18,15 @@ interface FooterProps {
   streams: StreamingAnswer[];
   suggested: SuggestedQuestion[];
   isDemo: boolean;
+  /** 릴레이 자막(t_961ca593) 활성 시 타이핑 카드 quip 중복 억제 */
+  hideQuip?: boolean;
   onSendSuggested: (q: SuggestedQuestion) => void;
 }
 
-export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, onSendSuggested }: FooterProps) {
+export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, hideQuip, onSendSuggested }: FooterProps) {
   const { t } = useTranslation();
   return <View>
-    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} />}
+    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
     {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
       <Text style={styles.msgText}>{stream.text}</Text>
