@@ -132,5 +132,7 @@ export async function getOwnedMessage(db: DbClient, userId: string, messageId: s
 export function serializeMessage(row: MessagesRow): MessagesRow {
   return { ...row, locale: row.locale ?? 'ko', ai_generated: row.ai_generated ?? (row.source_neuron != null || row.role === 'agent'),
     favorite: row.favorite ?? false,
+    // 답변 대기 (t_811e176c) — 011 미적용/dev 행은 false 정규화 (프론트 배지 판정 안정).
+    awaiting_reply: row.awaiting_reply ?? false,
     dialogue_type: row.dialogue_type ?? null, structured_payload: row.structured_payload ?? {} };
 }

@@ -12,6 +12,7 @@ import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession, sessionPresence } from '../websocket/handler';
 import { hasActiveRun } from '../websocket/eventlog';
 import { listQueue, queueSnapshot, enqueueQuestion, skipAllPending, isQueueKnownUnavailable } from '../lib/questionQueue';
+import { resolvePendingReplies, replyPendingSnapshot } from '../lib/awaitingReply';
 import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
@@ -285,6 +286,15 @@ export async function sessionRoutes(app: FastifyInstance) {
       await skipAllPending(request.db, session.id);
       broadcastToSession(session.id, { type: 'queue.updated', session_id: session.id, ...queueSnapshot(await listQueue(request.db, session.id)) });
     } catch (err) { request.log.warn({ err }, 'queue skipAllPending failed (archive continues)'); }
+    // 답변 대기 (t_811e176c) — 아카이브 세션은 회신 발화가 불가능하므로 미해소 배지를 마감한다
+    // (대기 항목 영구 누적 방지). 011 미적용 환경은 no-op 강등.
+    try {
+      const closed = await resolvePendingReplies(request.db, session.id);
+      if (closed > 0) {
+        const snap = await replyPendingSnapshot(request.db, session.id);
+        if (snap) broadcastToSession(session.id, { type: 'reply.pending.updated', session_id: session.id, ...snap });
+      }
+    } catch (err) { request.log.warn({ err }, 'reply pending close failed (archive continues)'); }
     return ok(data);
   });
 
@@ -295,6 +305,15 @@ export async function sessionRoutes(app: FastifyInstance) {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     const snap = queueSnapshot(await listQueue(request.db, session.id));
     return ok(snap.items, { total: snap.pending_count });
+  });
+
+  // GET /api/sessions/:id/pending — 답변 대기 체크포인트 (t_811e176c ④)
+  // 프론트 부트스트랩 폴백(WS 무신뢰 환경·재접속): { count, items:[{message_id, excerpt, reply_kind, turn_index}] }.
+  // 011 미적용 환경(래치)은 빈 스냅샷 — 배지 0으로 강등, 대화 경로는 무영향.
+  app.get('/:id/pending', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const snap = (await replyPendingSnapshot(request.db, session.id)) ?? { count: 0, items: [] };
+    return ok(snap, { total: snap.count });
   });
 
   // GET /api/sessions/:id/messages — 메시지 히스토리 (cursor는 turn_index 기반)

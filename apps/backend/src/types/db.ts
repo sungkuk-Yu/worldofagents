@@ -101,6 +101,9 @@ export interface NeuronInstancesRow {
 
 export type DialogueCardType = 'text' | 'info_card' | 'spreadsheet' | 'file' | 'task_flow' | 'multi_agent' | 'photo_edit';
 
+/** 답변 대기 회신 형식 (t_811e176c, 마이그레이션 011) — yesno=예/아니오, freeform=주관식, both=둘 다. */
+export type ReplyKind = 'yesno' | 'freeform' | 'both';
+
 export interface MessagesRow {
   locale: 'ko' | 'en';
   ai_generated: boolean;
@@ -122,6 +125,9 @@ export interface MessagesRow {
   user_feedback: 'like' | 'dislike' | null;
   /** 즐겨찾기(⭐) 영속화 — 마이그레이션 003. 개인 상태이며 재접속 시 GET /api/favorites로 동기화. */
   favorite: boolean;
+  /** 답변 대기(t_811e176c) — 마이그레이션 011. 회신 필요 표시, 사용자 발화로 해소. 011 미적용 환경은 undefined. */
+  awaiting_reply?: boolean;
+  reply_kind?: ReplyKind | null;
   created_at: string;
 }
 

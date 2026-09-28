@@ -274,14 +274,14 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
   insert(values: DevRow | DevRow[]): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
   }
 
   upsert(values: DevRow | DevRow[], opts?: { onConflict?: string }): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
   }
 

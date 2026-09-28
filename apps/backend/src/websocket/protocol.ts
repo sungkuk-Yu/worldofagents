@@ -1,5 +1,5 @@
 import type { Locale } from '../lib/locale';
-import type { DialogueCardType, DialogueType, MessagesRow } from '../types/db';
+import type { DialogueCardType, DialogueType, MessagesRow, ReplyKind } from '../types/db';
 import type { GroundingSummary } from '../lib/perplexity';
 import type { PttMode } from '../lib/pushToTalk';
 import type { RelayStage } from '../lib/relay';
@@ -61,6 +61,9 @@ export type ServerMessage =
   /** 비서실 백스테이지 릴레이 자막 (t_583d9fed 案1) — 비서 페르소나 턴에서만 발행되는 휘발성 연출 이벤트.
    *  stage는 언어중립 코드, 화면 문구는 quip(폴백) 또는 프론트 i18n(relay.<stage>). 최종 답변은 기존 run.completed의 통합 메시지(B1). */
   | { type: 'relay.updated'; seq?: number; session_id: string; run_id: string; stage: RelayStage; quip: string }
+  /** 답변 대기 (t_811e176c) — 회신 필요 메시지 스냅샷 (queue.updated 관례 동일 계약).
+   *  사용자 발화 해소·답변 감지 시 발행. 011 미적용 환경(래치)은 items 빈 배열. */
+  | { type: 'reply.pending.updated'; seq?: number; session_id: string; count: number; items: Array<{ message_id: string; turn_index: number; excerpt: string; reply_kind: ReplyKind }> }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'pong'; ts: number }

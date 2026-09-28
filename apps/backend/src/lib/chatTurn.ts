@@ -10,10 +10,12 @@ import { SessionsRow } from '../types/db';
 import { processTurn, TurnResult, NeuronStage, ProcessTurnOptions } from '../neurons/graph';
 import { rowToPersonaConfig } from './persona';
 import { ApiError } from './errors';
+import { serializeMessage } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
+import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 
-export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' }>;
+export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' }>;
 
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
@@ -51,6 +53,11 @@ export async function runTextTurn(
   try {
     if (session.user_id !== userId) throw new ApiError('FORBIDDEN', '세션 소유자만 메시지를 보낼 수 있습니다.');
     if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션입니다.');
+    // 답변 대기 (t_811e176c) — 발화 = 회신: 이전 미해소 pending 해소 체인을 여기서 시작하되
+    // await는 배지 발행 직전으로 미룬다 (run.started 이전 대기 홉 추가 = fake-timer 테스트
+    // 파손 — 기존 이벤트 타이밍 계약 보존). 배지 스냅샷은 아래에서 이번 턴 답변 판정과
+    // 합쳐 한 번만 낸다(두 전이 1이벤트).
+    const resolvingPending = resolvePendingReplies(db, session.id);
     const { data: persona, error } = await db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
     if (error) throw new ApiError('INTERNAL_ERROR', error.message);
     // 접수 문구는 페르소나 말투를 반영한다 (formal→빠릿하게(brisk), casual→캐주얼하게(playful)).
@@ -103,13 +110,23 @@ export async function runTextTurn(
       },
     });
     for (const message of [result.messages.user, result.messages.empathy, result.messages.answer]) {
-      if (message) opts.emit({ type: 'message.new', ...base, message });
+      // serializeMessage: devstore 기본값 미충족·011 이전 행의 awaiting_reply를 false로 정규화
+      // (WS message.new = REST 히스토리 동일 형상 계약).
+      if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message) });
     }
     // 비서실 마무리·종료 비트 — 커튼이 단조 증가만 허용하므로 visual이 먼저 'wrapping'을 받은
     // 턴은 dedup된다. run.completed는 항상 마지막 이벤트로 남긴다(phase2-contract 계약).
     emitRelay('wrapping');
     opts.emit({ type: 'answer.done', ...base, ai_generated: true, locale, text: result.answerResponse || '', message_id: result.answerMessageId,
       llm: { ...result.llm, usage: result.llm.usage ?? null }, grounding: result.grounding });
+    // 답변 대기 (t_811e176c) — 해소/감지 전이가 있었을 때만 스냅샷 발행(매 턴 노이즈 금지).
+    // run.completed 뒤에 내지 않는 이유: events.at(-1)=run.completed 계약이 기존 단위테스트
+    // ·프론트 종료 처리가 의존한다. 프론트는 이벤트 순서 무관(전용 리스너).
+    const resolvedPending = await resolvingPending;
+    if (resolvedPending > 0 || result.replyRequest) {
+      const snap = await replyPendingSnapshot(db, session.id);
+      if (snap) opts.emit({ type: 'reply.pending.updated', ...base, ...snap });
+    }
     emitRelay('done');
     opts.emit({ type: 'run.completed', ...base,
       structured: { dialogue_type: result.structured.dialogue_type, structured_payload: result.structured.structured_payload },
@@ -207,6 +224,8 @@ export function textTurnResponse(result: TurnResult) {
     grounding: result.grounding,
     activation_plan: result.activationPlan,
     suggested_questions: result.suggestedQuestions,
+    /** 답변 대기 (t_811e176c) — 감지 시 {kind, excerpt}, 없으면 null. 행은 awaiting_reply=true. */
+    reply_request: result.replyRequest,
     neuron_events: result.events,
     persona_guard_passed: result.guardPassed,
     engine: result.engine,

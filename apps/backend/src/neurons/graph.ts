@@ -23,6 +23,7 @@ import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
+import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 
@@ -136,6 +137,8 @@ export interface TurnResult {
   structured: StructuredAnswer;
   /** 후속 예상 질문 2~3개 (t_344e047a ③) — structured_payload.suggested_questions와 동일. 실패 시 []. */
   suggestedQuestions: SuggestedQuestion[];
+  /** 답변 대기 (t_811e176c) — 회신 요구 감지 시 {kind, excerpt}. 없으면 null. */
+  replyRequest: ReplyRequest | null;
   dialogueType: DialogueType;
   /** 판별 단계 (t_56498848) — 1=패턴 2=LLM 3=폴백/수동 */
   dialogueStage: 1 | 2 | 3;
@@ -342,6 +345,14 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     if (questions?.length) {
       structured = { ...structured, structured_payload: { ...structured.structured_payload, suggested_questions: questions } };
     }
+  }
+  // 답변 대기 (t_811e176c) — 회신 요구 문장 규칙 판정(LLM 0회). 결정은 저장 직전 answer
+  // insert가 아니라 여기서 structured_payload에 얹는다: photo_edit 승격처럼 structured를
+  // 통째 교체하는 경로가 드물기 때문에 여기서 넣는 편이 안전하고, REST/WS payload 계약이
+  // 자동 통과한다. 행 컬럼(awaiting_reply/reply_kind)의 진짜 값은 graph의 insert에서 쓴다.
+  const replyRequest = detectReplyRequest(answerResponse);
+  if (replyRequest) {
+    structured = { ...structured, structured_payload: { ...structured.structured_payload, reply_request: replyRequest } };
   }
   // 답변 생성 이후 분류 단계에서 받은 취소는 규칙 카드로 완료한다.
   ctx.classificationCancelled = Boolean(ctx.signal?.aborted);
@@ -752,31 +763,46 @@ export async function processTurn(
         final.answerResponse = guardResult.response + suffix;
 
         checkCancelled();
-        const { data: m, error } = await db
+        // 답변 대기 컬럼 (t_811e176c) — answerNode의 reply_request와 같은 판정 결과를
+        // 행에 적층(불일치 방지). 011 미적용 실DB는 PGRST204/42703 → 래치 후 컬럼 없이
+        // 1회 재시도 (008 queue 폴백 관례).
+        const replyReq = (final.structured.structured_payload as Record<string, unknown> | undefined)?.reply_request as ReplyRequest | undefined;
+        const replyCols = replyRequestColumns(replyReq ?? null);
+        const answerRowValues = (extra: Record<string, unknown>) => ({
+          session_id: sessionId,
+          parent_message_id: opts.thread ? msgUser.id : null,
+          root_message_id: opts.thread?.rootMessageId ?? null,
+          turn_index: nextTurn + (final.empathyResponse ? 2 : 1),
+          role: 'agent',
+          locale,
+          ai_generated: true,
+          message_type: 'text',
+          content: final.answerResponse,
+          dialogue_type: final.structured.dialogue_type,
+          structured_payload: final.structured.structured_payload,
+          stt_metadata: null,
+          source_neuron: 'answer',
+          attachments: [],
+          persona_guard: {
+            passed: guardResult.passed,
+            checks: guardResult.checks,
+          },
+          user_feedback: null,
+          ...extra,
+        });
+        let { data: m, error } = await db
           .from('messages')
-          .insert({
-            session_id: sessionId,
-            parent_message_id: opts.thread ? msgUser.id : null,
-            root_message_id: opts.thread?.rootMessageId ?? null,
-            turn_index: nextTurn + (final.empathyResponse ? 2 : 1),
-            role: 'agent',
-            locale,
-            ai_generated: true,
-            message_type: 'text',
-            content: final.answerResponse,
-            dialogue_type: final.structured.dialogue_type,
-            structured_payload: final.structured.structured_payload,
-            stt_metadata: null,
-            source_neuron: 'answer',
-            attachments: [],
-            persona_guard: {
-              passed: guardResult.passed,
-              checks: guardResult.checks,
-            },
-            user_feedback: null,
-          })
+          .insert(answerRowValues(replyCols))
           .select()
           .single();
+        if (error && replyCols.awaiting_reply !== undefined && isMissingReplyColumns(error)) {
+          markAwaitingReplyColumnsMissing();
+          ({ data: m, error } = await db
+            .from('messages')
+            .insert(answerRowValues({}))
+            .select()
+            .single());
+        }
         if (error || !m) throw new ApiError('INTERNAL_ERROR', error?.message || '답변 메시지 저장 실패');
         answerMessage = m;
         answerMessageId = m.id;
@@ -819,6 +845,8 @@ export async function processTurn(
         structured: final.structured,
         // ③ (t_344e047a) — answerNode가 structured_payload에 병합한 후속 질문 (실패 시 []).
         suggestedQuestions: ((final.structured.structured_payload as Record<string, unknown>)?.suggested_questions as SuggestedQuestion[]) ?? [],
+        // 답변 대기 (t_811e176c) — answerNode의 판정 (미감지 시 null).
+        replyRequest: ((final.structured.structured_payload as Record<string, unknown>)?.reply_request as ReplyRequest) ?? null,
         dialogueType: final.dialogueType,
         dialogueStage: final.dialogueStage ?? 3,
         dialogueConfidence: final.dialogueConfidence ?? 0,
