@@ -162,12 +162,12 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
   // 검증 완료 전에 도착한 프레임만 큐에 보류하고 순서대로 처리한다.
   let handshakeDone = false;
   let closed = false;
-  let pingInterval: ReturnType<typeof setInterval> | undefined;
-  let checkAlive: ReturnType<typeof setInterval> | undefined;
+  // 하트비트 인터벌은 handshake 완료 후 생성 — close/error가 그 전에 와도 cleanup이 안전하다.
+  const timers: { ping?: ReturnType<typeof setInterval>; alive?: ReturnType<typeof setInterval> } = {};
 
   function cleanup(terminate = false) {
-    clearInterval(pingInterval);
-    clearInterval(checkAlive);
+    clearInterval(timers.ping);
+    clearInterval(timers.alive);
     if (state.sessionId) unregisterConnection(state.sessionId, socket);
     if (terminate) socket.terminate?.();
   }
@@ -253,7 +253,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
   }
 
   // 프로토콜 레벨 ping → pong (ws 표준)
-  pingInterval = setInterval(() => {
+  timers.ping = setInterval(() => {
     try {
       socket.ping?.();
     } catch {
@@ -261,7 +261,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
     }
   }, config.ws.pingIntervalMs);
 
-  checkAlive = setInterval(() => {
+  timers.alive = setInterval(() => {
     if (Date.now() - state.lastActivity > config.ws.pongTimeoutMs) {
       logger.info(`WebSocket heartbeat timeout, closing: user=${state.userId}`);
       cleanup(true);
