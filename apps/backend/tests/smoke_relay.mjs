@@ -15,13 +15,19 @@
  *   → 재접속 재생: subscribe last_seq=0에서 relay.updated가 eventlog에서 되살아남(연출도 재현 보장)
  *   → 제어군: 비서 아닌 페르소나(기본 assistant) 세션은 relay.updated 0건 — 기존 계약 1:1 불변
  *   NOTE: 인증 헤더명/스킴/WS 쿼리 키는 스캐너 오탐 방지 런타임 결합 (smoke_chat.mjs 관례).
+ * NOTE (t_599d94d7 통합검증 사고계약 9/28):
+ *  ① 실DB+브리지 운영(SECRETARY_BRIDGE_ENDPOINT) 환경에선 비서 턴이 A2A 왕복으로
+ *    90s를 넘기 쉬움(서버 측 브리지 상한 180s×최대 2시도) — run 종료 기본 대기 420s.
+ *  ② 재생 단언 레이스: replayed 프레임은 subscribed 회신 "뒤에" 도착하는데 회신 직후
+ *    events를 읽으면 0건(테스트 측 레이스, 서버 결함 아님 — read-only 프로브로
+ *    last_seq=0 재생 3/3·current_seq=13 일관성 실측 확인). 재생 꼬리 도착을 기다린 뒤 판정.
  */
 const BASE = process.argv[2] || 'http://localhost:3006';
 const WS_BASE = BASE.replace(/^http/, 'ws');
 const AUTH_HEADER = ['Authori', 'zation'].join('');
 const AUTH_SCHEME = ['Bear', 'er '].join('');
 const TICKET_KEY = ['tick', 'et'].join('');
-const LLM_TIMEOUT_MS = Number(process.env.SMOKE_LLM_TIMEOUT_MS || 90000);
+const LLM_TIMEOUT_MS = Number(process.env.SMOKE_LLM_TIMEOUT_MS || 420000); // 브리지 최악 경로 2×180s(t_620d5549 상한+antiloop 재시도) + 후처리 여유
 const RELAY_ORDER = ['briefing', 'research', 'drafting', 'wrapping', 'done'];
 
 let passed = 0, failed = 0;
@@ -163,6 +169,9 @@ async function main() {
   const ws2 = new WsCollector(wsConnectUrl({ session_id: sec.sessionId, [TICKET_KEY]: await ticket(sec.token) }));
   await ws2.connect();
   await subscribe(ws2, sec.sessionId, 'subscribed(재생)', { last_seq: 0 });
+  // 재생 꼬리 대기: replayed는 subscribed 회신 뒤에 seq 순으로 오므로 회신 즉시 읽으면 0건(테스트 측 레이스).
+  // run.completed가 재생 스트림의 마지막 녹화 이벤트 → 그 도착 = 그 앞 relay 전부 수신.
+  await ws2.waitFor(e => e.type === 'run.completed' && e.run_id === runId, { timeoutMs: 15000, label: '재생 꼬리(run.completed)' });
   const replayed = ws2.events.filter(e => e.type === 'relay.updated' && e.run_id === runId);
   check('재접속 재생: relay.updated eventlog 보존', replayed.length === relay.length && replayed.length > 0,
     `${replayed.length}/${relay.length}`);
