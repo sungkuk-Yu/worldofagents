@@ -147,10 +147,17 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
         const base = state.messages[sid].length;
         const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: base, created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, attachments: echo };
         const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id };
-        // t_043539ff ack 픽스처: 백엔드 460fe003 계약형 empathy 행 — content=복창 원문, source_neuron='empathy',
-        // created_at=요청 시각(실시간 행). 확인 발화('예'/'Yes') 재에코 금지 상태 머신은 백엔드 소관이라 프론트 스모크는 미검.
+        // t_043539ff ack 픽스처 → t_c62a2eb7/t_44f8896c 계약형 empathy 행: content=재질문("이거 맞냐" 4종
+        // 회전 시뮬레이션), structured_payload={empathy_question,template_id,empathy_full,empathy_ack},
+        // created_at=요청 시각(실시간 행). 확인 발화 재에코 금지 상태 머신은 백엔드 소관이라 프론트 스모크는 미검.
+        const ROT = ['eq_confirm', 'eq_proceed', 'eq_understand', 'eq_align'];
+        const tid = ROT[(state.ackTurn = (state.ackTurn ?? -1) + 1) % 4];
+        const requestion = tid === 'eq_confirm' ? `이거 맞죠? ${body.content.slice(0, 12)}`
+          : tid === 'eq_proceed' ? `${body.content.slice(0, 12)} — 맞으면 계속 진행할게요`
+          : tid === 'eq_understand' ? `제 이해가 맞다면 ${body.content.slice(0, 12)}`
+          : `맞나요? ${body.content.slice(0, 12)} 쪽으로 받아들이면 돼요`;
         const empathy = ack && !body.parent_message_id
-          ? { id: 'emp' + index, role: 'agent', source_neuron: 'empathy', content: '에코: ' + body.content, turn_index: base + 1, created_at: new Date().toISOString(), structured_payload: { empathy_ack: '네, 확인했어요' } }
+          ? { id: 'emp' + index, role: 'agent', source_neuron: 'empathy', content: requestion, turn_index: base + 1, created_at: new Date().toISOString(), structured_payload: { empathy_ack: '네, 확인했어요', empathy_full: '에코: ' + body.content, empathy_question: requestion, template_id: tid } }
           : null;
         if (!body.parent_message_id) state.messages[sid].push(user, ...(empathy ? [empathy] : []), answer);
         return ok({ user_message_id: user.id, empathy_message_id: empathy ? empathy.id : null, empathy_response: empathy ? empathy.content : null, messages: { user, empathy, answer }, run_id: 'r' + index });

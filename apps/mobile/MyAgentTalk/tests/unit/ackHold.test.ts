@@ -27,20 +27,37 @@ test('홀드 임계 800ms (카드 #2: 끝 각도 도달 후 0.8초 유지)', () 
 });
 
 test('발화 텍스트 계약 — i18n ko/en 값이 백엔드 isConfirmationUtterance 집합과 완전 일치', () => {
-  // 백엔드(graph.ts): trim().toLowerCase() 후 trailing punct 제거 → Set {'예','아니요',...,'yes','no'}
+  // 백엔드(graph.ts): trim().toLowerCase() 후 trailing punct 제거 → Set 정확 일치 (부분일치 금지).
+  // t_5e407a8a(c090d94a) 확장: '맞아요' 계열 + '아니에오' 계열 추가 — 프론트 라벨 바인딩 대비.
   const locales = ['ko', 'en'];
+  const backendSet = new Set(['예', '네', '요', 'ㅇ', 'ㄴ', '응', '어', '넵', '넹', 'ㅇㅋ', 'ㄴㄴ',
+    '아니', '아니요', '아니오', 'yes', 'no', 'yeah', 'yep', 'nope', 'nah', 'y', 'n', 'ok', 'okay',
+    '맞아요', '맞습니다', '맞음', '맞아', '아니에오', '아니에요', '아닙니다',
+    '틀렸어', '틀렸어요', '틀림']);
   for (const loc of locales) {
     const json = JSON.parse(readFileSync(path.join(__dirname, '../../src/i18n/locales', `${loc}.json`), 'utf8'));
-    const yes = json.chat.ackYes;
-    const no = json.chat.ackNo;
-    const norm = (s: string) => s.trim().toLowerCase().replace(/[.!~〜？?。，,\s]+$/g, '');
-    const backendSet = new Set(['예', '네', '요', 'ㅇ', 'ㄴ', '응', '어', '넵', '넹', 'ㅇㅋ', 'ㄴㄴ',
-      '아니', '아니요', '아니오', 'yes', 'no', 'yeah', 'yep', 'nope', 'nah', 'y', 'n', 'ok', 'okay']);
-    assert.ok(norm(yes).length <= 8 && backendSet.has(norm(yes)), `${loc} ackYes=${yes} 미수용`);
-    assert.ok(norm(no).length <= 8 && backendSet.has(norm(no)), `${loc} ackNo=${no} 미수용`);
-    assert.notEqual(norm(yes), norm(no));
+    // 기본 예/아니요 + t_c62a2eb7 어미 바인딩('맞죠?' 템플릿) 맞아요/아니에오 라벨 전부 게이트 통과 필요
+    for (const key of ['ackYes', 'ackNo', 'ackMatchYes', 'ackMatchNo']) {
+      const v = json.chat[key];
+      assert.ok(v, `${loc} chat.${key} 결측`);
+      const norm = v.trim().toLowerCase().replace(/[.!~〜？?。，,\s]+$/g, '');
+      assert.ok(norm.length > 0 && norm.length <= 8 && backendSet.has(norm), `${loc} ${key}=${v} 미수용`);
+    }
+    assert.notEqual(json.chat.ackYes, json.chat.ackNo);
+    assert.notEqual(json.chat.ackMatchYes, json.chat.ackMatchNo);
   }
   const ko = JSON.parse(readFileSync(path.join(__dirname, '../../src/i18n/locales/ko.json'), 'utf8'));
   assert.equal(ko.chat.ackYes, '예');
   assert.equal(ko.chat.ackNo, '아니요');
+  assert.equal(ko.chat.ackMatchYes, '맞아요');
+  assert.equal(ko.chat.ackMatchNo, '아니에오');
+});
+
+test('게이트 집합 대비 라벨 안전선 — 부분일치 금지 원칙: 붙은 문장 발화 금지 (regression 가드)', () => {
+  // isConfirmationUtterance는 정확 일치만 통과시키므로, 라벨이 '예'/'아니요' 단어가 아니어도
+  // 백엔드 집합에 명시 등재되어 있으면 안전. 라벨이 문장화되면(예: '네, 맞아요') 게이트 실패 — 금지.
+  const ko = JSON.parse(readFileSync(path.join(__dirname, '../../src/i18n/locales/ko.json'), 'utf8'));
+  for (const key of ['ackYes', 'ackNo', 'ackMatchYes', 'ackMatchNo']) {
+    assert.ok(!/[.!~?？]/.test(ko.chat[key]) && ko.chat[key].length <= 4, `${key}="${ko.chat[key]}" — 짧은 단문 유지`);
+  }
 });

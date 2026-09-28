@@ -16,9 +16,9 @@ interface Props {
   group: TurnGroup;
   timeLabel: string | null | undefined;
   highlightId: string | null;
-  /** t_043539ff: 예/아니요 칩이 붙은 공감 카드 id (없으면 null — 3초 수명 판정은 화면/useAckChip 소유) */
+  /** t_c62a2eb7: 예/아니요 대형 버튼 행이 붙은 공감 재질문 카드 id (없으면 null — 수명 판정은 화면/useAckChip 소유) */
   ackChipId?: string | null;
-  /** 칩 탭 → '예'/'아니요' 텍스트 발화 (백엔드 확인 발화 게이트 수신 계약 텍스트) */
+  /** 버튼 탭 → '예'/'아니요'(또는 어미 바인딩 '맞아요'/'아니에오') 텍스트 발화 (백엔드 확인 발화 게이트 계약 텍스트) */
   onSendAck?: (text: string) => void;
   decorate: (m: ChatMessage) => ChatMessage;
   handlers: CardActionHandlers;
@@ -62,9 +62,10 @@ export default function ChatTurnRow({
         {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
         <QueueMessageMark queue={queue} message={message} />
       </View>}
-      {/* t_043539ff: 공감(에코) 카드 하단 예/아니요 칩 — 3초 수명(화면 useAckChip)·메인 피드행만 ·
-          칩 대상 행과 일치하는 카드 아래에만 렌더. 탭 = send('예'|'아니요') 1회. */}
-      {!selectionActive && message.id === ackChipId && onSendAck && <AckChipRow onPressAck={onSendAck} />}
+      {/* t_c62a2eb7: 공감 재질문 카드 하단 예/아니요 텔레그램식 50/50 대형 버튼 — 재질문 카드가
+          보이는 동안 유지(발화 진행 시에만 소멸, 화면 useAckChip)·메인 피드행만 ·
+          버튼 대상 행과 일치하는 카드 아래에만 렌더. 탭 = send(라벨) 1회 (라벨=template_id 어미 바인딩). */}
+      {!selectionActive && message.id === ackChipId && onSendAck && <AckChipRow message={message} onPressAck={onSendAck} />}
       {message.status === 'failed' && <View style={styles.msgHeader}>
         <Button onPress={() => onResend(message)}>{t('chat.resend')}</Button>
         <Button onPress={() => onDelete(message.id)}>{t('chat.delete')}</Button>

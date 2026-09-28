@@ -388,8 +388,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     void send(q.text);
   }, [isDemo, send]);
 
-  // 공감 카드 하단 예/아니요 칩 + 조이스틱 홀드-arm (t_043539ff) — 전송 payload는
-  // 백엔드 isConfirmationUtterance 집합과 일치하는 '예'/'아니요'(en 'Yes'/'No') 텍스트 1회 send.
+  // 공감 재질문 카드 하단 예/아니요 버튼 행 + 조이스틱 홀드-arm (t_043539ff → t_c62a2eb7 텔레그램식 격상) —
+  // 전송 payload는 백엔드 isConfirmationUtterance 집합과 일치하는 라벨 텍스트(기본 '예'/'아니요',
+  // 어미 바인딩 시 '맞아요'/'아니에오'; en Yes/No·Yeah/Nope) 1회 send.
   const ackChip = useAckChip(messages);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;

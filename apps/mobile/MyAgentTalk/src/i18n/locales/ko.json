@@ -61,6 +61,8 @@
     "suggestTitle": "이어서 물어볼까요?",
     "ackYes": "예",
     "ackNo": "아니요",
+    "ackMatchYes": "맞아요",
+    "ackMatchNo": "아니에오",
     "ackHoldArmedYes": "예 — 놓으면 전송",
     "ackHoldArmedNo": "아니요 — 놓으면 전송"
   },
