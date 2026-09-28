@@ -644,6 +644,47 @@ export function buildQueueStrip(messages: ChatMessage[], queue: QueueItem[]): Qu
   return [...items, ...serverOnly];
 }
 
+// ── 답변 대기 (t_363c0faa / 백엔드 t_811e176c 계약) ─────────────────────
+// 회신 필요 메시지 스냅샷 — WS reply.pending.updated(queue.updated 관례 동일) + GET /pending.
+// 행: {message_id, turn_index, excerpt(에이전트가 요구한 문장), reply_kind: yesno|freeform|both}.
+// 발화 해소(백엔드) — 프론트는 스냅샷 적용만 한다. 011 미적용 환경은 빈 스냅샷 → 배지 0 강등.
+export type ReplyKind = 'yesno' | 'freeform' | 'both';
+export interface PendingReplyItem {
+  messageId: string;
+  turnIndex: number;
+  excerpt: string;
+  replyKind: ReplyKind;
+}
+const REPLY_KINDS: ReplyKind[] = ['yesno', 'freeform', 'both'];
+/** kind 형태 검증 — 모른다면 freeform(자유의사 발화로 언제든 해소되는 안전 기본값). */
+export function normalizeReplyKind(raw: unknown): ReplyKind {
+  return REPLY_KINDS.includes(raw as ReplyKind) ? (raw as ReplyKind) : 'freeform';
+}
+
+/** 스냅샷 정규화 — {count, items:[...]} 객체와 raw items 배열 양쪽 수신(queue.updated와 동일 관례).
+ *  형태가 아니면 조용히 빈 배열 (계약 미착지/래치 강등 방어). turn_index 오름. */
+export function normalizeReplyPending(raw: unknown): PendingReplyItem[] {
+  const arr = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
+  const out: PendingReplyItem[] = [];
+  for (const r of arr) {
+    if (!isRecord(r) || typeof r.message_id !== 'string' || !r.message_id) continue;
+    out.push({
+      messageId: r.message_id,
+      turnIndex: typeof r.turn_index === 'number' ? r.turn_index : out.length,
+      excerpt: typeof r.excerpt === 'string' ? r.excerpt : '',
+      replyKind: normalizeReplyKind(r.reply_kind),
+    });
+  }
+  return out.sort((a, b) => a.turnIndex - b.turnIndex);
+}
+
+/** 예/아니오 칩 발화 — 백엔드 isConfirmationUtterance 집합과 호환되는 사전 문구만 (t_135a19b5 게이트). */
+export function replyUtterance(kind: 'yes' | 'no', yesText: string, noText: string): string {
+  return kind === 'yes' ? yesText : noText;
+}
+
+export const EMPTY_PENDING_REPLIES: PendingReplyItem[] = [];
+
 // ── 후속 질문 칩 (t_1797f432 ③ / 백엔드 t_344e047a §3 계약) ─────────────
 // answer 완료 시 run.completed의 structured_payload.suggested_questions: [{id,text,locale}]
 // (또는 메시지 payload 동명의 필드) → 마지막 에이전트 카드 아래 칩으로 렌더, 탭 시 전송.

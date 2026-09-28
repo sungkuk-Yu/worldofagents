@@ -110,3 +110,9 @@ export function QueueSkippedIcon({ size = 18, color = colors.text2, testID }: Ic
     <Path fill={color} d="M4,11H20V13H4V11Z" />
   </Svg>;
 }
+// 답변 대기 (t_363c0faa) — 회신 화살표(곡선)=회신 필요. 말풍선 금지 원칙(카드 요구 5)에 따라 버블 형상 배제.
+export function PendingReplyIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" d="M9,17L3.5,11.5L9,6V9.5C14,9.5 17.5,11 19,16C16.5,13.5 13,12.8 9,12.8V17Z" />
+  </Svg>;
+}

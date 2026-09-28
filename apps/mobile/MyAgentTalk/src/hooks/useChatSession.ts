@@ -11,6 +11,7 @@ import {
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
+  normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -56,6 +57,10 @@ export interface UseChatSessionReturn {
   queue: QueueItem[];
   /** GET /queue 보조 폴링이 쓰는 queue 스냅샷 적용기 (안정 ref, t_91cb659c 스트립 훅 응집) */
   applyQueueSnapshot: (items: QueueItem[]) => void;
+  // 답변 대기 (t_363c0faa / 백엔드 t_811e176c): 회신 필요 메시지 스냅샷 — 빈 배열이면 배지/칩 렌더 없음
+  pendingReplies: PendingReplyItem[];
+  /** GET /pending 보조 폴링이 쓰는 스냅샷 적용기 (applyQueueSnapshot과 동일 단일 상태원천 원칙) */
+  applyPendingSnapshot: (items: PendingReplyItem[]) => void;
   /** 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 */
   threads: ThreadIndexEntry[];
   /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
@@ -122,6 +127,8 @@ export function useChatSession(
   const [talking, setTalking] = useState(false);
   // 질문 큐 체크포인트 (t_1797f432 ②) — 서버 스냅샷 그대로 보유. 이벤트 미수신 시 [] → 렌더 없음.
   const [queue, setQueue] = useState<QueueItem[]>(EMPTY_QUEUE);
+  // 답변 대기 (t_363c0faa) — reply.pending.updated 스냅샷 그대로 보유. [] → 배지/칩 렌더 없음.
+  const [pendingReplies, setPendingReplies] = useState<PendingReplyItem[]>(EMPTY_PENDING_REPLIES);
   // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 서버 로드 범위 내 스레드 목록/종료 배지/정렬.
   const [threads, setThreads] = useState<ThreadIndexEntry[]>(EMPTY_THREADS);
   // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
@@ -145,6 +152,8 @@ export function useChatSession(
   // 이 훅은 WS queue.updated / GET messages 스냅샷의 단일 queue 상태 원천만 유지하고,
   // 폴링의 동일 상태 적용은 applyQueueSnapshot(안정 ref)을 통해 이루어진다 (이중 상태원천 금지).
   const applyQueueSnapshot = useCallback((items: QueueItem[]) => setQueue(items), []);
+  // 답변 대기 스냅샷 적용기 (t_363c0faa) — WS reply.pending.updated 우선, GET /pending은 부트스트랩/보조.
+  const applyPendingSnapshot = useCallback((items: PendingReplyItem[]) => setPendingReplies(items), []);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -180,6 +189,7 @@ export function useChatSession(
     setHasOlder(false);
     // 세션 전환 시 큐/후속 질문 잔상 제거 (t_1797f432) — 이전 세션 스냅샷이 새 화면에 새면 안 된다.
     setQueue(EMPTY_QUEUE);
+    setPendingReplies(EMPTY_PENDING_REPLIES); // 답변 대기 잔상 동일 원칙 (t_363c0faa)
     setThreads(EMPTY_THREADS);
     setSuggested([]);
     const stop = () => {
@@ -243,6 +253,8 @@ export function useChatSession(
       // 체크포인트 표시가 유지된다. 필드 없으면 조용히 스킵(WS queue.updated만으로도 동작).
       const queueSnap = normalizeQueueItems((env as unknown as { queue?: unknown }).queue);
       if (queueSnap.length) setQueue(queueSnap);
+      // 답변 대기 GET /pending 부트스트랩은 usePendingReplies(보조 폴링 훅)이 소유 (t_363c0faa) —
+      // 이 훅은 WS reply.pending.updated 단일 상태원천만 유지 (useQueueStrip/applyQueueSnapshot 대칭).
       // 후속 질문 복원 (t_1797f432 ③): 마지막 에이전트 행 payload의 suggested_questions 세트 (없으면 빈 배열).
       const lastAgent = [...allRows].reverse().find((m) => m.role === 'agent' && m.payload?.suggested_questions !== undefined);
       if (lastAgent) setSuggested(normalizeSuggestedQuestions(lastAgent.payload?.suggested_questions));
@@ -299,6 +311,12 @@ export function useChatSession(
             // 배열 필드는 items|queue 어느 쪽으로도 수신 허용 — 백엔드 확정 시 한쪽으로 수렴 예정.
             if (type === 'queue.updated') {
               setQueue(normalizeQueueItems(raw.items ?? raw.queue));
+              return;
+            }
+            // 답변 대기 스냅샷 (t_363c0faa / 백엔드 t_811e176c): reply.pending.updated = 회신 필요 전체 교체.
+            // queue.updated와 동일 원칙 — 허브 로그 미채번일 수 있어 seq 필터 앞에서 처리.
+            if (type === 'reply.pending.updated') {
+              setPendingReplies(normalizeReplyPending(raw));
               return;
             }
             if (type === 'audio.started') { runtime.audioOpen = true; setTalking(true); return; }
@@ -598,6 +616,9 @@ export function useChatSession(
     queue, suggested,
     /** 스트립 보조 폴링의 단일 queue 상태 적용기 (t_91cb659c) — useQueueStrip에 전달 */
     applyQueueSnapshot,
+    // 답변 대기 (t_363c0faa) — reply.pending.updated 단일 상태원천 + GET /pending 보조 적용기
+    pendingReplies,
+    applyPendingSnapshot,
     // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 기준
     threads,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,

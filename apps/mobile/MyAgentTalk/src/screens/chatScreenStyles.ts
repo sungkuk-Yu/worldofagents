@@ -226,4 +226,10 @@ export const styles = StyleSheet.create({
   // 입력바/스테이지/클립 스타일은 ChatInputConsole로 이동 (t_91cb659c)
   shell: { flex: 1, flexDirection: 'row', backgroundColor: colors.bg },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginTop: spacing.sp1 },
+  // 답변 대기 앱바 버튼 (t_363c0faa) — 아이콘+우상단 숫자 배지 (pending-*=testID 접두, 2색 라인 관례)
+  pendingButtonFace: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  pendingBadge: {
+    position: 'absolute', top: -2, right: -6, minWidth: 16, textAlign: 'center',
+    fontSize: 10, fontWeight: '700', color: colors.statusWarn,
+  },
 });

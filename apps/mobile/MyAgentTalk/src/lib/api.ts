@@ -270,6 +270,12 @@ export const api = {
   getQueue: (sessionId: string) =>
     request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(sessionId)}/queue`),
 
+  /** 답변 대기 스냅샷 — GET /api/sessions/:id/pending (t_363c0faa / 백엔드 t_811e176c ④)
+   *  WS reply.pending.updated 미수신/재접속 구간의 부트스트랩 폴백.
+   *  계약: {count, items:[{message_id,turn_index,excerpt,reply_kind}]} (normalizeReplyPending). 011 미적용 강등은 빈 스냅샷. */
+  getPendingReplies: (sessionId: string) =>
+    request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(sessionId)}/pending`),
+
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환)
    *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크. */
   sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[] }) =>
@@ -532,6 +538,9 @@ export type ServerMessage = (
       message: string;
     }
   | { type: 'queue.update'; session_id: string; pending_count: number; current_task: string | null; next_tasks: string[] }
+  /** 답변 대기 스냅샷 (t_363c0faa / 백엔드 t_811e176c) — queue.updated 관례 동일. items 행:
+   *  {message_id, turn_index, excerpt, reply_kind: yesno|freeform|both}. 발화 해소 시 count 0 스냅샷. */
+  | { type: 'reply.pending.updated'; session_id: string; count: number; items: Record<string, unknown>[] }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'audio.started'; session_id: string; config: Record<string, unknown> }

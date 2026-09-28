@@ -39,18 +39,31 @@ interface Props {
   onHoldAbort: () => void;
   /** t_043539ff: 조이스틱 끝방향 홀드 arm → '예'/'아니요' 텍스트 발화 */
   onSendAck: (text: string) => void;
+  /** 답변 대기 freeform 점프 (t_363c0faa) — 값이 바뀌면 음성 모드에서도 키보드 입력바를 개방(focus).
+   *  0 = 요청 없음. nonce 패턴: 같은 행 재탭에도 재발동 (queue strip jump nonce와 동일 관례). */
+  forceOpenKeyboard?: number;
 }
 
 export default function ChatInputConsole({
   value, onChangeText, onSubmit, isDemo,
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
   voiceMode, initialKeyboardOpen, recording, pttError,
-  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck,
+  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, forceOpenKeyboard,
 }: Props) {
   const { t, i18n } = useTranslation();
   const { actionFor, directionLabels } = useJoystickMap();
   const [keyboardOpen, setKeyboardOpen] = useState(initialKeyboardOpen);
   const inputRef = useRef<RNTextInput>(null);
+  // 답변 대기 freeform 점프 (t_363c0faa): nonce 변화 시점에 키보드 계층 개방.
+  // 0(미요청)은 무시 — 기존 DOM/포커스 동작 불변.
+  const openNonce = useRef(0);
+  useEffect(() => {
+    if (!forceOpenKeyboard) return;
+    if (forceOpenKeyboard !== openNonce.current) {
+      openNonce.current = forceOpenKeyboard;
+      setKeyboardOpen(true);
+    }
+  }, [forceOpenKeyboard]);
   // 폴백(error): 콘솔은 유지(거부 해제 후 재시도 가능)하되 안내 한 줄이 콘솔 안에 뜨고,
   // 입력창이 자동 개방되어 텍스트만으로 완전 작동(요구 1).
   const inputOpen = !voiceMode || keyboardOpen || !!pttError;

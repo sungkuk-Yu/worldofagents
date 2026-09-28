@@ -82,6 +82,14 @@
     "replyCount": "답글 {{countText}}개",
     "lastActivity": "마지막 활동 {{when}}"
   },
+  "pending": {
+    "button": "답변 대기",
+    "buttonCount": "답변 대기 {{countText}}",
+    "title": "답변 대기 {{countText}}건",
+    "kindYesNo": "예/아니오",
+    "kindFreeform": "주관식",
+    "noExcerpt": "회신을 기다리는 답변"
+  },
   "login": {
     "subtitle": "계정으로 로그인하거나 새 계정을 만드세요.",
     "email": "이메일",

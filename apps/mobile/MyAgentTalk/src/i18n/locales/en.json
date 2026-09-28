@@ -82,6 +82,14 @@
     "replyCount": "{{countText}} replies",
     "lastActivity": "Last activity {{when}}"
   },
+  "pending": {
+    "button": "Awaiting reply",
+    "buttonCount": "Awaiting reply {{countText}}",
+    "title": "Awaiting reply ({{countText}})",
+    "kindYesNo": "Yes/No",
+    "kindFreeform": "Freeform",
+    "noExcerpt": "A reply is awaited"
+  },
   "login": {
     "subtitle": "Sign in to your account or create a new one.",
     "email": "Email",
