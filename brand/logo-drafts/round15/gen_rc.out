@@ -1,0 +1,5 @@
+RC ok f1_a_door_square
+RC ok f2_a_outline_open_i
+RC HTTP 400 f3_a_door_bubble {"code":"not_enough_credits","message":""}
+RC HTTP 400 f4_a_door_node {"code":"not_enough_credits","message":""}
+FAILED: ['f3_a_door_bubble', 'f4_a_door_node']
