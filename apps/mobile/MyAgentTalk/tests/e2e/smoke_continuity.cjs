@@ -65,7 +65,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await A.setViewportSize({ width: 390, height: 844 });
     await signup(A, `cont-a-${stamp}@myagenttalk.dev`, `cont-pw-${stamp}`);
     await A.getByTestId('new-chat-button').first().click();
-    await openKeyboardIfVoice(A); // t_e735d936: 모바일 웹 진입 = 음성 우선 → 키보드 계층 열고 입력
+    await sleep(2000); // 화면 전환(mat-slide) 안착 대기 — strip 좌표가 최종 위치에서 측정되도록
+    await openKeyboardIfVoice(A); // t_e735d936/t_4758f25d: 모바일 웹 진입 = 음성 A → ↑ 홀드로 B 개방
     await A.getByTestId('chat-input').fill('hello-crossdev');
     await A.getByTestId('send-button').click();
     await A.waitForSelector('text=hello-crossdev', { timeout: 10000 });
@@ -112,8 +113,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     // ③ presence: 양쪽 탭 상대 디바이스 배지 — A가 먼저 채팅에 재진입해 같은 세션 WS를 연다
     await A.getByTestId('session-card').first().click();
-    await waitForChatEntered(A); // 음성 우선 진입(입력창 미렌더) 허용 — WS는 콘솔 모드에서도 연결됨
-    await openKeyboardIfVoice(A); // t_e735d936: ① 2탭 동시성 전송은 키보드 계층에서
+    await sleep(2000); // 전환 안착 (t_4758f25d)
+    await waitForChatEntered(A); // 음성 우선 진입(입력창 미렌더) 허용 — WS는 A 계층에서도 연결됨
+    await openKeyboardIfVoice(A); // t_4758f25d: ① 2탭 동시성 전송은 B 계층에서
     await sleep(1500); // A subscribe + presence.update 전파
     const presenceB = await B.waitForSelector('[data-testid="device-presence"]', { timeout: 8000 }).catch(() => null);
     const presenceA = await A.waitForSelector('[data-testid="device-presence"]', { timeout: 4000 }).catch(() => null);
@@ -207,15 +209,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const toggleMsg = await B.waitForSelector('text=정리해 주세요', { timeout: 12000 }).catch(() => null);
     check('재매핑 KeyK + 토글 모드 — 한 번 더 눌러 전송', toggleOn > 0 && !!toggleMsg);
 
-    // t_4b1bd4c2 요구 1 + t_e735d936: 입력창 옆 마이크 홀드 버튼 폐기(미렌더), 웹 모바일 채팅은 음성 콘솔이 1차 UI
+    // t_4b1bd4c2 요구 1 + t_e735d936/t_4758f25d: 입력창 옆 마이크 홀드 버튼 폐기(미렌더), 웹 모바일 채팅은 투명 음성 스테이지(A) 기본
     await A.bringToFront();
-    await A.getByTestId('chat-voice-back').click(); // 키보드 계층 닫기 → 음성 콘솔 복귀
-    await A.getByTestId('chat-voice-console').waitFor({ timeout: 8000 });
+    await A.getByTestId('chat-voice-back').click(); // B→A: 입력바 우측 마이크 탭
+    await A.getByTestId('voice-stage').waitFor({ timeout: 8000 });
     const micRemoved = await A.getByTestId('ptt-mic-button').count();
-    const voiceConsole = await A.getByTestId('chat-voice-console').count();
+    const voiceStage = await A.getByTestId('voice-stage').count();
     const inputHidden = await A.getByTestId('chat-input').count();
     check('t_4b1bd4c2 — 입력창 마이크 홀드 버튼 제거', micRemoved === 0);
-    check('t_e735d936 — 모바일 채팅 = 음성 콘솔 1차 UI(입력창 강등)', voiceConsole === 1 && inputHidden === 0, `console=${voiceConsole} input=${inputHidden}`);
+    check('t_4758f25d — 모바일 채팅 = 투명 음성 스테이지 기본(고정 콘솔 폐기·입력창 강등)', voiceStage === 1 && inputHidden === 0 && (await A.getByTestId('chat-voice-console').count()) === 0, `stage=${voiceStage} input=${inputHidden}`);
     await A.screenshot({ path: shot('08-mobile-inputbar-nomic') });
 
     // ② 3해상도 캡처 마무리 (1440/900/390)

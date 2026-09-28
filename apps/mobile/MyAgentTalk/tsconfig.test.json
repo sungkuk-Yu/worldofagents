@@ -26,6 +26,7 @@
     "src/lib/ackChips.ts",
     "src/lib/ackHold.ts",
     "src/lib/layout.ts",
+    "src/lib/voiceStage.ts",
     "src/lib/deviceLabel.ts",
     "src/lib/pttLogic.ts",
     "src/lib/resumeLogic.ts",

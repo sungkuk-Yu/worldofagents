@@ -56,8 +56,18 @@ async function openMobileChat(browser, opts = {}) {
   const state = await installFixtures(page, { ack: true });
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.getByTestId('session-card').click();
-  await page.getByTestId('chat-voice-console').waitFor({ timeout: 15000 });
+  await page.getByTestId('voice-stage').waitFor({ timeout: 15000 });
   return { page, state, errors, ctx };
+}
+// t_4758f25d: A→B 전이는 스트립 홀드 후 ↑ 릴리스뿐 (키보드 버튼 폐기)
+async function openKeyboard(page) {
+  const box = await page.getByTestId('voice-stage').boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) { await page.mouse.move(cx, cy - i * 20); await page.waitForTimeout(30); }
+  await page.mouse.up();
+  await page.getByTestId('chat-input').waitFor({ timeout: 8000 });
 }
 const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') && c.method === 'POST').map((c) => c.body && c.body.content);
 
@@ -69,8 +79,7 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     check('⑦ 진입 시점 stale 공감 행에 버튼 행 없음', (await page.getByTestId('ack-chips').count()) === 0);
 
     // ── ① 발화 → 재질문 카드 하단 50/50 버튼 행 (첫 턴 = eq_confirm → '아니에오'/'예') ──
-    await page.getByTestId('chat-keyboard-button').click();
-    await page.getByTestId('chat-input').waitFor({ timeout: 8000 });
+    await openKeyboard(page);
     await page.getByTestId('chat-input').fill('내일 출장 일정 잡아줘');
     await page.getByTestId('send-button').click();
     const visible = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
@@ -127,11 +136,11 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     }
     await page.screenshot({ path: shot('03-after-tap') });
 
-    // ── ⑤ 조이스틱 ← 홀드 900ms → arm → 릴리스 = '예' 텍스트 발화 (음성 폐기) ──
-    await page.getByTestId('chat-voice-back').click();
-    await page.getByTestId('chat-voice-console').waitFor({ timeout: 5000 });
-    const box = await page.getByTestId('joystick-mic').boundingBox();
-    assert.ok(box, 'joystick-mic 박스');
+    // ── ⑤ 스테이지 ← 홀드 900ms → arm → 릴리스 = '예' 텍스트 발화 (음성 폐기) ──
+    await page.getByTestId('chat-voice-back').click(); // B→A: 입력바 우측 마이크 탭 (#304)
+    await page.getByTestId('voice-stage').waitFor({ timeout: 5000 });
+    const box = await page.getByTestId('voice-stage').boundingBox();
+    assert.ok(box, 'voice-stage 박스');
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
     const before4 = sends(state).length;
     await page.mouse.move(cx, cy);
@@ -173,7 +182,7 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
       await page.goto(APP, { waitUntil: 'networkidle' });
       await page.getByTestId('session-card').click();
       await page.getByTestId('chat-input').waitFor({ timeout: 15000 });
-      check('⑧ PC = 음성 콘솔/조이스틱 없음', (await page.getByTestId('chat-voice-console').count()) === 0 && (await page.getByTestId('joystick-mic').count()) === 0);
+      check('⑧ PC = 음성 스테이지/디스크 없음', (await page.getByTestId('voice-stage').count()) === 0 && (await page.getByTestId('joystick-mic').count()) === 0);
       await page.getByTestId('chat-input').fill('PC 발화');
       await page.getByTestId('send-button').click();
       const pcRow = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);

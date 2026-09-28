@@ -15,6 +15,7 @@ import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
+import { voiceStageHeight } from '../lib/voiceStage';
 import { getPttKey, getPttMode } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
@@ -103,11 +104,11 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
   // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
-  const { pc, wide, width } = useLayout();
+  const { pc, wide, width, height: viewportHeight } = useLayout();
   const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
-  // t_e735d936 요구 1/2: 음성 우선 — 웹 모바일 진입은 음성 콘솔이 1차 UI, 입력창은 키보드를
-  // 열었을 때만 나타나는 2차 UI. 콘솔 조립과 키보드 계층 전환은 ChatInputConsole 소유 (t_91cb659c),
-  // 방향→동작 매핑(↑=키보드 등)은 전역 조이스틱 맵을 그대로 쓴다.
+  // t_e735d936 요구 1/2 → t_4758f25d 재스펙: 웹 모바일 진입 = 하단 ~30% 투명 음성 스테이지
+  // (홀드 시 링+마이크+실측 게인 sine 리본), 입력창은 ↑ 제스처로 여는 B 계층.
+  // PC 레이아웃(≥768)/네이티브/데모는 기존 텍스트 입력바 유지 (원 카드 요구 4).
   const voiceMode = voiceFirstConsole({ os: Platform.OS, width, isDemo });
 
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
@@ -371,6 +372,10 @@ export default function ChatScreen({ navigation, route }: Props) {
         }}>{children}</View>, []);
 
   const [viewportInset, setViewportInset] = useState(0);
+  // t_4758f25d #311 패딩 계약: A 계층(투명 strip) 활성 기간에만 리스트 하단 패딩 = strip 높이
+  // (동일 함수 voiceStageHeight(viewportHeight) — 콘솔과 화면이 같은 산출식을 쓴다).
+  // B 계층(키보드 입력바)이 열리면 strip 미렌더 → 통지로 패딩 0(빈 공간 금지).
+  const [stageActive, setStageActive] = useState(false);
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
     const viewport = window.visualViewport;
@@ -410,7 +415,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   return (
     <View style={styles.shell}>
     <KeyboardAvoidingView
-      style={[styles.container, webScreenMotion('mat-slide-from-right'), { paddingBottom: viewportInset }]}
+      style={[styles.container, webScreenMotion('mat-slide-from-right'), { paddingBottom: viewportInset, position: 'relative' }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
@@ -493,7 +498,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         maintainVisibleContentPosition={Platform.OS === 'web' ? undefined : { minIndexForVisible: 0 }}
         onContentSizeChange={() => { if (nearBottom.current && !loadingHistory) listRef.current?.scrollToEnd({ animated: false }); }}
         keyExtractor={(item) => item.key}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, stageActive && { paddingBottom: voiceStageHeight(viewportHeight) }]}
         ListHeaderComponent={renderHeader}
         ListFooterComponent={renderFooter}
         onEndReachedThreshold={0.1}
@@ -513,10 +518,10 @@ export default function ChatScreen({ navigation, route }: Props) {
         }
       />
 
-      {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={styles.msgCard}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
+      {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
       {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.
-          t_e735d936: 음성 우선 모드에서는 오류 안내가 콘솔 내부(chat-voice-fallback)에 있으므로 배너 중복 금지. */}
-      {Platform.OS === 'web' && !isDemo && (
+          t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지. */}
+      {Platform.OS === 'web' && !isDemo && !voiceMode && (
         <PttBannerComponent
           active={ptt.active || talking}
           keyLabel={pc ? pttKeyLabel(getPttKey() ?? 'KeyV') : undefined}
@@ -530,8 +535,16 @@ export default function ChatScreen({ navigation, route }: Props) {
         <Button compact mode="contained" onPress={forkSelected} buttonColor={colors.accent} textColor={colors.onPrimary} testID="selection-continue">{t('selection.continue')}</Button>
       </View>}
       {/* 비서실 백스테이지 릴레이 자막 (t_961ca593 Phase B 案①) — 입력 콘솔 위 상시 1줄, stage 전환 페이드.
-          relay=null(비서 외 페르소나=이벤트 0건, 데모 포함)이면 렌더 0 — 기존 레이아웃 DOM 불변. */}
-      <RelayCaptionStrip caption={relay} />
+          relay=null(비서 외 페르소나=이벤트 0건, 데모 포함)이면 렌더 0 — 기존 레이아웃 DOM 불변.
+          t_4758f25d: A 계층(transparent strip) 활성 시 자막이 strip 아래 흐름에 잠기지 않도록
+          strip 상단 경계에 absolute로 얹는다 (#311 '입력 콘솔 위 배치' 계약 유지). */}
+      {stageActive ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: voiceStageHeight(viewportHeight), zIndex: 90 }}>
+          <RelayCaptionStrip caption={relay} />
+        </View>
+      ) : (
+        <RelayCaptionStrip caption={relay} />
+      )}
       {/* 하단 입력 영역 (t_91cb659c): 첨부 스테이지 + 음성 콘솔(1차) + 키보드 입력바(2차) 조립은 ChatInputConsole 소유
           (초장문 안내 한 줄 포함).
           t_e735d936 요구 1 유지: 웹 모바일은 기본이 음성 콘솔(조이스틱 홀드-투-톡), 입력창은 키보드를
@@ -549,11 +562,14 @@ export default function ChatScreen({ navigation, route }: Props) {
         voiceMode={voiceMode}
         initialKeyboardOpen={route?.params?.keyboard === '1'}
         recording={ptt.active || talking}
+        level={ptt.level}
         pttError={ptt.error}
+        viewportHeight={viewportHeight}
         onPressHoldStart={ptt.startHold}
         onHoldEnd={ptt.endHold}
         onHoldAbort={ptt.abortHold}
         onSendAck={sendAck}
+        onStageActiveChange={setStageActive}
         forceOpenKeyboard={composeNonce}
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}

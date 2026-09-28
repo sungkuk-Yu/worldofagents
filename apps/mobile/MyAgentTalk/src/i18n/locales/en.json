@@ -52,6 +52,8 @@
     "pttToggle": "Speaking… press again to send",
     "pttRecording": "Speaking… (release to send)",
     "voiceConsoleHint": "Hold the joystick to speak — release to send, drag up while holding for keyboard",
+    "voiceStageHint": "Long-press here to speak",
+    "voiceStageToKeyboard": "Release for keyboard",
     "keyboardOpen": "Open keyboard",
     "voiceBack": "Back to voice input",
     "pttIdle": "Hold to speak",

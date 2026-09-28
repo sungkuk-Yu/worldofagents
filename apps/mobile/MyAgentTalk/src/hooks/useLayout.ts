@@ -5,6 +5,8 @@ import { LayoutMode, layoutModeForWidth } from '../lib/layout';
 
 export interface Layout {
   width: number;
+  /** 세로 뷰포트 — 음성 스테이지 높이(30%) 산출용 (t_4758f25d) */
+  height: number;
   mode: LayoutMode;
   /** PC 3패널 셸(사이드바+컨텍스트)를 쓸지 */
   pc: boolean;
@@ -13,9 +15,9 @@ export interface Layout {
 }
 
 export function useLayout(): Layout {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const mode = layoutModeForWidth(width);
-  return { width, mode, pc: mode !== 'mobile', wide: mode === 'pc-wide' };
+  return { width, height, mode, pc: mode !== 'mobile', wide: mode === 'pc-wide' };
 }
 
 export default useLayout;

@@ -52,6 +52,8 @@
     "pttToggle": "말하는 중… 다시 누르면 전송",
     "pttRecording": "말하는 중… (놓으면 전송)",
     "voiceConsoleHint": "조이스틱을 눌러 말하기 — 놓으면 전송, 누른 채 위로 올리면 키보드",
+    "voiceStageHint": "여길 길게 눌러 말하기",
+    "voiceStageToKeyboard": "놓으면 키보드 전환",
     "keyboardOpen": "키보드 열기",
     "voiceBack": "음성 입력으로 돌아가기",
     "pttIdle": "길게 눌러 말하기",

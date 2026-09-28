@@ -74,7 +74,7 @@ const STAGES = [
     check('③ i18n 문구 = 서버 quip 미노출(동어반복 없음)', !text.includes(STAGES[0][1]), text);
     // 위치: 입력 콘솔 위
     const capBox = await page.getByTestId('relay-caption').boundingBox();
-    const consoleBox = await page.getByTestId('chat-voice-console').or(page.getByTestId('chat-input')).first().boundingBox();
+    const consoleBox = await page.getByTestId('voice-stage').or(page.getByTestId('chat-input')).first().boundingBox();
     check('⑤ 입력 콘솔 위 배치', !!capBox && !!consoleBox && capBox.y + capBox.height <= consoleBox.y + 2, `cap=${capBox && Math.round(capBox.y)} console=${consoleBox && Math.round(consoleBox.y)}`);
     await page.screenshot({ path: shot('02-briefing') });
 

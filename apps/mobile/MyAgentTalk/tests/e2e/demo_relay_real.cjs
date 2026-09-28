@@ -71,10 +71,9 @@ async function api(pathname, { token, body } = {}) {
     await page.goto(APP, { waitUntil: 'networkidle' });
     await page.getByTestId('session-card').first().click();
     await page.getByTestId('message-list').waitFor({ timeout: 10000 });
-    // 입력창 준비 (음성 우선 모드면 키보드 계층 개방)
-    const kb = page.getByTestId('chat-keyboard-button');
-    if (await kb.count()) await kb.click();
-    await page.getByTestId('chat-input').waitFor({ timeout: 10000 });
+    // 입력창 준비 (A 계층이면 홀드→↑로 키보드 계층 개방 — voice_helper.t_4758f25d)
+    const { openKeyboardIfVoice } = require('./voice_helper.cjs');
+    await openKeyboardIfVoice(page);
 
     // 타임랩스: MutationObserver로 자막 문구 전 변화 궤적 페이지측 기록 (폴링 누락 제거)
     await page.evaluate(() => {

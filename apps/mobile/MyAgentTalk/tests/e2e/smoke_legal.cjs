@@ -15,6 +15,8 @@
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+// t_e735d936 커밋(c6c11121)에서 헬퍼 호출만 추가되고 require이 누수된 harness 결함 복구 (t_4758f25d 발견)
+const { openKeyboardIfVoice } = require('./voice_helper.cjs');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const APP = process.env.APP_URL || 'http://localhost:8099';
 const API = process.env.API_URL || 'http://localhost:3020';
@@ -147,7 +149,7 @@ async function openLogin(page, locale) {
     await en.getByTestId('signup-submit').click();
     await en.waitForSelector('[data-testid="new-chat-button"]', { timeout: 20000 });
     await en.getByTestId('new-chat-button').click();
-    await en.waitForSelector('[data-testid="chat-input"]', { timeout: 20000 });
+    await openKeyboardIfVoice(en); // t_4758f25d: EN 모바일 뷰포트도 음성 A 계층 → B 개방 후 입력
     const enDisclosure = en.getByTestId('ai-disclosure');
     check('EN: 채팅 상단 AI 고지 배너 노출', (await enDisclosure.count()) === 1 && (await enDisclosure.innerText()).toLowerCase().includes('ai'));
     await en.screenshot({ path: shot('en-03-chat-disclosure'), fullPage: true });
