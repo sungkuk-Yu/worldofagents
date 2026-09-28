@@ -196,6 +196,10 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
 const CONFIRMATION_UTTERANCES = new Set([
   '예', '네', '요', 'ㅇ', 'ㄴ', '응', '어', '넵', '넹', 'ㅇㅋ', 'ㄴㄴ',
   '아니', '아니요', '아니오', 'yes', 'no', 'yeah', 'yep', 'nope', 'nah', 'y', 'n', 'ok', 'okay',
+  // t_5e407a8a: '맞아요/아니에오' 계열(그렇다/아니다 변형) — 프론트 50/50 버튼 라벨(t_c62a2eb7) 대비.
+  // 정확 일치 원칙 유지: 부분일치 없이 위 목록만 통과 ('요' 단독은 이미 전체-일치 집합이라 안전).
+  '맞아요', '맞습니다', '맞음', '맞아', '아니에오', '아니에요', '아닙니다',
+  '틀렸어', '틀렸어요', '틀림',
 ]);
 export function isConfirmationUtterance(text: string): boolean {
   const t = text.trim().toLowerCase().replace(/[.!~〜？?。，,\s]+$/g, '');

@@ -117,6 +117,12 @@ async function main() {
   const empathyAfter = histGate.filter(m => m.source_neuron === 'empathy').length;
   const confirmAnswered = histGate.some(m => m.role === 'user' && m.content.trim() === '예') && histGate.filter(m => m.source_neuron === 'answer').length >= 2;
   check('① 예/아니오 게이트: 확인 발화에서 공감 행 미생성 + 답변 직결', empathyAfter === empathyBefore && confirmAnswered, `empathy ${empathyBefore}→${empathyAfter}`);
+  // t_5e407a8a: '맞아요' 변형(t_c62a2eb7 50/50 버튼 라벨)도 동일 게이트 — 연속 체인으로 직전 확인 발화 '예' 뒤 발화.
+  await req('POST', `/api/sessions/${sessionId}/messages`, { token, body: { content: '맞아요' } });
+  const histGate2 = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
+  const empathyAfter2 = histGate2.filter(m => m.source_neuron === 'empathy').length;
+  const mjAnswered = histGate2.some(m => m.role === 'user' && m.content.trim() === '맞아요') && histGate2.filter(m => m.source_neuron === 'answer').length >= 3;
+  check('① 게이트 확대: "맞아요" 변형도 공감 행 미생성 + 답변 직결', empathyAfter2 === empathyAfter && mjAnswered, `empathy ${empathyAfter}→${empathyAfter2}`);
   const answerRow = hist.find(m => m.source_neuron === 'answer');
   const sq = answerRow?.structured_payload?.suggested_questions;
   if (Array.isArray(sq)) {

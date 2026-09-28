@@ -14,7 +14,7 @@ import {
   enqueueQuestion, listQueue, markQueueStatus, queueSnapshot, skipAllPending,
 } from '../../src/lib/questionQueue';
 import { parseSuggestedQuestions } from '../../src/lib/suggestedQuestions';
-import { EMPATHY_REQUESTION_TEMPLATES } from '../../src/neurons/graph';
+import { EMPATHY_REQUESTION_TEMPLATES, isConfirmationUtterance } from '../../src/neurons/graph';
 import { DbClient, getStore as getStoreRef } from '../../src/lib/supabase';
 import { SessionsRow } from '../../src/types/db';
 
@@ -115,6 +115,32 @@ describe('① 공감 재질문 + 답변 리드 지연 (t_44f8896c: 복창→재�
     const result = await runTextTurn(db, session, 'user', '네', { emit: () => undefined });
     expect(result.empathyMessageId).toBeTruthy();
     expect(result.empathyResponse).toContain('네');
+  });
+
+  it('확인 변형 게이트: 직전 empathy 행 뒤 "맞아요"도 공감 행 미생성 + 답변 강제 회수 (t_5e407a8a)', async () => {
+    vi.stubGlobal('fetch', llmFetch());
+    await runTextTurn(db, session, 'user', '왜 그런가요?', { emit: () => undefined });
+    expect(store.tables.messages.filter(m => m.source_neuron === 'empathy').length).toBe(1);
+    // 프론트 50/50 버튼(t_c62a2eb7)이 eq_confirm 재질문에서 '맞아요'/'아니에오'를 그대로 POST한다.
+    const r = await runTextTurn(db, session, 'user', '맞아요', { emit: () => undefined });
+    expect(store.tables.messages.filter(m => m.source_neuron === 'empathy').length).toBe(1);
+    expect(r.empathyMessageId).toBeNull();
+    expect(r.empathyResponse).toBeNull();
+    expect(r.answerMessageId).toBeTruthy();
+    expect(r.activationPlan.reason).toContain('confirm_gate=answer_forced');
+    // '아니에오' 변형도 동일 게이트 (그렇다/아니다 계열 집합 확대).
+    const r2 = await runTextTurn(db, session, 'user', '아니에오', { emit: () => undefined });
+    expect(r2.empathyMessageId).toBeNull();
+    expect(r2.answerMessageId).toBeTruthy();
+    // 정확 일치 원칙: 부분일치 발화는 게이트 미적용 — 공감 정상 생성.
+    expect(isConfirmationUtterance('맞아요 그런데')).toBe(false);
+    const r3 = await runTextTurn(db, session, 'user', '맞아요 그런데 가격도 알려줘', { emit: () => undefined });
+    expect(r3.empathyMessageId).toBeTruthy();
+    // 확장 집합 경계: 목록 변형만 통과, 서술문은 통과하지 않는다.
+    for (const u of ['맞아요', '맞습니다', '맞음', '아니에오', '아니에요', '아닙니다', '틀렸어', '틀렸어요', '틀림']) {
+      expect(isConfirmationUtterance(u)).toBe(true);
+    }
+    expect(isConfirmationUtterance('맞는 것 같기도 해요')).toBe(false);
   });
 
   it('접수 직후 run.progress 확인음(ack)이 나간다 (stage는 계약 코드 thinking)', async () => {
