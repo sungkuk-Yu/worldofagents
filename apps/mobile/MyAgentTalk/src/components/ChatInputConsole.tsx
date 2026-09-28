@@ -37,13 +37,15 @@ interface Props {
   onPressHoldStart: () => void;
   onHoldEnd: () => void;
   onHoldAbort: () => void;
+  /** t_043539ff: 조이스틱 끝방향 홀드 arm → '예'/'아니요' 텍스트 발화 */
+  onSendAck: (text: string) => void;
 }
 
 export default function ChatInputConsole({
   value, onChangeText, onSubmit, isDemo,
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
   voiceMode, initialKeyboardOpen, recording, pttError,
-  onPressHoldStart, onHoldEnd, onHoldAbort,
+  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck,
 }: Props) {
   const { t, i18n } = useTranslation();
   const { actionFor, directionLabels } = useJoystickMap();
@@ -67,6 +69,7 @@ export default function ChatInputConsole({
           onPressHoldStart={onPressHoldStart}
           onHoldEnd={onHoldEnd}
           onHoldAbort={onHoldAbort}
+          onSendAck={onSendAck}
           actionFor={actionFor}
           directionLabels={directionLabels()}
           recording={recording}

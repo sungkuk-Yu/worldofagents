@@ -55,6 +55,7 @@ import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageIn
 import QueueStrip from '../components/QueueStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import { useChatSession } from '../hooks/useChatSession';
+import { useAckChip } from '../hooks/useAckChip';
 
 interface Props {
   navigation: any;
@@ -360,6 +361,14 @@ export default function ChatScreen({ navigation, route }: Props) {
     void send(q.text);
   }, [isDemo, send]);
 
+  // 공감 카드 하단 예/아니요 칩 + 조이스틱 홀드-arm (t_043539ff) — 전송 payload는
+  // 백엔드 isConfirmationUtterance 집합과 일치하는 '예'/'아니요'(en 'Yes'/'No') 텍스트 1회 send.
+  const ackChip = useAckChip(messages);
+  const sendAck = useCallback((text: string) => {
+    if (isDemo) return;
+    void send(text);
+  }, [isDemo, send]);
+
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
     streams={streams} suggested={suggested} isDemo={isDemo} onSendSuggested={sendSuggested}
@@ -420,6 +429,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           group={item}
           timeLabel={times.get(item.key)}
           highlightId={highlightId}
+          ackChipId={ackChip?.id ?? null}
+          onSendAck={sendAck}
           decorate={decorate}
           handlers={handlers}
           presetCategory={presetCategory}
@@ -500,6 +511,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         onPressHoldStart={ptt.startHold}
         onHoldEnd={ptt.endHold}
         onHoldAbort={ptt.abortHold}
+        onSendAck={sendAck}
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />

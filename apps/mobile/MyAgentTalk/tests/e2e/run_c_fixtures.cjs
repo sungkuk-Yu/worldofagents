@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [] };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -38,6 +38,13 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     ];
   })() : [];
   state.favorites = state.messages.source.filter((m) => m.favorite).map((m) => ({ message: m, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } }));
+  if (ack) {
+    // t_043539ff 히스토리 재현 검증용 stale 공감 행(9/26) — 실시간 칩이면 안 된다. 이후 POST 응답 행은 실시간 created_at.
+    state.messages.source = [
+      { id: 'hu', role: 'user', content: '이전 질문', turn_index: 0, created_at: '2026-09-26T12:00:00Z' },
+      { id: 'he', role: 'agent', source_neuron: 'empathy', content: '이전 질문 복창', turn_index: 1, created_at: '2026-09-26T12:00:01Z', structured_payload: { empathy_ack: '네, 확인했어요' } },
+    ];
+  }
   if (feedPhoto) {
     // 피드용 즐겨찾기 photo_edit 행 — source 세션에는 넣지 않는다(체팅 재현 카드 testID 중복 방지, favorites-only)
     state.favorites.push({ message: { id: 'photo', role: 'user', dialogue_type: 'photo_edit', content: '편집된 사진', favorite: true, created_at: '2026-09-27T00:00:00Z', structured_payload: { original_url: 'https://picsum.photos/seed/photo/640/480', crop: { x: 0.1, y: 0.1, w: 0.6, h: 0.6 }, annotations: [{ id: 'a1', kind: 'pin', from: { x: 0.5, y: 0.5 } }] } }, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } });
@@ -133,12 +140,20 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       const sid = messages[1];
       if (request.method() === 'GET') return ok(state.messages[sid] || []);
       const index = state.calls.length;
-      // 첨부 링크 에코 (t_4497cfce): attachment_ids → messages.attachments 요약 (백엔드 linkAttachmentsToMessage 규격)
-      const echo = (body.attachment_ids || []).map((id, k) => ({ id, url: 'https://cdn.test/object/' + id + '.png', mime: 'image/png', size: 1200, name: 'photo.png' }));
-      const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: index, parent_message_id: body.parent_message_id, attachments: echo };
-      const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: index, parent_message_id: body.parent_message_id };
-      if (!body.parent_message_id) state.messages[sid].push(user, answer);
-      return ok({ user_message_id: user.id, messages: { user, empathy: null, answer }, run_id: 'r' + index });
+        // 첨부 링크 에코 (t_4497cfce e2e): attachment_ids → messages.attachments 요약 (백엔드 linkAttachmentsToMessage 규격)
+        const echo = (body.attachment_ids || []).map((id, k) => ({ id, url: 'https://cdn.test/object/' + id + '.png', mime: 'image/png', size: 1200, name: 'photo.png' }));
+        if (!state.messages[sid]) state.messages[sid] = [];
+        // 턴 인덱스 = 백엔드 실규격 순증 (user=nextTurn, empathy=+1, answer=+2 — graph.ts 저장 경계)
+        const base = state.messages[sid].length;
+        const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: base, created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, attachments: echo };
+        const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id };
+        // t_043539ff ack 픽스처: 백엔드 460fe003 계약형 empathy 행 — content=복창 원문, source_neuron='empathy',
+        // created_at=요청 시각(실시간 행). 확인 발화('예'/'Yes') 재에코 금지 상태 머신은 백엔드 소관이라 프론트 스모크는 미검.
+        const empathy = ack && !body.parent_message_id
+          ? { id: 'emp' + index, role: 'agent', source_neuron: 'empathy', content: '에코: ' + body.content, turn_index: base + 1, created_at: new Date().toISOString(), structured_payload: { empathy_ack: '네, 확인했어요' } }
+          : null;
+        if (!body.parent_message_id) state.messages[sid].push(user, ...(empathy ? [empathy] : []), answer);
+        return ok({ user_message_id: user.id, empathy_message_id: empathy ? empathy.id : null, empathy_response: empathy ? empathy.content : null, messages: { user, empathy, answer }, run_id: 'r' + index });
     }
     const session = path.match(/^\/api\/sessions\/([^/]+)$/);
     if (session) return ok(state.sessions.find((s) => s.id === session[1]));

@@ -23,6 +23,8 @@
     "src/lib/joystickMode.ts",
     "src/lib/userPrefs.ts",
     "src/lib/chatLogic.ts",
+    "src/lib/ackChips.ts",
+    "src/lib/ackHold.ts",
     "src/lib/layout.ts",
     "src/lib/deviceLabel.ts",
     "src/lib/pttLogic.ts",

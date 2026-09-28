@@ -8,7 +8,7 @@
 // - 음성 상태 표시: JoystickMic 내장 초록 링 + 웨이브폼, 하단 PttBanner(화면 유지) 재사용.
 // - 권한 거부/실패(error) 시 폴백 안내 한 줄 — 화면이 입력창을 자동 열어 텍스트만으로 완전 작동.
 // - 키보드 진입 버튼: 제스처 미숙련자/디스커버리용 동일 기능 버튼(우측).
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,7 @@ import JoystickMic from './JoystickMic';
 import { KeyboardIcon } from './Icon';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography, iconSize } from '../theme';
+import { ACK_HOLD_MS, ackPhraseForDirection, resolveArmedAck } from '../lib/ackHold';
 
 interface Props {
   /** 홀드 시작 (touchstart — 권한 요청 지점) */
@@ -31,30 +32,78 @@ interface Props {
   /** errors.* 키 — 폴백 안내 한 줄 */
   error?: string | null;
   onOpenKeyboard: () => void;
+  /** t_043539ff: 끝방향 0.8s 홀드 arm 후 릴리스 → '예'/'아니요' 텍스트 발화 */
+  onSendAck: (text: string) => void;
 }
 
 export default function ChatVoiceConsole({
   onPressHoldStart, onHoldEnd, onHoldAbort, actionFor, directionLabels,
-  recording, error, onOpenKeyboard,
+  recording, error, onOpenKeyboard, onSendAck,
 }: Props) {
   const { t } = useTranslation();
   // 그랜트~릴리스 사이 최종 방향 추적 — onGesture(확정)/onRelease(판정) 계약 안에서만 소비.
   const gestureRef = useRef<JoystickGesture | null>(null);
   const startedRef = useRef(false);
+  // ── 예/아니요 홀드-arm (t_043539ff, 대표님 9/28 차선안 병행) ──
+  // 좌/우 끝방향 스냅 확정 시점부터 ACK_HOLD_MS 유지 → armed(배너 표시) → 릴리스 시 음성 폐기+텍스트 발화.
+  // 얕은 스와이프(<0.8s)는 arm 전 해제 → 기존 커스텀 매핑 경로 보존(↑ 매핑 충돌 없음, 카드 #2).
+  const candidateRef = useRef<JoystickGesture | null>(null);
+  const armedRef = useRef<JoystickGesture | null>(null);
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [armedAck, setArmedAck] = useState<'yes' | 'no' | null>(null);
+  const clearArm = () => {
+    if (armTimerRef.current) { clearTimeout(armTimerRef.current); armTimerRef.current = null; }
+    candidateRef.current = null;
+    armedRef.current = null;
+    setArmedAck(null);
+  };
+  useEffect(() => () => { if (armTimerRef.current) clearTimeout(armTimerRef.current); }, []);
 
   const handlePressStart = () => {
     gestureRef.current = null;
     startedRef.current = true;
+    clearArm();
     onPressHoldStart();
   };
   const handleGesture = (g: JoystickGesture) => {
     gestureRef.current = g;
+  };
+  const handleDirectionChange = (d: JoystickGesture | null) => {
+    // d === null은 릴리스 직전 engine 리셋 통지 — arm 판정 소비(handleRelease)를 위해 그대로 둔다.
+    if (d === null) return;
+    const phrase = ackPhraseForDirection(d);
+    if (!phrase) {
+      // 홀드 중 다른 방향(↑ 등)으로 이동 = arm 무효 — 기존 경로에 완전 복귀
+      if (armTimerRef.current) { clearTimeout(armTimerRef.current); armTimerRef.current = null; }
+      candidateRef.current = null;
+      armedRef.current = null;
+      setArmedAck(null);
+      return;
+    }
+    if (candidateRef.current === d) return;
+    candidateRef.current = d;
+    armedRef.current = null;
+    setArmedAck(null);
+    if (armTimerRef.current) clearTimeout(armTimerRef.current);
+    armTimerRef.current = setTimeout(() => {
+      armTimerRef.current = null;
+      armedRef.current = d;
+      setArmedAck(ackPhraseForDirection(d));
+    }, ACK_HOLD_MS);
   };
   const handleRelease = () => {
     if (!startedRef.current) return; // 그랜트 미달 릴리스(이론상 없음) — 상태 없는 전송 금지
     startedRef.current = false;
     const g = gestureRef.current;
     gestureRef.current = null;
+    // arm된 끝방향에서 그대로 릴리스 → 발화 폐기(audio.cancel) + '예'/'아니요' 텍스트 전송.
+    const ack = resolveArmedAck(armedRef.current, g);
+    clearArm();
+    if (ack) {
+      onHoldAbort();
+      onSendAck(t(ack === 'yes' ? 'chat.ackYes' : 'chat.ackNo'));
+      return;
+    }
     const action = g ? actionFor(g) : null;
     if (action === 'keyboard' || action === 'cancel') {
       onHoldAbort();   // 발화 미전환 — 이번 소리는 서버에 보내지 않고 폐기
@@ -71,6 +120,7 @@ export default function ChatVoiceConsole({
           onGesture={handleGesture}
           onRelease={handleRelease}
           onPressStart={handlePressStart}
+          onDirectionChange={handleDirectionChange}
           isRecording={recording}
           directionLabels={directionLabels}
         />
@@ -84,7 +134,11 @@ export default function ChatVoiceConsole({
           <KeyboardIcon size={iconSize.glyph} color={colors.text2} />
         </Pressable>
       </View>
-      {error ? (
+      {armedAck ? (
+        <Text testID="joystick-ack-armed" style={styles.armedText}>
+          {t(armedAck === 'yes' ? 'chat.ackHoldArmedYes' : 'chat.ackHoldArmedNo')}
+        </Text>
+      ) : error ? (
         <Text testID="chat-voice-fallback" style={styles.fallbackText}>{t(error)}</Text>
       ) : (
         <Text style={styles.hintText}>{t('chat.voiceConsoleHint')}</Text>
@@ -124,6 +178,12 @@ const styles = StyleSheet.create({
   hintText: {
     ...typography.caption,
     color: colors.text3,
+    textAlign: 'center',
+  },
+  armedText: {
+    ...typography.caption,
+    color: colors.accent,
+    fontWeight: '600',
     textAlign: 'center',
   },
   fallbackText: {

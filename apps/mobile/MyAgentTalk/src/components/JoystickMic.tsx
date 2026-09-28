@@ -45,6 +45,9 @@ interface Props {
   /** t_e735d936: 그랜트(touchstart) 통지 — 채팅 음성 콘솔의 홀드-투-톡 시작 지점.
    *  엔진 계약(onGesture/onRelease/testID) 불변, 선택적 추가 콜백만 확장. */
   onPressStart?: () => void;
+  /** t_043539ff: 홀드 중 라이브 방향 변화 통지 (setActive 단일 경유 — 스냅 확정/null 복원 시점만).
+   *  예/아니요 홀드-arm 판정 레이어용 선택 확장. 엔진 emit/제스처 계약 불변. */
+  onDirectionChange?: (direction: JoystickGesture | null) => void;
   isRecording: boolean;
   /** 드래그 중 라벨 오버라이드 (기본: 예/아니오/취소 등) */
   directionLabels?: Partial<Record<JoystickGesture, string>>;
@@ -65,7 +68,7 @@ const OVERLAY_DIRS: { key: JoystickGesture; angle: number }[] = [
 ];
 const OVERLAY_R = BASE_SIZE / 2 + 2;
 
-export default function JoystickMic({ onGesture, onRelease, onPressStart, isRecording, directionLabels }: Props) {
+export default function JoystickMic({ onGesture, onRelease, onPressStart, onDirectionChange, isRecording, directionLabels }: Props) {
   // RN Animated 표준 패턴 — Animated.Value 는 렌더 간 안정적인 identity 가 필요 → useState 초기화
   // (React 19 react-hooks/refs 규칙: 렌더 중 ref 접근 금지 대응)
   const [scaleAnim] = React.useState(() => new Animated.Value(1));
@@ -81,11 +84,13 @@ export default function JoystickMic({ onGesture, onRelease, onPressStart, isReco
   const onGestureRef = useRef(onGesture);
   const onReleaseRef = useRef(onRelease);
   const onPressStartRef = useRef(onPressStart);
+  const onDirectionChangeRef = useRef(onDirectionChange);
   useEffect(() => {
     onGestureRef.current = onGesture;
     onReleaseRef.current = onRelease;
     onPressStartRef.current = onPressStart;
-  }, [onGesture, onRelease, onPressStart]);
+    onDirectionChangeRef.current = onDirectionChange;
+  }, [onGesture, onRelease, onPressStart, onDirectionChange]);
 
   // 드래그 중 방향 (라이브 피드백용 상태)
   const [activeDirection, setActiveDirection] = useState<JoystickGesture | null>(null);
@@ -93,6 +98,8 @@ export default function JoystickMic({ onGesture, onRelease, onPressStart, isReco
   const setActive = (d: JoystickGesture | null) => {
     activeDirectionRef.current = d;
     setActiveDirection(d);
+    // t_043539ff: 홀드-arm 판정 레이어에 라이브 방향 통지 (선택 확장, 미주입 시 무해)
+    onDirectionChangeRef.current?.(d);
   };
 
   // panHandlers를 state로 관리 (렌더 중 ref 접근 방지)
