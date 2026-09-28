@@ -132,6 +132,19 @@ export const config = {
   },
 
   /**
+   * 앱 속 실 김비서 브리지 (t_620d5549, 대표님 9/28 "텔레그램 대신 저거로 김비서를 쓸 수 있게")
+   * - endpoint: Hermes kimsecretary 게이트웨이의 A2A 수신 URL. 미설정(기본) 시 브리지 OFF —
+   *   김비서 room도 기존 로컬 파이프라인과 1:1 동일 동작. skyserver 내부 루프(127.0.0.1)만 허용.
+   * - timeoutMs: 김비서 응답 대기 상한. 초과 시 조용한 폴백(원인 문장 답변 + 로컬 흐름 계속).
+   * - maxTurns: A2A 컨텍스트당 소프트 자전 임계 (서버 안티루프 하드캡 20보다 낮게).
+   */
+  secretaryBridge: {
+    endpoint: process.env.SECRETARY_BRIDGE_ENDPOINT || '',
+    timeoutMs: parseInt(process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
+    maxTurns: parseInt(process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+  },
+
+  /**
    * 뉴런 오케스트레이션 엔진 선택:
    * - 'langgraph': LangGraph StateGraph 기반 (설치/런타임 정상 시)
    * - 'simple'   : 동일 노드 로직을 순차 파이프라인으로 실행 (폴백)

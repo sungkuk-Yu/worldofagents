@@ -1367,3 +1367,24 @@ GET  /api/attachments/object/<path>        # DEV_MODE 바이트 서빙 / prod는
 프론트 계약(`lib/api.ts`): `api.upload(file) → UploadResult`, `api.listMessageAttachments(id)`, `UploadError`(code=i18n `errors.{lowercase}`), `sendMessage(...,{attachment_ids})`. UI는 t_4497cfce.
 
 검증: `tests/unit/attachments.test.ts` 15건 + `tests/smoke_upload.mjs`(실DB Storage 왕복 sha256/DDL read-back) + DEV 부팅 서버 E2E. tsc 0.
+
+### 앱 속 실 김비서 브리지 (카드 t_620d5549 — 대표님 9/28 "텔레그램 대신 저거로 김비서를 쓸 수 있게")
+
+'김비서' room(name 정확히 일치) 턴의 답변 생성을 로컬 LLM 대신 **실제 Hermes kimsecretary 프로필**로 왕복 연결한다. 신규 서비스·데몬 없음 — skyserver 내부 루프(127.0.0.1)의 김비서 A2A 수신 엔드 하나만 쓴다.
+
+설정 (백엔드 `.env`):
+```
+SECRETARY_BRIDGE_ENDPOINT=http://127.0.0.1:9902   # 미설정 시 브리지 OFF = 기존 동작 1:1 (기본)
+SECRETARY_BRIDGE_TIMEOUT_MS=180000                # 김비서 응답 대기 상한
+SECRETARY_BRIDGE_MAX_TURNS=15                     # A2A 컨텍스트 소프트 자전 임계 (서버 안티루프 하드캡 20)
+```
+
+동작 (`src/lib/secretaryBridge.ts` 단일 소스, answerNode가 `state.secretaryBridge`일 때만 경유):
+- 발화 → JSON-RPC `message/send`(v1.0, `contextId`는 Message 내부) → 김비서 헤르메스 세션이 도구·기억·SOUL까지 실프로필로 응답. 답변 원문은 로컬 LLM을 재통과하지 않는다(provider='secretary-bridge'). 게이트웨이 display가 병합한 선두 reasoning 블록(💭+fence)만 제거해 저장.
+- 연속성: 회신의 `contextId`와 컨텍스트 내 발화 수를 `context_patches('secretary.bridge')`(set-then-overwrite)에 영속 → 같은 room 발화가 김비서 쪽 헤르메스 세션 1개에 쌓인다. 임계 도달 시 컨텍스트 자전 + 직전 8발화 인계 다이제스트 첨부. 안티루프 REJECTED를 받으면 새 컨텍스트로 1회 재시도.
+- 실패 정책: transport/timeout/빈 본문/거부 → 원인 1문장 폴백 문장("전달하지 못했어…")을 답변 행으로 저장하고 턴은 completed로 종료. 컨텍스트 미영속(다음 턴 재시도). 김비서 `TASK_STATE_INPUT_REQUIRED`(추가 확인)는 답변 텍스트로 그대로 노출 — 프론트는 일반 답변처럼 렌더.
+- 격리: 이름 불일치 room·브리지 미설정 환경은 코드 경로 자체가 false — 기존 파이프라인과 1:1 동일(대조군 스모크로 검증).
+
+WS/REST: 이벤트 추가 없음(neuron.status slug='bridge', 표시명 '비서실 브리지'), `GET /api/sessions/:id/context`로 `secretary.bridge` 조회 가능. 마이그레이션 0건.
+
+검증: `tests/unit/secretary-bridge.test.ts` 18 + `tests/unit/secretary-bridge-turn.test.ts` 4 + `tests/smoke_secretary_bridge.mjs`(실 9902 왕복 16/16 PASS — 김비서가 발화 지시 문구 회신, contextId 연속 turns=2, 대조군 무브리지) . tsc 0 · 전체 단위 349 PASS.
