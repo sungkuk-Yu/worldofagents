@@ -1,0 +1,217 @@
+
+=== PC 3패널 (1440x900) ===
+{
+ "rects": {
+  "message-list": {
+   "x": 300,
+   "y": 82,
+   "w": 800,
+   "h": 741,
+   "bottom": 823,
+   "top": 82,
+   "right": 1100
+  },
+  "queue-strip": null,
+  "resume-banner": null,
+  "last-msg-card": {
+   "x": 312,
+   "y": 124,
+   "w": 776,
+   "h": 119,
+   "bottom": 243,
+   "top": 124,
+   "right": 1088
+  },
+  "chat-input": {
+   "x": 360,
+   "y": 840,
+   "w": 668,
+   "h": 48,
+   "bottom": 888,
+   "top": 840,
+   "right": 1028
+  },
+  "voice-stage": null,
+  "voice-stage-hint": null,
+  "joystick-mic": null,
+  "keyboard-button": null,
+  "send-button": {
+   "x": 1036,
+   "y": 842,
+   "w": 52,
+   "h": 44,
+   "bottom": 886,
+   "top": 842,
+   "right": 1088
+  },
+  "attach-button": {
+   "x": 312,
+   "y": 844,
+   "w": 40,
+   "h": 40,
+   "bottom": 884,
+   "top": 844,
+   "right": 352
+  },
+  "ptt-banner": null
+ },
+ "cardCount": 7,
+ "maxCardBottom": 1212,
+ "vh": 900,
+ "vw": 1440,
+ "keyboardOpen": {
+  "input": {
+   "y": 840,
+   "h": 48,
+   "bottom": 888
+  },
+  "inputBar": null,
+  "lastCardBottom": 1212,
+  "send": {
+   "y": 842,
+   "h": 44,
+   "bottom": 886
+  },
+  "attach": {
+   "y": 844,
+   "h": 40,
+   "bottom": 884
+  }
+ }
+}
+
+=== PC 2패널 (1280x800) ===
+{
+ "rects": {
+  "message-list": {
+   "x": 300,
+   "y": 81,
+   "w": 640,
+   "h": 642,
+   "bottom": 723,
+   "top": 81,
+   "right": 940
+  },
+  "queue-strip": null,
+  "resume-banner": null,
+  "last-msg-card": {
+   "x": 312,
+   "y": 123,
+   "w": 616,
+   "h": 119,
+   "bottom": 242,
+   "top": 123,
+   "right": 928
+  },
+  "chat-input": {
+   "x": 360,
+   "y": 740,
+   "w": 508,
+   "h": 48,
+   "bottom": 788,
+   "top": 740,
+   "right": 868
+  },
+  "voice-stage": null,
+  "voice-stage-hint": null,
+  "joystick-mic": null,
+  "keyboard-button": null,
+  "send-button": {
+   "x": 876,
+   "y": 742,
+   "w": 52,
+   "h": 44,
+   "bottom": 786,
+   "top": 742,
+   "right": 928
+  },
+  "attach-button": {
+   "x": 312,
+   "y": 744,
+   "w": 40,
+   "h": 40,
+   "bottom": 784,
+   "top": 744,
+   "right": 352
+  },
+  "ptt-banner": null
+ },
+ "cardCount": 7,
+ "maxCardBottom": 1211,
+ "vh": 800,
+ "vw": 1280,
+ "keyboardOpen": {
+  "input": {
+   "y": 740,
+   "h": 48,
+   "bottom": 788
+  },
+  "inputBar": null,
+  "lastCardBottom": 1211,
+  "send": {
+   "y": 742,
+   "h": 44,
+   "bottom": 786
+  },
+  "attach": {
+   "y": 744,
+   "h": 40,
+   "bottom": 784
+  }
+ }
+}
+
+=== 모바일 (390x844) ===
+{
+ "rects": {
+  "message-list": {
+   "x": 0,
+   "y": 81,
+   "w": 390,
+   "h": 755,
+   "bottom": 836,
+   "top": 81,
+   "right": 390
+  },
+  "queue-strip": null,
+  "resume-banner": null,
+  "last-msg-card": {
+   "x": 12,
+   "y": 123,
+   "w": 366,
+   "h": 119,
+   "bottom": 242,
+   "top": 123,
+   "right": 378
+  },
+  "chat-input": null,
+  "voice-stage": {
+   "x": 0,
+   "y": 591,
+   "w": 390,
+   "h": 253,
+   "bottom": 844,
+   "top": 591,
+   "right": 390
+  },
+  "voice-stage-hint": {
+   "x": 128,
+   "y": 700,
+   "w": 134,
+   "h": 36,
+   "bottom": 736,
+   "top": 700,
+   "right": 262
+  },
+  "joystick-mic": null,
+  "keyboard-button": null,
+  "send-button": null,
+  "attach-button": null,
+  "ptt-banner": null
+ },
+ "cardCount": 7,
+ "maxCardBottom": 1211,
+ "vh": 844,
+ "vw": 390,
+ "keyboardOpen": null
+}
