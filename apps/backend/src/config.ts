@@ -78,6 +78,19 @@ export const config = {
   },
 
   /**
+   * 볼트 도서관 (t_d469fac3, 대표님 9/30 "Spotify 도서관" 지시) — GET /api/vault/library.
+   * 로컬 사이드카(scripts/vault_sidecar.py, 127.0.0.1:9834)의 BM25+임베딩 하이브리드 인덱스를
+   * 관리자 토큰(x-vault-key)으로 게이트한다. url·adminToken 미설정(기본) 시 엔드 404 —
+   * 단위 테스트·키 없는 DEV는 동작 불변. 볼트는 에이전트 공용 인프라라 앱 사용자 JWT와
+   * 레인을 분리한다(vault_notes의 /api/vault/search와 무관).
+   */
+  vaultLibrary: {
+    url: (process.env.VAULT_SIDECAR_URL || '').replace(/\/+$/, ''),
+    adminToken: process.env.VAULT_ADMIN_TOKEN || '',
+    timeoutMs: parseInt(process.env.VAULT_SIDECAR_TIMEOUT_MS || '8000', 10),
+  },
+
+  /**
    * 채팅 답변 생성 LLM (DashScope OpenAI 호환 모드).
    * - apiKey: CHAT_LLM_API_KEY 우선, 없으면 DASHSCOPE_API_KEY
    * - baseUrl/model: 환경변수로 오버라이드 가능 (기본: dashscope-intl + qwen3-max)
@@ -154,6 +167,26 @@ export const config = {
     endpoint: process.env.SECRETARY_BRIDGE_ENDPOINT || '',
     timeoutMs: parseInt(process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
     maxTurns: parseInt(process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+  },
+
+  /**
+   * 메시지 프로토콜 (t_3486b1d7, 대표님 9/29 텔레그램标准 이식 + 김비서 4턴 A2A 확정 필드 계약).
+   * 롤백 게이트: 각 기능 env 플래그로 독립 온/오프 — off 시 484eec2f 베이스 동작과 1:1 동일.
+   * - idempotency (DELTA… 생략, MESSAGE_IDEMPOTENCY_DISABLED): send 프레임 client_req_id 멱등
+   *   (random_id 상당). 013 미적용 실DB는 래치로 컬럼 생략 폴백 (008/011 관례).
+   * - userCardFirst (USER_CARD_FIRST=false로 off): user 카드(message.new)가 run.started보다 먼저,
+   *   run.started에 user_message_id·persona line(run.progress)에 source_message_id 태움.
+   * - deltaBatchMs/deltaBatchChars (DELTA_BATCH_MS, DELTA_BATCH_CHARS): answer.delta 백프레셔 —
+   *   whichever-first 배칭. MS=0이면 비배칭(구동작).
+   * - seqDiffSync (EVENT_SYNC_DISABLED=true로 off): GET /:id/events?after_seq (getDifferences 상당)
+   *   + subscribed/events의 seq_epoch (서버 재기동 시 버퍼 에포크 교체 → 클라이언트 전량 캐치업 신호).
+   */
+  protocol: {
+    idempotency: process.env.MESSAGE_IDEMPOTENCY_DISABLED !== 'true',
+    userCardFirst: process.env.USER_CARD_FIRST !== 'false',
+    deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
+    deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
+    seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',
   },
 
   /**

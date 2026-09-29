@@ -81,14 +81,14 @@
   },
   "longA": {
     "list": {
-      "top": 120,
+      "top": 128,
       "bottom": 836,
-      "h": 716
+      "h": 708
     },
     "listScroll": {
-      "sh": 1717,
-      "ch": 716,
-      "st": 1001
+      "sh": 1755,
+      "ch": 708,
+      "st": 1047
     },
     "cardCount": 12,
     "lastBottom": 567,

@@ -136,6 +136,10 @@ export interface ChatMessage {
   content: string;
   /** 백엔드 turn_index — 페이지네이션 커서 기준 */
   turnIndex: number;
+  /** 발화 에이전트 (messages.agent_id) — t_55b7e30c 런 어텐션: 에이전트가 둘 이상이면 카드 라벨이 이 id로 분기 */
+  agentId?: string;
+  /** 카드 헤더에 표시할 발화자 이름 (서버 agent_name 우선, 없으면 화면 agentName) — t_55b7e30c */
+  senderName?: string;
   /** 응답 생성 뉴런 (empathy/answer 등) */
   sourceNeuron?: string | null;
   /** 낙관적 업데이트 중인 메시지 (서버 확인 전) */
@@ -151,7 +155,7 @@ export interface ChatMessage {
   taskOverrides?: Record<number, boolean>;
   contentKey?: string;
   contentParams?: Record<string, string>;
-  status?: 'pending' | 'sent' | 'failed';
+  status?: 'pending' | 'sent' | 'failed' | 'streaming';
   runId?: string;
   draft?: string;
   /** 첨부 요약 (messages.attachments JSONB — {id,url,mime,size,name}[], 백엔드 t_401c5bd1) */

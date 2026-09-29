@@ -1,0 +1,14 @@
+# 볼트 도서관 증분 갱신 (t_d469fac3) — 일 1회 04:17 (시스템 시간=UTC = 13:17 KST; Persistent로 놓침 보정)
+# 설치:
+#   cp apps/backend/deploy/myagenttalk-vault-update.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now myagenttalk-vault-update.timer
+[Unit]
+Description=MyAgentTalk vault index incremental update (hash-diff re-embed)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/holysky87/worldofagents/apps/backend
+ExecStart=/home/holysky87/.hermes/hermes-agent/venv/bin/python3 scripts/vault_index.py update
+Environment=OBSIDIAN_VAULT_PATH=/home/holysky87/.hermes/obsidian-vault
+Environment=HF_HUB_OFFLINE=1
+Nice=10

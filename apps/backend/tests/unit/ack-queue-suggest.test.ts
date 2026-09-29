@@ -159,8 +159,11 @@ describe('① 공감 재질문 + 답변 리드 지연 (t_44f8896c: 복창→재�
     const events: TurnEmitEvent[] = [];
     await runTextTurn(db, session, 'user', '왜 그런가요?', { emit: e => events.push(e) });
     expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
-    // 지연 구간에도 run.started는 이미 나가 있었다 — quip이 도는 체감 공백.
-    expect(events[0].type).toBe('run.started');
+    // 지연 구간에도 초기 이벤트는 이미 나가 있었다 — quip이 도는 체감 공백.
+    // ⑤ (t_3486b1d7): user 카드 → run.started 순 계약.
+    expect(events[0].type).toBe('message.new');
+    expect((events[0] as any).message.role).toBe('user');
+    expect(events[1].type).toBe('run.started');
   });
 
   it('answerLeadMs=0이면 지연 없이 바로 답변 (테스트 기본 봉인 상태)', async () => {

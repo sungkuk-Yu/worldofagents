@@ -10,7 +10,8 @@ import { SessionsRow } from '../types/db';
 import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
 import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession, sessionPresence } from '../websocket/handler';
-import { hasActiveRun, isDuplicateIngress } from '../websocket/eventlog';
+import { hasActiveRun, isDuplicateIngress, eventSyncState } from '../websocket/eventlog';
+import { config } from '../config';
 import { listQueue, queueSnapshot, enqueueQuestion, skipAllPending, isQueueKnownUnavailable } from '../lib/questionQueue';
 import { queueJoinLine } from '../lib/personaVoice';
 import { resolvePendingReplies, replyPendingSnapshot } from '../lib/awaitingReply';
@@ -338,15 +339,31 @@ export async function sessionRoutes(app: FastifyInstance) {
     })), { has_more: rows.length === max, total: rows.length });
   });
 
+  // GET /api/sessions/:id/events?after_seq= — seq diff sync catch-up (t_3486b1d7 ③)
+  // 텔레그램 pts/getDifferences 이식: WS 재연결 후 클라이언트가 보관한 lastSeq 이후의
+  // 서버 이벤트 버퍼(500-캡)를 원래 seq 순서로 반환. truncated=true면 버퍼 캡으로 옛 이벤트가
+  // 밀려난 것 — 클라이언트는 GET /messages 전량 캐치업으로 전환한다. current_seq와 seq_epoch로
+  // 서버 재기동(에포크 교체)도 감지한다. EVENT_SYNC_DISABLED=true 시 404 (롤백 게이트).
+  app.get('/:id/events', { preHandler: requireAuth }, async (request) => {
+    if (!config.protocol.seqDiffSync) throw new ApiError(ERROR_CODES.NOT_FOUND, '이벤트 동기화 엔드포인트가 비활성화되었습니다.');
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const { after_seq } = request.query as { after_seq?: string };
+    const lastSeq = Number.parseInt(after_seq ?? '', 10);
+    if (!Number.isFinite(lastSeq) || lastSeq < 0) throw badRequest('after_seq은 0 이상의 정수여야 합니다.');
+    return ok(eventSyncState(session.id, lastSeq));
+  });
+
   // POST /api/sessions/:id/messages — 텍스트 메시지 전송 (뉴런 파이프라인 실행)
   app.post('/:id/messages', { preHandler: requireAuth }, async (request, reply) => {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     if (session.status === 'archived') throw new ApiError(ERROR_CODES.SESSION_ARCHIVED, '아카이브된 세션에는 메시지를 보낼 수 없습니다.');
 
-    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[]; reply_to_id?: string | null };
+    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[]; client_req_id?: string; reply_to_id?: string | null };
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
     const attachmentIds = parseAttachmentIds(body);
+    // random_id 멱등 (t_3486b1d7 ①): send 프레임/REST body의 client_req_id로 재전송 중복 생성 차단.
+    const clientReqId = typeof body.client_req_id === 'string' && body.client_req_id ? body.client_req_id : null;
 
     // 요구① (t_c31e3f45): Enter+전송 버튼 동시 탭 등 짧은 창 동일 content 재발송 드롭 —
     // 재현 실측(9/29): 100ms 간격 동일 POST 2회 → 1개는 실행 중 끼어들기로 큐 적재,
@@ -380,6 +397,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       locale: parseAcceptLanguage(request.headers['accept-language']),
       sttMetadata: body.stt_metadata || null,
       attachmentIds,
+      clientReqId,
       replyToId: body.reply_to_id,
       emit: e => broadcastToSession(session.id, e),
     });

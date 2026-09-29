@@ -13,21 +13,28 @@ test('voiceStageHeight — 세로 뷰포트 30%, 180~300px 클램프 (#311 strip
 });
 
 test('stageReleaseOutcome — 제스처 계약 우선순위 (ack > keyboard > cancel > send)', () => {
-  // arm된 끝방향 릴리스 = 예/아니요 발화 (t_043539ff 계승)
-  assert.equal(stageReleaseOutcome({ escaped: false, armedAck: true, gesture: 'DIR_LEFT' }), 'ack');
+  // arm된 끝방향 릴리스 = 예/아니요 발화 (t_043539ff 계승 → t_64e3edd6: ackActive + 좌/우 즉시)
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: true, gesture: 'DIR_LEFT' }), 'ack');
   // ↑ = 키보드 계층(B) 개방 — 유일한 A→B 전이 (#304)
-  assert.equal(stageReleaseOutcome({ escaped: false, armedAck: false, gesture: 'DIR_UP' }), 'keyboard');
-  // ↑는 이탈 판정보다 우선 (링 위쪽으로 빠져나가는 동작 = 키보드 의도)
-  assert.equal(stageReleaseOutcome({ escaped: true, armedAck: false, gesture: 'DIR_UP' }), 'keyboard');
-  // 좌·우·하단 완전 이탈 = 폐기 (#311)
-  assert.equal(stageReleaseOutcome({ escaped: true, armedAck: false, gesture: 'DIR_RIGHT' }), 'cancel');
-  assert.equal(stageReleaseOutcome({ escaped: true, armedAck: false, gesture: 'DIR_DOWN' }), 'cancel');
-  assert.equal(stageReleaseOutcome({ escaped: true, armedAck: false, gesture: null }), 'cancel');
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: false, gesture: 'DIR_UP' }), 'keyboard');
+  // ↑는 이탈 판정보다 우선
+  assert.equal(stageReleaseOutcome({ escaped: true, ackActive: false, gesture: 'DIR_UP' }), 'keyboard');
+  // 좌·우·하단 완전 이탈 = 폐기 (#311) — 재질문 비활성 시
+  assert.equal(stageReleaseOutcome({ escaped: true, ackActive: false, gesture: 'DIR_RIGHT' }), 'cancel');
+  assert.equal(stageReleaseOutcome({ escaped: true, ackActive: false, gesture: 'DIR_DOWN' }), 'cancel');
+  assert.equal(stageReleaseOutcome({ escaped: true, ackActive: false, gesture: null }), 'cancel');
   // 제자리 홀드 릴리스 / 탭 = 말하기 전송
-  assert.equal(stageReleaseOutcome({ escaped: false, armedAck: false, gesture: null }), 'send');
-  assert.equal(stageReleaseOutcome({ escaped: false, armedAck: false, gesture: 'TAP_CENTER' }), 'send');
-  // arm 해제 후(방향 이동) send — armedAck=false 라면 끝방향도 그냥 이탈/전송 판정
-  assert.equal(stageReleaseOutcome({ escaped: false, armedAck: false, gesture: 'DIR_LEFT' }), 'send');
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: false, gesture: null }), 'send');
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: false, gesture: 'TAP_CENTER' }), 'send');
+  // t_64e3edd6 ③: 재질문 비활성 시 좌/우 끝도 평범한 send (음성 = 무확인 진행, #324)
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: false, gesture: 'DIR_LEFT' }), 'send');
+  // 재질문 활성 시에만 좌/우 끝 = ack (arm 타이머 폐지 — 방향 스냅만으로 즉시 판정)
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: true, gesture: 'DIR_LEFT' }), 'ack');
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: true, gesture: 'DIR_RIGHT' }), 'ack');
+  // ↑/하단 이탈은 ackActive와 무관하게 기존 우선순위 유지 (#324: 좌예우아니오는 예/아니오의 의미만)
+  assert.equal(stageReleaseOutcome({ escaped: true, ackActive: true, gesture: 'DIR_UP' }), 'keyboard');
+  assert.equal(stageReleaseOutcome({ escaped: true, ackActive: true, gesture: 'DIR_DOWN' }), 'cancel');
+  assert.equal(stageReleaseOutcome({ escaped: false, ackActive: true, gesture: 'DIR_DOWN' }), 'send');
 });
 
 // t_dee9e982 (대표님 9/29) — 리스트 하단 앵커 계약: 정렬(flex-end)은 항상, 패딩 오버라이드는

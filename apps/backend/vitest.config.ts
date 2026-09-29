@@ -23,10 +23,16 @@ export default defineConfig({
       // 로컬 STT 사이드카(t_1c7be18c) — 단위 테스트는 로컬 9833을 절대 타지 않게 봉인.
       // 필요한 테스트가 config.sttSidecar.url을 켜고 fetch를 모킹한다.
       STT_SIDECAR_URL: '',
+      // 볼트 도서관(t_d469fac3) — 실서비스 deploy.env 설정과 무관하게 단위 테스트는 404 게이트 기본.
+      // 필요한 테스트가 config.vaultLibrary.url/adminToken을 스파이로 켜고 fetch를 모킹한다.
+      VAULT_SIDECAR_URL: '',
+      VAULT_ADMIN_TOKEN: '',
       // t_344e047a: 3초 리드 지연·후속 질문 LLM은 타이밍/호출수 민감 테스트를 깨뜨리므로 봉인.
       // 필요한 테스트가 config.answerLeadMs / config.suggestedQuestions.enabled를 켠다.
       ANSWER_LEAD_MS: '0',
       SUGGEST_QUESTIONS_DISABLED: 'true',
+      // t_3486b1d7 ④: delta 배칭 지연을 단위 테스트에서 해제 — 즉시 emit 모드로 기존 계약 유지.
+      DELTA_BATCH_MS: '0',
     },
     testTimeout: 20000,
     hookTimeout: 20000,

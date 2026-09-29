@@ -1,9 +1,11 @@
-// 조이스틱 끝방향 홀드-arm 순수 로직 단위 테스트 — src/lib/ackHold.ts (카드 t_043539ff)
+// 조이스틱 끝방향 → 예/아니요 판정 순수 로직 단위 테스트 — src/lib/ackHold.ts
+// (t_043539ff 0.8s arm → t_64e3edd6 9/29 개정: arm 타이머 폐지, 재질문 활성 시 즉시 발화)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import * as ackHold from '../../src/lib/ackHold';
 import path from 'node:path';
-import { ACK_HOLD_MS, ackPhraseForDirection, resolveArmedAck } from '../../src/lib/ackHold';
+import { ackPhraseForDirection } from '../../src/lib/ackHold';
 
 test('끝방향 → 문장 키: DIR_LEFT=예, DIR_RIGHT=아니요, 나머지(↑ 등)/null 없음', () => {
   assert.equal(ackPhraseForDirection('DIR_LEFT'), 'yes');
@@ -14,16 +16,9 @@ test('끝방향 → 문장 키: DIR_LEFT=예, DIR_RIGHT=아니요, 나머지(↑
   assert.equal(ackPhraseForDirection(null), null);
 });
 
-test('resolveArmedAck — 무장 방향과 릴리스 최종 방향이 같아야 발화; 이동 시 해제', () => {
-  assert.equal(resolveArmedAck('DIR_LEFT', 'DIR_LEFT'), 'yes');
-  assert.equal(resolveArmedAck('DIR_RIGHT', 'DIR_RIGHT'), 'no');
-  assert.equal(resolveArmedAck('DIR_LEFT', 'DIR_UP'), null);   // arm 후 ↑ 이동 = 키보드 경로 복귀
-  assert.equal(resolveArmedAck('DIR_LEFT', null), null);       // 데드존 복귀 후 릴리스 = 전송 없음
-  assert.equal(resolveArmedAck(null, 'DIR_LEFT'), null);       // 얕은 스와이프 = 기존 매핑 경로
-});
-
-test('홀드 임계 800ms (카드 #2: 끝 각도 도달 후 0.8초 유지)', () => {
-  assert.equal(ACK_HOLD_MS, 800);
+test('t_64e3edd6: arm 타이머 폐지 regression 가드 — ACK_HOLD_MS/resolveArmedAck 재등장 금지', () => {
+  assert.ok(!('ACK_HOLD_MS' in ackHold), 'ACK_HOLD_MS(800ms arm) 폐기 — 즉시 발화(#324)');
+  assert.ok(!('resolveArmedAck' in ackHold), 'resolveArmedAck 폐기 — 무장 개념 없음, 방향 스냅만으로 판정');
 });
 
 test('발화 텍스트 계약 — i18n ko/en 값이 백엔드 isConfirmationUtterance 집합과 완전 일치', () => {

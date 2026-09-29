@@ -3,8 +3,9 @@
 .env.local
 .env.*.local
 
-# Dependencies
-node_modules/
+# dependencies
+node_modules
+node_modules*/
 
 # Build outputs
 dist/
@@ -38,3 +39,6 @@ coverage/
 
 # supabase CLI temp artifacts
 apps/backend/supabase/.temp/
+
+# python sidecar bytecode (vault_index/vault_sidecar — t_d469fac3)
+**/__pycache__/

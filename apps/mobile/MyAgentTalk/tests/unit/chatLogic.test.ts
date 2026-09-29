@@ -442,3 +442,51 @@ test('groupByTurn — user/system은 항상 단독 그룹, runId 있어도 role 
   const groups = groupByTurn([msg('a1', 1, 'agent', 'r1'), msg('s1', 1, 'system'), msg('a2', 1, 'agent', 'r1')]);
   assert.deepEqual(groups.map((g) => g.items.map((m) => m.id)), [['a1'], ['s1'], ['a2']]);
 });
+
+// ── t_5c559e85 ① single card ID patch — syncStreamCards/purgeSettledStreamCards ──
+import { syncStreamCards, purgeSettledStreamCards, streamCardId, isStreamCard, StreamingAnswer } from '../../src/lib/chatLogic';
+const stream = (runId: string, text: string, done = false): StreamingAnswer => ({ runId, text, index: 0, quip: 'quip.thinking', done });
+const baseMsgs = (): ChatMessage[] => [
+  { id: 'u1', turnIndex: 1, role: 'user', content: '질문', status: 'sent' } as ChatMessage,
+  { id: 'e1', turnIndex: 2, role: 'agent', content: '공감', sourceNeuron: 'empathy', runId: 'r1', status: 'sent' } as ChatMessage,
+];
+test('① delta 사영 — run당 카드 1장, content만 갱신(새 카드 생성 금지)', () => {
+  let list = syncStreamCards(baseMsgs(), [stream('r1', '초')]);
+  const card = list.find((m) => m.id === streamCardId('r1'))!;
+  assert.ok(card && isStreamCard(card));
+  assert.equal(card.turnIndex, 3, 'answer 자리 = 꼬리(empathy t+1)+1');
+  list = syncStreamCards(list, [stream('r1', '초안')]);
+  assert.equal(list.length, 3, '같은 run = 카드 수 불변');
+  assert.equal(list.find((m) => m.id === streamCardId('r1'))!.content, '초안');
+  assert.equal(list.find((m) => m.id === streamCardId('r1'))!.payload?.streamQuip, 'quip.thinking');
+});
+test('① streams에서 빠진 run의 카드는 제거(확정/취소 후 잔류 금지)', () => {
+  let list = syncStreamCards(baseMsgs(), [stream('r1', '초')]);
+  list = syncStreamCards(list, [stream('r1', '초'), stream('r2', '둘째')]);
+  assert.equal(list.filter((m) => isStreamCard(m)).length, 2);
+  list = syncStreamCards(list, [stream('r2', '둘째')]); // r1 확정 → streams에서 제외
+  assert.equal(list.filter((m) => m.id === streamCardId('r1')).length, 0);
+  assert.equal(list.filter((m) => m.id === streamCardId('r2')).length, 1);
+});
+test('① 확정 answer 저장 행이 있으면 잔류 스트림 카드는 purge — 멱등(무변경 시 동일 참조)', () => {
+  let list = syncStreamCards(baseMsgs(), [stream('r1', '초')]);
+  list = [...list, { id: 'a1', turnIndex: 3, role: 'agent', content: '최종', sourceNeuron: 'answer', runId: 'r1', status: 'sent' } as ChatMessage];
+  const purged = purgeSettledStreamCards(list);
+  assert.equal(purged.filter((m) => isStreamCard(m)).length, 0);
+  assert.ok(purgeSettledStreamCards(purged) === purged, '잔류 없음 = 동일 참조 반환');
+});
+test('① reduceStreams — 인라인 스트림 카드가 자기 run을 확정 행으로 오인하지 않는다', () => {
+  const card = syncStreamCards(baseMsgs(), [stream('r1', '초')]).find((m) => isStreamCard(m))!;
+  // messages에 stream 카드만 있는 상태(서버 확정 행 아님)에서 delta가 살아있어야 한다
+  const next = reduceStreams([stream('r1', '초')], { type: 'answer.delta', run_id: 'r1', delta: '안', index: 1 }, [card]);
+  assert.equal(next[0].text, '초안');
+});
+test('① 그룹핑 — 확정 answer 행과 스트림 카드는 같은 run이라 한 턴 그룹에 병합(1틱 경쟁), 다음 발행에 카드 제거', () => {
+  const list = syncStreamCards(baseMsgs(), [stream('r1', '초')]);
+  const withSettled = [...list, { id: 'a1', turnIndex: 3, role: 'agent', content: '최종', sourceNeuron: 'answer', runId: 'r1', status: 'sent' } as ChatMessage];
+  const groups = groupByTurn(withSettled);
+  assert.deepEqual(groups.map((g) => g.items.map((m) => m.id)), [['u1'], ['e1', streamCardId('r1'), 'a1']]);
+  // 같은 자리의 answer 확정 후 정상 경로 = streams에서 r1 제외 → sync가 카드 제거, 그룹은 e1+a1로 유지.
+  const cleaned = syncStreamCards(withSettled, []);
+  assert.deepEqual(groupByTurn(cleaned).map((g) => g.items.map((m) => m.id)), [['u1'], ['e1', 'a1']]);
+});
