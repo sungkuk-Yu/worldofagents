@@ -10,7 +10,8 @@ set -a; [ -f "$HOME/.config/myagenttalk/deploy.env" ] && . "$HOME/.config/myagen
 # 김비서 브리지 왕복(54~73s) 타임아웃 회피: 브리지 env 비우기 (9/26 교훈)
 export SECRETARY_BRIDGE_ENDPOINT=
 export OPENAI_API_KEY="${OPENAI_API_…L:}" # deploy.env의 키는 살리되 없으면 ''
+# CORS_ORIGIN=localhost:8081 고정 — prod 백엔드 allowlist에도 포함된 포트(라이브 재실행과 동일 소스)
 cd "$REPO/apps/backend"
-DEV_MODE=true PORT=3077 CORS_ORIGIN=http://localhost:8124 \
+DEV_MODE=true PORT=3077 CORS_ORIGIN=http://localhost:8081 \
   STT_SIDECAR_URL=http://127.0.0.1:9833 \
   node_modules/.bin/tsx src/index.ts
