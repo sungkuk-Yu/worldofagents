@@ -471,3 +471,44 @@ test('스레드 전송 실패와 재전송도 원문 및 부모 ID를 보존한�
   assert.equal(h.render().messages[0].status, 'sent');
   assert.equal(h.render().messages[0].parentMessageId, 'root');
 });
+
+// ── t_4af94b1c ① — 동일 텍스트 in-flight 가드 + 백엔드 deduped 응답 분기 ──
+
+test('동시 동일 텍스트 전송 — 2차는 낙관 행도 POST도 만들지 않는다 (in-flight 가드)', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  const resolvers: ((value: ApiEnvelope<SendMessageResult>) => void)[] = [];
+  let posts = 0;
+  t.mock.method(apiModule.api, 'sendMessage', (_sid: string, _content: string, id?: string) => {
+    posts++;
+    return new Promise<ApiEnvelope<SendMessageResult>>((resolve) => resolvers.push(resolve));
+  });
+  const a = h.render().send('중복 테스트');
+  const b = h.render().send('중복 테스트'); // Enter+전송 동시 탭의 2차 호출
+  assert.deepEqual(await b, { ok: true }, '2차는 의미상 성공(복원 경로 차단)');
+  assert.equal(posts, 1, 'POST는 1회만');
+  let state = h.render();
+  assert.equal(state.messages.length, 1, '낙관 행은 1개만');
+  resolvers[0](confirm('u1')); await a;
+  state = h.render();
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages[0].status, 'sent');
+  // 가드 해제 후 동일 텍스트 재전송은 정당한 재요청 — 통과해야 한다.
+  resolvers.length = 0;
+  const c = h.render().send('중복 테스트');
+  assert.equal(posts, 2, '완료 후 재전송은 가드 대상 아님');
+  resolvers[0](confirm('u2')); await c;
+});
+
+test('백엔드 ingress 드롭 { deduped:true } — 유령 낙관 행 제거, 오류 없음, 성공 처리', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  t.mock.method(apiModule.api, 'sendMessage', async () => ({
+    ok: true,
+    data: { deduped: true, message: '동일 발화가 방금 접수되었습니다.' } as unknown as SendMessageResult,
+  }));
+  const r = await h.render().send('방금 보낸 것과 같음');
+  assert.deepEqual(r, { ok: true });
+  const state = h.render();
+  assert.equal(state.messages.length, 0, 'deduped 응답은 낙관 행을 남기지 않는다(서버에 없는 유령 행 방지)');
+  assert.equal(state.lastError, null, 'deduped는 오류가 아니다');
+  assert.equal(state.typing, false, '해당 실행은 종료된다');
+});

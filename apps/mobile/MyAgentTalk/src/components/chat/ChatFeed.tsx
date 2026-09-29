@@ -50,7 +50,10 @@ interface FooterProps {
 export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, hideQuip, onSendSuggested }: FooterProps) {
   const { t } = useTranslation();
   return <View>
-    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
+    {/* t_4af94b1c②: 첫 answer.delta 도착~run.completed 사이 typing과 streams가 중첩되면 같은 quip이
+        두 카드에 이중 렌더된다. 스트리밍 카드가 답변과 함께 상단 고정되므로 quip은 그쪽 소유 —
+        타이핑 카드는 점 표시만 남긴다(정체성 규칙: 처리중 카드는 작업 내내 계속 보인다). */}
+    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip || streams.length > 0} />}
     {streams.map((stream) => <Surface key={stream.runId} testID="streaming-card" style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
       {/* t_e9480e0f 백로그① — 스트리밍 카드 마크다운: 블록 문법 감지 시 ChatMarkdown(streaming=true:

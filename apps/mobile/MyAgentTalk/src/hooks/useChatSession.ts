@@ -89,6 +89,8 @@ function createRuntime(onChange: (active: boolean, quip: string | null, count: n
       scopedRuns: new Set<string>(),
       runStages: new Map<string, string>(),
       sequence: createSequenceTracker(), streams: [] as StreamingAnswer[],
+      // 동일 텍스트 in-flight 가드 (t_4af94b1c①) — Enter+전송 동시 탭의 2차 호출은 낙관 행/POST 자체를 만들지 않는다.
+      inflightSends: new Set<string>(),
       socket: null as VoiceSocket | null, stop: () => {},
       lastFailedContent: null as { content: string; id: string; attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] } } | null,
       demoTimers: new Map<ReturnType<typeof setTimeout>, (result: SendResult) => void>(),
@@ -556,6 +558,12 @@ export function useChatSession(
     const optimisticId = retryId ?? `local-${execId}`;
     const base = runtime.messages.find((m) => m.id === retryId)?.turnIndex ?? nextTurnIndex(runtime.messages);
     const sid = runtime.sid;
+    // 동일 텍스트 in-flight 가드 (t_4af94b1c①): Enter+전송 버튼 동시 탭의 2차 performSend는
+    // 낙관 행도 POST도 만들지 않는다 — 백엔드 isDuplicateIngress(3초 창+실행 중 드롭)의 프론트 선반영.
+    // 첨부 발화는 백엔드 드롭 대상이 아니므로 가드도 제외(정당한 중복 첨부 전송 막지 않음).
+    // 1차 발송이 실제로 발화를 운반 중이므로 의미상 ok:true(실패 복원 경로 차단 — 드래프트 중복 유입 방지).
+    const guardKey = attachments?.ids?.length ? null : `${sid ?? ''}\u0000${text}`;
+    if (guardKey && runtime.inflightSends.has(guardKey)) return { ok: true };
     setLastError(null);
     // 후속 질문 칩은 발화 확정 시 1회 소모 (탭/직접 입력 모두) — 이전 턴의 칩이 남지 않는다.
     setSuggested([]);
@@ -582,6 +590,7 @@ export function useChatSession(
     }
     try {
       if (!sid || !runtime.initialized) throw new Error('errors.notReady');
+      if (guardKey) runtime.inflightSends.add(guardKey); // 가드 등록은 POST 직전 — demo 경로는 대상 아님(첨부 발화도 제외)
       const env = await api.sendMessage(sid, text, execId, {
         ...(rootMessageId ? { parent_message_id: rootMessageId } : {}),
         // 첨부 링크 (t_4497cfce): 업로드 완료 ID만 — 서버가 user 메시지에 링크 후 messages.attachments 요약 발행
@@ -589,6 +598,14 @@ export function useChatSession(
       });
       if (!env.ok || !env.data) throw new Error('errors.response');
       if (generation !== runtime.generation) return { ok: false, error: 'errors.changed' };
+      // 백엔드 ingress 드롭 (t_c31e3f45 / t_4af94b1c①): 3초 창 동일 content 재접수 → { deduped:true,
+      // message } 만 내려온다(수용 행 없음). 낙관 행이 그대로 남으면 서버에 없는 유령 행이 된다 —
+      // 첫 발송이 같은 발화를 이미 운반 중이므로 낙관 행을 제거하고 성공 처리한다(오류 배너 없음).
+      if (env.data.deduped) {
+        updateMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
+        return { ok: true };
+      }
       if (env.data.run_id) runtime.scopedRuns.add(env.data.run_id);
       updateMessages((prev) => {
         const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base);
@@ -615,6 +632,7 @@ export function useChatSession(
       return { ok: false, error };
     } finally {
       // 종료 WS가 누락되어도 REST 확정/실패는 반드시 해당 실행을 종료한다.
+      if (guardKey) runtime.inflightSends.delete(guardKey); // 가드는 POST 수명 동안만 — 완료/실패 경로 무관 해제
       coordinator.finish(execId, sid ?? '');
     }
   }, [runtimeRef, updateMessages, rootMessageId]);
