@@ -9,6 +9,9 @@ import CardFrame from '../../cards/CardFrame';
 import AckChipRow from '../AckChipRow';
 import { QueueMessageMark } from '../QueueStrip';
 import { ReplyQuoteLine } from '../ReplyQuoteBar';
+import { TickFailedIcon, TickPendingIcon, TickSentIcon } from '../Icon';
+import { renderFlags } from '../../lib/renderFlags';
+import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { ChatMessage, QueueItem, SenderGroupFlag, TurnGroup } from '../../lib/chatLogic';
 import type { CardActionHandlers } from '../../cards/types';
@@ -84,7 +87,19 @@ export default function ChatTurnRow({
           : card;
       })()}
       {message.role === 'user' && <View style={styles.userMetaRow}>
-        <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>
+        {/* ⑤ 전송 ticks (t_5c559e85, Telegram/Signal 규범): 시계(pending)→체크(sent=서버 ID 획득)→(!)+탭 재전송(failed).
+            플래그 off = 기존 텍스트 라벨 경로로 복귀. failed는 아래 재시도/삭제 행과 무관하게 늘 탭 가능해야 한다(조용한 삭제 금지). */}
+        {renderFlags.sendTicks
+          ? <Pressable testID={`message-tick-${message.id}`} accessibilityRole="button"
+              accessibilityLabel={t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}
+              onPress={message.status === 'failed' ? () => onResend(message) : undefined}>
+            {message.status === 'failed'
+              ? <TickFailedIcon size={iconSize.tileSm} color={colors.statusErr} />
+              : message.pending
+                ? <TickPendingIcon size={iconSize.tileSm} color={colors.text3} />
+                : <TickSentIcon size={iconSize.tileSm} color={colors.accent} />}
+          </Pressable>
+          : <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
         {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
         <QueueMessageMark queue={queue} message={message} />
       </View>}

@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import TypingCard from '../TypingCard';
 import ChatMarkdown from '../ChatMarkdown';
 import { looksLikeChatMarkdown } from '../../lib/chatMarkdown';
+import { renderFlags } from '../../lib/renderFlags';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import { QUIET_PROGRESS } from '../../lib/featureFlags';
@@ -54,11 +55,13 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
   const { t } = useTranslation();
   return <View>
     {/* t_4af94b1c②: 첫 answer.delta 도착~run.completed 사이 typing과 streams가 중첩되면 같은 quip이
-        두 카드에 이중 렌더된다. 스트리밍 카드가 답변과 함께 상단 고정되므로 quip은 그쪽 소유 —
-        타이핑 카드는 점 표시만 남긴다(정체성 규칙: 처리중 카드는 작업 내내 계속 보인다). */}
+        두 카드에 이중 렌더된다 — quip은 스트리밍 카드 소유, 타이핑 카드는 점 표시만 (QUIET·정체성 규칙 승계). */}
     {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip || streams.length > 0} showName={showSenderName} />}
-    {streams.map((stream) => <Surface key={stream.runId} testID="streaming-card" style={[styles.msgCard, styles.msgCardAgent, !showSenderName && styles.msgCardContinuation]} elevation={0}>
-      {/* t_55b7e30c: 이름 라벨은 발화 그룹 시작에만 (본문 카드와 동일 규칙 — 연쇄 답변/스트리밍 소음 제거) */}
+    {/* ① (t_5c559e85) streamIdPatch ON: delta는 리스트 인라인 카드(stream-*) content patch로 렌더 —
+        footer 임시 카드는 이중 렌더의 원천이라 그리지 않는다(done '저장 중' 상태도 인라인 카드가 소유).
+        OFF 시(플래그/롤백) 이 옛 경로로 복귀. ② 옛 경로에도 동일 contain:layout 적용.
+        t_55b7e30c: 이름 라벨은 발화 그룹 시작에만 (본문 카드와 동일 규칙). */}
+    {!renderFlags.streamIdPatch && streams.map((stream) => <Surface key={stream.runId} testID="streaming-card" style={[styles.msgCard, styles.msgCardAgent, styles.streamContainWeb, !showSenderName && styles.msgCardContinuation]} elevation={0}>
       {showSenderName && <Text style={styles.msgRoleAgent}>{agentName}</Text>}
       {/* t_e9480e0f 백로그① — 스트리밍 카드 마크다운: 블록 문법 감지 시 ChatMarkdown(streaming=true:
           미닫힌 ``` fence는 임시 마감 렌더, answer.done 최종 텍스트에서 자연 재파싱).

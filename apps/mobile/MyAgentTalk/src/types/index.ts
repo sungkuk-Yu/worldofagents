@@ -163,7 +163,7 @@ export interface ChatMessage {
   taskOverrides?: Record<number, boolean>;
   contentKey?: string;
   contentParams?: Record<string, string>;
-  status?: 'pending' | 'sent' | 'failed';
+  status?: 'pending' | 'sent' | 'failed' | 'streaming';
   runId?: string;
   draft?: string;
   /** 답글 인용 원문 ID (t_62897e88 / 백엔드 t_02f58030 마이그레이션 012) — invalid는 서버가 무시하고 통과 */

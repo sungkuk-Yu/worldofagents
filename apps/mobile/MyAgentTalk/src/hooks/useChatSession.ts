@@ -9,12 +9,14 @@ import { readCursorFor, shouldSendCursor } from '../lib/resumeLogic';
 import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
-  prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer, STREAM_FLUSH_DEBOUNCE_MS,
+  prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
+  syncStreamCards, purgeSettledStreamCards, ensureStreamPlaceholder, quipKeyForStage, STREAM_FLUSH_DEBOUNCE_MS,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
 } from '../lib/chatLogic';
 import type { ReplyQuote } from '../types';
+import { renderFlags } from '../lib/renderFlags';
 
 export const PAGE_SIZE = 30;
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -175,27 +177,13 @@ export function useChatSession(
     let connectedOnce = false;
     let socketVersion = 0;
     const alive = () => !disposed && generation === runtime.generation;
-    // ── t_cc232982: answer.delta 배칭 발행기 (김비서 적용 게이트 1 — 토큰마다 재렌더 금지) ──
-    // 선행 즉시 + STREAM_FLUSH_DEBOUNCE_MS 창 내 후행 통합: 창이 열려 있는 동안의 후속 delta는
-    // runtime.streams에만 누적하고 만료 시 최종본을 1회 발행 → 렌더 주기가 ~80ms로 제한된다.
-    // 터미널(answer.done/message.new/run.failed·cancelled·강제 재동기화·stop)은 무조건 즉시 플래시 —
-    // 배칭 창이 확정 행을 덮거나 잔여 타이머가 세션 전환 후 소환되는 것을 막는다.
+    // (answer.delta 배칭 발행기는 아래 통합 publishStreams 단일 정의 — t_2fa10f11 머지 수합:
+    //  rAF 배칭 우선, rAF 불가 환경은 t_cc232982 80ms 디바운스 계약으로 폴백.)
     let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
     let streamFlushOpen = false;
     const cancelStreamFlush = () => {
       if (streamFlushTimer) clearTimeout(streamFlushTimer);
       streamFlushTimer = undefined; streamFlushOpen = false;
-    };
-    const publishStreams = (type?: string) => {
-      if (type !== 'answer.delta') { cancelStreamFlush(); setStreams(runtime.streams); return; }
-      if (streamFlushOpen) return; // 창 내 누적 — 만료 시 최종본 1회 발행
-      streamFlushOpen = true;
-      setStreams(runtime.streams); // 선행 플래시 — 첫 delta는 즉시 보여 '성장하는 카드'가 즉시 시작된다
-      streamFlushTimer = setTimeout(() => {
-        streamFlushTimer = undefined; streamFlushOpen = false;
-        if (!alive() || !runtime.streams.length) return;
-        setStreams([...runtime.streams]); // 후행 통합 — 창 동안 쌓인 토큰을 한 번에
-      }, STREAM_FLUSH_DEBOUNCE_MS);
     };
     runtime.demo = mode === 'demo';
     runtime.initialized = false;
@@ -226,10 +214,53 @@ export function useChatSession(
     setPendingReplies(EMPTY_PENDING_REPLIES); // 답변 대기 잔상 동일 원칙 (t_363c0faa)
     setThreads(EMPTY_THREADS);
     setSuggested([]);
+    // ── 스트리밍 배칭 발행 (t_2fa10f11 머지 수합) ──
+    // 원본 두 경로: t_cc232982 80ms 디바운스(선행+후행) × t_5c559e85 rAF 프레임 배칭.
+    // 회피 결정: rAF 배칭이 상위(≤1 re-render/frame, 9/30 DOM 실측 28.1fps) — 80ms 창을 대체한다.
+    // rAF 불가 환경(node 하네스·구환경) 또는 플래그 OFF는 즉시 발행(원 분기 실증 세mant 유지).
+    const rafAvailable = typeof globalThis !== 'undefined' && typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame === 'function';
+    let streamFrame: number | ReturnType<typeof setTimeout> | null = null;
+    // ① single card ID patch: streams → 리스트 인라인 카드(content 갱신, run당 카드 1장 고정).
+    // 메인 피드만 — 스레드 패널(rootMessageId)은 footer 임시 카드 경로 유지(병합 순서/커서 간섭 차단).
+    const commitStreams = () => {
+      streamFrame = null;
+      if (!alive()) return;
+      setStreams(runtime.streams);
+      if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
+    };
+    const cancelStreamFrame = () => {
+      if (streamFrame === null) return;
+      if (typeof (globalThis as unknown as { cancelAnimationFrame?: (h: number) => void }).cancelAnimationFrame === 'function') (globalThis as unknown as { cancelAnimationFrame: (h: number) => void }).cancelAnimationFrame(streamFrame as number);
+      else clearTimeout(streamFrame as ReturnType<typeof setTimeout>);
+      streamFrame = null;
+    };
+    const publishStreams = (deltaOnly = false) => {
+      if (deltaOnly && renderFlags.streamRafBatch && rafAvailable) {
+        if (streamFrame === null) streamFrame = (globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame(() => commitStreams());
+        return; // 프레임 내 후속 delta는 runtime.streams에만 누적 — commitStreams가 통째로 발행(후행 통합)
+      }
+      // rAF 불가 환경(node mock-timer 하네스·RN) — t_cc232982 원 계약으로 폴백:
+      // 선행 즉시 + STREAM_FLUSH_DEBOUNCE_MS 창 내 후행 통합(토큰마다 재렌더 금지).
+      if (deltaOnly) {
+        if (streamFlushOpen) return;
+        streamFlushOpen = true;
+        commitStreams(); // 선행 즉시 (① 인라인 카드 동기 포함)
+        streamFlushTimer = setTimeout(() => {
+          streamFlushTimer = undefined; streamFlushOpen = false;
+          if (!alive() || !runtime.streams.length) return;
+          commitStreams(); // 후행 통합 — 창 동안 쌓인 토큰을 한 번에
+        }, STREAM_FLUSH_DEBOUNCE_MS);
+        return;
+      }
+      cancelStreamFlush(); // 터미널 = 잔여 배칭 창 폐기(원 계약)
+      cancelStreamFrame(); // 순서 보장: 이미 대기 중인 프레임이 있으면 덮고 즉시 발행(전이는 늦으면 안 된다)
+      commitStreams();
+    };
     const stop = () => {
       disposed = true;
       ++runtime.generation;
-      cancelStreamFlush(); // t_cc232982: 잔여 배칭 타이머 폐기 — 구 세션 스트림이 새 세션에 소환 금지
+      cancelStreamFrame(); // 배칭 대기 프레임 정리 — 구 세션 스트림이 새 세션에 소환 금지 (t_cc232982 의도 승계)
+      cancelStreamFlush(); // 디바운스 폴백 타이머도 동일 수명 계약
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (relayHoldTimer) clearTimeout(relayHoldTimer); // done 홀드도 화면 수명 내 자원 (t_961ca593)
       runtime.socket?.close();
@@ -406,7 +437,8 @@ export function useChatSession(
               if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
               if (runtime.sequence.subscribed(raw.current_seq)) {
                 runtime.tracker.endAll();
-                runtime.streams = []; publishStreams();
+                runtime.streams = [];
+                publishStreams(); // 즉시 터미널 발행 — commitStreams가 streams+인라인 카드 정리 일괄 (①)
                 runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: 0 }));
                 void refresh(sid, false, 'all').catch((e) => { if (current()) setLastError(errorText(e)); });
               }
@@ -425,12 +457,18 @@ export function useChatSession(
             } else if (typeof parent === 'string' && parent) return;
             if (typeof raw.run_id === 'string' && type === 'run.progress') runtime.runStages.set(raw.run_id, typeof raw.stage === 'string' ? raw.stage : '');
             const streamEvent = typeof raw.run_id === 'string' ? { ...raw, stage: runtime.runStages.get(raw.run_id) } : raw;
+            // ③ placeholder row: 진행 신호(run.started/progress)를 받은 run은 첫 토큰 전에 자리 확보 —
+            // 토큰 도착 프레임에 카드가 생기며 밀리는 점프 제거. 리듀스 전 실행(delta와 같은 틱이어도 자리 우선).
+            if (renderFlags.streamRafBatch && typeof raw.run_id === 'string'
+              && (type === 'run.progress' || (type === 'run.started' && !runtime.streams.some((s) => s.runId === raw.run_id)))) {
+              runtime.streams = ensureStreamPlaceholder(runtime.streams, raw.run_id, quipKeyForStage(typeof raw.stage === 'string' ? raw.stage : (runtime.runStages.get(raw.run_id) ?? undefined)));
+            }
             runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
               updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string, aiGenerated: typeof raw.ai_generated === 'boolean' ? raw.ai_generated : message.aiGenerated } : message));
             }
-            // t_cc232982: answer.delta는 배칭 발행(선행 즉시 + 창 내 후행 통합), 터미널은 즉시.
-            publishStreams(typeof type === 'string' ? type : undefined);
+            // delta는 rAF 배칭(t_cc232982 80ms 창 승계), 그 외 전이(시작/완료/취소/placeholder)는 즉시 발행.
+            publishStreams(type === 'answer.delta');
             if (type === 'message.new' || type === 'message.created') {
               const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
               if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
@@ -642,6 +680,8 @@ export function useChatSession(
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
       setStreams(runtime.streams);
+      // ① REST 확정 경로에서도 인라인 스트림 카드를 정리한다 (잔류 stream-* 제거, 메인 피드만).
+      if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
       if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
       return { ok: true };
     } catch (e) {
