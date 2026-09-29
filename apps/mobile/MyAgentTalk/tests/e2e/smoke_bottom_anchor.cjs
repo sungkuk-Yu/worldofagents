@@ -185,7 +185,9 @@ async function send(page, texts) {
         return max === null ? null : Math.round(max);
       });
       check('⑤ 최하단 스크롤 시 보이는 마지막 발화 strip 위(가림 0)', visLast !== null && g.stripTop !== null && visLast <= g.stripTop + 4, `visible.last.bottom=${visLast} strip.top=${g.stripTop}`);
-      await page.evaluate(() => { const l = document.querySelector('[data-testid="message-list"]'); l.scrollTop = 0; });
+      // r5(t_1731f0f6) 이탈 판정 = 의도(wheel/touch)+오프셋 감소 — 사용자 시뮬레이션으로
+      // wheel 디스패치 후 이동 (의도 없는 scrollTop=0은 꼬리 추종이 합법적으로 복원한다).
+      await page.evaluate(() => { const l = document.querySelector('[data-testid="message-list"]'); l.dispatchEvent(new WheelEvent('wheel', { deltaY: -l.scrollHeight, bubbles: true, cancelable: true })); l.scrollTop = 0; });
       await page.waitForTimeout(350);
       const g0 = await anchorGeometry(page);
       // top=0에서 첫 발화가 리스트 상단 경계~+150(헤더/패딩) 사이 = 상단 절단 없음(flex-end 부작용 차단)

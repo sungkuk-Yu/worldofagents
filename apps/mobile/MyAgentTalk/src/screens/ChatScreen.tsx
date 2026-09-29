@@ -248,6 +248,29 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   const nearBottom = useRef(true);
   const offset = useRef(0);
+  // 텔레그램식 꼬리 추종 (t_1731f0f6 — 대표님 9/29: "새 카드 발동 시 그 카드로, 글이
+  // 길어지면 그 끝으로"). 라이브 실패 root cause 2종:
+  //  (1) scrollToEnd 단발(onContentSizeChange)이 레이아웃 확정(줄바꿈 리레이아웃) 전에 실행돼
+  //      옛 끝에 닿음 → 수리: 측정 기반 bottom clamp(scrollToOffset(contentH - viewportH)) +
+  //      레이아웃 확정 rAF 재시도 2회 루프(카드 D 지시: 단발 금지).
+  //  (2) 성장 직후 스크롤 이벤트가 'contentSize 커진 값 + offset 옛값' stale 쌍으로 도착해
+  //      gap>100 오판 → nearBottom=false 전향(추종 영구 사망) + unseen 배지 오탐(라이브에서
+  //      답마다 배지 뜬 증상) → 수리: gap>100 전향은 추종 유휴일 때만, 이탈 판정은 실질 상방
+  //      오프셋 감소 우선. clamp 타깃이 strip 패딩 포함 절대 끝이라 마지막 카드가 voice-stage
+  //      아래로 넘어가지 않고(요구 C), flex-end 짧은 히스토리 앵커와는 직교(무해).
+  const tailRef = useRef({ raf: 0, budget: 0, contentH: 0, viewportH: 0, userScrollAt: 0 });
+  // 라이브 스크롤 박스 노드 (t_1731f0f6 r5): RNW FlatList→VirtualizedList→ScrollView 체인의
+  // getScrollableNode. 이벤트 nativeEvent 쌍은 레이아웃 확정 전 스냅샷일 수 있어(낡은
+  // contentSize + 클램프된 offset = r4 오판 root cause) 추종·정착 판정은 DOM 실측 우선,
+  // 노드 미확보(네이티브/초기 프레임) 시에만 이벤트 미러로 폴백.
+  const scrollBoxNode = useCallback((): HTMLElement | null => {
+    if (Platform.OS !== 'web') return null;
+    const ref = listRef.current as unknown as { getScrollableNode?: () => HTMLElement | null } | null;
+    const node = ref?.getScrollableNode?.() ?? null;
+    return node && node.scrollHeight > 0 ? node : null;
+  }, []);
+  const loadingRef = useRef(false);
+  useEffect(() => { loadingRef.current = loadingHistory; }, [loadingHistory]);
   const layouts = useRef(new Map<string, { y: number; height: number }>());
   const prependAnchor = useRef<{ id: string; relative: number; y: number } | null>(null);
   const [unseen, setUnseen] = useState(0);
@@ -335,6 +358,14 @@ export default function ChatScreen({ navigation, route }: Props) {
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
   // 딥링크 스크롤 — 그룹을 찾으면 scrollToIndex + 하이라이트 2.6초, 히스토리 밖이면 loadOlder로 역행 추적
   // 점프 소스 2종 (t_2f45ccb1): 즐겨찾기/피드 딥링크(focusMessageId) + 상단 큐 칩 탭(strip.jump, 우선)
+  const cancelFollow = useCallback(() => {
+    const t = tailRef.current;
+    if (t.raf) {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(t.raf); else clearTimeout(t.raf);
+      t.raf = 0;
+    }
+    t.budget = 0;
+  }, []);
   const jumpTarget = strip.jump?.id ?? focusMessageId;
   const jumpNonce = strip.jump?.nonce ?? 0;
   useEffect(() => {
@@ -348,6 +379,11 @@ export default function ChatScreen({ navigation, route }: Props) {
           const groupKey = (feed[groupIndex] as TurnGroup).key;
           const layout = layouts.current.get(groupKey);
           try {
+            // 딥링크/칩 상방 점프 = 말미 이탈(사용자 항법). nearBottom 명시 전향 + 이탈 오판
+            // 방지를 위해 의도 마킹도 함께(web 이탈 게이트와 무관하게 재추종에 끌려오지 않음).
+            cancelFollow();
+            nearBottom.current = false;
+            tailRef.current.userScrollAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
             if (layout) listRef.current?.scrollToOffset({ offset: Math.max(0, layout.y - 60), animated: true });
             else listRef.current?.scrollToIndex({ index: groupIndex, animated: true, viewPosition: 0.3 });
           } catch { /* 미측정 행 — 다음 레이아웃 잡힐 때 재시도 */ }
@@ -359,14 +395,124 @@ export default function ChatScreen({ navigation, route }: Props) {
       if (hasMoreHistory && !loadingHistory && focusTries.current < 12) { focusTries.current += 1; void loadOlder(); }
     }, 0);
     return () => clearTimeout(find);
-  }, [jumpTarget, jumpNonce, feed, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
+  }, [jumpTarget, jumpNonce, feed, hasMoreHistory, loadingHistory, loadOlder, highlightId, cancelFollow]);
+  // ── 꼬리 추종 (t_1731f0f6) ──────────────────────────────────────────
+  // growth 이벤트(onContentSizeChange — 신규 카드/스트리밍 delta/타입잉 카드·예/아니오 행
+  // 등장)마다 측정 기반 bottom clamp scrollToOffset(contentH - viewportH)을 즉시 1회 +
+  // 레이아웃 확정 rAF 재시도 2회 (카드 D: scrollToEnd 단발 금지). 레이아웃이 이벤트보다
+  // 늦게 확정되면 첫 스크롤은 옛 끝에 닿고, 확정 시 새 contentSize로 onContentSizeChange가
+  // 재발화 → 루프 재시작. 정착(offset≥target-2) 시 즉시 중단. delta 박자마다 재시작이라
+  // 한 박자 딜레이는 허용(요구 B)되 최종 완료 시점엔 반드시 끝에 도달한다.
+  // (cancelFollow는 딥링크 점프 effect보다 먼저 선언 — TDZ/lint: 사용 전 선언.)
+  const followTail = useCallback((steps = 3, animated = false) => {
+    const t = tailRef.current;
+    if (t.raf) {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(t.raf); else clearTimeout(t.raf);
+      t.raf = 0;
+    }
+    t.budget = steps;
+    const step = () => {
+      t.raf = 0;
+      if (!nearBottom.current || loadingRef.current) { t.budget = 0; return; }
+      t.budget -= 1;
+      // 실측 우선 (r5): DOM 노드가 보이면 scrollHeight-clientHeight가 오늘의 진짜 끝.
+      // 미러(t.contentH/t.viewportH)는 onContentSizeChange 순서에 낡을 수 있어 r4의
+      // '옛 끝에 닿고 정착 오판'을 만들었다. 미러는 노드 미확보 시 폴백.
+      const node = scrollBoxNode();
+      const target = node ? Math.max(0, node.scrollHeight - node.clientHeight)
+        : (t.contentH > 0 && t.viewportH > 0 ? Math.max(0, t.contentH - t.viewportH) : null);
+      if (target !== null) {
+        const atEnd = node ? node.scrollTop >= target - 2 : offset.current >= target - 2;
+        if (atEnd) { // 정착 — 잔여 재시도 불필요. 미러를 실측으로 동기화(r4 stale 쌍 차단).
+          t.budget = 0;
+          if (node) { offset.current = node.scrollTop; t.contentH = node.scrollHeight; }
+          return;
+        }
+        listRef.current?.scrollToOffset({ offset: target, animated });
+      } else listRef.current?.scrollToEnd({ animated }); // 뷰포트 미측정(초기 프레임) — 폴백
+      if (t.budget > 0) {
+        t.raf = typeof requestAnimationFrame === 'function'
+          ? requestAnimationFrame(step)
+          : (setTimeout(step, 16) as unknown as number);
+      }
+    };
+    step();
+  }, [scrollBoxNode]);
+  useEffect(() => cancelFollow, [cancelFollow]);
+  // 이탈 판정 = 오프셋 실질 감소 + 사용자 의도 체인. r4 라이브 실패 root cause(review r4 ②):
+  // 확정 카드 교체로 콘텐츠 수축 → 브라우저 clamp로 오프셋 '감소'가 프로그램적으로 발생 +
+  // RNW ScrollViewBase는 clamp 100ms 후 합성 scroll-end를 지연 발행 — 그때 콘텐츠가 재성장
+  // 하면 (감소+말미 밖) 조합이 사용자 이탈과 구분 불가 → 추종 사망 + 배지 오점등(29s/126s).
+  // 의도 신호(wheel/touchmove/키)를 DOM 노드에 직접 바인딩(네이티브 이벤트, RNW props 우회) —
+  // 의도 창 내의 감소만 이탈로 전향, 창마다 갱신해 모멘텀·휠 감속 전체가 의도 구간. 딥링크
+  // 점프·하단점프는 사용자 항법이므로 코드에서 의도를 명시 마킹. 노드 미확보(네이티브) = 창 0
+  // → r4 이전 scrolledUp 단독 동작으로 폴백.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    let node: HTMLElement | null = null;
+    let raf = 0;
+    let tries = 0;
+    const mark = () => { tailRef.current.userScrollAt = typeof performance !== 'undefined' ? performance.now() : Date.now(); };
+    // 스크롤바 드래그 = 의도(pointermove with button), 단순 탭/선택 = 무의도.
+    const onPointerMove = (e: PointerEvent) => { if (e.buttons > 0) mark(); };
+    const bind = () => {
+      const next = scrollBoxNode();
+      if (next && next !== node) {
+        node = next;
+        next.addEventListener('wheel', mark, { passive: true });
+        next.addEventListener('touchmove', mark, { passive: true });
+        next.addEventListener('keydown', mark);
+        next.addEventListener('pointermove', onPointerMove);
+      }
+      // 노드 미확보 = 소수 프레임의 과도기 — 600프레임(≈10s) 상한으로 재시도(런어웨이 루프 금지)
+      if (!next && ++tries < 600) raf = requestAnimationFrame(bind);
+    };
+    bind();
+    return () => {
+      cancelAnimationFrame(raf);
+      if (node) {
+        node.removeEventListener('wheel', mark);
+        node.removeEventListener('touchmove', mark);
+        node.removeEventListener('keydown', mark);
+        node.removeEventListener('pointermove', onPointerMove);
+      }
+    };
+  }, [scrollBoxNode]);
+
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const t = tailRef.current;
+    if (layoutMeasurement.height > 0) t.viewportH = layoutMeasurement.height;
+    const scrolledUp = contentOffset.y < offset.current - 4;
     offset.current = contentOffset.y;
-    nearBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y <= 80;
-    if (nearBottom.current) setUnseen(0);
+    const node = scrollBoxNode();
+    const gap = node && node.scrollHeight > 0
+      ? node.scrollHeight - node.scrollTop - node.clientHeight
+      : contentSize.height - layoutMeasurement.height - contentOffset.y;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const intent = Platform.OS !== 'web' || now - t.userScrollAt < 400; // 네이티브=노드 미확보 → scrolledUp 단독(r4 이전 폴백)
+    if (intent && Platform.OS === 'web') t.userScrollAt = now; // 체인 갱신 — 관성/감속 구간 전체 유지
+    if (gap <= 100) {
+      // 정착(근거: 텔레그램/Slack 관습 near-bottom ~100px — 김비서 적용 게이트 t_c6cbcd53 ①):
+      // 추종 종료 + 배지 해제. 수축 프레임의 clamp(의도 무관)는 실측 gap≈0 → 여기로 온다.
+      // 의도 창 클리어: 말미에 있다는 사실 자체가 프로그램적 딥의 이탈 오판을 무효화 —
+      // 직후 clamp 딥은 branch3(재추종)으로, 실제 재이탈은 새 wheel/touch 마킹이 담당.
+      cancelFollow();
+      t.userScrollAt = 0;
+      if (node && node.scrollHeight > 0) { offset.current = node.scrollTop; t.contentH = node.scrollHeight; }
+      nearBottom.current = true; setUnseen(0);
+    } else if (scrolledUp && intent) {
+      // 의도 있는 상방 이탈만 추종 사망(+ 이후 arrival 배지 armed). growth 추종 재시작은
+      // onContentSizeChange가 담당(nearBottom false라 성장 무시) — 상태만 지난다.
+      cancelFollow();
+      nearBottom.current = false;
+    } else if (scrolledUp && nearBottom.current && !t.raf) {
+      // 의도 없는 감소 + 말미 밖 + 유휴 = 지연 합성 scroll-end의 수축 클램프 딥(r4 29s 서명).
+      // 이탈이 아니다 — 즉시 재추종(말미가 목표).
+      followTail(3, false);
+    }
     syncPinnedDate();
-  }, [syncPinnedDate]);
+  }, [cancelFollow, followTail, scrollBoxNode, syncPinnedDate]);
   useEffect(() => {
     const previous = previousMessages.current;
     previousMessages.current = messages;
@@ -379,9 +525,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     }
   }, [messages]);
   const jumpToEnd = useCallback(() => {
+    // 배지 탭 = 명시적 하강. animated bottom clamp + 레이아웃 확정 rAF 재시도(정착 확인).
+    // 스트리밍 추종과 동일 루프지만 animated — 콘텐츠가 계속 성장해도 각 스텝이 새 타깃으로
+    // 부드럽게 재수렴한다 (t_1731f0f6).
     nearBottom.current = true; setUnseen(0);
-    listRef.current?.scrollToEnd({ animated: true });
-  }, []);
+    followTail(3, true);
+  }, [followTail]);
   const loadHistory = useCallback(async () => {
     if (loadingHistory) return;
     const anchor = groups.find((g) => {
@@ -557,7 +706,28 @@ export default function ChatScreen({ navigation, route }: Props) {
         onMomentumScrollEnd={onScroll}
         scrollEventThrottle={16}
         maintainVisibleContentPosition={Platform.OS === 'web' ? undefined : { minIndexForVisible: 0 }}
-        onContentSizeChange={() => { if (nearBottom.current && !loadingHistory) listRef.current?.scrollToEnd({ animated: false }); }}
+        onContentSizeChange={(_w, h) => {
+          // 꼬리 추종 트리거 (t_1731f0f6): 신규 카드·스트리밍 delta·타입잉 카드/예아니오 행
+          // 등장 = contentSize grow(이벤트가 새 높이 실측 동봉). scrollToEnd 단발(old)은 레이아웃
+          // 확정 전에 실행돼 라이브에서 끝에 닿지 못했다 → 측정 기반 rAF 루프(즉시+재시도 2)로 교체.
+          const t = tailRef.current;
+          if (h <= 0) return;
+          t.contentH = h;
+          const node = scrollBoxNode();
+          const maxOffset = node ? Math.max(0, node.scrollHeight - node.clientHeight)
+            : (t.viewportH > 0 ? Math.max(0, h - t.viewportH) : null);
+          if (maxOffset !== null && offset.current > maxOffset) {
+            // 수축 clamp: 스트림 카드→짧은 확정 카드 교체 등으로 콘텐츠가 줄면 브라우저가
+            // scroll 이벤트 없이 bottom clamp한다(오프셋 미러가 낡은 채로 말미에 도달). 미러를
+            // 동기화하고 정착 처리 — 배지 잔등/추종 오탐 방지 (t_1731f0f6).
+            offset.current = node ? node.scrollTop : maxOffset;
+            if (node) t.contentH = node.scrollHeight;
+            cancelFollow();
+            nearBottom.current = true; setUnseen(0);
+          } else if (nearBottom.current && !loadingHistory) {
+            followTail(3, false);
+          }
+        }}
         keyExtractor={(item) => item.key}
         contentContainerStyle={[styles.listContent, chatListPaddingOverride(stageActive, viewportHeight)]}
         ListHeaderComponent={renderHeader}
@@ -583,7 +753,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       <DatePinnedHeader ref={pinnedRef} />
       </View>
 
-      {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
+      {unseen > 0 && <Button testID="unseen-badge" onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
       {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.
           t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지. */}
       {Platform.OS === 'web' && !isDemo && !voiceMode && (
