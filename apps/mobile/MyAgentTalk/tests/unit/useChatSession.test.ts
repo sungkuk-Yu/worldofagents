@@ -409,6 +409,48 @@ test('run.completed — 일반 stage 즉시 정리, done은 홀드 후 제로잔
   assert.equal(h.render().relay?.runId, 'r3');
 });
 
+// ── t_cc232982: answer.delta 배칭 발행 + 이탈 정합성 ──
+
+test('t_cc232982 #1: delta 배칭 — 선행 즉시 발행 후 창 내 토큰은 state 미변, 만료 시 누적본 1회 발행', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = harness(t); h.render(); await flush();
+  h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 1, delta: '가', index: 0 });
+  assert.equal(h.render().streams[0].text, '가', '선행 delta는 즉시 반영(성장 카드 즉시 시작)');
+  h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 2, delta: '나', index: 1 });
+  h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 3, delta: '다', index: 2 });
+  assert.equal(h.render().streams[0].text, '가', '창 내 후속 delta는 렌더 상태 미변(토큰마다 재렌더 금지)');
+  t.mock.timers.runAll();
+  h.render();
+  assert.equal(h.render().streams[0].text, '가나다', '만료 시 창 내 누적본 통합 발행');
+  // answer.done은 배칭 창 무시(즉시): done 카드 확정 → 이후 delta는 수락되지 않는다
+  h.sockets[0].onRaw?.({ type: 'answer.done', run_id: 'r', seq: 4, text: '가나다', message_id: 'a1' });
+  const done = h.render().streams.find((s) => s.runId === 'r');
+  assert.ok(done && done.done === true, 'done 즉시 반영(잔여 창 폐기)');
+  h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 5, delta: '라', index: 4 });
+  assert.equal(h.render().streams.find((s) => s.runId === 'r')?.text, '가나다', 'done 후 지각 delta 무시(누적 정지)');
+});
+
+test('t_cc232982 요구4: 이탈 후 재조회 복구 — 확정 answer 행이 오면 구 스트림 카드 제거(고아 커서 잔존 금지)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = harness(t); h.render(); await flush();
+  h.sockets[0].onStatusChange?.('connected'); // connectedOnce=true — 이후 재접속이 gap refresh를 타게
+  h.sockets[0].onRaw?.({ type: 'answer.delta', run_id: 'r', seq: 1, delta: '중간', index: 0 });
+  assert.equal(h.render().streams.length, 1);
+  // 이탈 시뮬: done/message.new 없이 소켓 절단 → 백오프 재연결 → 연결 성공 시 gap refresh.
+  t.mock.method(apiModule.api, 'getMessages', async () => ({
+    ok: true,
+    data: [{ id: 'a1', role: 'agent', content: '최종 전문', source_neuron: 'answer', run_id: 'r', turn_index: 0, created_at: new Date().toISOString() }],
+  }));
+  h.sockets[0].onStatusChange?.('disconnected');
+  t.mock.timers.runAll(); // backoff → close + connect(sid) → sockets[1]
+  assert.equal(h.sockets.length, 2);
+  h.sockets[1].onStatusChange?.('connected');
+  await flush();
+  const st = h.render();
+  assert.equal(st.streams.length, 0, '확정 행과 같은 run의 스트림 제거');
+  assert.equal(st.messages.find((m) => m.id === 'a1')?.content, '최종 전문', '본문은 서버 진실로 수렴(전체 텍스트 유지)');
+});
+
 test('스레드 전송 실패와 재전송도 원문 및 부모 ID를 보존한다', async (t) => {
   const h = harness(t, 'session', { rootMessageId: 'root' });
   t.mock.method(apiModule.api, 'getThread', async () => ({ root: { id: 'root', content: 'root' }, replies: [] }));

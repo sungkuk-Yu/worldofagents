@@ -78,6 +78,16 @@ test('공감 행 없으면 null', () => {
   assert.equal(visibleAckChip([], T0), null);
 });
 
+// ── t_cc232982 요구3: 스트리밍 중 억제 — answer.done 전 반쯤 쓰인 카드에 버튼 행 금지 ──
+
+test('t_cc232982 #3: streaming=true 이면 생생한 재질문도 버튼 행 억제 (기본값 false — 기존 호출 무변경)', () => {
+  const m = empathy();
+  const list = [msg({ id: 'u1', role: 'user', turnIndex: 1, createdAt: iso(-1000) }), m];
+  assert.ok(visibleAckChip(list, T0 + 1000), '미스트리밍 = 기존 노출 유지');
+  assert.equal(visibleAckChip(list, T0 + 1000, undefined, true), null, '스트리밍 중 = 억제');
+  assert.equal(visibleAckChip(list, T0 + 1000, ACK_LIVE_STALE_MS, false)!.id, 'e1', 'false 명시 = 노출 (answer.done 후 해제 경로)');
+});
+
 // ── t_1b123e59 라벨 고정 — 템플릿 바인딩(t_c62a2eb7 #4) 폐기 regression 가드 ──
 
 test('t_1b123e59 #1: ackChips는 라벨 바인딩을 노출하지 않는다 — eq_confirm이어도 예/아니요 고정 (원문②)', () => {
