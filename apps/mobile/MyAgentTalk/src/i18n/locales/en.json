@@ -266,7 +266,7 @@
     "empty": "No conversations yet",
     "start": "Choose an agent to start a conversation.",
     "choose": "Choose an agent",
-    "defaultName": "My assistant",
+    "defaultName": "Secretary Kim",
     "defaultDescription": "Default chat assistant",
     "title": "Chat with {{agentName}}",
     "continue": "Continue your chat with {{agentName}}",

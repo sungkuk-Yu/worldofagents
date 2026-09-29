@@ -266,7 +266,7 @@
     "empty": "대화가 없습니다",
     "start": "에이전트를 선택해 새 대화를 시작해보세요",
     "choose": "에이전트 선택",
-    "defaultName": "나의 그림자 비서",
+    "defaultName": "김비서",
     "defaultDescription": "채팅 MVP 기본 에이전트",
     "title": "{{agentName}}와의 대화",
     "continue": "{{agentName}}와의 대화 이어서 보기",
