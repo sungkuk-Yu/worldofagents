@@ -8,6 +8,8 @@ import { Animated, Easing, Pressable, View } from 'react-native';
 import { Button, Surface, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import TypingCard from '../TypingCard';
+import ChatMarkdown from '../ChatMarkdown';
+import { looksLikeChatMarkdown } from '../../lib/chatMarkdown';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { SuggestedQuestion, StreamingAnswer } from '../../lib/chatLogic';
@@ -51,7 +53,12 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
     {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
     {streams.map((stream) => <Surface key={stream.runId} testID="streaming-card" style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
-      <Text testID="streaming-text" style={styles.msgText}>{stream.text}</Text>
+      {/* t_e9480e0f 백로그① — 스트리밍 카드 마크다운: 블록 문법 감지 시 ChatMarkdown(streaming=true:
+          미닫힌 ``` fence는 임시 마감 렌더, answer.done 최종 텍스트에서 자연 재파싱).
+          평문/미완답변은 gate false → 기존 <Text> 경로 그대로(회귀 금지). */}
+      {looksLikeChatMarkdown(stream.text)
+        ? <ChatMarkdown content={stream.text} streaming={!stream.done} style={styles.msgText} testID="chat-bubble-stream" />
+        : <Text testID="streaming-text" style={styles.msgText}>{stream.text}</Text>}
       {/* 말미 커서: delta 성장 중에만 — answer.done(done=true)에서 정지(게이트 4) */}
       {!stream.done && <StreamingCursor />}
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
