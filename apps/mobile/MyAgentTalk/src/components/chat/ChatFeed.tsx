@@ -12,6 +12,7 @@ import ChatMarkdown from '../ChatMarkdown';
 import { looksLikeChatMarkdown } from '../../lib/chatMarkdown';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
+import { QUIET_PROGRESS } from '../../lib/featureFlags';
 import type { SuggestedQuestion, StreamingAnswer } from '../../lib/chatLogic';
 
 /** 스트리밍 꼬리 커서 — ChatGPT식 펄싱 도트(게이트 4택1). done 시 미렌더=정지. 언마운트 시 루프 stop. */
@@ -65,7 +66,9 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
       {/* 말미 커서: delta 성장 중에만 — answer.done(done=true)에서 정지(게이트 4) */}
       {!stream.done && <StreamingCursor />}
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
-      <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
+      {/* t_64e3edd6 ③ QUIET_PROGRESS: 스트리밍 카드의 quip 줄('생각 중' 등 진행 텍스트) 제거 — 본문만.
+          비활성 시 기존 줄 복원. AI 고지 배지는 법정 표시라 유지. */}
+      {!QUIET_PROGRESS && <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>}
     </Surface>)}
     {/* 후속 질문 칩 (t_1797f432 ③): 백엔드가 run.completed에 생성해 준 예상 질문 2~3개 — 없으면 렌더 없음 */}
     {!typing && !streams.length && suggested.length > 0 && !isDemo && (
