@@ -135,10 +135,28 @@ export async function runTextTurn(
         const relayStage = relayStageForEvent(e);
         if (relayStage) emitRelay(relayStage);
       },
-      onAnswerDelta: (delta, index) => {
-        partialText += delta;
-        opts.emit({ type: 'answer.delta', ...base, delta, index });
-      },
+      // ④ answer.delta 백프레셔 (t_3486b1d7) — 300ms 또는 150자 whichever-first 배칭.
+      // deltaBatchMs=0이면 기존처럼 토큰마다 즉시 emit(테스트 기본).
+      onAnswerDelta: (() => {
+        const batchMs = config.protocol.deltaBatchMs;
+        const batchChars = config.protocol.deltaBatchChars;
+        if (batchMs <= 0) return (d: string, i: number) => { partialText += d; opts.emit({ type: 'answer.delta', ...base, delta: d, index: i }); };
+        let buffer = '';
+        let pending: ReturnType<typeof setTimeout> | null = null;
+        let deltaIndex = 0;
+        const flush = () => {
+          if (!buffer) return;
+          const d = buffer;
+          buffer = '';
+          opts.emit({ type: 'answer.delta', ...base, delta: d, index: deltaIndex++ });
+        };
+        return (d: string, _i: number) => {
+          partialText += d;
+          buffer += d;
+          if (buffer.length >= batchChars) { if (pending) { clearTimeout(pending); pending = null; } flush(); return; }
+          if (!pending) pending = setTimeout(() => { pending = null; flush(); }, batchMs);
+        };
+      })(),
     });
     for (const message of [result.messages.user, result.messages.empathy, result.messages.answer]) {
       // serializeMessage: devstore 기본값 미충족·011 이전 행의 awaiting_reply를 false로 정규화
