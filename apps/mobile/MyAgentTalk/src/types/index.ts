@@ -128,6 +128,14 @@ export type SegmentHistoryEntry = {
 
 // ── 채팅 MVP (Phase 2) ──────────────────────────────
 
+/** 답글 인용 요약 스냅샷 (t_62897e88 / 백엔드 t_02f58030 structured_payload.reply_to 계약) —
+ *  by=발행자 표시 이름, text=마크다운 스트리핑 1줄 발췌. 원문이 지워져도 남는다. */
+export interface ReplyQuote {
+  message_id: string;
+  by: string;
+  text: string;
+}
+
 /** 채팅 화면 UI 메시지 — 백엔드 messages 행에서 정규화 */
 export interface ChatMessage {
   aiGenerated?: boolean;
@@ -136,6 +144,10 @@ export interface ChatMessage {
   content: string;
   /** 백엔드 turn_index — 페이지네이션 커서 기준 */
   turnIndex: number;
+  /** 발화 에이전트 (messages.agent_id) — t_55b7e30c 런 어텐션: 에이전트가 둘 이상이면 카드 라벨이 이 id로 분기 */
+  agentId?: string;
+  /** 카드 헤더에 표시할 발화자 이름 (서버 agent_name 우선, 없으면 화면 agentName) — t_55b7e30c */
+  senderName?: string;
   /** 응답 생성 뉴런 (empathy/answer 등) */
   sourceNeuron?: string | null;
   /** 낙관적 업데이트 중인 메시지 (서버 확인 전) */
@@ -151,9 +163,13 @@ export interface ChatMessage {
   taskOverrides?: Record<number, boolean>;
   contentKey?: string;
   contentParams?: Record<string, string>;
-  status?: 'pending' | 'sent' | 'failed';
+  status?: 'pending' | 'sent' | 'failed' | 'streaming';
   runId?: string;
   draft?: string;
+  /** 답글 인용 원문 ID (t_62897e88 / 백엔드 t_02f58030 마이그레이션 012) — invalid는 서버가 무시하고 통과 */
+  replyToId?: string;
+  /** 발행 시점 인용 요약 스냅샷 (structured_payload.reply_to) — 원문 삭제 후에도 남는다 */
+  replyTo?: ReplyQuote;
   /** random_id相当 (t_3486b1d7 ①② / 프론트 소비 t_17edbc88 ①): 낙관 행과 서버 에코(message.new
    *  user_message_id·message.client_req_id)를 같은 키로 in-place 병합하는 연결 자국. 확정 후 유지. */
   clientReqId?: string;

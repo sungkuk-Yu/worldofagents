@@ -10,7 +10,7 @@ import { formatNumber } from '../i18n/format';
 import { colors, radii, spacing, typography } from '../theme';
 import { QUIET_PROGRESS } from '../lib/featureFlags';
 
-export default function TypingCard({ quip, agentName, count, hideQuip }: { quip: string | null; agentName: string; count: number; /** 릴레이 자막 스트립(t_961ca593)이 같은 런의 자막을 소유할 때 중복 라인 억제 */ hideQuip?: boolean }) {
+export default function TypingCard({ quip, agentName, count, hideQuip, showName = true }: { quip: string | null; agentName: string; count: number; /** 릴레이 자막 스트립(t_961ca593)이 같은 런의 자막을 소유할 때 중복 라인 억제 */ hideQuip?: boolean; /** t_55b7e30c 연속 발화 그룹이 이어지는 중이면 이름 재출력 생략 (본문 카드 규칙과 동일) */ showName?: boolean }) {
   const { t, i18n } = useTranslation();
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -47,7 +47,8 @@ export default function TypingCard({ quip, agentName, count, hideQuip }: { quip:
       accessibilityLiveRegion="polite"
     >
       <View style={styles.header}>
-        <Text style={[styles.role, styles.roleAgent]}>{agentName}</Text>
+        {/* t_55b7e30c: 연속 발화 그룹 지속 중(showName=false)이면 이름 재출력 생략 — 점 3개(처리중)는 유지 */}
+        {showName && <Text style={[styles.role, styles.roleAgent]} testID="typing-sender">{agentName}</Text>}
         <View style={styles.dotsRow}>
           {[0, 1, 2].map((i) => (
             <Animated.View

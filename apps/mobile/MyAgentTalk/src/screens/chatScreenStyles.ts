@@ -1,8 +1,9 @@
 // 채팅 화면 공용 스타일 (t_70cbbd6b: ChatScreen→컴포넌트 추출에 따라 공용 모듈로 이동)
 // ※ 값은 기존 ChatScreen.styles와 1:1 동일 — 렌더/DOM 불변 리팩토링의 근거.
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, ViewStyle } from 'react-native';
 import { colors, radii, spacing, typography } from '../theme';
 import { CHAT_LIST_ANCHOR } from '../lib/voiceStage';
+import { renderFlags } from '../lib/renderFlags';
 
 export const styles = StyleSheet.create({
   container: {
@@ -114,10 +115,14 @@ export const styles = StyleSheet.create({
     paddingHorizontal: spacing.sp3,
     paddingVertical: spacing.sp3,
   },
+  // ② contain:layout (t_5c559e85) — 스트리밍 카드의 재레이아웃 상위 전파 차단(웹 전용 CSS, 롤백: streamContain=0)
+  streamContainWeb: (Platform.OS === 'web' && renderFlags.streamContain ? { contain: 'layout' } : {}) as ViewStyle,
   msgCardAgent: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
   },
+  // t_55b7e30c 연속 발화 그룹 지속 중의 스트리밍 카드 — 본문 카드 groupContinuation과 같은 좌 오프셋
+  msgCardContinuation: { marginLeft: spacing.sp3 },
   msgHeader: {
     flexWrap: 'wrap',
     flexDirection: 'row',

@@ -4,9 +4,9 @@ import { formatDayLabel } from '../i18n/format';
 // 백엔드 스펙: apps/backend/docs/api-design.md §3.4
 //   GET  /api/sessions/:id/messages → data[]: { id, turn_index, role, content, source_neuron, created_at }
 //   POST /api/sessions/:id/messages → data: { user_message_id, empathy_response, answer_response, ... }
-import type { ChatMessage as BaseChatMessage } from '../types';
+import type { ChatMessage as BaseChatMessage, ReplyQuote } from '../types';
 
-export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed'; dialogueType?: string | null; runId?: string; draft?: string };
+export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed' | 'streaming'; dialogueType?: string | null; runId?: string; draft?: string };
 
 /** 서버 messages 행 (최소 필드 — ApiEnvelope data[] 항목) */
 export interface ServerMessageRow {
@@ -15,6 +15,10 @@ export interface ServerMessageRow {
   turn_index: number;
   role: 'user' | 'agent' | 'system';
   content: string;
+  /** t_55b7e30c 선행 계약(백엔드 messages.agent_id 컬럼 아직 없음 — 미송신 시 단일 발화자 취급):
+   *  다중 에이전트 room에서 행이 에이전트 id/이름을 내려주면 그룹 경계·헤더 라벨 분기에 사용한다. */
+  agent_id?: string | null;
+  agent_name?: string | null;
   source_neuron?: string | null;
   created_at?: string;
   dialogue_type?: string | null;
@@ -24,11 +28,45 @@ export interface ServerMessageRow {
   thread_reply_count?: unknown;
   run_id?: string;
   attachments?: unknown;
+  /** 답글 인용 원문 ID (t_62897e88 / 백엔드 012) */
+  reply_to_id?: unknown;
 }
 
 /** 서버 행 → UI 메시지 정규화 */
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** 답글 인용 요약 정규화 (t_62897e88 / 백엔드 t_02f58030 structured_payload.reply_to) —
+ *  {message_id, by, text} 형태 아니면 undefined(강등). 서버 캡 120자는 백엔드 소관, 프론트는 재단하지 않는다. */
+export function normalizeReplyQuote(raw: unknown): ReplyQuote | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (typeof raw.message_id !== 'string' || !raw.message_id) return undefined;
+  return {
+    message_id: raw.message_id,
+    by: typeof raw.by === 'string' ? raw.by : '',
+    text: typeof raw.text === 'string' ? raw.text : '',
+  };
+}
+
+/** 인용 발췌 캡 — 백엔드 REPLY_SNIPPET_MAX=80과 동일 (apps/backend t_02f58030 replyTo.ts 실측 기준;
+ *  카드 코멘트의 120은 코드와 불일치 → 코드가 진실. 낙관 렌더가 서버 확정 시점과 안 뛰게 같은 값) */
+export const REPLY_QUOTE_MAX = 80;
+
+/**
+ * 낙관적 인용 요약 산출기 (t_62897e88) — POST 확정/WS echo 전 인용 바·카드를 그린다.
+ * 백엔드 스냅샷과 동일 관례: 원문 1줄(개행·연속 공백 접기) + 120자 컷, by=표시 이름(화면 주입).
+ * 서버 structured_payload.reply_to가 도착하면 정규화 경로가 이 값을 덮는다(스냅샷이 진실).
+ */
+export function localReplyQuote(source: ChatMessage, by: string): ReplyQuote {
+  const flat = (source.content || '').replace(/\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return { message_id: source.id, by, text: flat.slice(0, REPLY_QUOTE_MAX) };
+}
+
+/** 답글 대상 자격 판정 (t_62897e88) — 미전송(pending)/실패(failed) 행은 서버 FK 대상이 될 수 없다
+ *  (즐겨찾기·포크 가드와 동일 원칙). 데모 세션 거절은 화면에서 별도 판정. */
+export function canReplyTo(message: ChatMessage): boolean {
+  return !message.pending && message.status !== 'failed';
+}
 
 export function normalizeServerMessages(rows: unknown): ChatMessage[] {
   if (!Array.isArray(rows)) return [];
@@ -40,6 +78,9 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     aiGenerated: typeof r.ai_generated === 'boolean' ? r.ai_generated : undefined,
     role: r.role === 'user' ? 'user' : r.role === 'system' ? 'system' : 'agent',
     content: typeof r.content === 'string' ? r.content : '',
+    // t_55b7e30c: 발화자 신원(다중 에이전트 room 대비) — 서버 미송신 시 undefined = 단일 발화자 취급
+    agentId: typeof r.agent_id === 'string' && r.agent_id ? r.agent_id : undefined,
+    senderName: typeof r.agent_name === 'string' && r.agent_name ? r.agent_name : undefined,
     turnIndex: typeof r.turn_index === 'number' && Number.isFinite(r.turn_index) ? r.turn_index : 0,
     sourceNeuron: typeof r.source_neuron === 'string' ? r.source_neuron : null,
     createdAt: typeof r.created_at === 'string' ? r.created_at : undefined,
@@ -52,6 +93,10 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     favorite: typeof r.favorite === 'boolean' ? r.favorite : undefined,
     // 첨부 요약 (t_4497cfce) — messages.attachments JSONB {id,url,mime,size,name}[] (백엔드 독해 위임 코멘트)
     attachments: Array.isArray(r.attachments) ? r.attachments : undefined,
+    // 답글 인용 (t_62897e88 / 백엔드 t_02f58030) — reply_to_id=원문 ID(서버가 invalid 무시·null 강등),
+    // structured_payload.reply_to={message_id,by,text} 발행 시점 스냅샷(원문 삭제 후에도 남는다).
+    replyToId: typeof r.reply_to_id === 'string' ? r.reply_to_id : undefined,
+    replyTo: normalizeReplyQuote(isRecord(r.structured_payload) ? (r.structured_payload as Record<string, unknown>).reply_to : undefined),
     runId: typeof r.run_id === 'string' ? r.run_id : undefined,
     // random_id 멱등 키 (t_3486b1d7 ①② / t_17edbc88 ①) — GET messages·message.new 에코의
     // client_req_id를 낙관 행과 연결하는 자국. 013 미적용 행은 null(결측) → undefined.
@@ -594,6 +639,55 @@ export function clearRelayOnRunEnd(prev: RelayCaption | null, runId?: unknown): 
 }
 
 export interface StreamingAnswer { runId: string; text: string; messageId?: string; index: number; quip: string; done: boolean }
+
+// ── ① single card ID patch (t_5c559e85, Telegram edit-in-place/updateEditMessage 규범) ──
+// answer.delta를 footer 임시 카드가 아니라 리스트 내 같은 run의 고정 ID 스트림 카드(`stream-<runId>`)의
+// content 갱신으로 렌더. 확정 message.new(같은 run의 answer 행, 통상 answer turn = user+2) 도착 시
+// 같은 자리에 서버 행이 자리.replace되고 카드는 한 틱에 제거 — 이중 카드/본문 점프 클래스의 근본 차단.
+// 플래그 off 시 기존 footer 스트림 카드 경로로 완전 복귀 (f40bc3a5 이전 거동).
+export const streamCardId = (runId: string) => `stream-${runId}`;
+export const isStreamCard = (m: ChatMessage) => m.role === 'agent' && typeof m.id === 'string' && m.id.startsWith('stream-');
+
+/** 첫 토큰 전 placeholder row — run.progress/run.started 시 빈 카드로 자리 확보(점프 제거).
+ *  delta 없이 종료되면 reduceStreams의 기존 drop 경로가 함께 정리한다. */
+export function ensureStreamPlaceholder(streams: StreamingAnswer[], runId: string, quip: string): StreamingAnswer[] {
+  if (streams.some((s) => s.runId === runId)) return streams;
+  return [...streams, { runId, text: '', index: -1, quip, done: false }];
+}
+
+/** streams 상태 → 리스트 인라인 카드 사영(projection). delta 상태가 유일한 원천 —
+ *  카드 생성은 run당 1회, 이후 같은 id의 content/quip만 갱신. streams에서 빠진 run의 카드는 제거. */
+export function syncStreamCards(existing: ChatMessage[], streams: StreamingAnswer[]): ChatMessage[] {
+  const ids = new Set(streams.map((s) => streamCardId(s.runId)));
+  let out = existing;
+  if (out.some((m) => isStreamCard(m) && !ids.has(m.id))) out = out.filter((m) => !isStreamCard(m) || ids.has(m.id));
+  for (const s of streams) {
+    const id = streamCardId(s.runId);
+    const quip = s.done ? 'chat.saving' : s.quip;
+    const found = out.find((m) => m.id === id);
+    if (!found) {
+      // 백엔드 턴 산포 정렬 안전: user=t, empathy=t+1, answer=t+2. 직전 꼬리(empathy 있으면 t+1,
+      // 없으면 user의 t)에 +1 → 확정 answer 행과 같은 자리에 안착, 1틱 경쟁 시에도 순서 붕괴 없음.
+      const tail = out.reduce((max, m) => (isStreamCard(m) ? max : Math.max(max, m.turnIndex)), -1);
+      out = [...out, {
+        id, role: 'agent', content: s.text, turnIndex: tail + 1,
+        status: 'streaming', sourceNeuron: 'answer', runId: s.runId, dialogueType: 'stream',
+        aiGenerated: true, payload: { streamQuip: quip, streamDone: s.done }, createdAt: new Date().toISOString(),
+      }];
+    } else if (found.content !== s.text || found.payload?.streamQuip !== quip || found.payload?.streamDone !== s.done) {
+      out = out.map((m) => (m.id === id ? { ...m, content: s.text, payload: { ...m.payload, streamQuip: quip, streamDone: s.done } } : m));
+    }
+  }
+  return out;
+}
+
+/** 확정 answer 행이 저장된 run의 잔류 스트림 카드 정리 — refresh/재구독 갭 회수용 (멱등). */
+export function purgeSettledStreamCards(existing: ChatMessage[]): ChatMessage[] {
+  if (!existing.some(isStreamCard)) return existing;
+  const settled = new Set(existing.filter((m) => m.role === 'agent' && m.sourceNeuron === 'answer' && m.status !== 'streaming' && m.runId).map((m) => m.runId as string));
+  return existing.filter((m) => !isStreamCard(m) || !settled.has(m.runId ?? ''));
+}
+
 export function reduceStreams(streams: StreamingAnswer[], event: Record<string, unknown>, messages: ChatMessage[]): StreamingAnswer[] {
   const runId = event.run_id;
   if (typeof runId !== 'string') return streams;
@@ -605,7 +699,8 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
     return streams;
   }
   if (event.type !== 'answer.delta' && event.type !== 'answer.done' && event.type !== 'run.progress') return streams;
-  if (messages.some((m) => m.runId === runId && m.sourceNeuron === 'answer')) return streams.filter((s) => s.runId !== runId);
+  // 확정 저장 행 우선 — 단 ①의 인라인 스트림 카드(stream-*)는 '확정 행'이 아니다(자기 자신과 매칭 금지).
+  if (messages.some((m) => m.runId === runId && m.sourceNeuron === 'answer' && !isStreamCard(m))) return streams.filter((s) => s.runId !== runId);
   if (event.type === 'run.progress' && !old) return streams;
   const next = { ...old ?? { runId, text: '', index: -1, quip: DEFAULT_QUIP, done: false } };
   if (event.type === 'answer.delta') {
@@ -622,7 +717,6 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
   if (event.type === 'run.progress' || typeof event.stage === 'string') next.quip = quipKeyForStage(typeof event.stage === 'string' ? event.stage : undefined);
   return [...streams.filter((s) => s.runId !== runId), next];
 }
-
 // ── 질문 큐 체크포인트 (t_1797f432 ② / 백엔드 t_344e047a 계약) ──────────
 // 답변 실행 중 추가 발화가 유실되지 않고 서버 세션 큐(message_queue)에 적재된다.
 // WS `queue.updated`(전체 스냅샷) / GET messages 응답의 queue 배열로 수신 →
@@ -877,6 +971,54 @@ export const EMPTY_THREADS: ThreadIndexEntry[] = [];
 /** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
 export function restoreFailedDraft(current: string, failed: string): string {
   return !current || current === failed ? failed : `${current}\n${failed}`;
+}
+
+// ── 연속 발화 그룹핑 (t_55b7e30c, 백로그③ — 텔레그램/Slack 관습) ──────────
+// 같은 발화자의 연속 메시지(≤60초, 사이에 상대 발화 없음)는 발신자 헤더(이름)를 생략하고
+// 좌측 오프셋으로 묶음을 시각화한다. 그룹 경계 = ① 발화자 전환(user↔agent) ② agentId 변경
+// (양쪽 id가 있을 때만 — 백엔드 messages.agent_id 미전환 환경에서는 단일 발화자 취급)
+// ③ createdAt 간격 >60초 (둘 다 있을 때만 — 결측은 같은 그룹 유지).
+// t_64af90b0 #3의 firstAgentMessageId(대화 전체에서 첫 카드만 헤더)를 대체한다: 다중 에이전트·
+// 릴레이·답변 연쇄에서 무헤드가 지속되면 누가 말했는지 판별 불가 → 그룹 시작마다 재출력.
+// 사용자 카드의 '나' 라벨은 t_b250487a 확정 계약(밴드+라벨)이므로 본 규칙의 생략 대상이 아니다.
+export const SENDER_GROUP_WINDOW_MS = 60_000;
+
+function senderBoundary(prev: ChatMessage | null, cur: ChatMessage): boolean {
+  if (!prev) return true;
+  if (prev.role !== cur.role) return true; // 발화자 전환
+  if (prev.agentId && cur.agentId && prev.agentId !== cur.agentId) return true; // 다른 에이전트
+  if (prev.createdAt && cur.createdAt) {
+    const gap = new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime();
+    if (Number.isFinite(gap) && gap > SENDER_GROUP_WINDOW_MS) return true; // 시간 창 이탈
+  }
+  return false;
+}
+
+export interface SenderGroupFlag { id: string; header: boolean; continuation: boolean }
+
+/** 목록 순서대로 메시지별 헤더/연속 발화 플래그 — header=에이전트 그룹 시작(이름 표시), continuation=같은 그룹 지속(오프셋) */
+export function buildSenderGroups(messages: ChatMessage[]): SenderGroupFlag[] {
+  let prev: ChatMessage | null = null;
+  return messages.map((m) => {
+    const boundary = senderBoundary(prev, m);
+    const out = {
+      id: m.id,
+      header: m.role === 'agent' && boundary,
+      continuation: m.role === 'agent' && !boundary,
+    };
+    prev = m;
+    return out;
+  });
+}
+
+/** 푸터 연출 카드(타이핑/스트리밍)의 헤더 노출 — 목록 꼬리가 에이전트 행이고 창(≤60초) 내면
+ *  현재 그룹이 이어지는 중이므로 생략. 없음/유저 행/시간 창 이탈/파싱 불가(안전측) = 노출. */
+export function streamingHeaderAfter(last: ChatMessage | undefined, now = Date.now()): boolean {
+  if (!last || last.role !== 'agent') return true;
+  const t = last.createdAt ? new Date(last.createdAt).getTime() : NaN;
+  if (!Number.isFinite(t)) return true; // 시각 판정 불가 → 그룹 시작 취급(안전측 노출)
+  if (now - t > SENDER_GROUP_WINDOW_MS) return true;
+  return false;
 }
 
 // ── 턴 그룹핑 (t_70cbbd6b: ChatScreen→lib 순수 추출, 로직 무변경) ──

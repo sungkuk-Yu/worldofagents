@@ -28,6 +28,8 @@ export const cardStyles = StyleSheet.create({
   headerTitle: { flex: 1, minWidth: 0 },
   // t_64af90b0 #3 — 에이전트명 생략 카드: 별은 우상단 고정 유지 (9/26 지시)
   headerSpacer: { flex: 1, minWidth: 0 },
+  // t_55b7e30c 연속 발화 그룹 내부 카드 — 좌 오프셋 인센트로 묶음 시각화 (텔레그램식; 헤더 생략과 짝)
+  groupContinuation: { marginLeft: spacing.sp3 },
   starTop: { padding: spacing.sp1 },
   starTopText: { fontSize: 16, lineHeight: 20 },
   starTopIdle: { color: colors.text3 },

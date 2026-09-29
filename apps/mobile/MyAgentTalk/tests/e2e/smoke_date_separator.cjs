@@ -101,7 +101,13 @@ const sepState = (page) => page.evaluate(() => {
     scroll: { st: Math.round(list.scrollTop), sh: list.scrollHeight, ch: list.clientHeight },
   };
 });
-const setScroll = (page, y) => page.evaluate((v) => { document.querySelector('[data-testid="message-list"]').scrollTop = v; }, y);
+// r9 머지게이트 수리: 꼬리추종(t_1731f0f6 r5)은 '의도 없는 딥'을 재추종으로 판정 — 실제 사용자
+// 스크롤과 동일하게 wheel 의도 마킹 후 지정 이동(테스트 하네스만 변경, 제품 코드 무개입).
+const setScroll = (page, y) => page.evaluate((v) => {
+  const el = document.querySelector('[data-testid="message-list"]');
+  el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
+  el.scrollTop = v;
+}, y);
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE });

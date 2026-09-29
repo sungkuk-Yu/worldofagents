@@ -2,14 +2,18 @@
 // 시간 라인 + 메시지별 카드 래퍼(포커스 하이라이트/선택 토글래퍼/user 메타/실패 재시도행)까지 화면행 전체를 소유.
 // 상태 변경은 화면 소유 콜백(decorate/handlers/toggleSelect/retry/delete)을 그대로 호출 — 이 컴포넌트는 로직 무소유.
 import React from 'react';
-import { TouchableOpacity, View } from 'react-native';
+import { Pressable, TouchableOpacity, View } from 'react-native';
 import { Button, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import CardFrame from '../../cards/CardFrame';
 import AckChipRow from '../AckChipRow';
 import { QueueMessageMark } from '../QueueStrip';
+import { ReplyQuoteLine } from '../ReplyQuoteBar';
+import { TickFailedIcon, TickPendingIcon, TickSentIcon } from '../Icon';
+import { renderFlags } from '../../lib/renderFlags';
+import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
-import type { ChatMessage, QueueItem, TurnGroup } from '../../lib/chatLogic';
+import type { ChatMessage, QueueItem, SenderGroupFlag, TurnGroup } from '../../lib/chatLogic';
 import type { CardActionHandlers } from '../../cards/types';
 
 interface Props {
@@ -27,7 +31,8 @@ interface Props {
   presetCategory?: string;
   canFork: boolean;
   agentName: string;
-  firstAgentMessageId: string | undefined;
+  /** t_55b7e30c 연속 발화 그룹핑: 메시지 id별 헤더(이름 재출력)/continuation(좌 오프셋) 플래그 */
+  senderFlags: Map<string, SenderGroupFlag>;
   sessionTitle: string;
   isDemo: boolean;
   queue: QueueItem[];
@@ -36,11 +41,16 @@ interface Props {
   onToggleSelect: (id: string) => void;
   onResend: (message: ChatMessage) => void;
   onDelete: (id: string) => void;
+  /** 답글 롱프레스 메뉴 (t_62897e88) — 대상 행을 화면에 알린다. 선택 모드에서는 래퍼 미사용 */
+  onMessageLongPress?: (message: ChatMessage) => void;
+  /** 인용 라인 탭 → 원문 카드 점프 (화면의 strip.requestJump nonce 패턴 재활용) */
+  onQuoteJump?: (messageId: string) => void;
 }
 
 export default function ChatTurnRow({
   group, timeLabel, highlightId, ackChipId, hiddenAckIds, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
-  firstAgentMessageId, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
+  senderFlags, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
+  onMessageLongPress, onQuoteJump,
 }: Props) {
   const { t } = useTranslation();
   return <View>
@@ -50,21 +60,46 @@ export default function ChatTurnRow({
       // 재질문 뒤 '예'/'아니요' 발화(user 행)는 렌더 제외 — 전송·게이트 판정은 정상 진행, 화면만 숨김.
       .filter((message) => !hiddenAckIds?.has(message.id))
       .map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
-      {/* t_64af90b0 #3 — 에이전트명 헤더는 대화의 첫 에이전트 메시지만 노출, 이후 생략 (Linear/Slack식).
-          다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
-      {selectionActive
-        ? <TouchableOpacity
+      {/* 답글/인용 라인 (t_62897e88 백로그④) — structured_payload.reply_to 스냅샷이 있는 user 행 상단에
+          원문 1줄 인용 (백엔드 권장: user 행이 1차 소스 — 발신 버블만 인용을 보여준다, 텔레그램 관습).
+          탭 = 원문으로 스크롤+하이라이트. 원문 삭제 후에도 요약은 남는다(백엔드 SET NULL). */}
+      {message.role === 'user' && message.replyTo && onQuoteJump && <ReplyQuoteLine quote={message.replyTo} onJump={onQuoteJump} testIdSuffix={message.id} />}
+      {/* t_55b7e30c 백로그③ (텔레그램/Slack 관습) — 발신자 헤더(이름)는 발화 그룹 시작마다 재출력:
+          role 전환 / agentId 변경 / 60초 초과 시에만 노출, 같은 그룹 연속 카드는 생략 + 좌 오프셋으로
+          묶음 시각화. t_64af90b0 #3의 '첫 에이전트 메시지만 노출'을 대체 (다중 에이전트·릴레이 판별 불가 해결).
+          다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존)
+          t_62897e88: 비모드 행은 롱프레스 래퍼(답글 메뉴)로 감싼다 — 내부 버튼 탭은 그대로 통과. */}
+      {(() => {
+        const flag = senderFlags.get(message.id);
+        const showHeader = message.role !== 'agent' ? true : flag?.header ?? true;
+        const card = <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={showHeader} senderName={message.senderName} continuation={flag?.continuation === true} sessionTitle={sessionTitle} exportDisabled={isDemo} />;
+        if (selectionActive) return <TouchableOpacity
           onPress={() => onToggleSelect(message.id)}
           style={selectedIds.includes(message.id) ? styles.selectedRow : undefined}
           testID={`select-${message.id}`}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: selectedIds.includes(message.id) }}
         >
-          <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />
-        </TouchableOpacity>
-        : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />}
+          {card}
+        </TouchableOpacity>;
+        return onMessageLongPress
+          ? <Pressable testID={`message-row-${message.id}`} onLongPress={() => onMessageLongPress(message)}>{card}</Pressable>
+          : card;
+      })()}
       {message.role === 'user' && <View style={styles.userMetaRow}>
-        <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>
+        {/* ⑤ 전송 ticks (t_5c559e85, Telegram/Signal 규범): 시계(pending)→체크(sent=서버 ID 획득)→(!)+탭 재전송(failed).
+            플래그 off = 기존 텍스트 라벨 경로로 복귀. failed는 아래 재시도/삭제 행과 무관하게 늘 탭 가능해야 한다(조용한 삭제 금지). */}
+        {renderFlags.sendTicks
+          ? <Pressable testID={`message-tick-${message.id}`} accessibilityRole="button"
+              accessibilityLabel={t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}
+              onPress={message.status === 'failed' ? () => onResend(message) : undefined}>
+            {message.status === 'failed'
+              ? <TickFailedIcon size={iconSize.tileSm} color={colors.statusErr} />
+              : message.pending
+                ? <TickPendingIcon size={iconSize.tileSm} color={colors.text3} />
+                : <TickSentIcon size={iconSize.tileSm} color={colors.accent} />}
+          </Pressable>
+          : <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
         {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
         <QueueMessageMark queue={queue} message={message} />
       </View>}

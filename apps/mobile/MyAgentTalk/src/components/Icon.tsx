@@ -116,3 +116,19 @@ export function PendingReplyIcon({ size = 18, color = colors.text2, testID }: Ic
     <Path fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" d="M9,17L3.5,11.5L9,6V9.5C14,9.5 17.5,11 19,16C16.5,13.5 13,12.8 9,12.8V17Z" />
   </Svg>;
 }
+// 전송 ticks (t_5c559e85 ⑤, Telegram/Signal status ticks 규범) — 시계=전송중(pending) / 체크=전송됨(서버 ID 확정) / 느낌표원=실패(탭 재전송)
+export function TickPendingIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M12,2A10,10 0 1,0 12,22A10,10 0 1,0 12,2M12,4A8,8 0 1,1 12,20A8,8 0 1,1 12,4M12.5,8H11V13L15.75,15.87L16.5,14.62L12.5,12.25V8Z" />
+  </Svg>;
+}
+export function TickSentIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z" />
+  </Svg>;
+}
+export function TickFailedIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill={color} d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4Z" />
+  </Svg>;
+}

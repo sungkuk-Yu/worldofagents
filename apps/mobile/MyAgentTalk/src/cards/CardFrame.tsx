@@ -14,6 +14,7 @@ import { useReduceMotion } from '../lib/motion';
 import { ChevronDownIcon, ChevronUpIcon, StarIcon, BookOpenIcon } from '../components/Icon';
 import { ExportMenu } from '../components/ExportMenu';
 import ReaderModal from '../components/ReaderModal';
+import StreamCard from './StreamCard';
 import { ONE_SCREEN_PX, guessLong, resolveExpanded } from '../lib/readerLogic';
 import { colors, iconSize } from '../theme';
 
@@ -85,7 +86,7 @@ function FallbackCard({ message, payload }: { message: CardProps['message']; pay
 // '더 보기 ▾'로 접고, 펼침은 인라인(모달 아님). 긴 카드는 하단 '전체 읽기' → 리더 모달(§2).
 // 각 카드 독립 상태(expandStore) — 아코디언 아님. 법률 표기·액션 행은 어떤 상태든 항상 노출(숨김 금지).
 // compact(스레드 행)는 읽기 전용 행 — 펼침/내보내기 UI 없이 전체본문 그대로(중첩 모달 금지).
-export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean; showHeader?: boolean; sessionTitle?: string; exportDisabled?: boolean }) {
+export default function CardFrame(props: CardProps & { agentName: string; presetCategory?: string; compact?: boolean; canFork?: boolean; showHeader?: boolean; /** t_55b7e30c 발화자 이름 우선값(서버 agent_name) — 없으면 agentName(라우트/프리셋) 표시 */ senderName?: string; /** t_55b7e30c 연속 발화 그룹 내부 카드 — 좌 오프셋으로 묶음 시각화 */ continuation?: boolean; sessionTitle?: string; exportDisabled?: boolean }) {
   const { t, i18n } = useTranslation();
   const reduceMotion = useReduceMotion();
   const messageId = props.message.id;
@@ -116,6 +117,8 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
     expandStore.setHeight(messageId, e.nativeEvent.layout.height);
   }, [messageId, potential]);
   if (props.message.role === 'system') return <View style={s.action}><UserCard {...props} /></View>;
+  // ① single card ID patch (t_5c559e85): 인라인 스트림 카드는 본문+quip만 — 액션/펼침/리더 대상 아님(잔류 금지).
+  if (props.message.status === 'streaming') return <StreamCard {...props} />;
   const Component = props.message.role === 'agent' ? (knownType ? getCard(props.message.dialogueType) : FallbackCard) : UserCard;
 
   // 발신자 구분 = 영역(zone) 방식 (#54): 사용자 = 밴드 전체폭 행, 에이전트 = 흰 카드. 좌우 말풍선 금지.
@@ -124,13 +127,16 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
   // 단 우상단 즐겨찾기 별은 전 카드 유지 (9/26 지시 — 별은 라벨이 아니라 컨트롤).
   // t_3116c5bc §3: 즐겨찾기 옆 다운로드 아이콘(카드 내보내기) — 전 에이전트 카드 무조건 노출.
   const showHeader = props.showHeader !== false;
-  return <View style={props.compact ? undefined : (props.message.role === 'user' ? s.userFrame : s.frame)} testID={props.message.role === 'user' ? 'message-user' : 'message-agent'}>
+  // t_55b7e30c: 발화자 이름 = 서버 agent_name 우선, 없으면 라우트/프리셋 agentName.
+  // continuation(같은 그룹 연속 카드) = 좌 오프셋으로 묶음 시각화 (텔레그램식; 헤더는 이미 생략됨).
+  const senderLabel = props.senderName || props.agentName;
+  return <View style={[props.compact ? undefined : (props.message.role === 'user' ? s.userFrame : s.frame), props.continuation && !props.compact && props.message.role === 'agent' && s.groupContinuation]} testID={props.message.role === 'user' ? 'message-user' : 'message-agent'}>
     {/* t_b250487a 대표님 확정 계약 반전(9/27 심야): 사용자=전체폭 밴드+"나" 라벨.
         t_64af90b0 #1이 '나' 라벨을 제거했으나 본 계약(밴드+라벨, 에이전트=작성자 라인과 대칭)이 우선 — 두 결정 병기.
         라벨은 i18n t('chat.me') 유지(ko '나'/en 'You'), 좌우 정렬·버블 아닌 밴드 상단 라인. */}
     {!props.compact && props.message.role === 'user' && <Text style={s.userLabel} testID="message-user-label">{t('chat.me')}</Text>}
     {!props.compact && props.message.role === 'agent' && <View style={s.headerRow}>
-      {showHeader ? <Text style={[s.title, s.headerTitle]} numberOfLines={1}>{props.agentName}</Text> : <View style={s.headerSpacer} />}
+      {showHeader ? <Text style={[s.title, s.headerTitle]} numberOfLines={1} testID="card-sender">{senderLabel}</Text> : <View style={s.headerSpacer} />}
       <ExportMenu message={props.message} sessionTitle={props.sessionTitle || props.agentName}
         disabled={props.exportDisabled === true || props.message.pending === true || props.message.status === 'failed'} />
       <FavoriteStar {...props} />

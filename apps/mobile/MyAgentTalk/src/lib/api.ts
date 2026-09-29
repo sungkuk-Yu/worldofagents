@@ -307,11 +307,12 @@ export const api = {
 
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환)
    *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크.
+   *  reply_to_id (t_62897e88/t_02f58030): 답글 인용 원문 — invalid는 서버가 무시하고 발화 통과.
    *  client_req_id (t_17edbc88 ① / 백엔드 t_3486b1d7 ①②): random_id 상당 멱등 키. 낙관 행의
    *  ChatMessage.clientReqId(uuid v4)와 동일 값을 전송 — 재전송 시 재사용(서버 dedupe),
    *  응답의 user_message_id/message.client_req_id로 서버 에코와 in-place 병합한다.
    *  client_exec_id는 레거시 실행 추적 키(t_3486b1d7 이전 계약)로 유지 — 서버는 이를 무시한다. */
-  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[]; client_req_id?: string }) =>
+  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string; client_req_id?: string }) =>
     request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
