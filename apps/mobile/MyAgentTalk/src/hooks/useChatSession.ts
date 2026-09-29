@@ -10,7 +10,7 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
-  syncStreamCards, purgeSettledStreamCards,
+  syncStreamCards, purgeSettledStreamCards, ensureStreamPlaceholder, quipKeyForStage,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
@@ -203,16 +203,36 @@ export function useChatSession(
     setPendingReplies(EMPTY_PENDING_REPLIES); // 답변 대기 잔상 동일 원칙 (t_363c0faa)
     setThreads(EMPTY_THREADS);
     setSuggested([]);
+    // ③ rAF 배칭 flush (t_5c559e85): answer.delta만 프레임 경계로 묶어 재렌더를 ≤1/frame 상한.
+    // 브라우저 외(node 하네스·구환경)에는 즉시 발행 — 동기성은 계약 유지, 배칭은 체감 전용.
+    const rafAvailable = typeof globalThis !== 'undefined' && typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame === 'function';
+    let streamFrame: number | ReturnType<typeof setTimeout> | null = null;
     // ① single card ID patch: streams → 리스트 인라인 카드(content 갱신, run당 카드 1장 고정).
     // 메인 피드만 — 스레드 패널(rootMessageId)은 footer 임시 카드 경로 유지(병합 순서/커서 간섭 차단).
     const commitStreams = () => {
+      streamFrame = null;
       if (!alive()) return;
       setStreams(runtime.streams);
       if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
     };
+    const cancelStreamFrame = () => {
+      if (streamFrame === null) return;
+      if (typeof (globalThis as unknown as { cancelAnimationFrame?: (h: number) => void }).cancelAnimationFrame === 'function') (globalThis as unknown as { cancelAnimationFrame: (h: number) => void }).cancelAnimationFrame(streamFrame as number);
+      else clearTimeout(streamFrame as ReturnType<typeof setTimeout>);
+      streamFrame = null;
+    };
+    const publishStreams = (deltaOnly: boolean) => {
+      if (renderFlags.streamRafBatch && deltaOnly && rafAvailable && streamFrame === null) {
+        streamFrame = (globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame(() => commitStreams());
+        return;
+      }
+      cancelStreamFrame(); // 순서 보장: 이미 대기 중인 프레임이 있으면 덮고 즉시 발행(전이는 늦으면 안 된다)
+      commitStreams();
+    };
     const stop = () => {
       disposed = true;
       ++runtime.generation;
+      cancelStreamFrame(); // ③ 배칭 대기 중이던 프레임 정리 (실행 시 alive() 가드)
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (relayHoldTimer) clearTimeout(relayHoldTimer); // done 홀드도 화면 수명 내 자원 (t_961ca593)
       runtime.socket?.close();
@@ -385,11 +405,18 @@ export function useChatSession(
             } else if (typeof parent === 'string' && parent) return;
             if (typeof raw.run_id === 'string' && type === 'run.progress') runtime.runStages.set(raw.run_id, typeof raw.stage === 'string' ? raw.stage : '');
             const streamEvent = typeof raw.run_id === 'string' ? { ...raw, stage: runtime.runStages.get(raw.run_id) } : raw;
+            // ③ placeholder row: 진행 신호(run.started/progress)를 받은 run은 첫 토큰 전에 자리 확보 —
+            // 토큰 도착 프레임에 카드가 생기며 밀리는 점프 제거. 리듀스 전 실행(delta와 같은 틱이어도 자리 우선).
+            if (renderFlags.streamRafBatch && typeof raw.run_id === 'string'
+              && (type === 'run.progress' || (type === 'run.started' && !runtime.streams.some((s) => s.runId === raw.run_id)))) {
+              runtime.streams = ensureStreamPlaceholder(runtime.streams, raw.run_id, quipKeyForStage(typeof raw.stage === 'string' ? raw.stage : (runtime.runStages.get(raw.run_id) ?? undefined)));
+            }
             runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
               updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string, aiGenerated: typeof raw.ai_generated === 'boolean' ? raw.ai_generated : message.aiGenerated } : message));
             }
-            commitStreams(); // ① streams→인라인 카드 동기 발행
+            // ③ delta는 rAF 배칭, 그 외 전이(시작/완료/취소/placeholder)는 즉시 발행.
+            publishStreams(type === 'answer.delta');
             if (type === 'message.new' || type === 'message.created') {
               const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
               if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
