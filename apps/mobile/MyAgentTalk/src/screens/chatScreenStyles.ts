@@ -179,6 +179,15 @@ export const styles = StyleSheet.create({
     ...typography.body,
     color: colors.text1,
   },
+  // 스트리밍 꼬리 커서 (t_cc232982) — delta 성장 중에만 말미에 뜨는 초록 펄싱 도트, answer.done 정지
+  streamCursor: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+    alignSelf: 'flex-start',
+    marginTop: spacing.sp1,
+  },
   empathyText: {
     ...typography.body,
     lineHeight: typography.bodyBold.lineHeight,

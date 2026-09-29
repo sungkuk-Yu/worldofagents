@@ -9,7 +9,7 @@ import { readCursorFor, shouldSendCursor } from '../lib/resumeLogic';
 import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
-  prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
+  prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer, STREAM_FLUSH_DEBOUNCE_MS,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
@@ -172,6 +172,28 @@ export function useChatSession(
     let connectedOnce = false;
     let socketVersion = 0;
     const alive = () => !disposed && generation === runtime.generation;
+    // ── t_cc232982: answer.delta 배칭 발행기 (김비서 적용 게이트 1 — 토큰마다 재렌더 금지) ──
+    // 선행 즉시 + STREAM_FLUSH_DEBOUNCE_MS 창 내 후행 통합: 창이 열려 있는 동안의 후속 delta는
+    // runtime.streams에만 누적하고 만료 시 최종본을 1회 발행 → 렌더 주기가 ~80ms로 제한된다.
+    // 터미널(answer.done/message.new/run.failed·cancelled·강제 재동기화·stop)은 무조건 즉시 플래시 —
+    // 배칭 창이 확정 행을 덮거나 잔여 타이머가 세션 전환 후 소환되는 것을 막는다.
+    let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    let streamFlushOpen = false;
+    const cancelStreamFlush = () => {
+      if (streamFlushTimer) clearTimeout(streamFlushTimer);
+      streamFlushTimer = undefined; streamFlushOpen = false;
+    };
+    const publishStreams = (type?: string) => {
+      if (type !== 'answer.delta') { cancelStreamFlush(); setStreams(runtime.streams); return; }
+      if (streamFlushOpen) return; // 창 내 누적 — 만료 시 최종본 1회 발행
+      streamFlushOpen = true;
+      setStreams(runtime.streams); // 선행 플래시 — 첫 delta는 즉시 보여 '성장하는 카드'가 즉시 시작된다
+      streamFlushTimer = setTimeout(() => {
+        streamFlushTimer = undefined; streamFlushOpen = false;
+        if (!alive() || !runtime.streams.length) return;
+        setStreams([...runtime.streams]); // 후행 통합 — 창 동안 쌓인 토큰을 한 번에
+      }, STREAM_FLUSH_DEBOUNCE_MS);
+    };
     runtime.demo = mode === 'demo';
     runtime.initialized = false;
     runtime.sid = null;
@@ -204,6 +226,7 @@ export function useChatSession(
     const stop = () => {
       disposed = true;
       ++runtime.generation;
+      cancelStreamFlush(); // t_cc232982: 잔여 배칭 타이머 폐기 — 구 세션 스트림이 새 세션에 소환 금지
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (relayHoldTimer) clearTimeout(relayHoldTimer); // done 홀드도 화면 수명 내 자원 (t_961ca593)
       runtime.socket?.close();
@@ -257,6 +280,16 @@ export function useChatSession(
       if (!alive()) return;
       const allRows = normalizeServerMessages(env.data);
       updateMessages((prev) => mergeIncoming(prev, allRows.filter((m) => !m.parentMessageId)));
+      // t_cc232982 요구4 정합성: 재조회된 확정 answer 행(run_id 또는 message_id 일치)이 있으면
+      // 그 런의 성장 중인 구(舊) 스트림 카드를 제거한다 — disconnect/reconnect 후 그 런의
+      // answer.done·message.new가 영원히 안 와도 반쯤 쓰인 카드+커서가 고아로 남지 않는다.
+      // (확정 행이 본문 원천 — 누적 텍스트 유실 없이 서버 진실로 수렴.)
+      const confirmedRuns = new Set(allRows.filter((m) => m.role === 'agent' && m.sourceNeuron === 'answer' && m.runId).map((m) => m.runId as string));
+      const confirmedIds = new Set(allRows.map((m) => m.id));
+      if (runtime.streams.some((s) => (s.runId && confirmedRuns.has(s.runId)) || (s.messageId && confirmedIds.has(s.messageId)))) {
+        runtime.streams = runtime.streams.filter((s) => !((s.runId && confirmedRuns.has(s.runId)) || (s.messageId && confirmedIds.has(s.messageId))));
+        publishStreams();
+      }
       // 답글 스레드 인덱스 (t_2f45ccb1 확장 3): 답글 행은 메시지에 넣지 않지만 root_message_id/답글 수로 인덱스 갱신.
       setThreads((prev) => mergeThreadIndex(prev, buildThreadIndex(allRows)));
       // 큐 스냅샷 복원 (t_1797f432 ②): 백엔드가 GET messages에 queue 배열을 실어주면 재진입 시에도
@@ -355,7 +388,7 @@ export function useChatSession(
               if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
               if (runtime.sequence.subscribed(raw.current_seq)) {
                 runtime.tracker.endAll();
-                runtime.streams = []; setStreams([]);
+                runtime.streams = []; publishStreams();
                 runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: 0 }));
                 void refresh(sid, false, 'all').catch((e) => { if (current()) setLastError(errorText(e)); });
               }
@@ -378,7 +411,8 @@ export function useChatSession(
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
               updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string, aiGenerated: typeof raw.ai_generated === 'boolean' ? raw.ai_generated : message.aiGenerated } : message));
             }
-            setStreams(runtime.streams);
+            // t_cc232982: answer.delta는 배칭 발행(선행 즉시 + 창 내 후행 통합), 터미널은 즉시.
+            publishStreams(typeof type === 'string' ? type : undefined);
             if (type === 'message.new' || type === 'message.created') {
               const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
               if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
