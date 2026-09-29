@@ -132,7 +132,7 @@ def create_app():
                 loop = asyncio.get_running_loop()
                 t0 = time.monotonic()
                 result = await loop.run_in_executor(None, transcribe_blocking, raw, language)
-            log.info("transcribe %dms audio → %dms infer: %r", len(raw) // 2 * 1000 // 16, (time.monotonic() - t0) * 1000, result["text"][:60])
+            log.info("transcribe %dms audio → %dms infer: %r", len(raw) // 32, (time.monotonic() - t0) * 1000, result["text"][:60])
             return result
         except Exception as e:
             log.exception("transcribe failed")
