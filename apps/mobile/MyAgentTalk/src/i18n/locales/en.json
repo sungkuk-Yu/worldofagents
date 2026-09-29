@@ -248,6 +248,7 @@
     "board": "Could not sync the board. Please try again.",
     "vault": "Could not sync the vault. Please try again.",
     "micDenied": "Microphone permission is required. Allow it in your browser's address-bar permission settings.",
+    "micNotReady": "Connecting… please hold the mic again in a moment.",
     "storageSecure": "A secure storage for login credentials is unavailable",
     "storageLocal": "A storage for login credentials is unavailable",
     "fileTooLarge": "This file is too large. Attachments must be 20 MB or smaller.",

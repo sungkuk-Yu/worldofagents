@@ -1,5 +1,5 @@
 // 대화 목록과 에이전트 선택은 서버의 실제 데이터를 카드로 표시한다.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
@@ -56,6 +56,7 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       if (!env.ok || !env.data?.id) throw new Error('errors.session');
       setChoosing(false);
       navigation.navigate('Chat', { sessionId: env.data.id, agentId: agent.id, agentName: agent.name, presetCategory: agent.preset?.category, presetTitleKey: agent.preset?.titleKey });
+      queuedTapRef.current = false; // 진입 성공 — 큐잉된 재탭은 소용없다(복귀 시 실행 금지)
       void refresh();
     } catch (e) { setError(errorKey(e)); }
     finally { setStarting(false); }
@@ -63,6 +64,18 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   // 미로그인(error=auth)은 온보딩, 오프라인은 네트워크/서버 실제 실패에만 (t_c0fb3b22 P0)
   const signedOut = error === 'errors.auth' && !loading;
   const offline = !connected && !loading && !signedOut;
+  // t_cb8e978a ②: signup 직후 '새 대화' 첫 탭이 지연 refresh/setStarting 타이밍에 조용히 흡수됨
+  // (라이브 실측 2~5회 재탭 레이시). busy 탭은 버리지 않고 큐잉 — 목록 확정 후 1회 자동 실행.
+  // 실패(error)로 끝난 starting은 재실행하지 않는다(오류 배너 확인 후 사용자가 판단).
+  const queuedTapRef = useRef(false);
+  const runNewChatIntent = () => {
+    queuedTapRef.current = false;
+    if (agents.length) setChoosing((c) => !c); else void startChat();
+  };
+  useEffect(() => {
+    if (queuedTapRef.current && !loading && !starting && !error) runNewChatIntent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 상태 확정 시점 드레인만 (의도: 최신 렌더 closure)
+  }, [loading, starting, error]);
   return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
     {!isSidebar && <View style={styles.header}>
       {/* t_64af90b0 #11 — 검은 굵은 '마이에이전트톡' 텍스트 로고 → 초록 MAT 워드마크 (Round 7 확정 전까지 sans 통일) */}
@@ -92,7 +105,12 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     {error && <TouchableOpacity style={styles.errorBar} onPress={() => error === 'errors.auth' ? navigation.navigate('Login') : void refresh()} testID="login-hint">
       <Text style={styles.errorText}>{error === 'errors.auth' ? t('dialogueList.loginHint', { error: t(error) }) : t(error)}</Text>
     </TouchableOpacity>}
-    <TouchableOpacity style={styles.newChatButton} onPress={() => agents.length ? setChoosing(!choosing) : void startChat()} disabled={starting || loading || offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
+    <TouchableOpacity style={styles.newChatButton} onPress={() => {
+      // t_cb8e978a ②: busy(로딩·생성 중) 탭을 disabled로 삼키지 않고 큐잉 — 라이브 실측
+      // '새 대화' 첫 탭 흡수(2~5회 재탭) 레이시의 사용자 체감 제거.
+      if (starting || loading) { queuedTapRef.current = true; return; }
+      agents.length ? setChoosing(!choosing) : void startChat();
+    }} disabled={offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
       {starting && <ActivityIndicator size="small" color={colors.onPrimary} />}
       <Text style={styles.newChatText}>{t(starting ? 'dialogueList.preparing' : 'dialogueList.new')}</Text>
     </TouchableOpacity>
