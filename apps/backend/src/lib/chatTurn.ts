@@ -59,7 +59,7 @@ export class PersonaVoice {
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
   db: DbClient, session: SessionsRow, userId: string, content: string,
-  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; answerLeadMs?: number; emit: (e: TurnEmitEvent) => void }
+  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; replyToId?: unknown; answerLeadMs?: number; emit: (e: TurnEmitEvent) => void }
 ): Promise<TurnResult> {
   const locale = opts.locale ?? config.defaultLocale;
   const turnId = randomUUID();
@@ -148,6 +148,8 @@ export async function runTextTurn(
       signal: abort.signal,
       sttMetadata: opts.sttMetadata,
       attachmentIds: opts.attachmentIds,
+      // 답글 인용 (t_02f58030): 존재+같은 세션 검증은 processTurn 내부 — invalid 무시, 발화 통과.
+      replyToId: opts.replyToId,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
       onTurnStatus: (status, extra) => {

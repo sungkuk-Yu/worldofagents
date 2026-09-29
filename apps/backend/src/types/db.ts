@@ -128,6 +128,9 @@ export interface MessagesRow {
   /** 답변 대기(t_811e176c) — 마이그레이션 011. 회신 필요 표시, 사용자 발화로 해소. 011 미적용 환경은 undefined. */
   awaiting_reply?: boolean;
   reply_kind?: ReplyKind | null;
+  /** 답글 인용 원문 ID(t_02f58030) — 마이그레이션 012. 같은 세션 참조, 원문 삭제 시 null. 012 미적용 환경은 undefined.
+   *  인용 요약 스냅샷은 structured_payload.reply_to = { message_id, by, text } (프론트 인용바 소스). */
+  reply_to_id?: string | null;
   created_at: string;
 }
 

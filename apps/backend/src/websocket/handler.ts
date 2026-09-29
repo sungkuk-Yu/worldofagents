@@ -361,8 +361,13 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           // message_queue에 적재하고 queue.updated 체크포인트를 발행한다. 답변은 현재 run
           // 완료 후 워커(drainSessionQueue)가 position 순서로 이어한다.
           // parseAttachmentIds를 먼저 호출해 형식 검증(VALIDATION_ERROR)이 큐 경보다 앞선다.
+          // 답글 인용 발화(t_02f58030)도 큐를 우회 — message_queue 스키마는 메인 발화 전용이라
+          // reply_to 컨텍스트가 드레인에서 소멸한다(스레드·첨부 우회 규칙과 동일 판정).
+          // null/비문자열 reply_to_id는 무인용 발화 — 큐 경로 유지(프론트가 인용바 없이 null을
+          // 보내는 경우까지 우회하면 ②가 죽는다).
           const hasAttachments = parseAttachmentIds(message).length > 0;
-          if (!thread && !hasAttachments && hasActiveRun(session!.id)) {
+          const hasQuote = typeof message.reply_to_id === 'string' && !!message.reply_to_id.trim();
+          if (!thread && !hasAttachments && !hasQuote && hasActiveRun(session!.id)) {
             const item = await enqueueQuestion(supabaseAdmin, { sessionId: session!.id, userId: state.userId, content: message.content.trim(), locale: state.locale });
             if (item) {
               const snap = queueSnapshot(await listQueue(supabaseAdmin, session!.id));
@@ -379,7 +384,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             }
           }
           // 종료 상태는 공유 실행기의 finally에서 보장한다.
-          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), emit: e => broadcastToSession(session!.id, e) });
+          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), replyToId: message.reply_to_id, emit: e => broadcastToSession(session!.id, e) });
           break;
         }
 

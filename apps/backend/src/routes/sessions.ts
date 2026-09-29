@@ -205,7 +205,10 @@ export async function sessionRoutes(app: FastifyInstance) {
           return target;
         };
         const copies = messages.map(row => ({ ...structuredClone(row), id: ids.get(row.id), session_id: session.id,
-          parent_message_id: mapped(row.parent_message_id), root_message_id: mapped(row.root_message_id) }));
+          parent_message_id: mapped(row.parent_message_id), root_message_id: mapped(row.root_message_id),
+          // 답글 인용(t_02f58030): 인용 대상도 ID 매핑으로 복제본을 가리킨다. 참조가 복제 범위를
+          // 벗어나면(FK 23503 위험) 인용만 소멸(SET NULL 계약과 동일 의미) — 발화 행은 보존.
+          reply_to_id: row.reply_to_id ? (ids.get(row.reply_to_id) ?? null) : row.reply_to_id ?? null }));
         // 같은 INSERT 문 안에서 메시지 외래 키를 함께 생성한다.
         if (copies.length) {
           const { error: copyError } = await db.from('messages').insert(copies);
@@ -340,7 +343,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     if (session.status === 'archived') throw new ApiError(ERROR_CODES.SESSION_ARCHIVED, '아카이브된 세션에는 메시지를 보낼 수 없습니다.');
 
-    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[] };
+    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[]; reply_to_id?: string | null };
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
     const attachmentIds = parseAttachmentIds(body);
@@ -355,7 +358,10 @@ export async function sessionRoutes(app: FastifyInstance) {
     // ② 질문 큐 (t_344e047a): 실행 중 메인 발화는 message_queue에 적재 후 202로 알린다.
     // 체크포인트는 GET /:id/queue 또는 WS queue.updated로 확인; 답변은 run 완료 후 워커가 순차 처리.
     // 008 미적용 환경(래치)은 폴백 — 아래 runTextTurn이 세션 락으로 기존처럼 직렬 실행한다.
-    if (!attachmentIds.length && hasActiveRun(session.id)) {
+    // 답글 인용 발화(t_02f58030)는 큐 우회 — message_queue는 메인 발화 전용이라 reply_to가
+    // 드레인에서 소멸한다(WS message.send의 동일 판정과 대칭). null/비문자열은 무인용 = 큐 유지.
+    const hasQuote = typeof body.reply_to_id === 'string' && !!body.reply_to_id.trim();
+    if (!attachmentIds.length && !hasQuote && hasActiveRun(session.id)) {
       const item = await enqueueQuestion(request.db, { sessionId: session.id, userId: request.userId, content, locale: parseAcceptLanguage(request.headers['accept-language']) });
       if (item) {
         const snap = queueSnapshot(await listQueue(request.db, session.id));
@@ -374,6 +380,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       locale: parseAcceptLanguage(request.headers['accept-language']),
       sttMetadata: body.stt_metadata || null,
       attachmentIds,
+      replyToId: body.reply_to_id,
       emit: e => broadcastToSession(session.id, e),
     });
 

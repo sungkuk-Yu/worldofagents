@@ -23,7 +23,7 @@ export interface PresenceDevice {
 // message.send는 ack 필드를 요구하지 않는다 (t_5cba9ebb 2항 계약 — 예/아니오 미터치 시
 // 프론트는 ack 없이 그대로 진행, 파이프라인은 원래 ack 비동기: answer_always=t_c31e3f45).
 export type ClientMessage =
-  | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string; attachment_ids?: string[] }
+  | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string }
   | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
   | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string; mode?: PttMode; device?: string } }
