@@ -53,13 +53,16 @@ export async function messageRoutes(app: FastifyInstance) {
   app.post('/:id/replies', { preHandler: requireAuth }, async (request, reply) => {
     const { message, session } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
     if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션에는 메시지를 보낼 수 없습니다.');
-    const body = request.body as { content?: unknown } | null;
+    const body = request.body as { content?: unknown; reply_to_id?: unknown } | null;
     if (typeof body?.content !== 'string' || !body.content.trim()) throw badRequest('메시지 내용(content)은 필수입니다.');
     const rootId = message.root_message_id || message.id;
     const result = await runTextTurn(request.db, session, request.userId, body.content.trim(), {
       locale: parseAcceptLanguage(request.headers['accept-language']),
       thread: { parentMessageId: message.id, rootMessageId: rootId },
       attachmentIds: parseAttachmentIds(body),
+      // 답글 인용 (t_02f58030): 스레드 답글도 원문 인용을 동반할 수 있다(텔레그램: thread 내 답글은
+      // 새 thread를 만들지 않음). invalid는 무시+통과 계약이 processTurn 내부에서 동일 적용.
+      replyToId: body.reply_to_id,
       emit: e => broadcastToSession(session.id, e),
     });
     const thread = await readThread(request.db, message);
