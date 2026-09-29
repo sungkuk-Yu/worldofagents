@@ -56,7 +56,8 @@ export function foreignDevicesOf(liveDevices: string[], own: string | null): str
 export function readCursorFor(messages: { turnIndex?: number; pending?: boolean; status?: string }[]): number | null {
   let max = -1;
   for (const m of messages) {
-    if (m.pending || m.status === 'failed') continue;
+    // 'streaming' = ①의 인라인 스트림 카드(가짜 turnIndex) — 서버 커서로 승격 금지 (t_5c559e85)
+    if (m.pending || m.status === 'failed' || m.status === 'streaming') continue;
     if (typeof m.turnIndex === 'number' && Number.isFinite(m.turnIndex) && m.turnIndex > max) max = m.turnIndex;
   }
   return max >= 0 ? max : null;

@@ -14,6 +14,7 @@ import { useReduceMotion } from '../lib/motion';
 import { ChevronDownIcon, ChevronUpIcon, StarIcon, BookOpenIcon } from '../components/Icon';
 import { ExportMenu } from '../components/ExportMenu';
 import ReaderModal from '../components/ReaderModal';
+import StreamCard from './StreamCard';
 import { ONE_SCREEN_PX, guessLong, resolveExpanded } from '../lib/readerLogic';
 import { colors, iconSize } from '../theme';
 
@@ -116,6 +117,8 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
     expandStore.setHeight(messageId, e.nativeEvent.layout.height);
   }, [messageId, potential]);
   if (props.message.role === 'system') return <View style={s.action}><UserCard {...props} /></View>;
+  // ① single card ID patch (t_5c559e85): 인라인 스트림 카드는 본문+quip만 — 액션/펼침/리더 대상 아님(잔류 금지).
+  if (props.message.status === 'streaming') return <StreamCard {...props} />;
   const Component = props.message.role === 'agent' ? (knownType ? getCard(props.message.dialogueType) : FallbackCard) : UserCard;
 
   // 발신자 구분 = 영역(zone) 방식 (#54): 사용자 = 밴드 전체폭 행, 에이전트 = 흰 카드. 좌우 말풍선 금지.

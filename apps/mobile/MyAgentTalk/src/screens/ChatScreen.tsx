@@ -65,6 +65,8 @@ import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
 import { ackResultCardIds } from '../lib/ackChips';
 import { QUIET_PROGRESS } from '../lib/featureFlags';
+import { renderFlags } from '../lib/renderFlags';
+import { createDraftSaver, readDraft } from '../lib/draftStore';
 
 interface Props {
   navigation: any;
@@ -158,6 +160,19 @@ export default function ChatScreen({ navigation, route }: Props) {
   }, [sessionId, isDemo]);
 
   const [input, setInput] = useState('');
+  // ④ room별 미전송 드래프트 (t_5c559e85, core.telegram.org/api/drafts): 진입 복원 1회 +
+  // 입력 변경 디바운스 저장 + 발송 시 원자적 clear. 데모/세션 없음은 대상 아님. 웹 localStorage 전용
+  // (네이티브는 스토리지 부재 → draftStore가 no-op, 체감 무해).
+  const draftSaver = useMemo(() => createDraftSaver(), []);
+  useEffect(() => {
+    if (!renderFlags.inputDraftPersist || isDemo || !sessionId) return;
+    setInput((cur) => (cur ? cur : readDraft(sessionId)));
+  }, [sessionId, isDemo]);
+  useEffect(() => {
+    if (!renderFlags.inputDraftPersist || isDemo || !sessionId) return;
+    draftSaver.schedule(sessionId, input);
+  }, [input, sessionId, isDemo, draftSaver]);
+  useEffect(() => () => { draftSaver.flush(); }, [draftSaver]);
   // 첨부 스테이지 + 사진 편집기 (t_4497cfce P1-2/P0-1): 클립 → 선택 → 즉시 업로드 + 편집기.
   const att = useAttachments();
   const [editing, setEditing] = useState<{ source: { uri: string; width: number; height: number }; localId: string } | null>(null);
@@ -210,6 +225,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (!att.items.length) {
       const text = input;
       setInput('');
+      if (renderFlags.inputDraftPersist && sessionId) draftSaver.clearNow(sessionId); // ④ 발송 = 원자적 드래프트 소거
       setSendFailed(false);
       void send(text).then((res) => {
         if (!res.ok) {
@@ -225,6 +241,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     const text = input;
     const payload = { ids: att.ids(), previews: att.items.map((it) => ({ localId: it.localId, name: it.name, uri: it.localUri, type: it.type, status: 'done' as const })) };
     setInput('');
+    if (renderFlags.inputDraftPersist && sessionId) draftSaver.clearNow(sessionId); // ④ 발송 = 원자적 드래프트 소거
     setSendFailed(false);
     void send(text, payload).then((res) => {
       if (!res.ok) {
@@ -236,7 +253,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         try { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); } catch { /* web no-op */ }
       }
     });
-  }, [input, send, att, setUnavailableError]);
+  }, [input, send, att, setUnavailableError, sessionId, draftSaver]);
 
   const retry = useCallback(() => {
     setSendFailed(false);
@@ -518,7 +535,8 @@ export default function ChatScreen({ navigation, route }: Props) {
     previousMessages.current = messages;
     const ids = new Set(previous.map((m) => m.id));
     const tail = previous[previous.length - 1];
-    const added = messages.filter((m) => !ids.has(m.id) && (!tail || m.turnIndex >= tail.turnIndex)).length;
+    // ①(t_5c559e85): 인라인 스트림 카드는 확정 행과 같은 자리의 transient — '새 메시지' 카운트 제외(중복 셈).
+    const added = messages.filter((m) => m.status !== 'streaming' && !ids.has(m.id) && (!tail || m.turnIndex >= tail.turnIndex)).length;
     if (!nearBottom.current && added) {
       // 목록 변경으로 새 메시지 알림 수를 동기화한다.
       setUnseen((count) => count + added);
