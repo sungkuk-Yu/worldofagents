@@ -413,7 +413,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 공감 재질문 카드 하단 예/아니요 버튼 행 + 조이스틱 홀드-arm (t_043539ff → t_c62a2eb7 텔레그램식 격상) —
   // 전송 payload는 백엔드 isConfirmationUtterance 집합과 일치하는 라벨 텍스트(기본 '예'/'아니요',
   // 어미 바인딩 시 '맞아요'/'아니에오'; en Yes/No·Yeah/Nope) 1회 send.
-  const ackChip = useAckChip(messages);
+  // t_cc232982 요구3: 답변 토큰이 아직 성장 중(answer.done 전)이면 버튼 행 억제 — 반쯤 쓰인 카드에
+  // 예/아니요가 붙어 t_64e3edd6 자동진행과 충돌하는 것을 막는다. done 카드(saving 구간)는 해제.
+  const ackChip = useAckChip(messages, streams.some((s) => !s.done));
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
     void send(text);

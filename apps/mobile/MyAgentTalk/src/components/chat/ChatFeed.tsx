@@ -1,14 +1,36 @@
 // 피드 푸터 (t_70cbbd6b: ChatScreen renderFooter/renderHeader JSX 순수 추출 — 렌더/DOM/testID 1:1)
 // 타이핑 카드 + 스트리밍 답변 + 후속 질문 칩(푸터), 히스토리 이력 로그 + 더 보기 버튼(헤더).
 // sendSuggested/loadHistory 등 상태 전이는 화면 소유 콜백을 그대로 호출한다.
-import React from 'react';
-import { Pressable, View } from 'react-native';
+// t_cc232982: 스트리밍 카드는 '성장하는 카드' — delta 누적 본문 + 말미 펄싱 도트(answer.done 정지).
+// 본문은 순수 <Text> 유지: 미닫힌 markdown 파싱 추측 금지 — MarkdownView 결합은 t_e9480e0f 소관(게이트 5 합의).
+import React, { useEffect, useState } from 'react';
+import { Animated, Easing, Pressable, View } from 'react-native';
 import { Button, Surface, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import TypingCard from '../TypingCard';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { SuggestedQuestion, StreamingAnswer } from '../../lib/chatLogic';
+
+/** 스트리밍 꼬리 커서 — ChatGPT식 펄싱 도트(게이트 4택1). done 시 미렌더=정지. 언마운트 시 루프 stop. */
+function StreamingCursor() {
+  const [pulse] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 550, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 550, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return (
+    <Animated.View
+      testID="streaming-cursor"
+      pointerEvents="none"
+      style={[styles.streamCursor, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }) }]}
+    />
+  );
+}
 
 interface FooterProps {
   typing: boolean;
@@ -27,9 +49,11 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
   const { t } = useTranslation();
   return <View>
     {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
-    {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
+    {streams.map((stream) => <Surface key={stream.runId} testID="streaming-card" style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
-      <Text style={styles.msgText}>{stream.text}</Text>
+      <Text testID="streaming-text" style={styles.msgText}>{stream.text}</Text>
+      {/* 말미 커서: delta 성장 중에만 — answer.done(done=true)에서 정지(게이트 4) */}
+      {!stream.done && <StreamingCursor />}
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
       <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
     </Surface>)}
