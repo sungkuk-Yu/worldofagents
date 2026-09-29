@@ -4,7 +4,7 @@ import { formatDayLabel } from '../i18n/format';
 // 백엔드 스펙: apps/backend/docs/api-design.md §3.4
 //   GET  /api/sessions/:id/messages → data[]: { id, turn_index, role, content, source_neuron, created_at }
 //   POST /api/sessions/:id/messages → data: { user_message_id, empathy_response, answer_response, ... }
-import type { ChatMessage as BaseChatMessage } from '../types';
+import type { ChatMessage as BaseChatMessage, ReplyQuote } from '../types';
 
 export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed'; dialogueType?: string | null; runId?: string; draft?: string };
 
@@ -24,11 +24,45 @@ export interface ServerMessageRow {
   thread_reply_count?: unknown;
   run_id?: string;
   attachments?: unknown;
+  /** 답글 인용 원문 ID (t_62897e88 / 백엔드 012) */
+  reply_to_id?: unknown;
 }
 
 /** 서버 행 → UI 메시지 정규화 */
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** 답글 인용 요약 정규화 (t_62897e88 / 백엔드 t_02f58030 structured_payload.reply_to) —
+ *  {message_id, by, text} 형태 아니면 undefined(강등). 서버 캡 120자는 백엔드 소관, 프론트는 재단하지 않는다. */
+export function normalizeReplyQuote(raw: unknown): ReplyQuote | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (typeof raw.message_id !== 'string' || !raw.message_id) return undefined;
+  return {
+    message_id: raw.message_id,
+    by: typeof raw.by === 'string' ? raw.by : '',
+    text: typeof raw.text === 'string' ? raw.text : '',
+  };
+}
+
+/** 인용 발췌 캡 — 백엔드 REPLY_SNIPPET_MAX=80과 동일 (apps/backend t_02f58030 replyTo.ts 실측 기준;
+ *  카드 코멘트의 120은 코드와 불일치 → 코드가 진실. 낙관 렌더가 서버 확정 시점과 안 뛰게 같은 값) */
+export const REPLY_QUOTE_MAX = 80;
+
+/**
+ * 낙관적 인용 요약 산출기 (t_62897e88) — POST 확정/WS echo 전 인용 바·카드를 그린다.
+ * 백엔드 스냅샷과 동일 관례: 원문 1줄(개행·연속 공백 접기) + 120자 컷, by=표시 이름(화면 주입).
+ * 서버 structured_payload.reply_to가 도착하면 정규화 경로가 이 값을 덮는다(스냅샷이 진실).
+ */
+export function localReplyQuote(source: ChatMessage, by: string): ReplyQuote {
+  const flat = (source.content || '').replace(/\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return { message_id: source.id, by, text: flat.slice(0, REPLY_QUOTE_MAX) };
+}
+
+/** 답글 대상 자격 판정 (t_62897e88) — 미전송(pending)/실패(failed) 행은 서버 FK 대상이 될 수 없다
+ *  (즐겨찾기·포크 가드와 동일 원칙). 데모 세션 거절은 화면에서 별도 판정. */
+export function canReplyTo(message: ChatMessage): boolean {
+  return !message.pending && message.status !== 'failed';
+}
 
 export function normalizeServerMessages(rows: unknown): ChatMessage[] {
   if (!Array.isArray(rows)) return [];
@@ -52,6 +86,10 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     favorite: typeof r.favorite === 'boolean' ? r.favorite : undefined,
     // 첨부 요약 (t_4497cfce) — messages.attachments JSONB {id,url,mime,size,name}[] (백엔드 독해 위임 코멘트)
     attachments: Array.isArray(r.attachments) ? r.attachments : undefined,
+    // 답글 인용 (t_62897e88 / 백엔드 t_02f58030) — reply_to_id=원문 ID(서버가 invalid 무시·null 강등),
+    // structured_payload.reply_to={message_id,by,text} 발행 시점 스냅샷(원문 삭제 후에도 남는다).
+    replyToId: typeof r.reply_to_id === 'string' ? r.reply_to_id : undefined,
+    replyTo: normalizeReplyQuote(isRecord(r.structured_payload) ? (r.structured_payload as Record<string, unknown>).reply_to : undefined),
     runId: typeof r.run_id === 'string' ? r.run_id : undefined,
     status: 'sent',
   })).sort((a, b) => a.turnIndex - b.turnIndex);
