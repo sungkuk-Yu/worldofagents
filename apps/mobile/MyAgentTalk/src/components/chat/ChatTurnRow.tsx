@@ -2,12 +2,15 @@
 // 시간 라인 + 메시지별 카드 래퍼(포커스 하이라이트/선택 토글래퍼/user 메타/실패 재시도행)까지 화면행 전체를 소유.
 // 상태 변경은 화면 소유 콜백(decorate/handlers/toggleSelect/retry/delete)을 그대로 호출 — 이 컴포넌트는 로직 무소유.
 import React from 'react';
-import { TouchableOpacity, View } from 'react-native';
+import { Pressable, TouchableOpacity, View } from 'react-native';
 import { Button, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import CardFrame from '../../cards/CardFrame';
 import AckChipRow from '../AckChipRow';
 import { QueueMessageMark } from '../QueueStrip';
+import { TickFailedIcon, TickPendingIcon, TickSentIcon } from '../Icon';
+import { renderFlags } from '../../lib/renderFlags';
+import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { ChatMessage, QueueItem, TurnGroup } from '../../lib/chatLogic';
 import type { CardActionHandlers } from '../../cards/types';
@@ -58,7 +61,19 @@ export default function ChatTurnRow({
         </TouchableOpacity>
         : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />}
       {message.role === 'user' && <View style={styles.userMetaRow}>
-        <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>
+        {/* ⑤ 전송 ticks (t_5c559e85, Telegram/Signal 규범): 시계(pending)→체크(sent=서버 ID 획득)→(!)+탭 재전송(failed).
+            플래그 off = 기존 텍스트 라벨 경로로 복귀. failed는 아래 재시도/삭제 행과 무관하게 늘 탭 가능해야 한다(조용한 삭제 금지). */}
+        {renderFlags.sendTicks
+          ? <Pressable testID={`message-tick-${message.id}`} accessibilityRole="button"
+              accessibilityLabel={t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}
+              onPress={message.status === 'failed' ? () => onResend(message) : undefined}>
+            {message.status === 'failed'
+              ? <TickFailedIcon size={iconSize.tileSm} color={colors.statusErr} />
+              : message.pending
+                ? <TickPendingIcon size={iconSize.tileSm} color={colors.text3} />
+                : <TickSentIcon size={iconSize.tileSm} color={colors.accent} />}
+          </Pressable>
+          : <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
         {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
         <QueueMessageMark queue={queue} message={message} />
       </View>}
