@@ -351,6 +351,21 @@ export function useChatSession(
               runtime.audioOpen = false; setTalking(false);
               return;
             }
+            if (type === 'transcript.final' && typeof raw.text === 'string' && raw.text.trim() && typeof raw.message_id === 'string' && raw.message_id) {
+              // t_64e3edd6 #324: 전사문 = 발화 확정 처리 — transcript.final 자체에서 user 행을 머지한다.
+              // 백엔드가 message.new(user)를 턴 종료 전(전사 직후)으로 앞당기면 그 순간 카드가 뜨고,
+              // 현 계약(턴 종료 후 발행)에서는 message.new가 먼저 도착 → id 중복이라 no-op. 어느 순서든 안전.
+              const uid = raw.message_id as string;
+              if (!runtime.messages.some((m) => m.id === uid)) {
+                updateMessages((prev) => mergeIncoming(prev, [{
+                  id: uid, role: 'user', content: (raw.text as string).trim(),
+                  turnIndex: typeof raw.turn_index === 'number' ? raw.turn_index : nextTurnIndex(prev),
+                  createdAt: new Date().toISOString(), status: 'sent',
+                  ...(rootMessageId ? { parentMessageId: rootMessageId } : {}),
+                } as ChatMessage]));
+              }
+              return;
+            }
             if (type === 'subscribed') {
               if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
               if (runtime.sequence.subscribed(raw.current_seq)) {
