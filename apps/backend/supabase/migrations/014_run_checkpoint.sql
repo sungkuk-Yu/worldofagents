@@ -104,10 +104,15 @@ COMMENT ON TABLE graph_checkpoint_writes IS 'LangGraph 태스크 쓰기(t_7182aa
 
 -- ------------------------------------------------------------
 -- 4. RLS (002/007/008 패턴: 인증 사용자는 SELECT만(자기 소유), 쓰기는 service_role)
+--    + GRANT (003_favorites 관례 — Supabase가 기본 권한을 주지 않으므로 명시 필요.
+--      service_role 우회 경로가 SELECT/INSERT/UPDATE/DELETE, anon/authenticated는 SELECT).
 -- ------------------------------------------------------------
 ALTER TABLE graph_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE graph_checkpoints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE graph_checkpoint_writes ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT ON graph_runs, graph_checkpoints, graph_checkpoint_writes TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON graph_runs, graph_checkpoints, graph_checkpoint_writes TO service_role;
 
 DROP POLICY IF EXISTS "graph_runs_owner_read" ON graph_runs;
 CREATE POLICY "graph_runs_owner_read" ON graph_runs
@@ -132,7 +137,7 @@ CREATE POLICY "graph_writes_owner_read" ON graph_checkpoint_writes
 -- 5. 검증 read-back 프루브 (db push 후 SQL Editor 실행 — 007/011 관례):
 --   SELECT table_name, count(*) FROM information_schema.columns
 --    WHERE table_name IN ('graph_runs','graph_checkpoints','graph_checkpoint_writes')
---    GROUP BY table_name;                    -- 17 / 9 / 8
+--    GROUP BY table_name;                    -- 18 / 10 / 9
 --   SELECT conname FROM pg_constraint
 --    WHERE conrelid IN ('graph_runs'::regclass,'graph_checkpoints'::regclass,'graph_checkpoint_writes'::regclass);
 --   → status CHECK 4값 / locale CHECK 2값 / engine CHECK 2값 / FK CASCADE 4개
