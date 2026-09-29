@@ -6,6 +6,8 @@ import { Pressable, View } from 'react-native';
 import { Button, Surface, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import TypingCard from '../TypingCard';
+import ChatMarkdown from '../ChatMarkdown';
+import { looksLikeChatMarkdown } from '../../lib/chatMarkdown';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { SuggestedQuestion, StreamingAnswer } from '../../lib/chatLogic';
@@ -29,7 +31,12 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
     {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
     {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
-      <Text style={styles.msgText}>{stream.text}</Text>
+      {/* t_e9480e0f 백로그① — 스트리밍 카드 마크다운: 블록 문법 감지 시 ChatMarkdown(streaming=true:
+          미닫힌 ``` fence는 임시 마감 렌더, answer.done 최종 텍스트에서 자연 재파싱).
+          평문/미완답변은 gate false → 기존 &lt;Text&gt; 경로 그대로(회귀 금지). */}
+      {looksLikeChatMarkdown(stream.text)
+        ? <ChatMarkdown content={stream.text} streaming={!stream.done} style={styles.msgText} testID="chat-bubble-stream" />
+        : <Text style={styles.msgText}>{stream.text}</Text>}
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
       <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
     </Surface>)}
