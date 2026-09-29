@@ -381,26 +381,27 @@ export default function ChatScreen({ navigation, route }: Props) {
     const viewport = window.visualViewport;
     if (!viewport) return;
     const update = () => {
-      // t_dee9e982 루트원인: visualViewport.height가 전이 중 0으로 읽히면 inset=innerHeight(844)가 되어
-      // 컨테이너 paddingBottom이 화면 전체 = 채팅이 위로 압축·상단 고정. 0/음수(비정상 전이)는 inset 0 취급.
+      // t_dee9e982 최종 루트원인: inset은 '소프트키보드가 실제로 열렸을 때'에만 존재 의미가 있다.
+      // 포커스가 없는데 vv 값이 전이 프레임(innerHeight 스케일 혼선, vv.height=0 등)으로 읽히면
+      // inset=화면전체(844)가 돼 채팅이 위로 압축·상단고정 — 사용자가 목격한 증상과 정확히 일치.
+      // 게이트: input/textarea focus 중에만 계산, 그 외엔 0. (클램프 ih-150는 focus 중에도 방어)
+      const ae = document.activeElement as HTMLElement | null;
+      const focused = !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+      if (!focused) { setViewportInset(0); return; }
       const h = viewport.height;
-      if (!Number.isFinite(h) || h <= 0) { setViewportInset(0); return; }
-      // 상한=innerHeight-150: 키보드는 물리적으로 화면 전부를 못 먹는다(최소 150px은 남는다).
-      // 전이 프레임(ih=1688/h=844 등 스케일 혼선)의 raw=화면전체 값이 이 클램프로 원천 차단된다.
+      if (!Number.isFinite(h) || h <= 0) return;
       const raw = Math.max(0, window.innerHeight - h - viewport.offsetTop);
       setViewportInset(Math.min(raw, Math.max(0, window.innerHeight - 150)));
     };
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
-    // 핵심: vv만 감시하면 'layout 뷰포트가 먼저 1688로 전이→window resize로 844에 안정'되는 모바일
-    // 초기/탭복원 프레임에서 vv 이벤트 없이 잘못된 inset이 동결된다(v2도 844 잔존의 실제 경로).
-    // window resize/orientationchange를 추가해 최종 프레임에서 항상 재계산한다.
     window.addEventListener('resize', update);
     window.addEventListener('orientationchange', update);
+    document.addEventListener('focusin', update);
+    document.addEventListener('focusout', update);
     update();
-    // 마운트 직전 프레임(브라우저 탭 복원 등)에 vv.height=0이었으면 resize 없이 정상이 될 수 있다 — 1회 지연 재측정.
     const retry = setTimeout(update, 250);
-    return () => { clearTimeout(retry); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); window.removeEventListener('resize', update); window.removeEventListener('orientationchange', update); };
+    return () => { clearTimeout(retry); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); window.removeEventListener('resize', update); window.removeEventListener('orientationchange', update); document.removeEventListener('focusin', update); document.removeEventListener('focusout', update); };
   }, []);
 
   // 후속 질문 칩 전송 (t_1797f432 ③): 입력창 경유 없이 곧바로 send — 실패 시 원문 복원/재시도는 performSend 책임.
