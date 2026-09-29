@@ -29,10 +29,9 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
   return <View>
     {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
     {/* ① (t_5c559e85) streamIdPatch ON: delta는 리스트 인라인 카드(stream-*) content patch로 렌더 —
-        footer 임시 카드는 이중 렌더의 원천이라 그린다 안 된다. OFF 시(플래그/롤백) 이 옛 경로로 복귀.
-        단 done 상태(확정 행 대기 '저장 중')만 예외적으로 남김: 확정 message.new가 같은 turnIndex 행으로
-        자리.replace되어 잔류 카드가 생기지 않게 정리된다. */}
-    {!renderFlags.streamIdPatch && streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
+        footer 임시 카드는 이중 렌더의 원천이라 그리지 않는다(done '저장 중' 상태도 인라인 카드가 소유).
+        OFF 시(플래그/롤백) 이 옛 경로로 복귀. ② 옛 경로에도 동일 contain:layout 적용. */}
+    {!renderFlags.streamIdPatch && streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent, styles.streamContainWeb]} elevation={0}>
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
       <Text style={styles.msgText}>{stream.text}</Text>
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
