@@ -13,7 +13,7 @@
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
-const { openKeyboardIfVoice, waitForChatEntered } = require('./voice_helper.cjs');
+const { openKeyboardIfVoice, waitForChatEntered, backToVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8113';
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:3077';
 const PCM = process.argv[2] || path.join(process.env.HOME, '.hermes/profiles/frontdev/cache/scratch/voice_fixture_ko.pcm');
@@ -195,6 +195,37 @@ function pcmToWav(pcm, rate = 16000) {
       check('C1 예 탭', false, '두 번째 재질문 버튼 행 미노출');
       check('C2 ack 결과 카드 숨김', false, '전제 실패');
     }
+
+    // ── F. 조이스틱 좌=예 (재질문 활성 시에만, #324) — 라이브 게이트 실측 ──
+    // 재질문 버튼 활성 창(2.5s) 안에 B→A 복귀 후 스트립 좌드래그 릴리스 → '예' 발화 1회.
+    let fj = 0; let fOk = false;
+    for (; fj < 2 && !fOk; fj++) {
+      await openKeyboardIfVoice(page); // 실패 재시작 시 A layers 잔존 대비
+      await page.getByTestId('chat-input').fill(`조이스틱-프루브${fj} 이번 주 보고서 요약해줄래?`);
+      await page.getByTestId('send-button').click();
+      const chips3 = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 300000 }).then(() => true).catch(() => false);
+      if (!chips3) { check('F 조이스틱 좌=예(재질문 활성)', false, `#${fj + 1} 재질문 행 미노출`); break; }
+      const beforeF = posts.length; const cardsF = await page.getByTestId('message-user').count();
+      await backToVoice(page); // B→A — 스테이지 활성(ackActive) 상태에서 좌 끝 릴리스
+      const fb = await page.getByTestId('voice-stage').boundingBox();
+      const fx = fb.x + fb.width / 2, fy = fb.y + fb.height / 2;
+      await page.mouse.move(fx, fy);
+      await page.mouse.down();
+      for (let i = 1; i <= 6; i++) { await page.mouse.move(fx - i * 22, fy); await sleep(25); } // 순수 좌방향(탈출 아님)
+      await page.mouse.up();
+      await sleep(1000);
+      const newF = posts.slice(beforeF);
+      fOk = newF.length === 1 && newF[0] === '예';
+      if (fOk) {
+        const cardsAfterF = await page.getByTestId('message-user').count();
+        check('F1 재질문 활성 중 좌 드래그 릴리스 → 예 발화 1회', fOk, `posts=${JSON.stringify(newF)}`);
+        check('F2 조이스틱 ack 결과 user 카드 미렌더', cardsAfterF <= cardsF, `before=${cardsF} after=${cardsAfterF}`);
+        await page.screenshot({ path: path.join(OUT, 'F-joystick-yes.png') });
+      } else {
+        check(`F 조이스틱 좌=예(재질문 활성) 재시도`, false, `#${fj + 1} posts=${JSON.stringify(newF)} (2.5s 창 내 이동 실패/send 혼입 가능)`);
+      }
+    }
+    await openKeyboardIfVoice(page);
 
     // ── E. QUIET_PROGRESS — 타이핑 점 3개(문구 없음) ──
     await page.getByTestId('chat-input').fill(` QUIET 프루브 ${stamp}`);
