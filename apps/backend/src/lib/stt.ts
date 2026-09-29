@@ -106,6 +106,11 @@ export interface TranscribeResult {
   service: 'openai' | 'mock' | 'local';
 }
 
+/** DEV/mock 전사 고정 문장 (키·사이드카 부재 폴백). 실DB 오염 감사의 단일 식별 키 —
+ *  t_5cba9ebb 3항: user 행 content=이 문장 & stt_metadata.service='mock' → 메타 교정 대상.
+ *  스크립트가 문자열 재하드코딩 대신 여기서 import한다 (드리프트 방지). */
+export const MOCK_STT_PHRASE = '안녕하세요, 오늘 할 일을 정리해 주세요.';
+
 /**
  * 로컬 faster-whisper large-v3-turbo 사이드카 전사 (t_1c7be18c).
  * raw PCM s16le 버퍼를 그대로 POST — 사이드카가 16k mono로 해석한다.
@@ -173,7 +178,7 @@ export async function transcribeAudio(data: Buffer): Promise<TranscribeResult> {
   if (!client) {
     const signal = hasVoiceActivity(data);
     return {
-      text: signal ? '안녕하세요, 오늘 할 일을 정리해 주세요.' : '',
+      text: signal ? MOCK_STT_PHRASE : '',
       confidence: signal ? 0.92 : 0,
       language: 'ko',
       durationMs,
