@@ -28,8 +28,11 @@ describe('공유 턴 실행', () => {
     expect(new Set(results.map(r => r.turnId)).size).toBe(3);
     for (const r of results) {
       const own = events.filter((e: any) => e.run_id === r.turnId) as any[];
-      expect(own[0].type).toBe('run.started');
-      expect(own[1].type).toBe('run.progress');
+      // ⑤ 이벤트 순서 계약 (t_3486b1d7): user 카드 → run.started → run.progress 순.
+      expect(own[0].type).toBe('message.new');
+      expect(own[0].message.role).toBe('user');
+      expect(own[1].type).toBe('run.started');
+      expect(own[2].type).toBe('run.progress');
       expect(own.at(-1).type).toBe('run.completed');
       expect(own.at(-2).type).toBe('answer.done');
       expect(r.messages.answer?.content).toBe(r.answerResponse);

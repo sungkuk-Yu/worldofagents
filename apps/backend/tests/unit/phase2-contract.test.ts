@@ -121,7 +121,9 @@ it('WS 저장 실패는 반드시 failed로 종료된다', async () => {
   });
   try {
     await send({ type: 'message.send', session_id: session.id, content: '질문?' });
-    expect(socket.events.filter(e => e.type.startsWith('run.')).map(e => e.type)).toEqual(['run.started', 'run.progress', 'run.failed']);
+    // ⑤ (t_3486b1d7): run.started는 user 저장 성공 후(onRunReady) 발행 — 저장 실패 시 run.started 없이
+    // finally의 thinking 진행도 + run.failed로 종료(실패 종료 계약은 유지).
+    expect(socket.events.filter(e => e.type.startsWith('run.')).map(e => e.type)).toEqual(['run.progress', 'run.failed']);
   } finally { spy.mockRestore(); }
 });
 

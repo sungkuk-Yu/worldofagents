@@ -33,7 +33,7 @@ export type ClientMessage =
 
 // 서버 → 클라이언트 (error/session.error/run.failed의 message는 폴백, code로 프론트 i18n 번역)
 export type ServerMessage =
-  | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage }
+  | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage; user_message_id?: string; source_message_id?: string | null }
   | { type: 'run.started'; session_id: string; run_id: string; seq?: number; quip: string }
   | { type: 'run.progress'; session_id: string; run_id: string; seq?: number; stage: 'thinking' | 'organizing' | 'finalizing' | 'rendering'; quip: string }
   | { type: 'run.completed'; structured?: { dialogue_type: DialogueCardType; structured_payload: Record<string, unknown> }; classifier?: { type: DialogueType; stage: 1 | 2 | 3; confidence: number }; session_id: string; run_id: string; seq?: number; message_ids: { user: string; empathy: string | null; answer: string | null }; llm: { used: boolean; model: string | null; fallback: boolean }; grounding?: GroundingSummary | null }

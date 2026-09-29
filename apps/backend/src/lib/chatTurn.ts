@@ -101,14 +101,11 @@ export async function runTextTurn(
       const text = relayCurtain.advance(stage);
       if (text !== null) opts.emit({ type: 'relay.updated', ...base, stage, quip: text });
     };
-    opts.emit({ type: 'run.started', ...base, quip: quip('started') });
-    // ① 짧은 확인음 (t_344e047a, 대표님 9/28 정정): 공감 복명복창을 대체하는 "예/아니오"
-    // 수준 확인음을 접수 직후 run.progress(stage=thinking, 계약 코드 유지)로 내보낸다.
-    // 공감 노드는 계속 동작하며(생성·neuron.status·DB 기록 유지), UI 노출만 최소화한다.
-    // lastStage 선점: empathy 노드의 thinking 전환과 동일 stage 코드이므로 dedup되어
-    // ack 확인음이 thinking 진행도 1회를 대체한다 (run.started→run.progress(ack)→…계약, t_344e047a).
-    lastStage = 'thinking';
-    opts.emit({ type: 'run.progress', ...base, stage: 'thinking', quip: quip('ack') });
+    // ⑤ 이벤트 순서 계약 (t_3486b1d7, 김비서 9/29 A2A): user 카드 → run.started 순.
+    // processTurn이 user 저장 직후 onUserCreated/onRunReady를 콜백하므로
+    // run.started를 processTurn 호출 후(기존)가 아니라 콜백 내부에서 emit한다.
+    // quip fake-timer 테스트 계약(run.started 이전 await 금지)은 콜백 순서로 만족.
+    let userMessageId: string | null = null;
     const result = await processTurn(db, session.id, userId, session.agent_id, persona ? rowToPersonaConfig(persona) : null, content, {
       turnId,
       locale,
@@ -120,6 +117,19 @@ export async function runTextTurn(
       clientReqId: opts.clientReqId ?? null,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
+      // ⑤ user 카드 사전 emit — run.started 이전에 message.new user 발행.
+      onUserCreated: userRow => {
+        userMessageId = userRow.id;
+        opts.emit({ type: 'message.new', ...base, message: serializeMessage(userRow), user_message_id: userRow.id });
+      },
+      // ⑤ run.started emit — user 카드 직후.
+      onRunReady: () => {
+        opts.emit({ type: 'run.started', ...base, quip: quip('started') });
+        // ① 짧은 확인음 (t_344e047a, 대표님 9/28 정정): 공감 복명복창을 대체하는 "예/아니오"
+        // 수준 확인음을 접수 직후 run.progress(stage=thinking, 계약 코드 유지)로 내보낸다.
+        lastStage = 'thinking';
+        opts.emit({ type: 'run.progress', ...base, stage: 'thinking', quip: quip('ack') });
+      },
       onTurnStatus: (status, extra) => {
         // 완료/실패는 확정 메시지 발행 이후 이 실행기에서 한 번만 전송한다.
         if (status !== 'processing') return;
@@ -158,10 +168,12 @@ export async function runTextTurn(
         };
       })(),
     });
-    for (const message of [result.messages.user, result.messages.empathy, result.messages.answer]) {
+    // ⑤ empathy/answer만 emit (user는 onUserCreated에서 사전 발행함).
+    // source_message_id (김비서 9/29 A2A): persona line은 user_message_id를 태워 프론트 id-set dedupe.
+    for (const message of [result.messages.empathy, result.messages.answer]) {
       // serializeMessage: devstore 기본값 미충족·011 이전 행의 awaiting_reply를 false로 정규화
       // (WS message.new = REST 히스토리 동일 형상 계약).
-      if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message) });
+      if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message), source_message_id: userMessageId });
     }
     // 비서실 마무리·종료 비트 — 커튼이 단조 증가만 허용하므로 visual이 먼저 'wrapping'을 받은
     // 턴은 dedup된다. run.completed는 항상 마지막 이벤트로 남긴다(phase2-contract 계약).

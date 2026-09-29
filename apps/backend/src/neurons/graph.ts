@@ -136,6 +136,10 @@ export interface ProcessTurnOptions {
   clientReqId?: string | null;
   /** 짧은 확인음 노출 후 답변 시작 전 대기(ms) — 대표님 9/28 ①. 생략 시 config.answerLeadMs. */
   answerLeadMs?: number;
+  /** ⑤ user 카드 사전 emit (t_3486b1d7, 김비서 9/29 A2A): 저장 직후 콜백 → chatTurn이 run.started보다 먼저 message.new user를 브로드캐스트. */
+  onUserCreated?(userRow: MessagesRow): void;
+  /** ⑤ run.started emit 타이밍 (t_3486b1d7): user 카드 emit 직후 콜백. chatTurn이 여기서 run.started를 발행해 이벤트 순서 계약 충족. */
+  onRunReady?(): void;
 }
 
 export interface TurnResult {
@@ -962,6 +966,10 @@ export async function processTurn(
         ({ data: msgUser, error: errUser } = await saveUser());
       }
       if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
+      // ⑤ user 카드 사전 emit (t_3486b1d7, 김비서 9/29 A2A): chatTurn이 run.started보다 먼저 message.new user를 브로드캐스트한다.
+      opts.onUserCreated?.(msgUser as MessagesRow);
+      // ⑤ run.started emit 타이밍: user 카드 직후 콜백. chatTurn이 여기서 run.started를 발행.
+      opts.onRunReady?.();
       // 첨부 링크 (t_401c5bd1): LLM 호출 전에 실패시켜 비용을 물리지 않는다. 소유권/이중링크 검증은 공유 lib.
       let linkedAttachments: { url: string; mime: string }[] = [];
       if (opts.attachmentIds?.length) {
