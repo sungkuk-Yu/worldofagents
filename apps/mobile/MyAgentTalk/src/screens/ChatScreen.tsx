@@ -380,11 +380,19 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const update = () => setViewportInset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+    const update = () => {
+      // t_dee9e982 루트원인: visualViewport.height가 전이 중 0으로 읽히면 inset=innerHeight(844)가 되어
+      // 컨테이너 paddingBottom이 화면 전체 = 채팅이 위로 압축·상단 고정. 0/음수(비정상 전이)는 inset 0 취급.
+      const h = viewport.height;
+      if (!Number.isFinite(h) || h <= 0) { setViewportInset(0); return; }
+      setViewportInset(Math.max(0, window.innerHeight - h - viewport.offsetTop));
+    };
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
     update();
-    return () => { viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); };
+    // 마운트 직전 프레임(브라우저 탭 복원 등)에 vv.height=0이었으면 resize 없이 정상이 될 수 있다 — 1회 지연 재측정.
+    const retry = setTimeout(update, 250);
+    return () => { clearTimeout(retry); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); };
   }, []);
 
   // 후속 질문 칩 전송 (t_1797f432 ③): 입력창 경유 없이 곧바로 send — 실패 시 원문 복원/재시도는 performSend 책임.
