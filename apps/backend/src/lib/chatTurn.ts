@@ -14,7 +14,7 @@ import { ApiError } from './errors';
 import { serializeMessage } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
-import { findExistingByClientReqId } from './idempotency';
+import { findExistingByClientReqId, normalizeClientReqId } from './idempotency';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
 
@@ -110,9 +110,15 @@ export async function runTextTurn(
     // 만들지 않고 기존 user 행을 돌려준다(프론트는 같은 카드를 in-place 유지). insert의
     // 유니크 인덱스(013)가 2차 방패 — 레이스로 뚫리면 graph가 CONFLICT로 마감한다.
     // run.started 이전 위치: quip fake-timer 이벤트 순서 계약 보존(추가 이벤트 0건으로 종료).
-    const prior = await findExistingByClientReqId(db, session.id, opts.clientReqId ?? null);
+    // 정규화(trim/≤64자)는 사전 조회와 user 행 stamp가 반드시 같은 키를 쓰도록 단일 지점에서.
+    const clientReqId = normalizeClientReqId(opts.clientReqId ?? null);
+    const prior = await findExistingByClientReqId(db, session.id, clientReqId);
     if (prior) {
       completed = true; // finally의 run.failed 보장·드레인 트리거 우회 (턴을 실행한 적 없음)
+      // ② clientId reconcile 에코 (t_3486b1d7, 프론트 전제조건 코멘트 #198): 같은 client_req_id의
+      // message.new을 재발행 — message_id는 기존 행 유지(낙관적 카드와 같은 ID), deduped:true로
+      // '재전송이었음'을 표시. 프론트는 pending→sent 확정 + (없던 재시작 세션은) 카드 재생성.
+      opts.emit({ type: 'message.new', ...base, message: serializeMessage(prior), user_message_id: prior.id, deduped: true });
       return buildDedupedResult(prior);
     }
     // 세션 제목 자동 채움 (t_cc52fd4f ③, 대표님 9/28): 첫 사용자 메시지 요약 — 캐논 title
@@ -150,7 +156,19 @@ export async function runTextTurn(
     // run.started를 processTurn 호출 후(기존)가 아니라 콜백 내부에서 emit한다.
     // quip fake-timer 테스트 계약(run.started 이전 await 금지)은 콜백 순서로 만족.
     // 페르소나 보이스 버스(t_5cba9ebb main)의 ack/침묵-fill은 onRunReady 안에서 발행한다.
+    // 롤백 게이트 (USER_CARD_FIRST=false): 콜백을 미등록하면 processTurn이 아무것도 emit하지
+    // 않고, 아래 post-processTurn 경로(run.started → user/empathy/answer 카드)로 484eec2f
+    // 베이스의 이벤트 순서·개수와 1:1 복귀한다.
+    const cardFirst = config.protocol.userCardFirst;
     let userMessageId: string | null = null;
+    if (!cardFirst) {
+      // 롤백 경로: ⑤ 이전 형상 — processTurn 호출 전 run.started+ack 버스.
+      opts.emit({ type: 'run.started', ...base, quip: quip('started') });
+      voice.ack();
+      silenceFill = setTimeout(() => voice.stage('research'), PERSONA_SILENCE_FILL_MS);
+      lastStage = 'thinking';
+      opts.emit({ type: 'run.progress', ...base, stage: 'thinking', quip: quip('ack') });
+    }
     const result = await processTurn(db, session.id, userId, session.agent_id, persona ? rowToPersonaConfig(persona) : null, content, {
       turnId,
       locale,
@@ -158,19 +176,19 @@ export async function runTextTurn(
       signal: abort.signal,
       sttMetadata: opts.sttMetadata,
       attachmentIds: opts.attachmentIds,
-      // random_id 멱등 — 013 적용+플래그 on 시에만 user 행에 stamp.
-      clientReqId: opts.clientReqId ?? null,
+      // random_id 멱등 — 013 적용+플래그 on 시에만 user 행에 stamp (정규화는 runTextTurn 단일 지점).
+      clientReqId,
       // 답글 인용 (t_02f58030): 존재+같은 세션 검증은 processTurn 내부 — invalid 무시, 발화 통과.
       replyToId: opts.replyToId,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
-      // ⑤ user 카드 사전 emit — run.started 이전에 message.new user 발행.
-      onUserCreated: userRow => {
+      // ⑤ user 카드 사전 emit — run.started 이전에 message.new user 발행 (cardFirst일 때만).
+      onUserCreated: cardFirst ? (userRow => {
         userMessageId = userRow.id;
         opts.emit({ type: 'message.new', ...base, message: serializeMessage(userRow), user_message_id: userRow.id });
-      },
-      // ⑤ run.started emit — user 카드 직후.
-      onRunReady: () => {
+      }) : undefined,
+      // ⑤ run.started emit — user 카드 직후 (cardFirst일 때만).
+      onRunReady: cardFirst ? () => {
         opts.emit({ type: 'run.started', ...base, quip: quip('started') });
         // 페르소나 첫 발화 (≤2s SLA — 볼트 리서치 2항): 접수 ack을 한 줄로 낸다.
         // run.progress(ack)는 하위 호환으로 유지, 프론트는 persona.line만 렌더한다.
@@ -183,7 +201,7 @@ export async function runTextTurn(
         // ack 확인음이 thinking 진행도 1회를 대체한다 (run.started→run.progress(ack)→…계약, t_344e047a).
         lastStage = 'thinking';
         opts.emit({ type: 'run.progress', ...base, stage: 'thinking', quip: quip('ack') });
-      },
+      } : undefined,
       onTurnStatus: (status, extra) => {
         // 완료/실패는 확정 메시지 발행 이후 이 실행기에서 한 번만 전송한다.
         if (status !== 'processing') return;
@@ -229,12 +247,14 @@ export async function runTextTurn(
         };
       })(),
     });
-    // ⑤ empathy/answer만 emit (user는 onUserCreated에서 사전 발행함).
+    // ⑤ empathy/answer만 emit (user는 onUserCreated에서 사전 발행함). cardFirst off면 user 포함
+    // 484eec2f 베이스 순서(run.started→user→empathy→answer)로 복귀.
     // source_message_id (김비서 9/29 A2A): persona line은 user_message_id를 태워 프론트 id-set dedupe.
-    for (const message of [result.messages.empathy, result.messages.answer]) {
+    // cardFirst off에서는 필드 자체를 생략(베이스와 이벤트 페이로드 1:1 동일 계약).
+    for (const message of cardFirst ? [result.messages.empathy, result.messages.answer] : [result.messages.user, result.messages.empathy, result.messages.answer]) {
       // serializeMessage: devstore 기본값 미충족·011 이전 행의 awaiting_reply를 false로 정규화
       // (WS message.new = REST 히스토리 동일 형상 계약).
-      if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message), source_message_id: userMessageId });
+      if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message), ...(cardFirst ? { source_message_id: userMessageId } : {}) });
     }
     // 비서실 마무리·종료 비트 — 커튼이 단조 증가만 허용하므로 visual이 먼저 'wrapping'을 받은
     // 턴은 dedup된다. run.completed는 항상 마지막 이벤트로 남긴다(phase2-contract 계약).
@@ -364,6 +384,9 @@ export function textTurnResponse(result: TurnResult) {
     llm: result.llm,
     structured: result.structured,
     messages: result.messages,
+    // ① random_id 멱등 — 재전송 dedupe 응답 표시 (프론트는 user_message_id로 카드 in-place 유지,
+    // deduped:true면 새 run으로 취급하지 않는다). 정상 실행은 항상 false/undefined.
+    deduped: 'deduped' in result && result.deduped === true,
     user_message_id: result.userMessageId,
     empathy_message_id: result.empathyMessageId,
     answer_message_id: result.answerMessageId,

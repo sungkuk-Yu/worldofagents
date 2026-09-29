@@ -280,14 +280,15 @@ export class DevQueryBuilder implements PromiseLike<QueryResult> {
     const now = new Date().toISOString();
     // reply_to_id 기본 null = 실DB 012 ADD COLUMN DEFAULT NULL (t_02f58030) — insert 생략 행도
     // 컬럼을 가져 serializeMessage의 ?? null 정규화와 일치한다 (awaiting_reply 동일 관례).
-    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, reply_to_id: null, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    // client_req_id 기본 null = 실DB 013 ADD COLUMN (t_3486b1d7 ①②) — 같은 관례.
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, reply_to_id: null, client_req_id: null, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
   }
 
   upsert(values: DevRow | DevRow[], opts?: { onConflict?: string }): DevQueryBuilder {
     const rows = Array.isArray(values) ? values : [values];
     const now = new Date().toISOString();
-    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, reply_to_id: null, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+    const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, reply_to_id: null, client_req_id: null, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
     return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
   }
 
