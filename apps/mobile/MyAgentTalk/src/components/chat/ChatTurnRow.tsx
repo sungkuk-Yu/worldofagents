@@ -12,7 +12,7 @@ import { TickFailedIcon, TickPendingIcon, TickSentIcon } from '../Icon';
 import { renderFlags } from '../../lib/renderFlags';
 import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
-import type { ChatMessage, QueueItem, TurnGroup } from '../../lib/chatLogic';
+import type { ChatMessage, QueueItem, SenderGroupFlag, TurnGroup } from '../../lib/chatLogic';
 import type { CardActionHandlers } from '../../cards/types';
 
 interface Props {
@@ -30,7 +30,8 @@ interface Props {
   presetCategory?: string;
   canFork: boolean;
   agentName: string;
-  firstAgentMessageId: string | undefined;
+  /** t_55b7e30c 연속 발화 그룹핑: 메시지 id별 헤더(이름 재출력)/continuation(좌 오프셋) 플래그 */
+  senderFlags: Map<string, SenderGroupFlag>;
   sessionTitle: string;
   isDemo: boolean;
   queue: QueueItem[];
@@ -43,7 +44,7 @@ interface Props {
 
 export default function ChatTurnRow({
   group, timeLabel, highlightId, ackChipId, hiddenAckIds, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
-  firstAgentMessageId, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
+  senderFlags, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
 }: Props) {
   const { t } = useTranslation();
   return <View>
@@ -53,19 +54,26 @@ export default function ChatTurnRow({
       // 재질문 뒤 '예'/'아니요' 발화(user 행)는 렌더 제외 — 전송·게이트 판정은 정상 진행, 화면만 숨김.
       .filter((message) => !hiddenAckIds?.has(message.id))
       .map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
-      {/* t_64af90b0 #3 — 에이전트명 헤더는 대화의 첫 에이전트 메시지만 노출, 이후 생략 (Linear/Slack식).
+      {/* t_55b7e30c 백로그③ (텔레그램/Slack 관습) — 발신자 헤더(이름)는 발화 그룹 시작마다 재출력:
+          role 전환 / agentId 변경 / 60초 초과 시에만 노출, 같은 그룹 연속 카드는 생략 + 좌 오프셋으로
+          묶음 시각화. t_64af90b0 #3의 '첫 에이전트 메시지만 노출'을 대체 (다중 에이전트·릴레이 판별 불가 해결).
           다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
-      {selectionActive
-        ? <TouchableOpacity
-          onPress={() => onToggleSelect(message.id)}
-          style={selectedIds.includes(message.id) ? styles.selectedRow : undefined}
-          testID={`select-${message.id}`}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: selectedIds.includes(message.id) }}
-        >
-          <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />
-        </TouchableOpacity>
-        : <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={message.id === firstAgentMessageId} sessionTitle={sessionTitle} exportDisabled={isDemo} />}
+      {(() => {
+        const flag = senderFlags.get(message.id);
+        const showHeader = message.role !== 'agent' ? true : flag?.header ?? true;
+        const card = <CardFrame presetCategory={presetCategory} canFork={canFork} message={decorate(message)} handlers={handlers} agentName={agentName} showHeader={showHeader} senderName={message.senderName} continuation={flag?.continuation === true} sessionTitle={sessionTitle} exportDisabled={isDemo} />;
+        return selectionActive
+          ? <TouchableOpacity
+            onPress={() => onToggleSelect(message.id)}
+            style={selectedIds.includes(message.id) ? styles.selectedRow : undefined}
+            testID={`select-${message.id}`}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: selectedIds.includes(message.id) }}
+          >
+            {card}
+          </TouchableOpacity>
+          : card;
+      })()}
       {message.role === 'user' && <View style={styles.userMetaRow}>
         {/* ⑤ 전송 ticks (t_5c559e85, Telegram/Signal 규범): 시계(pending)→체크(sent=서버 ID 획득)→(!)+탭 재전송(failed).
             플래그 off = 기존 텍스트 라벨 경로로 복귀. failed는 아래 재시도/삭제 행과 무관하게 늘 탭 가능해야 한다(조용한 삭제 금지). */}

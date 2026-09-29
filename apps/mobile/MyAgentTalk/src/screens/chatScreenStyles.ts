@@ -121,6 +121,8 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderColor: colors.border,
   },
+  // t_55b7e30c 연속 발화 그룹 지속 중의 스트리밍 카드 — 본문 카드 groupContinuation과 같은 좌 오프셋
+  msgCardContinuation: { marginLeft: spacing.sp3 },
   msgHeader: {
     flexWrap: 'wrap',
     flexDirection: 'row',

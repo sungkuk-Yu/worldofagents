@@ -3,8 +3,9 @@
 .env.local
 .env.*.local
 
-# Dependencies
-node_modules/
+# dependencies
+node_modules
+node_modules*/
 
 # Build outputs
 dist/
