@@ -11,7 +11,7 @@ import { config } from '../../src/config';
 import { createDevClient, createStore } from '../../src/lib/devstore';
 import {
   buildContextDigest, bridgeFallbackText, BridgeError, extractReplyText, isAntiLoopRejection,
-  isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, stripReasoningBlock,
+  isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, stripReasoningBlock, TONE_KIT_MARKER,
 } from '../../src/lib/secretaryBridge';
 import { DbClient } from '../../src/lib/supabase';
 
@@ -122,7 +122,11 @@ describe('② 왕복·연속성', () => {
     const body = JSON.parse(String(init.body));
     expect(body.method).toBe('message/send');
     expect(body.params.message.role).toBe('ROLE_USER');
-    expect(body.params.message.parts[0].text).toBe('오늘 일정 알려줘');
+    // t_5cba9ebb 1항: 새 컨텍스트 첫 발화에는 텔레그램 화법 톤 키트가 선행 주입되고
+    // 원 발화는 맨 마지막에 원형 그대로 이어붙는다 (본문 변형 금지).
+    const sent = String(body.params.message.parts[0].text);
+    expect(sent.startsWith(TONE_KIT_MARKER)).toBe(true);
+    expect(sent.endsWith('오늘 일정 알려줘')).toBe(true);
     expect(body.params.message.contextId).toBeUndefined(); // 첫 턴은 컨텍스트 없음
 
     await vi.waitFor(async () => {

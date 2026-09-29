@@ -99,9 +99,17 @@ async function main() {
   check('턴1 로컬 템플릿 오염 없음', !answer.includes('정리해드렸어요'), '');
   if (isFallback) {
     skip('턴1 김비서 실 회신 내용', '브리지 폴백 문장 — 실 응답 지연/미구동. 왕복 자체는 성립');
+    skip('턴1 화법: 길이 상한', '폴백 문장에서는 화법 검사 무의미');
+    skip('턴1 화법: 목록 금지', '폴백 문장에서는 화법 검사 무의미');
   } else {
     check('턴1 김비서 회신(원문)', answer.includes('브리지 왕복 확인') || answer.length > 0, answer.slice(0, 60));
     check('턴1 reasoning 잔여물 없음', !answer.includes('Reasoning'), '');
+    // t_5cba9ebb 4항 — 화법 검사 2건 (실측 불만: "톤이 지시접수 PM체 — 장문·목록·'알려주세요'"):
+    // 단순 확인 발화에 대한 회신은 텔레그램 김비서처럼 짧고 평문이어야 한다.
+    // 상한은 회선 오버헤드 여지를 둔 관대한 1200자 (톤 키트가 실 gateway 프롬프트에 반영되는지 체감 검증).
+    check('턴1 화법: 길이 상한 (≤1200자)', answer.length <= 1200, `len=${answer.length}`);
+    const bulletLines = answer.split('\n').filter(l => /^\s*([-*•]|\d+[.)])\s/.test(l)).length;
+    check('턴1 화법: 단순 발화에 글머리/번호 목록 없음', bulletLines <= 1, `bullets=${bulletLines}`);
   }
 
   // 컨텍스트 영속 + 턴 2 연속성
