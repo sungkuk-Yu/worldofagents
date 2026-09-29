@@ -354,10 +354,12 @@ export async function sessionRoutes(app: FastifyInstance) {
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     if (session.status === 'archived') throw new ApiError(ERROR_CODES.SESSION_ARCHIVED, '아카이브된 세션에는 메시지를 보낼 수 없습니다.');
 
-    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[] };
+    const body = request.body as { content?: string; message_type?: string; attachments?: unknown[]; stt_metadata?: Record<string, unknown>; attachment_ids?: string[]; client_req_id?: string };
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
     const attachmentIds = parseAttachmentIds(body);
+    // random_id 멱등 (t_3486b1d7 ①): send 프레임/REST body의 client_req_id로 재전송 중복 생성 차단.
+    const clientReqId = typeof body.client_req_id === 'string' && body.client_req_id ? body.client_req_id : null;
 
     // 요구① (t_c31e3f45): Enter+전송 버튼 동시 탭 등 짧은 창 동일 content 재발송 드롭 —
     // 재현 실측(9/29): 100ms 간격 동일 POST 2회 → 1개는 실행 중 끼어들기로 큐 적재,
@@ -384,6 +386,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       locale: parseAcceptLanguage(request.headers['accept-language']),
       sttMetadata: body.stt_metadata || null,
       attachmentIds,
+      clientReqId,
       emit: e => broadcastToSession(session.id, e),
     });
 

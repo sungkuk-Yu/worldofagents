@@ -358,7 +358,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             }
           }
           // 종료 상태는 공유 실행기의 finally에서 보장한다.
-          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), emit: e => broadcastToSession(session!.id, e) });
+          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), clientReqId: message.client_req_id ?? null, emit: e => broadcastToSession(session!.id, e) });
           break;
         }
 

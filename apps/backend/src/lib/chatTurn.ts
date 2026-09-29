@@ -6,23 +6,30 @@ import { registerRun, hasActiveRun } from '../websocket/eventlog';
 import { randomUUID } from 'node:crypto';
 import { DbClient } from './supabase';
 import { assertAttachmentsOwned } from './attachments';
-import { SessionsRow } from '../types/db';
+import { SessionsRow, MessagesRow } from '../types/db';
 import { processTurn, TurnResult, NeuronStage, ProcessTurnOptions } from '../neurons/graph';
 import { rowToPersonaConfig } from './persona';
 import { ApiError } from './errors';
 import { serializeMessage } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
+import { findExistingByClientReqId } from './idempotency';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
 
 export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' }>;
 
+/** 텍스트 전송 턴의 멱등 재사용 결과 (t_3486b1d7 ①): 같은 client_req_id 재전송이 사전 조회로
+ *  기존 user 행을 찾았을 때의 반환형. deduped=true면 턴을 실행하지 않았다(추가 이벤트 0건). */
+export interface IdempotentTurnResult extends TurnResult {
+  deduped: true;
+}
+
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
   db: DbClient, session: SessionsRow, userId: string, content: string,
-  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; answerLeadMs?: number; emit: (e: TurnEmitEvent) => void }
-): Promise<TurnResult> {
+  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; answerLeadMs?: number; clientReqId?: string | null; emit: (e: TurnEmitEvent) => void }
+): Promise<TurnResult | IdempotentTurnResult> {
   const locale = opts.locale ?? config.defaultLocale;
   const turnId = randomUUID();
   const base = { session_id: session.id, run_id: turnId };
@@ -54,6 +61,16 @@ export async function runTextTurn(
   try {
     if (session.user_id !== userId) throw new ApiError('FORBIDDEN', '세션 소유자만 메시지를 보낼 수 있습니다.');
     if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션입니다.');
+    // random_id 멱등 사전 조회 (t_3486b1d7 ①, core.telegram.org/method/messages.sendMessage):
+    // 재연결·재전송으로 같은 client_req_id가 다시 들어오면 run 이벤트·user/answer 행을 추가로
+    // 만들지 않고 기존 user 행을 돌려준다(프론트는 같은 카드를 in-place 유지). insert의
+    // 유니크 인덱스(012)가 2차 방패 — 레이스로 뚫리면 graph가 CONFLICT로 마감한다.
+    // run.started 이전 위치: quip fake-timer 이벤트 순서 계약 보존(추가 이벤트 0건으로 종료).
+    const prior = await findExistingByClientReqId(db, session.id, opts.clientReqId ?? null);
+    if (prior) {
+      completed = true; // finally의 run.failed 보장·드레인 트리거 우회 (턴을 실행한 적 없음)
+      return buildDedupedResult(prior);
+    }
     // 세션 제목 자동 채움 (t_cc52fd4f ③, 대표님 9/28): 첫 사용자 메시지 요약 — 캐논 title
     // 컬럼·metadata.title 모두 비어 있는 세션에만, WHERE title IS NULL 가드로 원-라운드트립
     // 선착 세팅(동시 첫 턴 레이스 안전). 실패해도 턴을 오염시키지 않는다(목록은 폴백 규칙 유지).
@@ -99,6 +116,8 @@ export async function runTextTurn(
       signal: abort.signal,
       sttMetadata: opts.sttMetadata,
       attachmentIds: opts.attachmentIds,
+      // random_id 멱등 — 012 적용+플래그 on 시에만 user 행에 stamp.
+      clientReqId: opts.clientReqId ?? null,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
       onTurnStatus: (status, extra) => {
@@ -214,6 +233,34 @@ export async function drainSessionQueue(
   }
 }
 
+
+/** 멱등 재사용 응답 조립 (t_3486b1d7 ①) — 재실행 없이 기존 user 행으로 TurnResult 형상을 만든다.
+ *  실행 이력이 없는 재구성이라 llm/structured/events는 중립값; 프론트는 user_message_id와
+ *  messages.user만 읽는다 (deduped 플래그로 REST/WS 모두 새 run으로 취급하지 않는다). */
+function buildDedupedResult(prior: MessagesRow): IdempotentTurnResult {
+  return {
+    deduped: true,
+    turnId: prior.id,
+    llm: { used: false, model: null, fallback: false },
+    messages: { user: prior, empathy: null, answer: null },
+    userMessageId: prior.id,
+    empathyMessageId: null,
+    answerMessageId: null,
+    empathyResponse: null,
+    answerResponse: prior.content,
+    structured: { dialogue_type: 'text', structured_payload: (prior.structured_payload ?? {}) as Record<string, unknown>, classifier: 'rules' },
+    suggestedQuestions: [],
+    replyRequest: null,
+    dialogueType: 'information',
+    dialogueStage: 3,
+    dialogueConfidence: 0,
+    grounding: null,
+    activationPlan: { activate: [], reason: 'idempotent-replay', dialogueType: 'information' },
+    events: [],
+    guardPassed: true,
+    engine: 'simple',
+  };
+}
 
 /** 텍스트 전송 REST 응답을 스레드와 일반 대화에서 공유한다. */
 export function textTurnResponse(result: TurnResult) {

@@ -24,6 +24,7 @@ import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
+import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
@@ -131,6 +132,8 @@ export interface ProcessTurnOptions {
   sttMetadata?: Record<string, unknown> | null;
   /** 첨부 링크 (t_401c5bd1): 사용자 메시지 저장 후 messages_attachments에 링크할 ID 목록. */
   attachmentIds?: string[];
+  /** random_id 멱등 (t_3486b1d7 ①, migration 012): user 행에 stamp. 012 미적용/플래그 off 시 컬럼 미접촉. */
+  clientReqId?: string | null;
   /** 짧은 확인음 노출 후 답변 시작 전 대기(ms) — 대표님 9/28 ①. 생략 시 config.answerLeadMs. */
   answerLeadMs?: number;
 }
@@ -915,6 +918,9 @@ export async function processTurn(
       let nextTurn = await getNextTurn();
 
       // 사용자 메시지 저장
+      // userCols(처음 포착): 진입 시 스탬프 시도 여부 — 래치 판정 가드용.
+      // insert 안에서는 매 시도 재계산: 래치 on 후 재시도에서 컬럼이 실제 제외되게.
+      const userCols = clientReqColumns(opts.clientReqId ?? null);
       const saveUser = () => db
         .from('messages')
         .insert({
@@ -934,11 +940,23 @@ export async function processTurn(
           attachments: [],
           persona_guard: {},
           user_feedback: null,
+          ...clientReqColumns(opts.clientReqId ?? null),
         })
         .select()
         .single();
 
       let { data: msgUser, error: errUser } = await saveUser();
+      // client_req 유니크 충돌(t_3486b1d7 ①) = 사전 조회를 뚫고 들어온 재전송 레이스 —
+      // turn_index 충돌 리트라이로 삼키면 중복 user 행이 영속된다. 즉시 CONFLICT로 마감.
+      if (errUser && isClientReqConflict(errUser)) {
+        throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
+      }
+      // 012 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
+      // 래치 후 컬럼 없이 1회 재시도 (008/011 관례).
+      if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
+        markIdempotencyColumnMissing();
+        ({ data: msgUser, error: errUser } = await saveUser());
+      }
       if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
         nextTurn = await getNextTurn();
         ({ data: msgUser, error: errUser } = await saveUser());
