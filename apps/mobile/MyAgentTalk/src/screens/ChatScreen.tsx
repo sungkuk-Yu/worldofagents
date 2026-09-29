@@ -385,7 +385,10 @@ export default function ChatScreen({ navigation, route }: Props) {
       // 컨테이너 paddingBottom이 화면 전체 = 채팅이 위로 압축·상단 고정. 0/음수(비정상 전이)는 inset 0 취급.
       const h = viewport.height;
       if (!Number.isFinite(h) || h <= 0) { setViewportInset(0); return; }
-      setViewportInset(Math.max(0, window.innerHeight - h - viewport.offsetTop));
+      // 상한 클램프(60%vh): 어떤 브라우저 전이 프레임에서든 inset이 화면 대부분을 먹으면
+      // 컨테이너가 압축돼 채팅이 상단 고정을 보이는 재발이 원천 차단된다(진짜 키보드는 대체로 ≤50%).
+      const raw = Math.max(0, window.innerHeight - h - viewport.offsetTop);
+      setViewportInset(Math.min(raw, Math.round(window.innerHeight * 0.6)));
     };
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
