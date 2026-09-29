@@ -20,15 +20,18 @@ interface FooterProps {
   isDemo: boolean;
   /** 릴레이 자막(t_961ca593) 활성 시 타이핑 카드 quip 중복 억제 */
   hideQuip?: boolean;
+  /** t_55b7e30c 연속 발화 그룹 지속 — 타이핑/스트리밍 카드의 발신자 이름 재출력 생략 (본문 카드 규칙과 동일) */
+  showSenderName?: boolean;
   onSendSuggested: (q: SuggestedQuestion) => void;
 }
 
-export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, hideQuip, onSendSuggested }: FooterProps) {
+export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, hideQuip, showSenderName = true, onSendSuggested }: FooterProps) {
   const { t } = useTranslation();
   return <View>
-    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} />}
-    {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent]} elevation={0}>
-      <Text style={styles.msgRoleAgent}>{agentName}</Text>
+    {typing && <TypingCard quip={typingQuip} agentName={agentName} count={activeCount} hideQuip={hideQuip} showName={showSenderName} />}
+    {streams.map((stream) => <Surface key={stream.runId} style={[styles.msgCard, styles.msgCardAgent, !showSenderName && styles.msgCardContinuation]} elevation={0} testID="streaming-card">
+      {/* t_55b7e30c: 이름 라벨은 발화 그룹 시작에만 (본문 카드와 동일 규칙 — 연쇄 답변/스트리밍 소음 제거) */}
+      {showSenderName && <Text style={styles.msgRoleAgent}>{agentName}</Text>}
       <Text style={styles.msgText}>{stream.text}</Text>
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
       <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>

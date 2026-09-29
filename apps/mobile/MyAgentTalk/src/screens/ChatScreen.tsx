@@ -54,7 +54,7 @@ import {
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { colors, webScreenMotion } from '../theme';
-import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
+import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, buildSenderGroups, streamingHeaderAfter, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
 import QueueStrip from '../components/QueueStrip';
 import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
@@ -296,8 +296,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     requestJump(messageId);
     setComposeNonce((n) => n + 1);
   }, [requestJump]);
-  // t_64af90b0 #3 — 발신자 라벨 중복 제거: 에이전트명 헤더는 첫 에이전트 메시지만 (이후 카드에는 생략)
-  const firstAgentMessageId = useMemo(() => messages.find((m) => m.role === 'agent')?.id, [messages]);
+  // t_55b7e30c 백로그③ — 연속 발화 그룹핑(텔레그램/Slack식): 발화 그룹 전환(user↔agent, agentId 변경,
+  // 공백>60초)에만 헤더 재출력 + 그룹 내 좌 오프셋. t_64af90b0 #3의 firstAgentMessageId(전 대화 첫 카드만) 대체.
+  const senderFlags = useMemo(() => new Map(buildSenderGroups(messages).map((f) => [f.id, f])), [messages]);
   const times = useMemo(() => new Map(buildTimeGroups(messages, i18n.language).map((g) => [g.id, g.label])), [messages, i18n.language]);
   // 딥링크 스크롤 — 그룹을 찾으면 scrollToIndex + 하이라이트 2.6초, 히스토리 밖이면 loadOlder로 역행 추적
   // 점프 소스 2종 (t_2f45ccb1): 즐겨찾기/피드 딥링크(focusMessageId) + 상단 큐 칩 탭(strip.jump, 우선)
@@ -423,7 +424,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
     streams={streams} suggested={suggested} isDemo={isDemo} onSendSuggested={sendSuggested}
     hideQuip={!!relay}
-  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, relay]);
+    // t_55b7e30c: 목록 꼬리가 에이전트 행이고 60초 창 내면 그룹 지속 → 타이핑/스트리밍 카드 이름 생략
+    showSenderName={streamingHeaderAfter(messages[messages.length - 1])}
+  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, relay, messages]);
 
   const renderHeader = useCallback(() => <ChatFeedHeader
     hasMoreHistory={hasMoreHistory} loadingHistory={loadingHistory} isDemo={isDemo} onLoadHistory={() => void loadHistory()}
@@ -497,7 +500,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           presetCategory={presetCategory}
           canFork={canFork}
           agentName={agentName}
-          firstAgentMessageId={firstAgentMessageId}
+          senderFlags={senderFlags}
           sessionTitle={sessionTitle}
           isDemo={isDemo}
           queue={queue}
