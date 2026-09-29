@@ -107,11 +107,27 @@ function queueIngress(socket: WSSocket, raw: Buffer | string, isBinary?: boolean
   pendingIngress.set(socket, q);
 }
 
-function drainIngress(socket: WSSocket, deliver: (raw: Buffer | string, isBinary?: boolean) => void): void {
+/** 테스트 훅 (t_5cba9ebb 드레인 순서 회귀) — 실 소켓 대신 plain object로 큐를 채운다. */
+export const __ingressTestHooks = {
+  queue: (socket: object, raw: string) => queueIngress(socket as WSSocket, raw),
+  drain: (socket: object, deliver: (raw: Buffer | string, isBinary?: boolean) => Promise<unknown> | void) =>
+    drainIngress(socket as WSSocket, deliver),
+};
+
+function drainIngress(socket: WSSocket, deliver: (raw: Buffer | string, isBinary?: boolean) => Promise<unknown> | void): Promise<void> {
   const q = pendingIngress.get(socket);
-  if (!q || q.length === 0) return;
+  if (!q || q.length === 0) return Promise.resolve();
   pendingIngress.delete(socket);
-  for (const item of q) deliver(item.raw, item.isBinary);
+  // 도착 순서 보장 = 체이닝 (t_5cba9ebb 실측 결함): 병렬 fire-and-forget은 각 프레임의
+  // assertSessionOwnership DB 왕복 완료 순이 비결정적이라 handshake 보류분에서
+  // audio.end가 audio.start(state.audio 미설정)보다 먼저 실행될 수 있다
+  // — 재현: 실DB WS 음성 발화 '활성 오디오 스트림이 없습니다'. 주석 계약("도착 순서대로")을
+  // 구현이 위반하고 있던 것. 개별 프레임 실패가 후속 프레임을 막지 않는다.
+  return (async () => {
+    for (const item of q) {
+      try { await deliver(item.raw, item.isBinary); } catch { /* per-frame swallow */ }
+    }
+  })();
 }
 
 /** subscribed 회신 단일 지점 — send 후 state.subscribedSent 기록 (t_83946f45:
@@ -406,8 +422,10 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
   }
 
   // handshake 완료: 검증 중에 보류된 프레임을 도착 순서대로 처리한다 (t_83946f45).
+  // deliver가 반환하는 Promise를 그대로 드림 — void하면 체이닝이 무의미해져
+  // audio.start/audio.end가 병렬 DB 왕복 순으로 뒤집힌다 (t_5cba9ebb 실측 회귀 방지).
   handshakeDone = true;
-  drainIngress(socket, (raw, isBinary) => void handleMessage(raw, isBinary));
+  drainIngress(socket, (raw, isBinary) => handleMessage(raw, isBinary));
 }
 
 // ── 오디오 스트리밍 ────────────────────────────────────
