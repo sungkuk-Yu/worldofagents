@@ -801,7 +801,9 @@ export async function processTurn(
         opts.onTurnStatus?.('processing', { stage: e.stage });
       }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false },
       // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
-      leadMs: opts.answerLeadMs ?? config.answerLeadMs,
+      // 음성 턴은 지연 0 (t_5cba9ebb 9/29 #325 보강 2항): 공감 스테이지가 없어 지연할
+      // 확인음이 존재하지 않는다 — answer.delta가 전사 직후 시작되는 것이 목표(≤3.5s).
+      leadMs: opts.sttMetadata ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
       // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
       db };
       const dialogueType = classifyDialogueType(userMessage);
@@ -848,8 +850,13 @@ export async function processTurn(
       // 예/아니오 게이트 (t_135a19b5, 대표님 9/28 정정): 프론트 3초 예/아니오 칩(또는 직접 입력)의
       // 짧은 확인 발화이자 직전 턴 컨텍스트에 empathy 행(또는 직전 발화도 확인 — 연속 체인)이면
       // 복창을 생성하지 않는다 — 중복 에코 루프 방지. 답변은 직결(침묵 금지, routerNode 강제 활성).
-      const empathySuppressed = isConfirmationUtterance(userMessage)
-        && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || []));
+      // 음성 경로 공감 스테이지 생략 (t_5cba9ebb, 대표님 9/29 #325 확정 1항): audio.end→전사→
+      // 즉시 답변(복명복창 폐기 — "사실상 복명복창은 안하고 지금의 텔레그램처럼"). empathy 재질문은
+      // 텍스트 입력 전용. 전사문 자체는 user 카드로 표시(#325 2항 — 저장 경로는 그대로).
+      const isVoiceTurn = Boolean(opts.sttMetadata);
+      const empathySuppressed = isVoiceTurn
+        || (isConfirmationUtterance(userMessage)
+          && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || [])));
       // 동일 발화 재전송 (t_c31e3f45, 김비서 case "뭘 말해도 같은 소리"): 직전 user 행과
       // 정규화 동일 텍스트면 공감 재질문 회전을 정지한다 — 에코가 아니라 진행으로 답한다.
       const lastUser = lastUserUtterance(history || []);

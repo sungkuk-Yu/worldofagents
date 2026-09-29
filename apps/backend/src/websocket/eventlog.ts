@@ -8,6 +8,7 @@ const recordedTypes = new Set([
   'answer.delta', 'answer.done', 'neuron.status', 'transcript.partial', 'transcript.final', 'queue.update',
   'queue.updated', 'relay.updated',
   'reply.pending.updated',
+  'persona.line', // t_5cba9ebb — 재접속 재생 시 마지막 진행 줄 복원 (휘발성 연출, 메시지 아님)
 ]);
 
 /** 연결 유무와 무관하게 세션별 최근 500개 이벤트를 기록한다. */

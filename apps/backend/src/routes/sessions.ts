@@ -12,6 +12,7 @@ import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession, sessionPresence } from '../websocket/handler';
 import { hasActiveRun, isDuplicateIngress } from '../websocket/eventlog';
 import { listQueue, queueSnapshot, enqueueQuestion, skipAllPending, isQueueKnownUnavailable } from '../lib/questionQueue';
+import { queueJoinLine } from '../lib/personaVoice';
 import { resolvePendingReplies, replyPendingSnapshot } from '../lib/awaitingReply';
 import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
@@ -357,7 +358,11 @@ export async function sessionRoutes(app: FastifyInstance) {
     if (!attachmentIds.length && hasActiveRun(session.id)) {
       const item = await enqueueQuestion(request.db, { sessionId: session.id, userId: request.userId, content, locale: parseAcceptLanguage(request.headers['accept-language']) });
       if (item) {
-        broadcastToSession(session.id, { type: 'queue.updated', session_id: session.id, ...queueSnapshot(await listQueue(request.db, session.id)) });
+        const snap = queueSnapshot(await listQueue(request.db, session.id));
+        broadcastToSession(session.id, { type: 'queue.updated', session_id: session.id, ...snap });
+        // busy 입력 합류 고지 (t_5cba9ebb 5항) — WS 경로와 동일 계약: 큐 뉴런 1인칭 한 줄.
+        const join = queueJoinLine(snap.pending_count, parseAcceptLanguage(request.headers['accept-language']));
+        if (join) broadcastToSession(session.id, { type: 'persona.line', session_id: session.id, source: 'queue', line: join });
         return reply.status(202).send(ok({ queued: true, queue_item: { id: item.id, status: item.status, position: item.position } }));
       }
       if (!isQueueKnownUnavailable()) {
