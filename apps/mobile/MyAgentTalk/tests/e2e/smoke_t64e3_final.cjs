@@ -113,7 +113,19 @@ function pcmToWav(pcm, rate = 16000) {
     await page.getByTestId('consent-all-required').click();
     await page.getByTestId('signup-submit').click();
     await page.waitForSelector('[data-testid="new-chat-button"]', { timeout: 20000 });
-    await page.getByTestId('new-chat-button').click();
+    // 볼트 ① (t_2fa10f11 라이브 9/29): signup 직후 첫 '새 대화' 탭이 지연 refresh/setStarting
+    // 타이밍에 조용히 흡수됨(라이브 실측) — r1 임시 하네스의 재시도 루프를 정식화. 화면 자체
+    // 개선(버튼 disabled/큐잉)은 별도 제품 카드로 이관.
+    let entered = false;
+    for (let attempt = 1; attempt <= 5 && !entered; attempt++) {
+      await page.getByTestId('new-chat-button').click();
+      entered = await Promise.race([
+        page.getByTestId('voice-stage').waitFor({ timeout: 8000 }).then(() => true),
+        page.getByTestId('chat-input').waitFor({ timeout: 8000 }).then(() => true),
+      ]).catch(() => false);
+      if (!entered) await sleep(700);
+    }
+    if (!entered) throw new Error('new-chat 진입 실패(5탭) — 볼트① 레이시 재현');
     await page.getByTestId('voice-stage').waitFor({ timeout: 20000 });
     // t_9e939f43 (볼트 실패사고 ②): 라이브 DNS+TLS WS 레이시(실측 23s)에서 talk.ready 그랜트 전
     // 홀드하면 캡처가 조용히 스킵된다(A군 전체 실패). 조작 전 status-line '연결됨/Connected' 해지를
