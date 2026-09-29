@@ -29,6 +29,7 @@ import { ReplyToSummary, resolveReplyContext, replyToColumn, classifyReplyInsert
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
+import { createSaver, checkpointEnabled, JournalState, journalStamp, openRun, runScopedId, type JournalRow } from '../lib/runCheckpoint';
 
 export type NeuronStage = 'thinking' | 'organizing' | 'finalizing' | 'rendering';
 
@@ -146,6 +147,13 @@ export interface ProcessTurnOptions {
   onUserCreated?(userRow: MessagesRow): void;
   /** ⑤ run.started emit 타이밍 (t_3486b1d7): user 카드 emit 직후 콜백. chatTurn이 여기서 run.started를 발행해 이벤트 순서 계약 충족. */
   onRunReady?(): void;
+  /**
+   * 내구성 실행 resume (t_7182aa8f, 014) — 부팅 스캐너가 미완 run의 저널 행을 넘긴다.
+   * 저장 지점별 재시작 가드: user/empathy/answer 행이 이미 stamped면 재생성하지 않고
+   * 로드만, tail_persisted면 컨텍스트 패치·집계를 건너뛴다. 체크포인터가 있으면
+   * 그래프는 invoke(null)로 크래시 직전 슈퍼스텝부터 재개(완료 노드 스킵).
+   */
+  resume?: JournalRow;
 }
 
 export interface TurnResult {
@@ -733,7 +741,13 @@ function checkLangGraph(): boolean {
   return langGraphAvailable;
 }
 
-async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promise<NeuronState> {
+// compile 옵션 타입 — checkpointer는 Supabase transport 위의 커스텀 saver (t_7182aa8f).
+type ExecOptions = { checkpointer?: import('../lib/runCheckpoint').SupabaseCheckpointSaver | null; threadId?: string; resume?: boolean };
+
+async function langGraphPipeline(
+  initial: NeuronState, ctx: NodeContext,
+  exec?: ExecOptions
+): Promise<NeuronState> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { StateGraph, Annotation, START, END } = require('@langchain/langgraph');
 
@@ -788,9 +802,24 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     .addEdge('answer', 'visual')
     .addEdge('visual', 'compose')
     .addEdge('compose', END)
-    .compile();
+    .compile(exec?.checkpointer ? { checkpointer: exec.checkpointer } : {});
 
-  const result = await graph.invoke({ ...initial }, { configurable: { ctx } });
+  // 내구성 실행 (t_7182aa8f, flag LANGGRAPH_CHECKPOINT=true):
+  // thread_id=run_id 로 슈퍼스텝마다 체크포인트가 저장된다. resume 실행은 invoke(null) —
+  // Pregel이 최신 체크포인트에서 이어 붙이고(완료 노드 스킵, probe 실측: a 재실행 없음),
+  // 체크포인트가 없으면(크래시가 그래프 시작 전) 초기 상태로 fresh 실행한다.
+  // flag off = 기존 호출형과 1:1 (configurable {ctx} 만 전달, checkpointer/스레드 없음).
+  const configurable: Record<string, unknown> = exec?.threadId
+    ? { ctx, thread_id: exec.threadId }
+    : { ctx };
+  let input: NeuronState | null = { ...initial };
+  if (exec?.resume && exec.checkpointer && exec.threadId) {
+    const tuple = await exec.checkpointer.getTuple({ configurable: { thread_id: exec.threadId } });
+    if (tuple) input = null;
+  }
+  const result = input === null
+    ? await graph.invoke(null, { configurable })
+    : await graph.invoke(input, { configurable });
   return { ...initial, ...result, engine: 'langgraph' };
 }
 
@@ -811,12 +840,32 @@ export async function processTurn(
   return withSessionLock(sessionId, async () => {
     let processing = false;
     let classificationCancelled = false;
+    // ── 내구성 실행 (t_7182aa8f, flag LANGGRAPH_CHECKPOINT=true / 마이그레이션 014) ──
+    // 저널 open: 부팅 resume이면 기존 행을 재사용(중복 생성 금지)하고, 새 run이면
+    // graph_runs에 레시피를 박는다. journalTableMissing 래치(008 관례)가 켜지면
+    // 체크포인터·저널이 통째로 꺼지고 현행 무영속 경로와 1:1 동일하게 돈다.
+    // journal은 try 밖에 선언 — catch에서 failed/abandoned 스탬프(부팅 스캐너가
+    // 영구 재resume하지 않게)가 필요하다.
+    const resuming = Boolean(opts.resume);
+    const ckptActive = checkpointEnabled();
+    const journal = new JournalState(db, turnId, opts.resume ?? null);
     try {
       const events: NeuronStatusEvent[] = [];
       const emit = (e: NeuronStatusEvent) => {
         events.push(e);
         opts.emitEvent?.(e);
       };
+
+      if (!resuming && ckptActive) {
+        await openRun(db, {
+          runId: turnId, sessionId, userId,
+          content: userMessage, locale,
+          sttMetadata: opts.sttMetadata ?? null,
+          thread: opts.thread ?? null,
+          attachmentIds: opts.attachmentIds ?? null,
+          replyToId: typeof opts.replyToId === 'string' ? opts.replyToId : null,
+        });
+      }
 
       let deltaIndex = 0;
       const ctx: NodeContext = { signal: opts.signal, emit: e => {
@@ -931,8 +980,12 @@ export async function processTurn(
         engine: 'simple',
       };
 
+      // engine: resume 시에는 크래시 전과 같은 엔진으로 재실행한다 (저널 engine 스탬프).
+      // 미스탬프(그래프 진입 전 크래시)면 현재 설정으로 재판정 — simple 폴백은 무checkpoint라
+      // 저널 스탬프 가드(user/empathy/answer/tail)만으로 구간 재시작한다.
       const engine: 'langgraph' | 'simple' =
-        config.neuronEngine === 'langgraph' && checkLangGraph() ? 'langgraph' : 'simple';
+        (resuming && opts.resume?.engine) || (config.neuronEngine === 'langgraph' && checkLangGraph() ? 'langgraph' : 'simple');
+      if (ckptActive) await journalStamp.engine(db, turnId, engine);
 
       // ── 영속화 ──
 
@@ -959,9 +1012,16 @@ export async function processTurn(
       //  · ref-drop: 23503/FK·CROSS_SESSION 트리거(검증 후 원문 삭제 경쟁 등) → 인용 정보 탈락 재시도 (발화 통과)
       const replyPayload = replyCtx.summary ? { structured_payload: { reply_to: replyCtx.summary } } : {};
       const replyCols = replyToColumn(replyCtx.replyToId);
-      const saveUser = (extra: Record<string, unknown>) => db
-        .from('messages')
-        .insert({
+      // saveUser에 forcedId를 받으면 insert→upsert로 바뀐다 (t_7182aa8f②): resume 실행은
+      // run_id 결정적 UUID로 저장하므로 크래시-스탬프 공백(행은 쓰였지만 journalStamp 미도달)으로
+      // 같은 지점을 다시 지나도 행 복제가 아니라 같은 PK 수렴(upsert)이다. flag off 경로는
+      // forcedId=undefined → 기존 insert와 동일 동작.
+      // forcedId(t_7182aa8f②): ckptActive 경로는 run_id 결정적 UUID를 PK로 박아 upsert로
+      // 저장한다 — 크래시가 insert 직후(journalStamp 미도달)로 일어나도 재실행이 같은 PK에
+      // 수렴해 user/empathy/answer 행 복제가 구조적으로 없다. flag off는 기존 insert 그대로.
+      const saveUser = (extra: Record<string, unknown>, forcedId?: string) => {
+        const row = {
+          ...(forcedId ? { id: forcedId } : {}),
           session_id: sessionId,
           parent_message_id: opts.thread?.parentMessageId ?? null,
           root_message_id: opts.thread?.rootMessageId ?? null,
@@ -980,44 +1040,81 @@ export async function processTurn(
           user_feedback: null,
           ...clientReqColumns(opts.clientReqId ?? null),
           ...extra,
-        })
-        .select()
-        .single();
+        };
+        const query = forcedId
+          ? db.from('messages').upsert(row, { onConflict: 'id' })
+          : db.from('messages').insert(row);
+        return query.select().single();
+      };
 
-      let { data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload });
-      // client_req 유니크 충돌(t_3486b1d7 ①) = 사전 조회를 뚫고 들어온 재전송 레이스 —
-      // turn_index 충돌 리트라이로 삼키면 중복 user 행이 영속된다. 즉시 CONFLICT로 마감.
-      if (errUser && isClientReqConflict(errUser)) {
-        throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
-      }
-      // 013 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
-      // 래치 후 컬럼 없이 1회 재시도 (008/011 관례). insert 내 clientReqColumns가 재계산되어 제외.
-      if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
-        markIdempotencyColumnMissing();
-        ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
-      }
-      if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
-        nextTurn = await getNextTurn();
-        ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
-      }
-      if (errUser) {
-        const replyRetry = classifyReplyInsertError(errUser, Object.keys(replyCols).length > 0);
-        if (replyRetry === 'column-drop') {
-          markReplyToColumnMissing();
-          ({ data: msgUser, error: errUser } = await saveUser(replyPayload));
-        } else if (replyRetry === 'ref-drop') {
-          ({ data: msgUser, error: errUser } = await saveUser({}));
+      // resume 구간 재시작 가드: 스탬프된 user 행 id 또는 결정적 forcedId 행이 이미
+      // DB에 있으면 재생성하지 않고 로드한다 (turn_index 보존 — 재실행이 max+1로 어긋나도
+      // 기존 행을 건드리지 않으므로 UNIQUE(session_id,turn_index) 충돌이 구조적으로 없다).
+      // forcedId 히트는 스탬프 공백 크래시(쓰기 직후 사망)의 자기복구 경로 — 로드 후 스탬프.
+      const userForcedId = ckptActive ? runScopedId(turnId, 'user') : undefined;
+      let msgUser: any = null;
+      let errUser: { message?: string } | null = null;
+      const preExisting = resuming ? journal.userMessageId || userForcedId || null : null;
+      if (preExisting) {
+        const { data: existing, error } = await db.from('messages').select('*')
+          .eq('id', preExisting).eq('session_id', sessionId).maybeSingle();
+        if (error) throw new ApiError('INTERNAL_ERROR', error.message || 'resume: user 행 조회 실패');
+        if (existing) {
+          msgUser = existing;
+          // resume는 원 크래시 실행의 turn 계획에 못 박는다 — empathy/answer의
+          // turn_index(nextTurn+1/+2)가 크래시 전과 동일하게 재계산되도록 pinning.
+          nextTurn = (existing.turn_index as number);
+          if (!journal.userMessageId) await journal.stampUser(existing.id);
         }
       }
-      if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
+      if (!msgUser) {
+        ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }, userForcedId));
+        // client_req 유니크 충돌(t_3486b1d7 ①) = 사전 조회를 뚫고 들어온 재전송 레이스 —
+        // turn_index 충돌 리트라이로 삼키면 중복 user 행이 영속된다. 즉시 CONFLICT로 마감.
+        if (errUser && isClientReqConflict(errUser)) {
+          throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
+        }
+        // 013 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
+        // 래치 후 컬럼 없이 1회 재시도 (008/011 관례). insert 내 clientReqColumns가 재계산되어 제외.
+        if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
+          markIdempotencyColumnMissing();
+          ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }, userForcedId));
+        }
+        if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
+          nextTurn = await getNextTurn();
+          ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }, userForcedId));
+        }
+        if (errUser) {
+          const replyRetry = classifyReplyInsertError(errUser, Object.keys(replyCols).length > 0);
+          if (replyRetry === 'column-drop') {
+            markReplyToColumnMissing();
+            ({ data: msgUser, error: errUser } = await saveUser(replyPayload, userForcedId));
+          } else if (replyRetry === 'ref-drop') {
+            ({ data: msgUser, error: errUser } = await saveUser({}, userForcedId));
+          }
+        }
+        if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
+        await journal.stampUser(msgUser.id);
+      }
       // ⑤ user 카드 사전 emit (t_3486b1d7, 김비서 9/29 A2A): chatTurn이 run.started보다 먼저 message.new user를 브로드캐스트한다.
       opts.onUserCreated?.(msgUser as MessagesRow);
       // ⑤ run.started emit 타이밍: user 카드 직후 콜백. chatTurn이 여기서 run.started를 발행.
       opts.onRunReady?.();
       // 첨부 링크 (t_401c5bd1): LLM 호출 전에 실패시켜 비용을 물리지 않는다. 소유권/이중링크 검증은 공유 lib.
+      // resume는 링크가 이미 걸려 있을 수 있다(크래시가 링크 후) — CONFLICT 재생성 오보를
+      // 막고 기존 링크를 read-back한다(t_7182aa8f②).
       let linkedAttachments: { url: string; mime: string }[] = [];
       if (opts.attachmentIds?.length) {
-        linkedAttachments = await linkAttachmentsToMessage(db, userId, sessionId, (msgUser as { id: string }).id, opts.attachmentIds);
+        if (resuming) {
+          const { data: already } = await db.from('messages_attachments').select('url,mime')
+            .in('id', Array.from(new Set(opts.attachmentIds))).eq('message_id', (msgUser as { id: string }).id);
+          linkedAttachments = (already as { url: string; mime: string }[]) || [];
+          if (linkedAttachments.length !== new Set(opts.attachmentIds).size) {
+            linkedAttachments = await linkAttachmentsToMessage(db, userId, sessionId, (msgUser as { id: string }).id, opts.attachmentIds);
+          }
+        } else {
+          linkedAttachments = await linkAttachmentsToMessage(db, userId, sessionId, (msgUser as { id: string }).id, opts.attachmentIds);
+        }
       }
       const checkCancelled = () => {
         if (opts.signal?.aborted && !ctx.classificationCancelled) throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
@@ -1025,7 +1122,14 @@ export async function processTurn(
       checkCancelled();
       processing = true;
       opts.onTurnStatus?.('processing', { stage: 'thinking' });
-      const final = engine === 'langgraph' ? await langGraphPipeline(initial, ctx) : await simplePipeline(initial, ctx);
+      // 체크포인터 실행 (t_7182aa8f): saver는 run 전용 인스턴스, thread_id=run_id.
+      // resume 실행은 thread에 히스토리가 있으면 invoke(null)로 크래시 직전부터,
+      // 없으면(그래프 진입 전 크래시) 초기 상태로 fresh 실행 — langGraphPipeline이 판정.
+      // ckptActive=false 이면 exec 생략 = flag off와 1:1 (무영속, 기존 호출형).
+      const saver = ckptActive ? createSaver(db) : null;
+      const final = engine === 'langgraph'
+        ? await langGraphPipeline(initial, ctx, saver ? { checkpointer: saver, threadId: turnId, resume: resuming } : undefined)
+        : await simplePipeline(initial, ctx);
       classificationCancelled = Boolean(ctx.classificationCancelled);
       checkCancelled();
       // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴에 있으면
@@ -1056,45 +1160,83 @@ export async function processTurn(
 
       checkCancelled();
       if (final.empathyResponse) {
+        // resume 가드 (t_7182aa8f②): empathy 행이 이미 스탬프됐거나 결정적 forcedId 행이
+        // DB에 있으면(스탬프 공백) 재생성하지 않고 로드한다.
+        const empathyForcedId = ckptActive ? runScopedId(turnId, 'empathy') : undefined;
+        const empathyPre = resuming ? journal.empathyMessageId || empathyForcedId || null : null;
+        let empathySaved = false;
+        if (empathyPre) {
+          const { data: ex, error } = await db.from('messages').select('*').eq('id', empathyPre)
+            .eq('session_id', sessionId).maybeSingle();
+          if (error) throw new ApiError('INTERNAL_ERROR', error.message || 'resume: empathy 조회 실패');
+          if (ex) {
+            empathyMessage = ex as MessagesRow;
+            empathyMessageId = (ex as MessagesRow).id;
+            empathyVisible = (ex as MessagesRow).content;
+            empathySaved = true;
+            if (!journal.empathyMessageId) await journal.stampEmpathy((ex as MessagesRow).id);
+          }
+        }
+        if (!empathySaved) {
         // t_135a19b5 정정 (대표님 9/28 08:40): 짧은 확인음(yes/no 분류)은 structured_payload.empathy_ack에 보존.
         // t_44f8896c (대표님 9/28): content=재질문 문장으로 교체, 복창 원문(에코 문장)은 empathy_full로 보존.
         // 프론트는 empathy_question/template_id로 버튼 문구를 재질문에 맞게 결정할 수 있다.
         const empathyAck = pickQuip('ack', locale, persona?.tone);
-        const { data: m, error } = await db
-          .from('messages')
-          .insert({
-            session_id: sessionId,
-            parent_message_id: opts.thread ? msgUser.id : null,
-            root_message_id: opts.thread?.rootMessageId ?? null,
-            turn_index: nextTurn + 1,
-            role: 'agent',
-            locale,
-            ai_generated: true,
-            message_type: 'text',
-            content: final.empathyResponse,
-            dialogue_type: null,
-            structured_payload: {
-              empathy_ack: empathyAck,
-              empathy_full: final.empathyEcho ?? null,
-              empathy_question: final.empathyResponse,
-              template_id: final.empathyTemplateId ?? null,
-            },
-            stt_metadata: null,
-            source_neuron: 'empathy',
-            attachments: [],
-            persona_guard: {},
-            user_feedback: null,
-          })
+        const empathyRow = {
+          ...(empathyForcedId ? { id: empathyForcedId } : {}),
+          session_id: sessionId,
+          parent_message_id: opts.thread ? msgUser.id : null,
+          root_message_id: opts.thread?.rootMessageId ?? null,
+          turn_index: nextTurn + 1,
+          role: 'agent',
+          locale,
+          ai_generated: true,
+          message_type: 'text',
+          content: final.empathyResponse,
+          dialogue_type: null,
+          structured_payload: {
+            empathy_ack: empathyAck,
+            empathy_full: final.empathyEcho ?? null,
+            empathy_question: final.empathyResponse,
+            template_id: final.empathyTemplateId ?? null,
+          },
+          stt_metadata: null,
+          source_neuron: 'empathy',
+          attachments: [],
+          persona_guard: {},
+          user_feedback: null,
+        };
+        const { data: m, error } = await (empathyForcedId
+          ? db.from('messages').upsert(empathyRow, { onConflict: 'id' })
+          : db.from('messages').insert(empathyRow))
           .select()
           .single();
         if (error || !m) throw new ApiError('INTERNAL_ERROR', error?.message || '공감 메시지 저장 실패');
         empathyMessage = m;
         empathyMessageId = m.id;
+        await journal.stampEmpathy(m.id);
         // 계약 필드 = 화면 노출 텍스트 = 재질문 문장 (t_44f8896c; 복창 원문은 empathy_full에 보존).
         empathyVisible = final.empathyResponse;
+        }
       }
 
       if (final.answerResponse) {
+        // resume 가드 (t_7182aa8f②): answer 행이 이미 스탬프/결정적 id로 DB에 있으면 로드만.
+        const answerForcedId = ckptActive ? runScopedId(turnId, 'answer') : undefined;
+        const answerPre = resuming ? journal.answerMessageId || answerForcedId || null : null;
+        let answerSaved = false;
+        if (answerPre) {
+          const { data: ex, error } = await db.from('messages').select('*').eq('id', answerPre)
+            .eq('session_id', sessionId).maybeSingle();
+          if (error) throw new ApiError('INTERNAL_ERROR', error.message || 'resume: answer 조회 실패');
+          if (ex) {
+            answerMessage = ex as MessagesRow;
+            answerMessageId = (ex as MessagesRow).id;
+            answerSaved = true;
+            if (!journal.answerMessageId) await journal.stampAnswer((ex as MessagesRow).id);
+          }
+        }
+        if (!answerSaved) {
         const guard = new PersonaGuard(persona || {
           persona_id: '',
           name: '에이전트',
@@ -1149,24 +1291,33 @@ export async function processTurn(
           user_feedback: null,
           ...extra,
         });
-        let { data: m, error } = await db
-          .from('messages')
-          .insert(answerRowValues(replyCols))
+        const answerRowWith = (extra: Record<string, unknown>) => ({
+          ...(answerForcedId ? { id: answerForcedId } : {}),
+          ...answerRowValues(extra),
+        });
+        let { data: m, error } = await (answerForcedId
+          ? db.from('messages').upsert(answerRowWith(replyCols), { onConflict: 'id' })
+          : db.from('messages').insert(answerRowValues(replyCols)))
           .select()
           .single();
         if (error && replyCols.awaiting_reply !== undefined && isMissingReplyColumns(error)) {
           markAwaitingReplyColumnsMissing();
-          ({ data: m, error } = await db
-            .from('messages')
-            .insert(answerRowValues({}))
+          ({ data: m, error } = await (answerForcedId
+            ? db.from('messages').upsert(answerRowWith({}), { onConflict: 'id' })
+            : db.from('messages').insert(answerRowValues({})))
             .select()
             .single());
         }
         if (error || !m) throw new ApiError('INTERNAL_ERROR', error?.message || '답변 메시지 저장 실패');
         answerMessage = m;
         answerMessageId = m.id;
+        await journal.stampAnswer(m.id);
+        }
       }
 
+      // tail 가드 (t_7182aa8f②): 컨텍스트 패치·사용량 집계는 저널에 기록된 뒤 재실행하면
+      // conversation.recent 복제가 된다. resume에서 이미 tail_persisted면 건너뛴다.
+      if (!journal.tailPersisted) {
       // 컨텍스트 패치 — conversation.recent 갱신
       await db.from('context_patches').insert({
         session_id: sessionId,
@@ -1190,6 +1341,9 @@ export async function processTurn(
           if (neuron) await db.rpc('increment_neuron_usage', { p_neuron_id: neuron.id, p_success: !(slug === 'answer' && ctx.llm.fallback) });
         }
       }
+      await journal.markTail();
+      }
+      await journal.finish('completed');
 
       opts.onTurnStatus?.('completed');
       return {
@@ -1220,6 +1374,15 @@ export async function processTurn(
         engine,
       };
     } catch (err: any) {
+      // 저널 마감: 취소는 abandoned(재resume 금지, 사용자가 다시 보낸 게 새 run),
+      // 그 외 실패는 failed. 둘 다 status가 running을 벗어나야 부팅 스캐너가 다시 주우지 않는다.
+      if (ckptActive) {
+        if ((opts.signal?.aborted && !classificationCancelled) || err?.name === 'AbortError' || err?.code === 'RUN_CANCELLED') {
+          await journal.finish('abandoned', 'RUN_CANCELLED');
+        } else {
+          await journal.finish('failed', err?.code || 'INTERNAL_ERROR');
+        }
+      }
       if ((opts.signal?.aborted && !classificationCancelled) || err?.name === 'AbortError' || err?.code === 'RUN_CANCELLED') {
         throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
       }

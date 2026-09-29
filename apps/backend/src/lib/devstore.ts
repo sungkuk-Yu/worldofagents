@@ -45,6 +45,10 @@ export const emptyStore = (): DevStore => ({
     messages_attachments: [],
     upload_quota_daily: [],
     message_queue: [],
+    // 내구성 실행 (t_7182aa8f, 마이그레이션 014) — saver/저널이 이 3테이블만 접촉.
+    graph_runs: [],
+    graph_checkpoints: [],
+    graph_checkpoint_writes: [],
   },
   usersByEmail: new Map(),
   sequences: {},
