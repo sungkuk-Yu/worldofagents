@@ -11,7 +11,10 @@ import type { TurnIdentity } from './chatLogic';
 import type { BoardCardDto } from './kanbanLogic';
 
 // ── 설정 ──────────────────────────────────────────
-const DEFAULT_API_URL = 'http://localhost:3000';
+// P0 교정 (9/30 김비서): expo export가 .env.local을 production bake하지 않아 라이브 번들이
+// localhost:3000으로 fallback → 사용자 기기에서 발화가 서버에 안 닿고 큐만 차는 무반응 재발.
+// 고정 도메인이 코드 기본값, EXPO_PUBLIC_API_URL은(dev override) 전용. (t_3486b1d7 관할 아님 — 라이브 사고 수리)
+const DEFAULT_API_URL = 'https://app.myagenttalk.com';
 
 export interface ApiConfig {
   apiUrl: string;
