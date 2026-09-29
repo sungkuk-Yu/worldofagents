@@ -4,7 +4,7 @@
 // 필요하다 — 단, 노출 창이 2.5초로 유한하므로 재질문 등장 시에만 시작하는 자가 종료 타이머(폴링 상주 금지).
 // 렌더는 순수 유지(react-hooks/purity): 시각은 state로만 소비 (useChatSession과 동일 관례).
 import { useEffect, useRef, useState } from 'react';
-import { visibleAckChip, ACK_AUTO_PROCEED_MS, type AckChipView } from '../lib/ackChips';
+import { visibleAckChip, type AckChipView } from '../lib/ackChips';
 import type { ChatMessage } from '../lib/chatLogic';
 
 const TICK_MS = 200;
