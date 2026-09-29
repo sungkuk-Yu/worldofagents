@@ -50,6 +50,9 @@ function harness(t: TestContext, sid: string | null = 'session', options: import
     }
   }) as typeof react.useEffect);
   t.mock.method(apiModule.api, 'getMessages', async () => ({ ok: true, data: [] }));
+  // t_17edbc88 ③ diff-sync: 기본 하네스는 구 서버(404)로 흉내 — 재접속은 'gap' 페이지 갱신 폴백.
+  // 개별 테스트가 api.getSessionEvents를 재모의해 차등 리플레이/에포크 전환 경로를 검증한다.
+  t.mock.method(apiModule.api, 'getSessionEvents', async () => { throw new Error('errors.unsupported'); });
   t.mock.method(apiModule, 'connectVoiceSocket', (_sid: string | null, handlers: VoiceSocketHandlers) => {
     const i = sockets.length;
     sockets.push(handlers); closed.push(false); sent.push([]);
@@ -307,7 +310,7 @@ test('스레드 조회와 전송은 부모 범위를 유지하고 타 스레드 
   const row = (id: string, parent?: string) => ({ id, role: 'agent', content: id, turn_index: 1, parent_message_id: parent });
   t.mock.method(apiModule.api, 'getThread', async () => ({ ok: true, data: { root: row('root'), replies: [row('old', 'root')] } }));
   const calls: unknown[] = [];
-  t.mock.method(apiModule.api, 'sendMessage', async (_sid: string, _text: string, _exec?: string, options?: { parent_message_id?: string }) => {
+  t.mock.method(apiModule.api, 'sendMessage', async (_sid: string, _text: string, _exec?: string, options?: { parent_message_id?: string; client_req_id?: string }) => {
     calls.push(options);
     return { ...confirm('user'), data: { ...confirm('user').data!, answer_response: 'answer', answer_message_id: 'answer', run_id: 'own' } };
   });
@@ -324,7 +327,11 @@ test('스레드 조회와 전송은 부모 범위를 유지하고 타 스레드 
   h.sockets[0].onRaw?.({ type: 'run.completed', seq: 6, run_id: 'thread-run' });
   assert.equal(h.render().typing, false);
   await h.render().send('reply');
-  assert.deepEqual(calls, [{ parent_message_id: 'root' }]);
+  // t_17edbc88 ①: 발화 payload에 uuid v4 client_req_id 동봉 (서버 멱등 키) — 부모 범위와 공존.
+  assert.equal(calls.length, 1);
+  const sent = calls[0] as { parent_message_id?: string; client_req_id?: string };
+  assert.equal(sent.parent_message_id, 'root');
+  assert.match(sent.client_req_id ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.ok(h.render().messages.every((m) => m.parentMessageId === 'root'));
   assert.ok(!h.render().messages.some((m) => m.id === 'other'));
 });
@@ -511,4 +518,149 @@ test('백엔드 ingress 드롭 { deduped:true } — 유령 낙관 행 제거, �
   assert.equal(state.messages.length, 0, 'deduped 응답은 낙관 행을 남기지 않는다(서버에 없는 유령 행 방지)');
   assert.equal(state.lastError, null, 'deduped는 오류가 아니다');
   assert.equal(state.typing, false, '해당 실행은 종료된다');
+});
+
+// ── t_17edbc88 ① client_req_id 낙관 merge + ③ seq epoch diff sync 재접속 리플레이 ──
+
+test('멱등 dedupe 응답(user_message_id 포함) — 유령 제거 대신 낙관 카드 in-place 확정', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  let capturedReqId = '';
+  t.mock.method(apiModule.api, 'sendMessage', async (_sid: string, _text: string, _exec?: string, options?: { client_req_id?: string }) => {
+    capturedReqId = options?.client_req_id ?? '';
+    return { ok: true, data: {
+      deduped: true, user_message_id: 'srv-echo', turn_index: 0,
+      messages: { user: { id: 'srv-echo', session_id: 'session', turn_index: 0, role: 'user', message_type: 'text', content: '재전송 문장', client_req_id: capturedReqId } },
+      empathy_response: null, answer_response: null, dialogue_type: 'casual',
+      answer_message_id: null, empathy_message_id: null,
+    } as unknown as SendMessageResult } as ApiEnvelope<SendMessageResult>;
+  });
+  const r = await h.render().send('재전송 문장');
+  assert.deepEqual(r, { ok: true });
+  const state = h.render();
+  assert.equal(state.messages.length, 1, '카드는 사라지지 않고 확정된다');
+  assert.equal(state.messages[0].id, 'srv-echo', '서버 ID로 in-place 교체');
+  assert.equal(state.messages[0].status, 'sent');
+  assert.ok(!state.messages[0].pending, 'pending 해제(normalize 행은 필드 무 = falsy)');
+  assert.equal(state.messages[0].clientReqId, capturedReqId, '발송 키 유지 — 이후 에코/재전송 연결 자국');
+  assert.equal(state.typing, false);
+});
+
+test('WS message.new(user) 에코 — client_req_id로 낙관 카드 병합, 중복 카드 0', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  let reqId = '';
+  t.mock.method(apiModule.api, 'sendMessage', (_sid: string, _text: string, _exec?: string, options?: { client_req_id?: string }) => {
+    reqId = options?.client_req_id ?? '';
+    return new Promise<ApiEnvelope<SendMessageResult>>(() => {}); // REST 미확정 — WS 에코가 먼저 온다 (⑤/user 카드 선행·지연 어느 쪽도 OK)
+  });
+  void h.render().send('안녕 병합');
+  const localId = h.render().messages[0].id;
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 1, user_message_id: 'srv-1',
+    message: { id: 'srv-1', session_id: 'session', turn_index: 0, role: 'user', message_type: 'text', content: '안녕 병합', client_req_id: reqId } });
+  const state = h.render();
+  assert.deepEqual(state.messages.map((m) => m.id), ['srv-1'], '낙관 행 local-*가 서버 ID로 흡수 (중복 카드 소멸)');
+  assert.equal(state.messages[0].status, 'sent');
+  assert.equal(state.messages[0].clientReqId, reqId);
+  assert.notEqual(localId, 'srv-1');
+});
+
+test('WS message.new(user) — req_id 없는 에코도 content 폴백으로 병합 (음성·드레인 경로, ②)', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  t.mock.method(apiModule.api, 'sendMessage', () => new Promise<ApiEnvelope<SendMessageResult>>(() => {}));
+  void h.render().send('이어해요');
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 2,
+    message: { id: 'srv-2', session_id: 'session', turn_index: 0, role: 'user', message_type: 'text', content: '이어해요' } });
+  const state = h.render();
+  assert.deepEqual(state.messages.map((m) => m.id), ['srv-2']);
+  assert.equal(state.messages[0].status, 'sent');
+});
+
+test('재시도(retryMessage)는 같은 client_req_id 재전송 — 서버 멱등 에코가 실패 카드를 회수', async (t) => {
+  const h = harness(t); h.render(); await flush();
+  const seen: string[] = [];
+  let boom = true;
+  t.mock.method(apiModule.api, 'sendMessage', async (_sid: string, _text: string, _exec?: string, options?: { client_req_id?: string }) => {
+    seen.push(options?.client_req_id ?? '');
+    if (boom) { boom = false; throw new Error('네트워크 절단 모의'); }
+    return { ok: true, data: {
+      deduped: true, user_message_id: 'srv-r', turn_index: 0,
+      messages: { user: { id: 'srv-r', session_id: 'session', turn_index: 0, role: 'user', message_type: 'text', content: '다시', client_req_id: seen[0] } },
+      empathy_response: null, answer_response: null, dialogue_type: 'casual', answer_message_id: null, empathy_message_id: null,
+    } as unknown as SendMessageResult } as ApiEnvelope<SendMessageResult>;
+  });
+  assert.deepEqual(await h.render().send('다시'), { ok: false, error: 'errors.request' });
+  const failed = h.render();
+  assert.equal(failed.messages[0].status, 'failed');
+  const failedId = failed.messages[0].id;
+  const retrying = failed.retryMessage(failedId);
+  assert.deepEqual(await retrying, { ok: true });
+  assert.equal(seen.length, 2);
+  assert.equal(seen[0], seen[1], '재시도는 같은 키 재전송 (random_id 관습)');
+  const state = h.render();
+  assert.deepEqual(state.messages.map((m) => m.id), ['srv-r'], '실패 카드가 서버 행으로 회수');
+  assert.equal(state.messages[0].status, 'sent');
+});
+
+test('diff sync 재접속 — GET events 갭 리플레이(onRaw 동일 경로), 전량 갱신 없이 배지 없음', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = harness(t);
+  t.mock.method(apiModule.api, 'getSessionEvents', async (_sid: string, after: number) => ({
+    ok: true, data: {
+      current_seq: after + 2, seq_epoch: 'E1', truncated: false,
+      events: [
+        { type: 'answer.delta', session_id: 'session', seq: after + 1, run_id: 'r9', delta: '갱', index: 0 },
+        { type: 'message.new', session_id: 'session', seq: after + 2, message: { id: 'srv-x', session_id: 'session', turn_index: 3, role: 'agent', message_type: 'text', content: '갱' } },
+      ],
+    },
+  }));
+  h.render(); await flush();
+  h.sockets[0].onStatusChange?.('connected'); // first connect — no catch-up
+  h.sockets[0].onRaw?.({ type: 'subscribed', session_id: 'session', current_seq: 5, seq_epoch: 'E1' });
+  // simulate the WS having advanced lastSeq, then a drop+reconnect
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 9, message: { id: 'live', session_id: 'session', turn_index: 9, role: 'agent', message_type: 'text', content: 'live' } });
+  const readsBefore = 1; // initial getMessages
+  h.sockets[0].onStatusChange?.('disconnected');
+  t.mock.timers.tick(1200); // backoff (~1s jitter 0.5 → 1000ms*±)
+  assert.equal(h.sockets.length, 2);
+  h.sockets[1].onStatusChange?.('connected');
+  await flush();
+  const state = h.render();
+  assert.ok(state.messages.some((m) => m.id === 'srv-x'), '갭 이벤트가 WS와 같은 onRaw 경로로 리플레이되어 확정 행에 합류');
+  assert.equal((apiModule.api.getMessages as unknown as { mock: { callCount(): number } }).mock.callCount(), readsBefore, '차등 리플레이 성공 시 전량 재조회 없음(배지·플리커 0)');
+  assert.equal(state.lastError, null);
+});
+
+test('diff sync — epoch 불일치는 리셋+0 재구독+전체 재조회, 낮은 seq 리플레이 살아남', async (t) => {
+  const h = harness(t);
+  let reads = 0;
+  t.mock.method(apiModule.api, 'getMessages', async () => { reads++; return { ok: true, data: [] }; });
+  t.mock.method(apiModule.api, 'getSessionEvents', async () => ({
+    ok: true, data: { current_seq: 1, seq_epoch: 'E2', truncated: false, events: [] },
+  }));
+  h.render(); await flush();
+  h.sockets[0].onStatusChange?.('connected');
+  h.sockets[0].onRaw?.({ type: 'subscribed', session_id: 'session', current_seq: 50, seq_epoch: 'E1' });
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', seq: 50, message: { id: 'old', session_id: 'session', turn_index: 5, role: 'agent', message_type: 'text', content: 'old' } });
+  const readsAtReconnect = reads;
+  h.sockets[0].onStatusChange?.('disconnected');
+  h.render().retryConnection();
+  h.sockets[1].onStatusChange?.('connected');
+  await flush();
+  assert.ok(reads > readsAtReconnect, '전체 재조회 전환');
+  assert.equal(h.sent[1].some((f) => f.type === 'subscribe' && f.last_seq === 0), true, 'last_seq=0 재구독');
+  // 재기동 서버의 낮은 seq 리플레이가 accept 필터에 잘리지 않는다
+  h.sockets[1].onRaw?.({ type: 'message.new', session_id: 'session', seq: 1, message: { id: 'low', session_id: 'session', turn_index: 6, role: 'agent', message_type: 'text', content: 'low' } });
+  assert.ok(h.render().messages.some((m) => m.id === 'low'));
+});
+
+test('diff sync — 404(구 서버/EVENT_SYNC_DISABLED)는 기존 gap 페이지 갱신 폴백', async (t) => {
+  const h = harness(t);
+  h.render(); await flush();
+  h.sockets[0].onStatusChange?.('connected');
+  h.sockets[0].onStatusChange?.('disconnected');
+  h.render().retryConnection();
+  const readsBefore = (apiModule.api.getMessages as unknown as { mock: { callCount(): number } }).mock.callCount();
+  h.sockets[1].onStatusChange?.('connected');
+  await flush();
+  assert.ok((apiModule.api.getMessages as unknown as { mock: { callCount(): number } }).mock.callCount() > readsBefore, 'gap refresh 폴백 실행');
+  assert.equal(h.render().lastError, null);
 });

@@ -107,6 +107,16 @@ it('소유자의 WS 텍스트·음성 입력은 같은 상태 계약을 발행�
   expect(socket.events.find(e => e.type === 'run.completed')?.message_ids.empathy).toBeNull();
   expect(socket.events.find(e => e.type === 'run.completed')).toBeTruthy();
   expect(socket.events.find(e => e.type === 'transcript.final')?.message_id).toBeTruthy();
+  // t_2133e4fc 순서 계약 (음성 전용): 전사 확정 경로(transcript/audio.end)는 user message.new를
+  // run.started **이전**에 선방송한다 — LLM 실행·실패와 무관하게 발화가 먼저 화면에 뜬다.
+  // 텍스트 message.send/REST 경로는 이 순서를 바꾸지 않는다(아래 순서 불변식과 구분).
+  const types = socket.events.map(e => e.type);
+  expect(types.indexOf('message.new')).toBeLessThan(types.indexOf('run.started'));
+  expect(socket.events[types.indexOf('message.new')].message.role).toBe('user');
+  expect(socket.events[types.indexOf('message.new')].run_id)
+    .toBe(socket.events[types.indexOf('run.started')].run_id);
+  expect(socket.events.find(e => e.type === 'transcript.final')?.turn_index)
+    .toBe(socket.events[types.indexOf('message.new')].message.turn_index);
   await send({ type: 'message.send', session_id: session.id, content: '  ' });
   expect(socket.events.at(-1)).toMatchObject({ type: 'error', code: 'VALIDATION_ERROR' });
 });

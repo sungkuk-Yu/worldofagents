@@ -5,11 +5,13 @@
  *   ① 발화 후 공감 재질문 카드 하단 버튼 행 노출 — 라벨 고정: 좌 '예'/우 '아니요' (t_1b123e59:
  *      원문① affirmative 좌측 고정 + 원문② "맞아요가 아니고 예/아니요 로만" — template_id 바인딩 폐기),
  *      50/50 폭 분할, 버튼 높이 ≥44px, 구분선 1px, affirmative('예')만 초록 채움
- *   ② 3초 후에도 버튼 행 유지(t_c62a2eb7 #2: 소형 척 3초 소멸 폐기 — 상시 확인 가능)
- *   ③ '예' 탭 = POST 발화 1회, payload = 라벨과 동일 텍스트(게이트 계약 텍스트)
+ *   ② 소진 전(≤2.4s) 유지 + 2.5초 경과 미터치 자동 소진(t_64e3edd6 #321 개정 — t_c62a2eb7 '3초+ 무한 유지'
+ *      폐기: "안 누르더라도 3초(→2.5s) 후에 그냥 바로 답변"). 실측 소진 2540ms(t_64e3edd6 B2), tick 200ms 유예 포함 3.2s 판정.
+ *   ③ '예' 탭 = POST 발화 1회, payload = 라벨과 동일 텍스트(게이트 계약 텍스트) — 2.5s 창 내 재질문 후 즉시 탭
  *   ④ 탭 후 해당 버튼 행 소멸(연속 질문 스팸 방지 — 발화 진행이 수명), 다음 턴은 신규 카드에만
- *   ⑤ 조이스틱 ← 900ms 홀드 → 아밍 배너 → 릴리스 = audio.cancel + '예' POST (녹음 폐기·텍스트 발화)
- *   ⑥ 얕은 좌 스와이프(<0.8s) = 텍스트 발화 없음 — 기존 매핑 경로(전송) 보존
+ *   ⑤ 재질문 활성 중 ← 방향 이동 = 즉시 아밍 힌트 → 릴리스 = audio.cancel + '예' POST
+ *      (t_64e3edd6 0.8s arm 타이머 폐지 — stageReleaseOutcome ackActive 게이트, 소진 창 내 수행)
+ *   ⑥ 소진 후(버튼 행 비활성) 좌 스와이프 = 텍스트 발화 없음 — 기존 매핑 경로(전송) 보존
  *   ⑦ 히스토리 재현(stale empathy 행) = 버튼 없음
  *   ⑧ PC 1440 = 버튼 행 정상(카드 폭 동일 비율), 조이스틱/홀드 없음(음성 콘솔 미렌더)
  * 실행: node tests/e2e/fr-serve.cjs dist-tc62a2eb7 8114 &
@@ -102,25 +104,37 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     }
     await page.screenshot({ path: shot('01-buttons-visible') });
 
-    // ── ② 3초 후에도 유지 (소형 척 3초 소멸 폐기) ──
-    await page.waitForTimeout(4200);
-    const still = (await page.getByTestId('ack-chips').count()) === 1;
-    check('② 3초+ 경과 후 버튼 행 유지 (발화 진행 전 — 상시 확인 가능)', still);
-    await page.screenshot({ path: shot('02-still-alive-after-4s') });
+    // ── ② 소진 전 유지 + 2.5초 미터치 자동 소진 (t_64e3edd6 #321: '3초+ 무한 유지' 폐기) ──
+    // t0 = 행 노출 확인 시점(생성 시각 이후). 실측 소진 2540ms + tick 200ms 유예 → 3.4s엔 확정 소멸.
+    const t0 = Date.now();
+    await page.waitForTimeout(1200); // 소진 창 내 (t0+1.2s < 2.5s)
+    const aliveBeforeBurn = (await page.getByTestId('ack-chips').count()) === 1;
+    check('② 소진 전(≤2.4s) 버튼 행 유지', aliveBeforeBurn, `elapsed=${Date.now() - t0}ms`);
+    await page.screenshot({ path: shot('02-still-alive-before-burn') });
+    await page.waitForTimeout(Math.max(0, 3400 - (Date.now() - t0)));
+    const burned = (await page.getByTestId('ack-chips').count()) === 0;
+    check('② 2.5초 미터치 자동 소진 — 버튼 행 소멸 (3.4s 실측 유예 내)', burned, `elapsed=${Date.now() - t0}ms`);
+    const autoAnswer = await page.getByText('Test reply to 내일 출장 일정 잡아줘', { exact: false }).count();
+    check('② 소진 후에도 답변 존재(자동 진행 체감 — 답변은 확인 발화 없이 직결)', autoAnswer >= 1);
+    await page.screenshot({ path: shot('02b-gone-after-burn') });
 
-    // ── ③④ '예' 탭 = POST 1회 + 해당 행 소멸 ──
+    // ── ③④ '예' 탭 = POST 1회 + 해당 행 소멸 — 2.5s 창 내 즉시 탭 (새 턴) ──
+    await page.getByTestId('chat-input').fill('회의실을 잡을까');
+    await page.getByTestId('send-button').click();
+    const row3 = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
+    check('③ 신규 턴 재질문 버튼 행 노출(탭 전제)', row3);
     const before = sends(state).length;
-    await page.getByTestId('ack-chip-yes').click();
+    if (row3) await page.getByTestId('ack-chip-yes').click(); // 노출 직후 — 소진 창(2.5s) 내
     await page.waitForTimeout(400);
     const after = sends(state);
-    check('③ 버튼 탭 = POST 발화 1회', after.length === before + 1, JSON.stringify(after.slice(before)));
+    check('③ 버튼 탭 = POST 발화 1회', row3 && after.length === before + 1, JSON.stringify(after.slice(before)));
     check('③ payload = 라벨과 동일 "예" (고정 라벨 = 게이트 계약 텍스트, t_1b123e59)', after[after.length - 1] === '예');
     await page.waitForTimeout(200);
     const domIds = await page.evaluate(() => document.querySelectorAll('[data-testid="ack-chips"]').length);
     check('④ 탭 후 이전 버튼 행 잔존 없음(≤1 = 다음 턴 신규만)', domIds <= 1, `rows=${domIds}`);
 
     // ── ③b 두 번째 턴(eq_proceed) — 라벨 고정: 템플릿 무관 동일 '예'/'아니요' ──
-    await page.getByTestId('chat-input').fill('회의실을 잡을까');
+    await page.getByTestId('chat-input').fill('예산도 같이 볼까');
     await page.getByTestId('send-button').click();
     const row2 = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
     check('③b 다음 턴 재질문(eq_proceed)에도 버튼 행', row2);
@@ -136,7 +150,11 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     }
     await page.screenshot({ path: shot('03-after-tap') });
 
-    // ── ⑤ 스테이지 ← 홀드 900ms → arm → 릴리스 = '예' 텍스트 발화 (음성 폐기) ──
+    // ── ⑤ 재질문 활성 중 ← 방향 = 즉시 아밍 → 릴리스 = '예' 발화 (arm 타이머 폐지, 소진 창 내) ──
+    await page.getByTestId('chat-input').fill('조이스틱-프루브 이번 주 보고서 요약해줄래?');
+    await page.getByTestId('send-button').click();
+    const row5 = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
+    check('⑤ 재질문 활성 전제(버튼 행 노출)', row5);
     await page.getByTestId('chat-voice-back').click(); // B→A: 입력바 우측 마이크 탭 (#304)
     await page.getByTestId('voice-stage').waitFor({ timeout: 5000 });
     const box = await page.getByTestId('voice-stage').boundingBox();
@@ -145,10 +163,9 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     const before4 = sends(state).length;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
-    for (let i = 1; i <= 5; i++) { await page.mouse.move(cx - 14 * i, cy); await page.waitForTimeout(30); }
-    await page.waitForTimeout(950); // 0.8s arm 유지
+    for (let i = 1; i <= 5; i++) { await page.mouse.move(cx - 14 * i, cy); await page.waitForTimeout(20); } // 순수 좌방향(escape 임계 미달)
     const armed = await page.getByTestId('joystick-ack-armed').isVisible().catch(() => false);
-    check('⑤ ← 0.8s 홀드 = 아밍 배너("예 — 놓으면 전송")', armed);
+    check('⑤ ← 방향 이동 = 즉시 아밍 힌트("예 — 놓으면 전송") — 0.8s arm 타이머 폐지', armed);
     await page.screenshot({ path: shot('05-joystick-armed') });
     await page.mouse.up();
     await page.waitForTimeout(500);
@@ -159,16 +176,20 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     const bannerGone = (await page.getByTestId('joystick-ack-armed').count()) === 0;
     check('⑤ 릴리스 후 아밍 배너 소멸', bannerGone);
 
-    // ── ⑥ 얕은 좌 스와이프(<0.8s) = 홀드-arm 미발동, 텍스트 발화 없음 ──
+    // ── ⑥ 소진 후(비활성) 좌 스와이프 = 텍스트 발화 없음 — 기존 audio 경로(send) 보존 ──
+    // ⑤의 '예' 발화가 만든 신규 재질문 행도 2.5s에 소진 → ackActive=false 상태 확보.
+    await page.waitForTimeout(3400);
+    const preSwipeRow = (await page.getByTestId('ack-chips').count()) === 0;
+    check('⑥ 전제: 스와이프 시점 버튼 행 소진(비활성)', preSwipeRow);
     const before5 = sends(state).length;
     const typesBefore = state.frames.length;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
     for (let i = 1; i <= 5; i++) { await page.mouse.move(cx - 14 * i, cy); await page.waitForTimeout(30); }
-    await page.waitForTimeout(200); // arm 임계 미달
+    await page.waitForTimeout(200);
     await page.mouse.up();
     await page.waitForTimeout(400);
-    check('⑥ 얕은 스와이프(<0.8s) = 텍스트 발화 없음(홀드-arm 미발동)', sends(state).length === before5);
+    check('⑥ 비활성 좌 스와이프 = 텍스트 발화 없음(ack 미발동)', sends(state).length === before5);
     const newFrames = state.frames.slice(typesBefore).filter((f) => f && typeof f.type === 'string').map((f) => f.type);
     check('⑥ 얕은 스와이프 = 기존 audio 경로(end) 유지', newFrames.includes('audio.end') && !newFrames.includes('audio.cancel'), newFrames.join(','));
     check('런타임 오류 0건', errors.length === 0, errors.join('|').slice(0, 160));

@@ -128,6 +128,14 @@ export type SegmentHistoryEntry = {
 
 // ── 채팅 MVP (Phase 2) ──────────────────────────────
 
+/** 답글 인용 요약 스냅샷 (t_62897e88 / 백엔드 t_02f58030 structured_payload.reply_to 계약) —
+ *  by=발행자 표시 이름, text=마크다운 스트리핑 1줄 발췌. 원문이 지워져도 남는다. */
+export interface ReplyQuote {
+  message_id: string;
+  by: string;
+  text: string;
+}
+
 /** 채팅 화면 UI 메시지 — 백엔드 messages 행에서 정규화 */
 export interface ChatMessage {
   aiGenerated?: boolean;
@@ -158,6 +166,13 @@ export interface ChatMessage {
   status?: 'pending' | 'sent' | 'failed' | 'streaming';
   runId?: string;
   draft?: string;
+  /** 답글 인용 원문 ID (t_62897e88 / 백엔드 t_02f58030 마이그레이션 012) — invalid는 서버가 무시하고 통과 */
+  replyToId?: string;
+  /** 발행 시점 인용 요약 스냅샷 (structured_payload.reply_to) — 원문 삭제 후에도 남는다 */
+  replyTo?: ReplyQuote;
+  /** random_id相当 (t_3486b1d7 ①② / 프론트 소비 t_17edbc88 ①): 낙관 행과 서버 에코(message.new
+   *  user_message_id·message.client_req_id)를 같은 키로 in-place 병합하는 연결 자국. 확정 후 유지. */
+  clientReqId?: string;
   /** 첨부 요약 (messages.attachments JSONB — {id,url,mime,size,name}[], 백엔드 t_401c5bd1) */
   attachments?: unknown;
   /** 전송 실패 시 재시도용 업로드 완료 ID (previews와 한 쌍) */

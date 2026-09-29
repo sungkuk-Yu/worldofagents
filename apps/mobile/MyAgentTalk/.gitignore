@@ -37,9 +37,7 @@ yarn-error.*
 *.tsbuildinfo
 
 # local build/test outputs (Phase 1)
-dist-web/
-dist-test-unit/
-dist-deploy/
+dist-*/
 dist-dbg-*/
 dist-stage-*/
 dist-dr/

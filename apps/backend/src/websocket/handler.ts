@@ -1,5 +1,5 @@
 import { Locale, resolveLocale } from '../lib/locale';
-import { getOwnedMessage } from '../lib/helpers';
+import { getOwnedMessage, serializeMessage } from '../lib/helpers';
 /**
  * WebSocket 핸들러 — api-design.md §4 프로토콜 구현.
  * - 구독 (subscribe/subscribed)
@@ -16,11 +16,12 @@ import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
 import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
 import { normalizePttMode, normalizeDeviceLabel, isPttIdleTimeout, isPttHoldOverflow, PttMode } from '../lib/pushToTalk';
-import { runTextTurn } from '../lib/chatTurn';
+import { runTextTurn, persistUserUtteranceEarly } from '../lib/chatTurn';
+import { randomUUID } from 'node:crypto';
 import { queueJoinLine } from '../lib/personaVoice';
 import { parseAttachmentIds } from '../lib/attachments';
 import { enqueueQuestion, listQueue, queueSnapshot, isQueueKnownUnavailable } from '../lib/questionQueue';
-import { SessionsRow } from '../types/db';
+import { MessagesRow, SessionsRow } from '../types/db';
 import { sendJson, ClientMessage, ServerMessage, WSChannel, PresenceDevice } from './protocol';
 
 export interface WSSocket {
@@ -394,7 +395,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           break;
 
         case 'audio.end':
-          await handleAudioEnd(socket, state, session!, state.userId);
+          await handleAudioEnd(socket, state, session!, state.userId, message.client_req_id ?? null);
           break;
 
         case 'audio.cancel':
@@ -403,7 +404,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           break;
 
         case 'transcript':
-          await handleTr({ locale: state.locale, text: message.text, isFinal: message.is_final !== false, session: session!, userId: state.userId });
+          await handleTr({ locale: state.locale, text: message.text, isFinal: message.is_final !== false, session: session!, userId: state.userId, clientReqId: message.client_req_id ?? null });
           break;
 
         case 'ping':
@@ -505,7 +506,7 @@ async function handleAudioStart(socket: WSSocket, state: ConnState, message: Ext
   });
 }
 
-async function handleAudioEnd(socket: WSSocket, state: ConnState, session: SessionsRow, userId: string) {
+async function handleAudioEnd(socket: WSSocket, state: ConnState, session: SessionsRow, userId: string, clientReqId: string | null = null) {
   const target = session.id;
   if (!target) {
     sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'session_id가 필요합니다.' });
@@ -532,19 +533,12 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
     return;
   }
 
-  // 음성 확정 발화 즉시 브로드캐스트 (t_5cba9ebb, 대표님 9/29 #325 2항: "질문은 텍스트로
-  // 내가 뭘 질문했는지는 보여줬으면해") — 답변 실행을 기다리지 않고 전사문이 user 발화 자리에
-  // 뜬다. turn_index/message_id는 런 완료 후 message.new(user)로 확정 (구계약 호환: 그 값들은
-  // pending 표식). 실패 시에도 화면에는 이미 확정 텍스트가 남는다.
-  broadcastToSession(target, {
-    type: 'transcript.final', session_id: target, turn_index: -1,
-    text: result.text,
-    confidence: result.confidence,
-    language: result.language,
-    duration_ms: result.durationMs,
-    message_id: null,
-  });
-
+  // 음성 확정 발화: 전사 직후 runTextTurn 실행 **이전**에 user 행 영속+transcript.final·
+  // message.new 선방송 (t_2133e4fc, 대표님 #324 "질문은 텍스트로 내가 뭘 질문했는지는
+  // 보여줬으면해"). 런이 37~300s 걸리거나 실패해도 발화 텍스트와 user message_id가 즉시
+  // 확정된다. handleAudioEnd의 별도 브로드캐스트가 없던 구 구조(t_5cba9ebb의 message_id=null
+  // pending 표식)는 폐기 — 확정 id를 실어 보낸다. runTextTurn은 같은 user message_id를
+  // 재사용(persistedUser)해 중복 영속하지 않는다.
   await handleTr({
     locale: state.locale,
     text: result.text,
@@ -552,7 +546,7 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
     session,
     userId,
     stt: { confidence: result.confidence, language: result.language, duration_ms: result.durationMs, service: result.service },
-    transcriptEarly: true,
+    clientReqId,
   });
 }
 
@@ -565,12 +559,12 @@ interface TrInput {
   session: SessionsRow;
   userId: string;
   stt?: Record<string, unknown>;
-  /** transcript.final을 이미 선행 브로드캐스트한 경로 (audio.end 즉시 발화, t_5cba9ebb) —
-   *  런 완료 후 중복 브로드캐스트를 막는다. 확정 id는 message.new(user)가 전달한다. */
-  transcriptEarly?: boolean;
+  /** 013 멱등 키 (t_3486b1d7, 재베이스 r2): audio.end/transcript 재전송 시 선영속 insert가
+   *  사전 조회·유니크 사다리를 타게 한다. 미공급이면 기존 동작(멱등 없음) 그대로. */
+  clientReqId?: string | null;
 }
 
-async function handleTr({ locale, text, isFinal, session, userId, stt, transcriptEarly }: TrInput) {
+async function handleTr({ locale, text, isFinal, session, userId, stt, clientReqId }: TrInput) {
   const sessionId = session.id;
   if (typeof text !== 'string' || !text.trim()) return;
   if (session.status === 'archived') throw Object.assign(new Error('아카이브된 세션입니다.'), { code: 'SESSION_ARCHIVED' });
@@ -587,26 +581,61 @@ async function handleTr({ locale, text, isFinal, session, userId, stt, transcrip
     return;
   }
 
-  const result = await runTextTurn(supabaseAdmin, session, userId, text, {
-    locale,
-    sttMetadata: stt,
-    emit: e => broadcastToSession(sessionId, e),
-  });
-
-  // 최종 트랜스크립트 + 응답 브로드캐스트 — audio.end 경로가 이미 전사 즉시 브로드캐스트했다면
-  // 중복 발행하지 않는다 (t_5cba9ebb. 확정 turn_index/message_id는 message.new(user)가 전달).
-  if (!transcriptEarly) {
+  // 전사 확정 발화 선(先)방송 (t_2133e4fc, 대표님 #324): runTextTurn 실행 **이전**에
+  // user 행을 영속하고 transcript.final+message.new(user)를 확정 turn_index/message_id로
+  // 보낸다 — 런이 37~300s 걸리거나 실행 실패(run.failed)해도 발화는 화면에 남는다(텔레그램처럼).
+  // 이벤트 순서: message.new(user) < run.started (선방송 run_id를 runTextTurn에 넘겨
+  // 이후 run.*/message.new(empathy|answer)와 같은 run_id로 직렬 연결).
+  // runTextTurn(persistedUser)은 같은 user message_id를 재사용 — 중복 영속·중복 message.new 없음.
+  // 선영속 실패(저장 오류)는 행이 없다 → 구 흐름으로 폴백, runTextTurn이 자체 영속 후
+  // run.started→run.failed로 마감한다(WS 저장 실패 계약 유지).
+  const runId = randomUUID();
+  let userRow: MessagesRow | null = null;
+  let earlyDeduped = false;
+  try {
+    const early = await persistUserUtteranceEarly(supabaseAdmin, session, userId, text, {
+      locale,
+      sttMetadata: stt ?? null,
+      clientReqId: clientReqId ?? null,
+    });
+    userRow = early.row;
+    earlyDeduped = early.deduped;
+  } catch (err: any) {
+    if (err?.code === 'FORBIDDEN' || err?.code === 'SESSION_ARCHIVED') throw err;
+    // CONFLICT(재전송 레이스가 사전 조회를 뚫음)/저장 오류는 행 없음으로 보고 구 흐름 폴백 —
+    // runTextTurn의 client_req_id 사전 조회가 기존 행을 찾아 deduped로 마감한다(중복 영속 0).
+    userRow = null;
+  }
+  // 재전송이 선영속 사전 조회에 걸린 경우(earlyDeduped): 선방송하지 않고 persistedUser도
+  // 넘기지 않는다 — runTextTurn의 013 사전 조회가 같은 행을 찾아 deduped 메시지 1건(턴 미실행)으로
+  // 마감한다. 선영속 경로가 "멱등인데 답변 재실행" 구멍이 되는 것 차단 (t_3486b1d7 재베이스 r2).
+  if (userRow && !earlyDeduped) {
     broadcastToSession(sessionId, {
       type: 'transcript.final',
       session_id: sessionId,
-      turn_index: result.messages.user.turn_index,
+      turn_index: userRow.turn_index,
       text,
       confidence: (stt?.confidence as number) || 0.95,
       language: (stt?.language as string) || locale,
       duration_ms: (stt?.duration_ms as number) || 0,
-      message_id: result.userMessageId,
+      message_id: userRow.id,
+    });
+    broadcastToSession(sessionId, {
+      type: 'message.new',
+      session_id: sessionId,
+      run_id: runId,
+      message: serializeMessage(userRow),
     });
   }
+
+  const result = await runTextTurn(supabaseAdmin, session, userId, text, {
+    locale,
+    sttMetadata: stt,
+    // 폴백(선영속 실패)/재전송 경로에서도 013 멱등 사전 조회·stamp가 텍스트 경로와 동일하게 돈다.
+    clientReqId: clientReqId ?? null,
+    ...(userRow && !earlyDeduped ? { turnId: runId, persistedUser: userRow } : {}),
+    emit: e => broadcastToSession(sessionId, e),
+  });
 
   broadcastToSession(sessionId, {
     type: 'queue.update',

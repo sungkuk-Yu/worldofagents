@@ -154,6 +154,10 @@ export interface ProcessTurnOptions {
    * 그래프는 invoke(null)로 크래시 직전 슈퍼스텝부터 재개(완료 노드 스킵).
    */
   resume?: JournalRow;
+  /** 선(先)영속 user 행 (t_2133e4fc): 음성 전사 확정 시 handleTr가 runTextTurn 실행 전에 저장·선방송한
+   *  행. processTurn은 insert를 건너뛰고 이 id를 재사용(중복 영속 금지), history에서 자기 행을
+   *  배제(재전송 오탐·LLM 컨텍스트 복제 방지), 에이전트 번호는 최신 turn_index 뒤에서 받는다. */
+  persistedUser?: MessagesRow;
 }
 
 export interface TurnResult {
@@ -906,10 +910,15 @@ export async function processTurn(
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
         history = [root, ...(replies || []).reverse()];
       } else if (!history) {
-        const { data, error } = await db.from('messages').select('role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
+        const { data, error } = await db.from('messages').select('id,role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
           .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3));
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
-        history = (data || []).reverse();
+        // 선(先)영속 행 배제 (t_2133e4fc): 이번 발화가 history의 "직전 user 행"으로 자기 자신과
+        // 만나면 repeatUtterance 오탐 + LLM 컨텍스트 복제가 된다. 배제는 load-only —
+        // lastUserUtterance 등 history 판정자 전부에 일관 적용(호출 지점 추가 수정 불필요).
+        history = (data || []).reverse().filter((m: any) => !opts.persistedUser || m.id !== opts.persistedUser.id);
+      } else if (opts.persistedUser) {
+        history = history.filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id);
       }
 
       // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴이면
@@ -1007,6 +1016,22 @@ export async function processTurn(
       // userCols(처음 포착): 진입 시 스탬프 시도 여부 — 래치 판정 가드용.
       // insert 안에서는 매 시도 재계산: 래치 on 후 재시도에서 컬럼이 실제 제외되게.
       const userCols = clientReqColumns(opts.clientReqId ?? null);
+
+      // 선(先)영속 user 행 재사용 (t_2133e4fc): handleTr가 run 전에 저장·선방송한 행.
+      // insert 건너뛰기 = 같은 user message_id 유지(중복 영속 금지, ingress contract).
+      // 013 멱등 사다리(사전 조회·강등·CONFLICT)는 persistUserUtteranceEarly가 선처리 —
+      // 선영속 경로가 멱등을 우회하는 구멍이 되지 않는다.
+      // user 행은 이미 존재하므로 this turn의 에이전트 번호는 락 획득 시점의 최신 최대+1로
+      // 재계산 — 선저장 이후 락 밖에서 끼어든 동시 턴과 UNIQUE(session_id,turn_index) 충돌 방지.
+      let msgUserEarly: MessagesRow | null = null;
+      if (opts.persistedUser) {
+        msgUserEarly = opts.persistedUser;
+        // user 행은 이미 존재 → nextTurn을 "직전 max"로 맞춘다 (max+1 - 1).
+        // 낙관 경로: user=T면 empathy=T+1, answer=T+2 (정상 경로와 동일 인접 번호).
+        // 락 밖 동시 턴이 T 뒤에 행을 심었으면 max가 그 뒤로 밀려 UNIQUE 충돌이 없다.
+        nextTurn = (await getNextTurn()) - 1;
+      }
+
       // 답글 인용 컬럼/요약 (t_02f58030): replyCols는 래치(on)면 빈 객체. 강등 2종 —
       //  · column-drop: 012 미적용(PGRST204/42703) → 래치 후 컬럼 생략 재시도 (011 관례, 요약 payload 유지)
       //  · ref-drop: 23503/FK·CROSS_SESSION 트리거(검증 후 원문 삭제 경쟁 등) → 인용 정보 탈락 재시도 (발화 통과)
@@ -1047,20 +1072,22 @@ export async function processTurn(
         return query.select().single();
       };
 
-      // resume 구간 재시작 가드: 스탬프된 user 행 id 또는 결정적 forcedId 행이 이미
-      // DB에 있으면 재생성하지 않고 로드한다 (turn_index 보존 — 재실행이 max+1로 어긋나도
-      // 기존 행을 건드리지 않으므로 UNIQUE(session_id,turn_index) 충돌이 구조적으로 없다).
+      // resume 구간 재시작 가드 (t_7182aa8f②): 스탬프된 user 행 id 또는 결정적 forcedId
+      // 행이 이미 DB에 있으면 재생성하지 않고 로드한다 (turn_index 보존 — nextTurn pinning).
       // forcedId 히트는 스탬프 공백 크래시(쓰기 직후 사망)의 자기복구 경로 — 로드 후 스탬프.
+      // 선영속 재사용 시 insert 전 구간 스킵 (t_2133e4fc) — 같은 user message_id 유지.
+      // 013 멱등 사다리(사전 조회→컬럼 강등→CONFLICT)는 persistUserUtteranceEarly가 선처리했다.
       const userForcedId = ckptActive ? runScopedId(turnId, 'user') : undefined;
-      let msgUser: any = null;
+      let msgUser: MessagesRow | null = msgUserEarly;
       let errUser: { message?: string } | null = null;
-      const preExisting = resuming ? journal.userMessageId || userForcedId || null : null;
-      if (preExisting) {
+      if (msgUser && ckptActive && !journal.userMessageId) await journal.stampUser(msgUser.id);
+      if (!msgUser && resuming) {
+        const preExisting = journal.userMessageId || userForcedId || null;
         const { data: existing, error } = await db.from('messages').select('*')
           .eq('id', preExisting).eq('session_id', sessionId).maybeSingle();
         if (error) throw new ApiError('INTERNAL_ERROR', error.message || 'resume: user 행 조회 실패');
         if (existing) {
-          msgUser = existing;
+          msgUser = existing as MessagesRow;
           // resume는 원 크래시 실행의 turn 계획에 못 박는다 — empathy/answer의
           // turn_index(nextTurn+1/+2)가 크래시 전과 동일하게 재계산되도록 pinning.
           nextTurn = (existing.turn_index as number);
