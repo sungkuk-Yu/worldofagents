@@ -123,3 +123,51 @@ test('모드: 손상된 서버 값은 무시 → 로컬/기본 폴백 (normalize
   await prefs.hydratePrefs();
   assert.equal(prefs.getJoystickMode(), null); // 호출자는 DEFAULT_MODE 폴백
 });
+
+// ── 복명복창 echoMode 영속 (카드 t_43297d90 요구 1·2·3) ──────
+test('echoMode: 기본값은 on (미저장 계정은 ECHO_MODE_DEFAULT 폴백)', async (t) => {
+  const { prefs } = setup(t, { me: { preferences: {} } });
+  await prefs.hydratePrefs();
+  assert.equal(prefs.getEchoMode(), null);        // 저장된 값 없음 → 호출자는 ECHO_MODE_DEFAULT('on')
+  assert.equal(prefs.ECHO_MODE_DEFAULT, 'on');    // 계약: 기본 'on'
+});
+
+test('echoMode: 서버 preferences.echoMode=off 우선 복원 + 로컬 미러', async (t) => {
+  const { prefs, state } = setup(t, { me: { preferences: { theme: 'dark', echoMode: 'off' } } });
+  await prefs.hydratePrefs();
+  assert.equal(prefs.getEchoMode(), 'off');
+  assert.ok(state.local.get('at-prefs-v1')?.includes('"echoMode":"off"')); // 로컬 미러
+});
+
+test('echoMode: setEchoMode — 낙관적 즉시 반영 + PATCH는 echoMode 키만 + 기존 joystickMap 유실 0 (딥머지 공존)', async (t) => {
+  const { prefs, state } = setup(t, { me: { preferences: { theme: 'dark', joystickMap: { ...DEFAULT_MAP }, pttKey: 'KeyB' } } });
+  await prefs.hydratePrefs();
+  await prefs.setEchoMode('off');
+  assert.equal(prefs.getEchoMode(), 'off'); // 낙관적 즉시 (emit 전에도 동기 읽기 가능)
+  const sent = state.patches[state.patches.length - 1] as { preferences: Record<string, unknown> };
+  assert.equal(sent.preferences.echoMode, 'off');
+  assert.equal(sent.preferences.theme, 'dark');       // 다른 선호 키 보존
+  assert.ok(sent.preferences.joystickMap);            // 기존 joystickMap 유실 0
+  assert.equal(sent.preferences.pttKey, 'KeyB');      // PTT 키 공존
+});
+
+test('echoMode: 서버 저장 실패해도 로컬 캐시/저장은 유지 (낙관적, 요구 3)', async (t) => {
+  const { prefs, state } = setup(t, { patchFails: true });
+  await prefs.hydratePrefs();
+  await prefs.setEchoMode('off');
+  assert.equal(prefs.getEchoMode(), 'off');
+  assert.ok(state.local.get('at-prefs-v1')?.includes('"echoMode":"off"'));
+});
+
+test('echoMode: 손상된 서버 값(bool/대문자)은 무시 → 기본 폴백 유지', async (t) => {
+  const { prefs } = setup(t, { me: { preferences: { echoMode: true } } });
+  await prefs.hydratePrefs();
+  assert.equal(prefs.getEchoMode(), null); // 호출자는 ECHO_MODE_DEFAULT('on')
+});
+
+test('echoMode: 오프라인 하이드레이션은 로컬 저장본 유지', async (t) => {
+  const { prefs, state } = setup(t, { meFails: true });
+  state.local.set('at-prefs-v1', JSON.stringify({ echoMode: 'off' }));
+  await prefs.hydratePrefs();
+  assert.equal(prefs.getEchoMode(), 'off');
+});
