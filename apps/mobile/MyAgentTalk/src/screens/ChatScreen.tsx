@@ -385,17 +385,22 @@ export default function ChatScreen({ navigation, route }: Props) {
       // 컨테이너 paddingBottom이 화면 전체 = 채팅이 위로 압축·상단 고정. 0/음수(비정상 전이)는 inset 0 취급.
       const h = viewport.height;
       if (!Number.isFinite(h) || h <= 0) { setViewportInset(0); return; }
-      // 상한 클램프(60%vh): 어떤 브라우저 전이 프레임에서든 inset이 화면 대부분을 먹으면
-      // 컨테이너가 압축돼 채팅이 상단 고정을 보이는 재발이 원천 차단된다(진짜 키보드는 대체로 ≤50%).
+      // 상한=innerHeight-150: 키보드는 물리적으로 화면 전부를 못 먹는다(최소 150px은 남는다).
+      // 전이 프레임(ih=1688/h=844 등 스케일 혼선)의 raw=화면전체 값이 이 클램프로 원천 차단된다.
       const raw = Math.max(0, window.innerHeight - h - viewport.offsetTop);
-      setViewportInset(Math.min(raw, Math.round(window.innerHeight * 0.6)));
+      setViewportInset(Math.min(raw, Math.max(0, window.innerHeight - 150)));
     };
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
+    // 핵심: vv만 감시하면 'layout 뷰포트가 먼저 1688로 전이→window resize로 844에 안정'되는 모바일
+    // 초기/탭복원 프레임에서 vv 이벤트 없이 잘못된 inset이 동결된다(v2도 844 잔존의 실제 경로).
+    // window resize/orientationchange를 추가해 최종 프레임에서 항상 재계산한다.
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
     update();
     // 마운트 직전 프레임(브라우저 탭 복원 등)에 vv.height=0이었으면 resize 없이 정상이 될 수 있다 — 1회 지연 재측정.
     const retry = setTimeout(update, 250);
-    return () => { clearTimeout(retry); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); };
+    return () => { clearTimeout(retry); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); window.removeEventListener('resize', update); window.removeEventListener('orientationchange', update); };
   }, []);
 
   // 후속 질문 칩 전송 (t_1797f432 ③): 입력창 경유 없이 곧바로 send — 실패 시 원문 복원/재시도는 performSend 책임.
