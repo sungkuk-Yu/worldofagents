@@ -10,7 +10,7 @@ import { getOwnedMessage } from '../lib/helpers';
  */
 import { FastifyRequest } from 'fastify';
 import { consumeTicket } from '../routes/wsTicket';
-import { recordEvent, currentSeq, replaySince, cancelRun, hasActiveRun, isDuplicateIngress } from './eventlog';
+import { recordEvent, currentSeq, replaySince, cancelRun, hasActiveRun, isDuplicateIngress, currentEpoch, eventSyncState } from './eventlog';
 import { config } from '../config';
 import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
@@ -114,10 +114,11 @@ function drainIngress(socket: WSSocket, deliver: (raw: Buffer | string, isBinary
 }
 
 /** subscribed 회신 단일 지점 — send 후 state.subscribedSent 기록 (t_83946f45:
- *  ack-less message.send의 implicit subscribe 판정이 이 플래그에 의존한다). */
+ *  ack-less message.send의 implicit subscribe 판정이 이 플래그에 의존한다).
+ *  seq_epoch (t_3486b1d7 ③): 클라이언트 보관 에포크와 다르면 재기동 감지 → 전량 캐치업. */
 function sendSubscribed(socket: WSSocket, state: ConnState): void {
   state.subscribedSent = true;
-  sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!), devices: presenceOf(state.sessionId!) });
+  sendJson(socket, { type: 'subscribed', session_id: state.sessionId!, channels: state.channels, current_seq: currentSeq(state.sessionId!), seq_epoch: config.protocol.seqDiffSync ? currentEpoch() : undefined, devices: presenceOf(state.sessionId!) });
 }
 
 interface AudioSession {

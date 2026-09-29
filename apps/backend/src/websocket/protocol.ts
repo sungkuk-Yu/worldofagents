@@ -42,7 +42,10 @@ export type ServerMessage =
   | { type: 'answer.delta'; seq?: number; session_id: string; run_id: string; delta: string; index: number }
   | { type: 'answer.done'; ai_generated: true; locale: Locale; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null }; grounding?: GroundingSummary | null }
   | { type: 'connected'; session_id: string | null; timestamp: string }
-  | { type: 'subscribed'; current_seq?: number; session_id: string; channels: WSChannel[]; devices?: PresenceDevice[] }
+  /** current_seq/seq_epoch (t_3486b1d7 ③): last_seq 미전송 접속(초 구독)에서는 서버 버퍼가
+   *  이 지점부터의 diff 기준점이다. 에포크가 이전 관측값과 다르면(재기동) 클라이언트는
+   *  GET /messages 전량 캐치업으로 전환. */
+  | { type: 'subscribed'; current_seq?: number; seq_epoch?: string; session_id: string; channels: WSChannel[]; devices?: PresenceDevice[] }
   | { type: 'error'; code: string; message: string }
   | { type: 'audio.started'; session_id: string; config: Record<string, unknown> }
   | { type: 'audio.received'; bytes: number; timestamp: string }
