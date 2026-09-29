@@ -20,6 +20,8 @@ export interface PresenceDevice {
 }
 
 // 클라이언트 → 서버
+// message.send는 ack 필드를 요구하지 않는다 (t_5cba9ebb 2항 계약 — 예/아니오 미터치 시
+// 프론트는 ack 없이 그대로 진행, 파이프라인은 원래 ack 비동기: answer_always=t_c31e3f45).
 export type ClientMessage =
   | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string; attachment_ids?: string[] }
   | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
@@ -64,6 +66,11 @@ export type ServerMessage =
   /** 답변 대기 (t_811e176c) — 회신 필요 메시지 스냅샷 (queue.updated 관례 동일 계약).
    *  사용자 발화 해소·답변 감지 시 발행. 011 미적용 환경(래치)은 items 빈 배열. */
   | { type: 'reply.pending.updated'; seq?: number; session_id: string; count: number; items: Array<{ message_id: string; turn_index: number; excerpt: string; reply_kind: ReplyKind }> }
+  /** 단일 페르소나 보이스 채널 (t_5cba9ebb, 대표님 9/29 "여러 개의 동시 출력 창이 제거 대상") —
+   *  뉴런 출력(릴레이 진행·큐 대기·patience quip)을 한 시점 한 줄의 대화체 문장으로 수렴한다.
+   *  기존 run.progress/neuron.status/relay.updated는 하위 호환으로 그대로 발행되지만
+   *  프론트는 line만 렌더한다. 답변 스트리밍(answer.delta) 시작 시 이 줄은 자동 소멸(프론트). */
+  | { type: 'persona.line'; seq?: number; session_id: string; run_id?: string; line: string; source: 'ack' | 'progress' | 'queue' | 'relay' }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'pong'; ts: number }

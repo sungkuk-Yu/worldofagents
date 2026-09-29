@@ -17,6 +17,7 @@ import { logger } from '../utils/logger';
 import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
 import { normalizePttMode, normalizeDeviceLabel, isPttIdleTimeout, isPttHoldOverflow, PttMode } from '../lib/pushToTalk';
 import { runTextTurn } from '../lib/chatTurn';
+import { queueJoinLine } from '../lib/personaVoice';
 import { parseAttachmentIds } from '../lib/attachments';
 import { enqueueQuestion, listQueue, queueSnapshot, isQueueKnownUnavailable } from '../lib/questionQueue';
 import { SessionsRow } from '../types/db';
@@ -348,7 +349,12 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           if (!thread && !hasAttachments && hasActiveRun(session!.id)) {
             const item = await enqueueQuestion(supabaseAdmin, { sessionId: session!.id, userId: state.userId, content: message.content.trim(), locale: state.locale });
             if (item) {
-              broadcastToSession(session!.id, { type: 'queue.updated', session_id: session!.id, ...queueSnapshot(await listQueue(supabaseAdmin, session!.id)) });
+              const snap = queueSnapshot(await listQueue(supabaseAdmin, session!.id));
+              broadcastToSession(session!.id, { type: 'queue.updated', session_id: session!.id, ...snap });
+              // busy 입력 합류 고지 (t_5cba9ebb 보강 5항): 큐 뉴런이 1인칭 한 줄로 대신 말한다 —
+              // "앞에 N개 있어요, 순서대로 챙기고 있어요" (무정보 ETA 금지).
+              const join = queueJoinLine(snap.pending_count, state.locale);
+              if (join) broadcastToSession(session!.id, { type: 'persona.line', session_id: session!.id, source: 'queue', line: join });
               break;
             }
             // null 원인 분기: 008 미적용(래치)이면 기존 직렬 실행으로 폴백, 아니면 대기 상한 429.
@@ -502,6 +508,19 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
     return;
   }
 
+  // 음성 확정 발화 즉시 브로드캐스트 (t_5cba9ebb, 대표님 9/29 #325 2항: "질문은 텍스트로
+  // 내가 뭘 질문했는지는 보여줬으면해") — 답변 실행을 기다리지 않고 전사문이 user 발화 자리에
+  // 뜬다. turn_index/message_id는 런 완료 후 message.new(user)로 확정 (구계약 호환: 그 값들은
+  // pending 표식). 실패 시에도 화면에는 이미 확정 텍스트가 남는다.
+  broadcastToSession(target, {
+    type: 'transcript.final', session_id: target, turn_index: -1,
+    text: result.text,
+    confidence: result.confidence,
+    language: result.language,
+    duration_ms: result.durationMs,
+    message_id: null,
+  });
+
   await handleTr({
     locale: state.locale,
     text: result.text,
@@ -509,6 +528,7 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
     session,
     userId,
     stt: { confidence: result.confidence, language: result.language, duration_ms: result.durationMs, service: result.service },
+    transcriptEarly: true,
   });
 }
 
@@ -521,9 +541,12 @@ interface TrInput {
   session: SessionsRow;
   userId: string;
   stt?: Record<string, unknown>;
+  /** transcript.final을 이미 선행 브로드캐스트한 경로 (audio.end 즉시 발화, t_5cba9ebb) —
+   *  런 완료 후 중복 브로드캐스트를 막는다. 확정 id는 message.new(user)가 전달한다. */
+  transcriptEarly?: boolean;
 }
 
-async function handleTr({ locale, text, isFinal, session, userId, stt }: TrInput) {
+async function handleTr({ locale, text, isFinal, session, userId, stt, transcriptEarly }: TrInput) {
   const sessionId = session.id;
   if (typeof text !== 'string' || !text.trim()) return;
   if (session.status === 'archived') throw Object.assign(new Error('아카이브된 세션입니다.'), { code: 'SESSION_ARCHIVED' });
@@ -546,17 +569,20 @@ async function handleTr({ locale, text, isFinal, session, userId, stt }: TrInput
     emit: e => broadcastToSession(sessionId, e),
   });
 
-  // 최종 트랜스크립트 + 응답 브로드캐스트
-  broadcastToSession(sessionId, {
-    type: 'transcript.final',
-    session_id: sessionId,
-    turn_index: result.messages.user.turn_index,
-    text,
-    confidence: (stt?.confidence as number) || 0.95,
-    language: (stt?.language as string) || locale,
-    duration_ms: (stt?.duration_ms as number) || 0,
-    message_id: result.userMessageId,
-  });
+  // 최종 트랜스크립트 + 응답 브로드캐스트 — audio.end 경로가 이미 전사 즉시 브로드캐스트했다면
+  // 중복 발행하지 않는다 (t_5cba9ebb. 확정 turn_index/message_id는 message.new(user)가 전달).
+  if (!transcriptEarly) {
+    broadcastToSession(sessionId, {
+      type: 'transcript.final',
+      session_id: sessionId,
+      turn_index: result.messages.user.turn_index,
+      text,
+      confidence: (stt?.confidence as number) || 0.95,
+      language: (stt?.language as string) || locale,
+      duration_ms: (stt?.duration_ms as number) || 0,
+      message_id: result.userMessageId,
+    });
+  }
 
   broadcastToSession(sessionId, {
     type: 'queue.update',

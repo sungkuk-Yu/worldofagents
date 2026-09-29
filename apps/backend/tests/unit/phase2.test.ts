@@ -29,7 +29,10 @@ describe('공유 턴 실행', () => {
     for (const r of results) {
       const own = events.filter((e: any) => e.run_id === r.turnId) as any[];
       expect(own[0].type).toBe('run.started');
-      expect(own[1].type).toBe('run.progress');
+      // t_5cba9ebb 페르소나 보이스 채널: run.started 직후 persona.line(ack)이 선행 삽입될 수 있다
+      // — 하위 호환 run.progress 계약은 유지되므로 '처음의 run.progress' 인덱스로 판정한다.
+      const progressIdx = own.findIndex(e => e.type === 'run.progress');
+      expect(progressIdx).toBeGreaterThan(0);
       expect(own.at(-1).type).toBe('run.completed');
       expect(own.at(-2).type).toBe('answer.done');
       expect(r.messages.answer?.content).toBe(r.answerResponse);
