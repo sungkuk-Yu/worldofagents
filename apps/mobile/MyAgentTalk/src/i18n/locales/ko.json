@@ -27,6 +27,8 @@
     "sent": "전송됨",
     "resend": "재전송",
     "delete": "삭제",
+    "dateToday": "오늘",
+    "dateYesterday": "어제",
     "saving": "응답 저장 중…",
     "history": "이전 대화 보기",
     "connecting": "연결 중…",

@@ -831,3 +831,53 @@ export function groupByTurn(messages: ChatMessage[]): TurnGroup[] {
   }
   return groups;
 }
+
+// ── 날짜 구분선 (t_34f3e92c 백로그② — 텔레그램 컨벤션) ──────────────────
+// 플랫 리스트(FlatList)를 섹션화하지 않고 합성 항목을 삽입한다:
+//   - separator는 턴 그룹 경계에만 들어간다(그룹 내부 분할 금지 → firstAgentMessageId·딥링크 그룹 로직 불변).
+//   - data 배열이 곧 feed이므로 scrollToIndex/KeyExtractor/CellRenderer onLayout(layouts 맵)은
+//     같은 인덱스·키 공간을 공유 → 딥링크 점프 인덱스 정합성 자동 유지.
+//   - 고정 헤더는 sticky 대신 레이아웃 기반 오버레이(computePinnedDate) — push-out까지 재현.
+export interface DateSeparator { key: string; separator: true; label: string }
+export type FeedItem = TurnGroup | DateSeparator;
+export const isDateSeparator = (item: FeedItem): item is DateSeparator => (item as DateSeparator).separator === true;
+
+/** createdAt 날짜 버킷이 바뀌는 그룹 경계에 구분선 삽입. 잘못된/없는 시간은 라벨 없음(무시).
+ *  key는 첫 그룹 키에 앵커('sep:<groupKey>') — 그날 첫 그룹이 그대로인 한 리마운트 없음. */
+export function insertDateSeparators(groups: TurnGroup[], labelOf: (first: ChatMessage) => string | null): FeedItem[] {
+  const feed: FeedItem[] = [];
+  let prevDay: string | null = null;
+  for (const g of groups) {
+    const first = g.items[0];
+    const date = first?.createdAt ? new Date(first.createdAt) : null;
+    const day = date && Number.isFinite(date.getTime()) ? date.toDateString() : null;
+    if (day && day !== prevDay) {
+      const label = first ? labelOf(first) : null;
+      if (label) feed.push({ key: `sep:${g.key}`, separator: true, label });
+    }
+    if (day) prevDay = day;
+    feed.push(g);
+  }
+  return feed;
+}
+
+/** 상단 고정 날짜 탭 계산 (Telegram식 sticky+push-out):
+ *  - active = 상단 경계를 지난(top-crossed) 구분선 중 가장 최근 것. 막 전경계를 넘은 행은
+ *    인-플로우 사본이 아직 최상단 Visible과 정확히 겹치는 위치 — 오버레이가 같은 자리에
+ *    덮으므로 이중 노출이 눈에 보이지 않는다 (전환 무결점).
+ *  - shift: 다음 구분선이 active.h 아래로 접근하면 (nextTop - offset - h) ≤ 0만큼 위로 밀려
+ *    사라지고(justified, 오버레이는 h 높이 클립 존 안에서만 렌더), nextTop = offset에서 완전히
+ *    나간 순간 next가 새 active로 shift 0 인계 → 연속.
+ *  seps는 위→아래 순서(오름차순 y), offset은 리스트 스크롤 오프셋(layout y와 동일 좌표계). */
+export interface PinnedDate { key: string; label: string; h: number; shift: number }
+export function computePinnedDate(seps: { key: string; label: string; y: number; h: number }[], offset: number): PinnedDate | null {
+  let active: { key: string; label: string; h: number } | null = null;
+  let next: { y: number } | null = null;
+  for (const s of seps) {
+    if (s.y < offset + 2) active = s;
+    else { next = s; break; }
+  }
+  if (!active) return null;
+  const shift = next == null ? 0 : Math.max(-active.h, Math.min(0, Math.round(next.y - offset - active.h)));
+  return { key: active.key, label: active.label, h: active.h, shift };
+}

@@ -1,6 +1,6 @@
 // 채팅 화면 공용 스타일 (t_70cbbd6b: ChatScreen→컴포넌트 추출에 따라 공용 모듈로 이동)
 // ※ 값은 기존 ChatScreen.styles와 1:1 동일 — 렌더/DOM 불변 리팩토링의 근거.
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { colors, radii, spacing, typography } from '../theme';
 import { CHAT_LIST_ANCHOR } from '../lib/voiceStage';
 
@@ -163,6 +163,17 @@ export const styles = StyleSheet.create({
   },
   // 질문 큐 체크포인트 (t_1797f432 ②) — user 카드 하단 상태 행: 전송 표시 + 큐 마커 한 줄
   userMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
+  // ── 날짜 구분선 (t_34f3e92c 백로그②, 텔레그램 컨벤션) ──
+  // 인-플로우 행: 전폭 중앙 정렬. 고정 오버레이: 리스트 위 absolute(스크롤 박스 밖에서 붙음),
+  // 배경 없는 floating 라벨 — 카드가 아래로 지나가면 자연히 가려짐(스택 가림 방지).
+  dateSepRow: { alignItems: 'center', paddingVertical: spacing.sp1 },
+  dateSepPill: { paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp1, borderRadius: radii.full, backgroundColor: colors.surfaceRaise },
+  // 한글 어절 유지 — 라벨 '09.26 (금)' 등이 조사 없이 끊기지 않게 (웹: word-break keep-all, ReaderModal 관례)
+  dateSepText: { ...typography.micro, fontWeight: '600', color: colors.text2, ...(Platform.OS === 'web' ? { wordBreak: 'keep-all' } as never : {}) },
+  // FlatList 스크롤 박스 래퍼 — 고정 날짜 탭(absolute)의 기준. flex:1은 스크롤 박스 자체의
+  // flexGrow:1(commonStyle)을 보존하며 키보드/레이아웃 측정 DOM 위치 불변 (t_dee9e982 앵커 orthogonality).
+  listWrap: { flex: 1, position: 'relative', minHeight: 0 },
+  pinnedDateOverlay: { position: 'absolute', left: 0, right: 0, top: 0, zIndex: 12, alignItems: 'center', pointerEvents: 'none' },
   // 후속 질문 칩 (t_1797f432 ③) — 타이핑/스트리밍 종료 후 최종 답변 아래 2~3개, 탭 시 즉시 전송
   suggestRow: { gap: spacing.sp2, paddingTop: spacing.sp1 },
   suggestTitle: { ...typography.micro, color: colors.text3 },
