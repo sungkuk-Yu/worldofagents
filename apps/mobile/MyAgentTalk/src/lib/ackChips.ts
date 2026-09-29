@@ -33,8 +33,11 @@ export interface AckChipView {
  * 현재 버튼 행을 노출할 공감 카드 (없으면 null).
  * messages는 turnIndex 오름차순 (normalizeServerMessages/group 정렬 보장) — 마지막 empathy 행 기준.
  * deadline 없음: 시각 타이머가 아니라 발화 진행(뒤의 user 행)이 수명을 결정한다 (t_c62a2eb7 #2).
+ * streaming (t_cc232982 요구3): 답변 토큰 스트리밍이 아직 성장 중이면 버튼 행 억제 — 재질문/답변이
+ * answer.done(확정) 전에 반쯤 쓰인 카드에 예/아니요가 붙는 충돌을 막는다 (t_64e3edd6 자동진행 안전).
  */
-export function visibleAckChip(messages: ChatMessage[], now: number, staleMs: number = ACK_LIVE_STALE_MS): AckChipView | null {
+export function visibleAckChip(messages: ChatMessage[], now: number, staleMs: number = ACK_LIVE_STALE_MS, streaming = false): AckChipView | null {
+  if (streaming) return null;
   let last: ChatMessage | null = null;
   for (const m of messages) if (isEmpathyEchoMessage(m)) last = m;
   if (!last) return null;

@@ -152,6 +152,9 @@ export interface ServerChatMessage {
 
 /** POST /api/sessions/:id/messages 동기 응답 (api-design.md §3.4) */
 export interface SendMessageResult {
+  /** 백엔드 ingress 드롭 (t_c31e3f45 요구①): 3초 창 동일 content 재접수 시 { deduped:true, message } 만 내려온다. */
+  deduped?: boolean;
+  message?: string;
   messages?: { user: ServerChatMessage | null; empathy: ServerChatMessage | null; answer: ServerChatMessage | null };
   llm?: { used: boolean; model: string | null; fallback: boolean; usage?: unknown };
   turn_id?: string;

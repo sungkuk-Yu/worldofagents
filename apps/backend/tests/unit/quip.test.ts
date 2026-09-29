@@ -175,10 +175,14 @@ describe('⑤ 이벤트 순서 계약 (t_3486b1d7)', () => {
     const db = createDevClient(store) as DbClient;
     runTextTurn(db, session, 'user', '테스트', { locale: 'ko', emit: e => events.push(e) }).catch(() => undefined);
     await new Promise(resolve => setImmediate(resolve)); // personas 로드→processTurn microtask 체인 드레인
-    expect(events.slice(0, 3).map(e => e.type)).toEqual(['message.new', 'run.started', 'run.progress']);
+    // ⑤ 순서 계약 + t_5cba9ebb 보이스 버스: run.started 직후 persona.line(ack)이 선행 삽입될 수
+    // 있어 하위 호환 run.progress(thinking)는 findIndex로 판정한다.
+    expect(events.slice(0, 2).map(e => e.type)).toEqual(['message.new', 'run.started']);
     expect((events[0] as any).message.role).toBe('user');
     expect((events[1] as any).quip).toBe(QUIPS.started.brisk.ko);
-    expect((events[2] as any).stage).toBe('thinking');
-    expect((events[2] as any).quip).toBe(QUIPS.ack.brisk.ko);
+    const ackIdx = events.findIndex(e => e.type === 'run.progress');
+    expect(ackIdx).toBeGreaterThan(1);
+    expect((events[ackIdx] as any).stage).toBe('thinking');
+    expect((events[ackIdx] as any).quip).toBe(QUIPS.ack.brisk.ko);
   });
 });
