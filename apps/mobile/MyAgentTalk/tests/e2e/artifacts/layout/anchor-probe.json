@@ -1,0 +1,102 @@
+{
+  "m390B": {
+    "list": {
+      "top": 128,
+      "bottom": 767,
+      "h": 639
+    },
+    "listScroll": {
+      "sh": 639,
+      "ch": 639,
+      "st": 0
+    },
+    "cardCount": 2,
+    "lastBottom": 739,
+    "firstTop": 518,
+    "minVisibleTop": 518,
+    "anchorGap": 28,
+    "stripTop": null,
+    "barTop": 775,
+    "vh": 844
+  },
+  "m390A": {
+    "list": {
+      "top": 128,
+      "bottom": 836,
+      "h": 708
+    },
+    "listScroll": {
+      "sh": 708,
+      "ch": 708,
+      "st": 0
+    },
+    "cardCount": 2,
+    "lastBottom": 567,
+    "firstTop": 346,
+    "minVisibleTop": 346,
+    "anchorGap": 269,
+    "stripTop": 591,
+    "barTop": null,
+    "vh": 844
+  },
+  "p1440": {
+    "list": {
+      "top": 128,
+      "bottom": 823,
+      "h": 695
+    },
+    "listScroll": {
+      "sh": 695,
+      "ch": 695,
+      "st": 0
+    },
+    "cardCount": 2,
+    "lastBottom": 795,
+    "firstTop": 574,
+    "minVisibleTop": 574,
+    "anchorGap": 28,
+    "stripTop": null,
+    "barTop": 831,
+    "vh": 900
+  },
+  "demo": {
+    "list": {
+      "top": 142,
+      "bottom": 767,
+      "h": 625
+    },
+    "listScroll": {
+      "sh": 625,
+      "ch": 625,
+      "st": 0
+    },
+    "cardCount": 2,
+    "lastBottom": 739,
+    "firstTop": 494,
+    "minVisibleTop": 494,
+    "anchorGap": 28,
+    "stripTop": null,
+    "barTop": 775,
+    "vh": 844
+  },
+  "longA": {
+    "list": {
+      "top": 120,
+      "bottom": 836,
+      "h": 716
+    },
+    "listScroll": {
+      "sh": 1717,
+      "ch": 716,
+      "st": 1001
+    },
+    "cardCount": 12,
+    "lastBottom": 567,
+    "firstTop": -839,
+    "minVisibleTop": 109,
+    "anchorGap": 269,
+    "stripTop": 591,
+    "barTop": null,
+    "vh": 844
+  }
+}

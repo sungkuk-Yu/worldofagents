@@ -10,6 +10,27 @@ export function voiceStageHeight(viewportH: number): number {
   return Math.round(Math.min(300, Math.max(180, base * 0.3)));
 }
 
+/**
+ * t_dee9e982: 채팅 리스트 contentContainer 하단 패딩 오버라이드 (앵커 로직의 padding 축).
+ * 정렬(justifyContent:'flex-end')은 styles.listContent 상수 — 짧은 히스토리는 하단 앵커,
+ * 긴 히스토리는 플렉스 규칙상 정렬이 무의미해져 정상 스크롤. 패딩만 A계층에서 strip 높이로
+ * 부풀어 마지막 줄이 스트립에 가려지지 않게 한다(#311 계약). B계층/비활성 = false(통지 기본).
+ */
+export function chatListPaddingOverride(stageActive: boolean, viewportH: number): { paddingBottom: number } | false {
+  return stageActive ? { paddingBottom: voiceStageHeight(viewportH) } : false;
+}
+
+/**
+ * t_dee9e982 (대표님 9/29): 짧은 히스토리 하단 앵커 — 리스트 contentContainer 정렬의 단일 원천.
+ * flexGrow:1이 뷰포트까지 채우고 justifyContent:flex-end가 남은 여백을 아래로 밀어 마지막 발화가
+ * 입력 스테이지 위 하단에 붙는다. 콘텐츠가 초과하면 박스 높이=콘텐츠 높이로 정렬 여백이 사라져
+ * 정상 스크롤(상단 절단 없음) — CSS 플렉스 규약상 안전. chatScreenStyles.listContent가 스프레드.
+ */
+export const CHAT_LIST_ANCHOR = {
+  flexGrow: 1,
+  justifyContent: 'flex-end',
+} as const;
+
 export type StageOutcome = 'keyboard' | 'ack' | 'send' | 'cancel';
 
 /**

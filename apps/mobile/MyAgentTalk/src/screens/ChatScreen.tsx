@@ -15,7 +15,7 @@ import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
-import { voiceStageHeight } from '../lib/voiceStage';
+import { voiceStageHeight, chatListPaddingOverride } from '../lib/voiceStage';
 import { getPttKey, getPttMode } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
@@ -498,7 +498,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         maintainVisibleContentPosition={Platform.OS === 'web' ? undefined : { minIndexForVisible: 0 }}
         onContentSizeChange={() => { if (nearBottom.current && !loadingHistory) listRef.current?.scrollToEnd({ animated: false }); }}
         keyExtractor={(item) => item.key}
-        contentContainerStyle={[styles.listContent, stageActive && { paddingBottom: voiceStageHeight(viewportHeight) }]}
+        contentContainerStyle={[styles.listContent, chatListPaddingOverride(stageActive, viewportHeight)]}
         ListHeaderComponent={renderHeader}
         ListFooterComponent={renderFooter}
         onEndReachedThreshold={0.1}

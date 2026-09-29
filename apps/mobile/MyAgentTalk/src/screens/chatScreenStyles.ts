@@ -2,6 +2,7 @@
 // ※ 값은 기존 ChatScreen.styles와 1:1 동일 — 렌더/DOM 불변 리팩토링의 근거.
 import { StyleSheet } from 'react-native';
 import { colors, radii, spacing, typography } from '../theme';
+import { CHAT_LIST_ANCHOR } from '../lib/voiceStage';
 
 export const styles = StyleSheet.create({
   container: {
@@ -95,11 +96,16 @@ export const styles = StyleSheet.create({
   // Wave 2 저장 결과 토스트 — 입력창 위 고정, 노트/보드 딥링크 버튼 포함
   resultToast: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, marginHorizontal: spacing.sp3, marginBottom: spacing.sp1, padding: spacing.sp2, backgroundColor: colors.accentTint, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
   toastText: { ...typography.caption, color: colors.text1, flex: 1, minWidth: 0 },
+  // t_dee9e982 (대표님 9/29): 짧은 히스토리 하단 앵커 — 콘텐츠가 뷰포트보다 짧으면
+  // flexGrow:1만으로는 위부터 쌓여 아래가 통째로 빈다. justifyContent:flex-end로 마지막
+  // 발화를 하단(입력 스테이지 위)에 붙인다. 콘텐츠가 초과하면 플렉스 규칙상 정렬이 무의미해
+  // 정상 스크롤 유지(잘림 없음). A계층 하단 패딩=voiceStageHeight 계약(ChatScreen 인라인 오버라이드)
+  // 과 직교 — 패딩이 strip 높이만큼 올리고 정렬이 남은 여백을 아래로 붙인다.
   listContent: {
     paddingHorizontal: spacing.sp3,
     paddingVertical: spacing.sp3,
     gap: spacing.sp2,
-    flexGrow: 1,
+    ...CHAT_LIST_ANCHOR,
   },
   // 전폭 사각형 카드 스택 — 메신저 말풍선 관습(좌우 배치) 배제
   msgCard: {
