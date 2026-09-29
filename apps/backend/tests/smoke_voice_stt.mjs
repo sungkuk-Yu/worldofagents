@@ -99,9 +99,12 @@ async function main() {
     console.log(`    text=${JSON.stringify(transcript.text)} conf=${transcript.confidence}`);
     check('mock 고정 문장 아님', transcript.text !== MOCK_PHRASE && transcript.text.length > 0);
     check(`실발화 키워드 '${KEYWORD}' 포함`, (transcript.text || '').includes(KEYWORD));
-    // ⑤ 전사 즉시 발화 (t_5cba9ebb #325 2항): transcript.final의 message_id는 런 완료 전
-    // — 프론트는 이 텍스트로 user 발화를 즉시 띄운다.
-    check('전사 즉시 브로드캐스트 (message_id=pending)', transcript.message_id === null);
+    // ⑤ 전사 즉시 발화 (t_2133e4fc, 대표님 #324 정본): audio.end → runTextTurn 실행 **이전**에
+    // user 행 영속+transcript.final·message.new(user) 선방송. transcript.final의 message_id는
+    // pending(null)이 아니라 **확정 id** — 런이 37~300s 걸리거나 실패해도 발화 행이 이미 존재한다.
+    // t_5cba9ebb의 message_id=null(구계약)은 폐기.
+    check('전사 즉시 확정 message_id (선영속)', typeof transcript.message_id === 'string' && transcript.message_id.length > 0, JSON.stringify(transcript.message_id));
+    check('확정 turn_index 선방송', typeof transcript.turn_index === 'number' && transcript.turn_index >= 0, `turn=${transcript.turn_index}`);
     // ① 페르소나 보이스 채널: ack ≤2s SLA + 음성 턴 empathy 배지 없음 (복명복창 폐기).
     // 런 종료(run.completed/failed)까지 대기 — 실DB에서 run.started는 소유권·persona 왕복
     // 직후(수백 ms~수 초)에 나간다. 전사 직후 close했던 구 구조는 ack 확인을 놓친다 (t_5cba9ebb 실측).
@@ -113,6 +116,21 @@ async function main() {
     });
     collected.tCompleted = collected.tCompleted || Date.now();
     console.log(`    run end: ${runEnd}`);
+    // 검수 기준 (t_2133e4fc): audio.end 이후 **run.completed 이전**에 role=user message.new가
+    // 방송됐다 — 런 종료 대기 후 전체 스트림이 모인 시점에서 순서를 판정한다
+    // (transcript.final 수신 시점에는 message.new가 아직 큐에서 오가는 중일 수 있다).
+    const userNewIdx = collected.events.findIndex(e => e.type === 'message.new' && e.message?.role === 'user');
+    const completedIdx = collected.events.findIndex(e => e.type === 'run.completed' || e.type === 'run.failed' || e.type === 'run.cancelled');
+    check('run.completed 이전 user message.new 선방송 (검수 기준)', userNewIdx >= 0 && completedIdx >= 0 && userNewIdx < completedIdx, userNewIdx >= 0 ? `user_new@${userNewIdx} < end@${completedIdx}` : 'message.new(user) 없음');
+    if (userNewIdx >= 0) {
+      const startedIdx = collected.events.findIndex(e => e.type === 'run.started');
+      check('message.new(user)가 run.started보다 먼저 (순서 계약)', startedIdx > userNewIdx, `user_new@${userNewIdx} < started@${startedIdx}`);
+      check('transcript.final id = message.new(user) id', collected.events[userNewIdx].message.id === transcript.message_id);
+      // 같은 run_id로 직렬 연결 (선방송 message.new = 실행 런) — 프론트가 user 발화와 답변을 한 턴으로 붙인다.
+      check('user message.new run_id = 런 run_id', collected.events[userNewIdx].run_id === collected.events[startedIdx]?.run_id);
+      // 중복 영속 금지: user message.new는 정확히 1회 (runTextTurn 재발행 없음).
+      check('user message.new 1회만 (중복 발행 금지)', collected.events.filter(e => e.type === 'message.new' && e.message?.role === 'user').length === 1);
+    }
     const ack = collected.events.find((e) => e.type === 'persona.line' && e.source === 'ack');
     check('persona.line ack 발행', !!ack, ack ? `line="${ack.line}"` : '');
     // ≤2s SLA는 런 개시 기준 — 전사(사이드카) 자체 소요는 페르소나 줄 위반이 아니다.
@@ -138,6 +156,9 @@ async function main() {
     const msgs = mr.json?.data?.messages || mr.json?.data || [];
     const userMsg = (Array.isArray(msgs) ? msgs : []).find((m) => m.role === 'user' && m.content === transcript.text);
     check('stt_metadata.service=local (실 전사 경로)', userMsg?.stt_metadata?.service === 'local', JSON.stringify(userMsg?.stt_metadata || null));
+    // 선영속+재사용 계약 read-back (t_2133e4fc): user 행 정확히 1개, id = 선방송 message_id.
+    const userRows = (Array.isArray(msgs) ? msgs : []).filter((m) => m.role === 'user' && m.content === transcript.text);
+    check('user 행 1개만 (선영속 재사용, 중복 영속 금지)', userRows.length === 1 && userRows[0].id === transcript.message_id, `rows=${userRows.length}`);
     check('음성 턴 empathy 저장 행 없음', !(Array.isArray(msgs) ? msgs : []).some((m) => m.source_neuron === 'empathy'));
   }
   console.log(`\n=== smoke_voice_stt: ${passed} pass / ${failed} fail / ${skipped} skip ===`);
