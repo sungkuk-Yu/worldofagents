@@ -9,6 +9,13 @@
  *   백엔드: DEV_MODE=true STT_SIDECAR_URL=http://127.0.0.1:9833 PORT=3077 CORS_ORIGIN=http://localhost:8113
  *   서빙:   node tests/e2e/fr-serve.cjs dist-t64e3 8113
  *   APP_URL=http://localhost:8113 BACKEND_URL=http://localhost:3077 node tests/e2e/smoke_t64e3_final.cjs [pcm]
+ *   라이브: APP_URL=https://myagenttalk.com BACKEND_URL=https://app.myagenttalk.com node tests/e2e/smoke_t64e3_final.cjs
+ *
+ * t_9e939f43 (9/30, 볼트 실패사고 ③): A4 FAIL은 게이트 회귀가 아니라 발화 '미팅 자료 정리해줘'가
+ *   페르소나 실작업을 유발해 답변 149s(대기 60s 초과) — fixture를 답변 짧은 인사말 발화로 교체( repo
+ *   tests/e2e/fixtures/voice_fixture_ko_short.pcm, 생성 스크립트 동 디렉터리) + A4 대기 60s→180s
+ *   (ANSWER_WAIT_MS 오버라이드) 양쪽 모두 적용. 라이브 레이시(볼트 ②) 대비로 new-chat 후
+ *   status-line '연결됨' 해지까지 조작 대기.
  */
 const path = require('path');
 const fs = require('fs');
@@ -16,7 +23,10 @@ const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttal
 const { openKeyboardIfVoice, waitForChatEntered, backToVoice } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8113';
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:3077';
-const PCM = process.argv[2] || path.join(process.env.HOME, '.hermes/profiles/frontdev/cache/scratch/voice_fixture_ko.pcm');
+// t_9e939f43: 기본 발화 = 답변 짧은 인사 fixture(repo 추적). 구 발화(미팅 자료 정리해줘)는
+// 페르소나 실작업 유발 → 답변 149s로 A4 60s 창 초과(하네스 한계이지 게이트 회귀 아님).
+const PCM = process.argv[2] || path.join(__dirname, 'fixtures', 'voice_fixture_ko_short.pcm');
+const ANSWER_WAIT_MS = parseInt(process.env.ANSWER_WAIT_MS || '180000', 10); // A4 대기 60s→180s
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 't64e3-final');
 fs.mkdirSync(OUT, { recursive: true });
 const EXE = '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
@@ -103,8 +113,31 @@ function pcmToWav(pcm, rate = 16000) {
     await page.getByTestId('consent-all-required').click();
     await page.getByTestId('signup-submit').click();
     await page.waitForSelector('[data-testid="new-chat-button"]', { timeout: 20000 });
-    await page.getByTestId('new-chat-button').click();
+    // 볼트 ① (t_2fa10f11 라이브 9/29): signup 직후 첫 '새 대화' 탭이 지연 refresh/setStarting
+    // 타이밍에 조용히 흡수됨(라이브 실측) — r1 임시 하네스의 재시도 루프를 정식화. 화면 자체
+    // 개선(버튼 disabled/큐잉)은 별도 제품 카드로 이관.
+    let entered = false;
+    for (let attempt = 1; attempt <= 5 && !entered; attempt++) {
+      await page.getByTestId('new-chat-button').click();
+      entered = await Promise.race([
+        page.getByTestId('voice-stage').waitFor({ timeout: 8000 }).then(() => true),
+        page.getByTestId('chat-input').waitFor({ timeout: 8000 }).then(() => true),
+      ]).catch(() => false);
+      if (!entered) await sleep(700);
+    }
+    if (!entered) throw new Error('new-chat 진입 실패(5탭) — 볼트① 레이시 재현');
     await page.getByTestId('voice-stage').waitFor({ timeout: 20000 });
+    // t_9e939f43 (볼트 실패사고 ②): 라이브 DNS+TLS WS 레이시(실측 23s)에서 talk.ready 그랜트 전
+    // 홀드하면 캡처가 조용히 스킵된다(A군 전체 실패). 조작 전 status-line '연결됨/Connected' 해지를
+    // 최대 60s 대기 — DEV 로컬(수백ms)에서는 즉시 통과로 무해. 미표면 시에도 진행(판정 이완 아님:
+    // 이후 A2 audio.start/end 카운트가 실제 연결 증거를 강제).
+    const settled = await page.waitForFunction(() => {
+      const el = document.querySelector('[data-testid="chat-status-line"]');
+      const txt = el ? (el.textContent || '') : '';
+      return /연결됨|Connected/.test(txt) && !/●\s*(연결 중|다시 연결|Connecting|Reconnecting)/i.test(txt);
+    }, null, { timeout: 60000 }).then(() => true).catch(() => false);
+    if (!settled) console.log('  WARN  status-line 연결 해지 60s 내 미확인 — 진행하되 A2 캐리어 카운트가 실패 신호');
+    await page.waitForTimeout(500); // 해지 프레임 정착
 
     // ── A. 음성 = 무확인 진행 (전사문 user 카드, 게이트 없음) ──
     const box = await page.getByTestId('voice-stage').boundingBox();
@@ -118,7 +151,7 @@ function pcmToWav(pcm, rate = 16000) {
       return cards.length >= 1;
     }, null, { timeout: 300000 }).then(() => true).catch(() => false);
     const userTexts = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="message-user"]')).map((e) => (e.textContent || '').trim()).join('||'));
-    check('A1 음성 릴리스 → 전사문 user 카드 자동 렌더 (복명복창 게이트 없음)', userVoiceShown && /자료|정리|오후|미팅|회의|해줘|해주세요/.test(userTexts), `texts="${String(userTexts).slice(0, 60)}"`);
+    check('A1 음성 릴리스 → 전사문 user 카드 자동 렌더 (복명복창 게이트 없음)', userVoiceShown && /안녕|컨디션|자료|정리|오후|미팅|회의|해줘|해주세요/.test(userTexts), `texts="${String(userTexts).slice(0, 60)}"`);
     check('A2 음성 경로 WS 캐리어 왕복 (audio.start/end ≥1)', wsCtl.audioStart >= 1 && wsCtl.audioEnd >= 1, `start=${wsCtl.audioStart} end=${wsCtl.audioEnd}`);
     const ackOnVoice = await page.getByTestId('ack-chips').count(); // 재질문 활성일 수 있음 — B의 자동소진 전이라 0~1 허용, 그러나 전사확인 배너는 금지
     const transcriptGate = await page.getByTestId('joystick-ack-armed').count();
@@ -127,8 +160,11 @@ function pcmToWav(pcm, rate = 16000) {
     await page.screenshot({ path: path.join(OUT, 'A-voice-user-card.png') });
 
     // 답변 스트림/카드 도착 (파이프라인 무확인 진행 증거)
-    const agentShown = await page.waitForFunction(() => document.querySelectorAll('[data-testid="message-agent"]').length >= 1, null, { timeout: 60000 }).then(() => true).catch(() => false);
-    check('A4 음성 발화에 답변 카드 도착 (게이트 없이 진행)', agentShown);
+    // t_9e939f43: 60s→ANSWER_WAIT_MS(기본 180s). 페르소나 긴 답변/라이브 레이시를 하네스 타임아웃이
+    // 아니라 genuinely 느린 completion과 구분한다. 발화 교체로 통상 10s 내 도착, 창은 상한만.
+    const answerT0 = Date.now();
+    const agentShown = await page.waitForFunction(() => document.querySelectorAll('[data-testid="message-agent"]').length >= 1, null, { timeout: ANSWER_WAIT_MS }).then(() => true).catch(() => false);
+    check('A4 음성 발화에 답변 카드 도착 (게이트 없이 진행)', agentShown, `answer arrived ${(Date.now() - answerT0) / 1000}s / 창 ${ANSWER_WAIT_MS / 1000}s`);
 
     // ── D. 마이크 링 실측 (홀드 중) ──
     await page.mouse.move(cx, cy);
