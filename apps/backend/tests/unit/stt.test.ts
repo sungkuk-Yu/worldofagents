@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   pcm16Rms,
   hasVoiceActivity,
@@ -93,5 +93,39 @@ describe('STT 유틸', () => {
     const silent = await transcribeAudio(silenceBuffer(1));
     expect(silent.text).toBe('');
     expect(silent.confidence).toBe(0);
+  });
+
+  it('transcribeAudio — 사이드카 URL 설정 시 로컬 v3-turbo 1순위 전사 (t_1c7be18c)', async () => {
+    const { config } = await import('../../src/config');
+    const prev = config.sttSidecar.url;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      text: '오늘 회의 시간을 옮겨 줘', language: 'ko', confidence: 0.87, duration_ms: 1000, service: 'local',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    try {
+      Object.defineProperty(config.sttSidecar, 'url', { value: 'http://127.0.0.1:9899', configurable: true });
+      const r = await transcribeAudio(toneBuffer(1, 0.5));
+      expect(r.service).toBe('local');
+      expect(r.text).toBe('오늘 회의 시간을 옮겨 줘');
+      expect(r.confidence).toBeCloseTo(0.87);
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('http://127.0.0.1:9899/transcribe');
+      expect(init.method).toBe('POST');
+    } finally {
+      Object.defineProperty(config.sttSidecar, 'url', { value: prev, configurable: true });
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('transcribeAudio — 사이드카 설정 + 키 없음 + 사이드카 503: mock 고정 문장 대신 STT_SERVICE_UNAVAILABLE', async () => {
+    const { config } = await import('../../src/config');
+    const prev = config.sttSidecar.url;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"error":"MODEL_NOT_LOADED"}', { status: 503 }));
+    try {
+      Object.defineProperty(config.sttSidecar, 'url', { value: 'http://127.0.0.1:9899', configurable: true });
+      await expect(transcribeAudio(toneBuffer(1, 0.5))).rejects.toMatchObject({ code: 'STT_SERVICE_UNAVAILABLE' });
+    } finally {
+      Object.defineProperty(config.sttSidecar, 'url', { value: prev, configurable: true });
+      fetchMock.mockRestore();
+    }
   });
 });

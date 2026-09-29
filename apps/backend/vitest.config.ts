@@ -20,6 +20,9 @@ export default defineConfig({
       // 김비서 브리지(t_620d5549) — 실 .env에 SECRETARY_BRIDGE_ENDPOINT가 운영 반영돼 있어도
       // 단위 테스트는 OFF 상태로 돌게 봉인 (재발방지 관례: 새 외부 키=봉인 항목 동시 갱신).
       SECRETARY_BRIDGE_ENDPOINT: '',
+      // 로컬 STT 사이드카(t_1c7be18c) — 단위 테스트는 로컬 9833을 절대 타지 않게 봉인.
+      // 필요한 테스트가 config.sttSidecar.url을 켜고 fetch를 모킹한다.
+      STT_SIDECAR_URL: '',
       // t_344e047a: 3초 리드 지연·후속 질문 LLM은 타이밍/호출수 민감 테스트를 깨뜨리므로 봉인.
       // 필요한 테스트가 config.answerLeadMs / config.suggestedQuestions.enabled를 켠다.
       ANSWER_LEAD_MS: '0',
