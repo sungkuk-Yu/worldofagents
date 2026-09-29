@@ -38,3 +38,6 @@ coverage/
 
 # supabase CLI temp artifacts
 apps/backend/supabase/.temp/
+
+# python sidecar bytecode (vault_index/vault_sidecar — t_d469fac3)
+**/__pycache__/

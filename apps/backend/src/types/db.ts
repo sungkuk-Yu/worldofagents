@@ -207,6 +207,8 @@ export interface ApiResponse<T = unknown> {
     /** offset 기반 페이지네이션 에코 (GET /api/favorites — 마이그레이션 003) */
     limit?: number;
     offset?: number;
+    /** 응답 출처 라우트 표기 (GET /api/vault/library — t_d469fac3, 'vault-library') */
+    source?: string;
   };
 }
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily MyAgentTalk vault index update
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+RandomizedDelaySec=900
+Persistent=true
+Unit=myagenttalk-vault-update.service
+
+[Install]
+WantedBy=timers.target

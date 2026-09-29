@@ -78,6 +78,19 @@ export const config = {
   },
 
   /**
+   * 볼트 도서관 (t_d469fac3, 대표님 9/30 "Spotify 도서관" 지시) — GET /api/vault/library.
+   * 로컬 사이드카(scripts/vault_sidecar.py, 127.0.0.1:9834)의 BM25+임베딩 하이브리드 인덱스를
+   * 관리자 토큰(x-vault-key)으로 게이트한다. url·adminToken 미설정(기본) 시 엔드 404 —
+   * 단위 테스트·키 없는 DEV는 동작 불변. 볼트는 에이전트 공용 인프라라 앱 사용자 JWT와
+   * 레인을 분리한다(vault_notes의 /api/vault/search와 무관).
+   */
+  vaultLibrary: {
+    url: (process.env.VAULT_SIDECAR_URL || '').replace(/\/+$/, ''),
+    adminToken: process.env.VAULT_ADMIN_TOKEN || '',
+    timeoutMs: parseInt(process.env.VAULT_SIDECAR_TIMEOUT_MS || '8000', 10),
+  },
+
+  /**
    * 채팅 답변 생성 LLM (DashScope OpenAI 호환 모드).
    * - apiKey: CHAT_LLM_API_KEY 우선, 없으면 DASHSCOPE_API_KEY
    * - baseUrl/model: 환경변수로 오버라이드 가능 (기본: dashscope-intl + qwen3-max)

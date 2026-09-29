@@ -1,0 +1,34 @@
+# myagenttalk 볼트 도서관 사이드카 — BM25+임베딩 검색 (t_d469fac3)
+# 대표님 9/30 "Spotify 도서관" 지시 — 공용 옵시디언 볼트를 로컬 CPU 인덱스로 검색하게 한다.
+#
+# 설치 (사용자 systemd, skyserver holysky87):
+#   cp apps/backend/deploy/myagenttalk-vault-sidecar.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now myagenttalk-vault-sidecar
+#   curl http://127.0.0.1:9834/health   # {"ok":true,"loaded":true,"chunks":...} 확인
+#   (기동 시 첫 빌드 ~25초 — loaded=false 동안 /search는 503 INDEX_NOT_READY)
+#
+# 백엔드 연결은 health 확인 "후에" (STT 사이드카와 동일 절차):
+#   deploy.env: VAULT_SIDECAR_URL=http://127.0.0.1:9834
+#               VAULT_ADMIN_TOKEN=<openssl rand -hex 24>
+#   systemctl --user restart myagenttalk-backend
+#
+# t_d469fac3 머지 전 임시 운용: WorkingDirectory는 /home/holysky87/worldofagents(머지 기준)다.
+#   브랜치 머지 전에 라이브로 돌리려면 설치본만 worktree 경로로 임시 지정하고,
+#   머지 후 원래대로 되돌려 daemon-reload + restart (김비서 배포절차 판단서 참조).
+# RAM: 인덱스 매트릭스 수 MB + ONNX 세션 — 24GB 중 안전. CPU 8스레드 상한.
+[Unit]
+Description=MyAgentTalk vault library sidecar (BM25+embedding hybrid search, CPU)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/holysky87/worldofagents/apps/backend
+ExecStart=/home/holysky87/.hermes/hermes-agent/venv/bin/python3 scripts/vault_sidecar.py
+Environment=VAULT_SIDECAR_HOST=127.0.0.1
+Environment=VAULT_SIDECAR_PORT=9834
+Environment=OBSIDIAN_VAULT_PATH=/home/holysky87/.hermes/obsidian-vault
+Environment=HF_HUB_OFFLINE=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
