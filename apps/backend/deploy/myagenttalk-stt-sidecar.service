@@ -1,0 +1,30 @@
+# myagenttalk STT 사이드카 — 로컬 faster-whisper large-v3-turbo (t_1c7be18c)
+# 대표님 9/29 지시 "모든 STT = v3 turbo" — OpenAI 키 없이 skyserver CPU에서 실전사.
+#
+# 설치 (사용자 systemd, skyserver holysky87):
+#   cp apps/backend/deploy/myagenttalk-stt-sidecar.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now myagenttalk-stt-sidecar
+#   curl http://127.0.0.1:9833/health   # {"ok":true,"loaded":true,...} 확인
+#
+# 백엔드 연결은 health 확인 " 후에" — 순서 뒤집히면 음성 턴이 전부 503이 된다:
+#   systemctl --user edit myagenttalk-backend
+#   # [Service] Environment=STT_SIDECAR_URL=http://127.0.0.1:9833
+#   systemctl --user daemon-reload && systemctl --user restart myagenttalk-backend
+#
+# RAM: int8 모델 상주 ~1.5-2GB (skyserver 24GB 중 안전). 모델 캐시: ~/.cache/huggingface (预热 2초).
+[Unit]
+Description=MyAgentTalk local STT sidecar (faster-whisper large-v3-turbo, CPU int8)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/holysky87/worldofagents/apps/backend
+ExecStart=/home/holysky87/.hermes/hermes-agent/venv/bin/python3 scripts/stt_sidecar.py
+Environment=STT_SIDECAR_HOST=127.0.0.1
+Environment=STT_SIDECAR_PORT=9833
+Environment=STT_WHISPER_MODEL=mobiuslabsgmbh/faster-whisper-large-v3-turbo
+Environment=HF_HUB_OFFLINE=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -66,6 +66,18 @@ export const config = {
   },
 
   /**
+   * 로컬 faster-whisper large-v3-turbo 사이드카 (t_1c7be18c, 대표님 9/29: "모든 STT = v3 turbo").
+   * - url 설정 시 1순위 전사 경로. scripts/stt_sidecar.py(FastAPI, 127.0.0.1:9833)가 raw PCM을 받는다.
+   * - 미설정(기본)이면 기존 OpenAI→mock 경로 — 단위 테스트·키 없는 DEV는 동작 불변.
+   * - 사이드카 실패 시: 실 OpenAI 키 있으면 폴백, 없으면 STT_SERVICE_UNAVAILABLE.
+   *   mock 고정 문장으로 조용히 내려가지 않는다 (같은 문장 반복 사고의 근원 차단).
+   */
+  sttSidecar: {
+    url: (process.env.STT_SIDECAR_URL || '').replace(/\/+$/, ''),
+    timeoutMs: parseInt(process.env.STT_SIDECAR_TIMEOUT_MS || '20000', 10),
+  },
+
+  /**
    * 채팅 답변 생성 LLM (DashScope OpenAI 호환 모드).
    * - apiKey: CHAT_LLM_API_KEY 우선, 없으면 DASHSCOPE_API_KEY
    * - baseUrl/model: 환경변수로 오버라이드 가능 (기본: dashscope-intl + qwen3-max)

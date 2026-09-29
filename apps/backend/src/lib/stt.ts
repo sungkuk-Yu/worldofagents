@@ -3,8 +3,8 @@
  * - PCM 16kHz s16le 오디오 청크 버퍼링
  * - VAD(음성 활동 감지): RMS 임계값 기반
  * - 무음 경계 기반 문장 분리 → 부분(partial)/최종(final) 트랜스크립트
- * - 실 트랜스크립션: OpenAI Whisper API (whisper-1 = v3 Turbo 노출명)
- * - DEV_MODE: API 키 없이 동작하는 mock (프로토콜/플로우 검증용)
+ * - 실 트랜스크립션: 로컬 faster-whisper v3-turbo 사이드카(1순위, t_1c7be18c) → OpenAI Whisper API(2순위)
+ * - DEV_MODE: API 키·사이드카 없이 동작하는 mock (프로토콜/플로우 검증용)
  */
 import { config } from '../config';
 
@@ -103,7 +103,39 @@ export interface TranscribeResult {
   confidence: number;
   language: string;
   durationMs: number;
-  service: 'openai' | 'mock';
+  service: 'openai' | 'mock' | 'local';
+}
+
+/**
+ * 로컬 faster-whisper large-v3-turbo 사이드카 전사 (t_1c7be18c).
+ * raw PCM s16le 버퍼를 그대로 POST — 사이드카가 16k mono로 해석한다.
+ * 비2xx/네트워크 실패는 STT_SERVICE_UNAVAILABLE로 던진다 (mock 조용 폴백 금지).
+ */
+async function transcribeViaSidecar(data: Buffer): Promise<TranscribeResult> {
+  const url = config.sttSidecar.url; // 호출부에서 설정 확인 후 호출
+  try {
+    const res = await fetch(`${url}/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      signal: AbortSignal.timeout(config.sttSidecar.timeoutMs),
+    });
+    if (!res.ok) {
+      // 503 MODEL_NOT_LOADED 등 — 준비/가동 문제. 조용한 mock 폴백 대신 호출부로 실패를 알린다.
+      throw Object.assign(new Error(`STT sidecar HTTP ${res.status}`), { code: 'STT_SERVICE_UNAVAILABLE' });
+    }
+    const j = (await res.json()) as { text?: string; language?: string; confidence?: number; duration_ms?: number };
+    return {
+      text: String(j.text || '').trim(),
+      confidence: typeof j.confidence === 'number' ? j.confidence : 0.9,
+      language: j.language || config.defaultLocale,
+      durationMs: typeof j.duration_ms === 'number' ? j.duration_ms : (data.length / (config.openai.stt.sampleRate * 2)) * 1000,
+      service: 'local',
+    };
+  } catch (err: any) {
+    if (err?.code === 'STT_SERVICE_UNAVAILABLE') throw err;
+    throw Object.assign(new Error(`STT sidecar failed: ${err?.message || err}`), { code: 'STT_SERVICE_UNAVAILABLE' });
+  }
 }
 
 let openaiClient: any = null;
@@ -119,13 +151,25 @@ function getOpenAI(): any {
 
 /**
  * PCM 버퍼를 텍스트로 변환.
- * - 실서비스: OpenAI Whisper API 호출
- * - DEV_MODE: mock 응답 (음성 신호 존재 여부 기준)
+ * - 1순위: 로컬 faster-whisper v3-turbo 사이드카 (STT_SIDECAR_URL 설정 시, t_1c7be18c)
+ * - 2순위: OpenAI Whisper API (실 키 보유 시)
+ * - 키 없고 사이드카도 없는 DEV/mock: 음성 신호 여부 기반 mock 응답 (플로우 검증용)
+ * - 사이드카 설정 후 실패 시: mock 고정 문장으로 조용히 대체하지 않고 STT_SERVICE_UNAVAILABLE.
  */
 export async function transcribeAudio(data: Buffer): Promise<TranscribeResult> {
   const durationMs = (data.length / (config.openai.stt.sampleRate * 2)) * 1000;
-
   const client = getOpenAI();
+
+  // 1순위: 로컬 v3-turbo 사이드카. 실패는 고정 문장 mock으로 조용히 대체하지 않는다.
+  if (config.sttSidecar.url) {
+    try {
+      return await transcribeViaSidecar(data);
+    } catch (err: any) {
+      if (!client) throw err; // 키 없으면 폴백 없음 — 명시 오류
+      // 실 OpenAI 키가 있을 때만 클라우드 폴백
+    }
+  }
+
   if (!client) {
     const signal = hasVoiceActivity(data);
     return {
