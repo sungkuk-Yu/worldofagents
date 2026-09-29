@@ -132,7 +132,7 @@ export interface ProcessTurnOptions {
   sttMetadata?: Record<string, unknown> | null;
   /** 첨부 링크 (t_401c5bd1): 사용자 메시지 저장 후 messages_attachments에 링크할 ID 목록. */
   attachmentIds?: string[];
-  /** random_id 멱등 (t_3486b1d7 ①, migration 012): user 행에 stamp. 012 미적용/플래그 off 시 컬럼 미접촉. */
+  /** random_id 멱등 (t_3486b1d7 ①, migration 013): user 행에 stamp. 013 미적용/플래그 off 시 컬럼 미접촉. */
   clientReqId?: string | null;
   /** 짧은 확인음 노출 후 답변 시작 전 대기(ms) — 대표님 9/28 ①. 생략 시 config.answerLeadMs. */
   answerLeadMs?: number;
@@ -955,7 +955,7 @@ export async function processTurn(
       if (errUser && isClientReqConflict(errUser)) {
         throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
       }
-      // 012 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
+      // 013 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
       // 래치 후 컬럼 없이 1회 재시도 (008/011 관례).
       if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
         markIdempotencyColumnMissing();

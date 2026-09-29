@@ -160,7 +160,7 @@ export const config = {
    * 메시지 프로토콜 (t_3486b1d7, 대표님 9/29 텔레그램标准 이식 + 김비서 4턴 A2A 확정 필드 계약).
    * 롤백 게이트: 각 기능 env 플래그로 독립 온/오프 — off 시 484eec2f 베이스 동작과 1:1 동일.
    * - idempotency (DELTA… 생략, MESSAGE_IDEMPOTENCY_DISABLED): send 프레임 client_req_id 멱등
-   *   (random_id 상당). 012 미적용 실DB는 래치로 컬럼 생략 폴백 (008/011 관례).
+   *   (random_id 상당). 013 미적용 실DB는 래치로 컬럼 생략 폴백 (008/011 관례).
    * - userCardFirst (USER_CARD_FIRST=false로 off): user 카드(message.new)가 run.started보다 먼저,
    *   run.started에 user_message_id·persona line(run.progress)에 source_message_id 태움.
    * - deltaBatchMs/deltaBatchChars (DELTA_BATCH_MS, DELTA_BATCH_CHARS): answer.delta 백프레셔 —

@@ -4,7 +4,7 @@
  * - 동일 client_req_id 재전송 → deduped=true, user 행 1개 유지
  * - 플래그 off(MESSAGE_IDEMPOTENCY_DISABLED=true) 시 client_req_id 컬럼 미접촉
  *
- * devstore(인메모리)는 012 마이그레이션 컬럼이 없다 — 래치 폴백 경로 검증.
+ * devstore(인메모리)는 013 마이그레이션 컬럼이 없다 — 래치 폴백 경로 검증.
  */
 import { afterAll, afterEach, beforeAll, expect, it, describe, vi } from 'vitest';
 import { app, build } from '../../src/index';

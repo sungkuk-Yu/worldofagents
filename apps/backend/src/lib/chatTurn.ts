@@ -64,7 +64,7 @@ export async function runTextTurn(
     // random_id 멱등 사전 조회 (t_3486b1d7 ①, core.telegram.org/method/messages.sendMessage):
     // 재연결·재전송으로 같은 client_req_id가 다시 들어오면 run 이벤트·user/answer 행을 추가로
     // 만들지 않고 기존 user 행을 돌려준다(프론트는 같은 카드를 in-place 유지). insert의
-    // 유니크 인덱스(012)가 2차 방패 — 레이스로 뚫리면 graph가 CONFLICT로 마감한다.
+    // 유니크 인덱스(013)가 2차 방패 — 레이스로 뚫리면 graph가 CONFLICT로 마감한다.
     // run.started 이전 위치: quip fake-timer 이벤트 순서 계약 보존(추가 이벤트 0건으로 종료).
     const prior = await findExistingByClientReqId(db, session.id, opts.clientReqId ?? null);
     if (prior) {
@@ -113,7 +113,7 @@ export async function runTextTurn(
       signal: abort.signal,
       sttMetadata: opts.sttMetadata,
       attachmentIds: opts.attachmentIds,
-      // random_id 멱등 — 012 적용+플래그 on 시에만 user 행에 stamp.
+      // random_id 멱등 — 013 적용+플래그 on 시에만 user 행에 stamp.
       clientReqId: opts.clientReqId ?? null,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
