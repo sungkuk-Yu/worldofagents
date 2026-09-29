@@ -148,8 +148,14 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
         if (!state.messages[sid]) state.messages[sid] = [];
         // 턴 인덱스 = 백엔드 실규격 순증 (user=nextTurn, empathy=+1, answer=+2 — graph.ts 저장 경계)
         const base = state.messages[sid].length;
-        const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: base, created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, attachments: echo };
-        const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id };
+        // 답글 인용 에코 (t_62897e88 / 백엔드 t_02f58030 규격): reply_to_id가 세션 안에 실존하면
+        // user 행에 reply_to_id + structured_payload.reply_to {message_id,by,text≤120} 스냅샷을 붙인다.
+        // invalid/부재 = 강등(인용 없음)하되 발화는 통과 — 백엔드 '무시 후 발송' 정책 1:1 미러.
+        const quoteTarget = typeof body.reply_to_id === 'string' ? state.messages[sid].find((m) => m.id === body.reply_to_id) : undefined;
+        const quotePayload = quoteTarget ? { reply_to: { message_id: quoteTarget.id, by: quoteTarget.role === 'user' ? '나' : 'Test Agent', text: String(quoteTarget.content || '').replace(/\s+/g, ' ').slice(0, 80) } } : undefined;
+        const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: base, created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, attachments: echo, ...(quoteTarget ? { reply_to_id: quoteTarget.id, structured_payload: quotePayload } : {}) };
+        // 백엔드 t_02f58030 코멘트: answer 행도 structured_payload.reply_to 요약본(컨텍스트 있는 답변).
+        const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, ...(quoteTarget ? { structured_payload: quotePayload } : {}) };
         // t_043539ff ack 픽스처 → t_c62a2eb7/t_44f8896c 계약형 empathy 행: content=재질문("이거 맞냐" 4종
         // 회전 시뮬레이션), structured_payload={empathy_question,template_id,empathy_full,empathy_ack},
         // created_at=요청 시각(실시간 행). 확인 발화 재에코 금지 상태 머신은 백엔드 소관이라 프론트 스모크는 미검.

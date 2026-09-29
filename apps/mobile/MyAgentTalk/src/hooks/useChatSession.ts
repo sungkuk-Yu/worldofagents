@@ -14,6 +14,7 @@ import {
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
 } from '../lib/chatLogic';
+import type { ReplyQuote } from '../types';
 
 export const PAGE_SIZE = 30;
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -35,7 +36,7 @@ export interface UseChatSessionReturn {
   lastError: string | null;
   hasOlder: boolean;
   loadingOlder: boolean;
-  send: (content: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }) => Promise<SendResult>;
+  send: (content: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }, replyTo?: ReplyQuote) => Promise<SendResult>;
   retryLastSend: () => Promise<SendResult>;
   loadOlder: () => Promise<void>;
   enterDemo: () => void;
@@ -92,7 +93,7 @@ function createRuntime(onChange: (active: boolean, quip: string | null, count: n
       // 동일 텍스트 in-flight 가드 (t_4af94b1c①) — Enter+전송 동시 탭의 2차 호출은 낙관 행/POST 자체를 만들지 않는다.
       inflightSends: new Set<string>(),
       socket: null as VoiceSocket | null, stop: () => {},
-      lastFailedContent: null as { content: string; id: string; attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] } } | null,
+      lastFailedContent: null as { content: string; id: string; attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }; replyTo?: ReplyQuote } | null,
       demoTimers: new Map<ReturnType<typeof setTimeout>, (result: SendResult) => void>(),
       // 연속성 (t_eded715c): 읽기 커서 PUT dedup / PTT 세그먼트 열림
       lastSentCursor: null as number | null,
@@ -547,7 +548,7 @@ export function useChatSession(
     }
   }, [runtimeRef, hasOlder, updateMessages, rootMessageId]);
 
-  const performSend = useCallback(async (content: string, retryId?: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }): Promise<SendResult> => {
+  const performSend = useCallback(async (content: string, retryId?: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }, replyTo?: ReplyQuote): Promise<SendResult> => {
     const runtime = runtimeRef.current;
     const validation = validateMessageInput(content);
     if (!validation.ok) return { ok: false, error: validation.errorKey! };
@@ -569,6 +570,8 @@ export function useChatSession(
     setSuggested([]);
     updateMessages((prev) => appendOptimistic(prev, {
       id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
+      // 답글 인용 낙관 렌더 (t_62897e88) — 서버 확정(POST rows/message.new)의 structured_payload.reply_to가 덮는다.
+      ...(replyTo ? { replyToId: replyTo.message_id, replyTo } : {}),
       // 첨부 낙관 프리뷰 — 서버 확정 시 message.new/confirm의 attachments 요약으로 대체된다 (t_4497cfce)
       ...(attachments?.previews?.length ? { pendingAttachments: attachments.previews, pendingAttachmentIds: attachments.ids, attachments: [] } : {}),
     }));
@@ -595,6 +598,8 @@ export function useChatSession(
         ...(rootMessageId ? { parent_message_id: rootMessageId } : {}),
         // 첨부 링크 (t_4497cfce): 업로드 완료 ID만 — 서버가 user 메시지에 링크 후 messages.attachments 요약 발행
         ...(attachments?.ids?.length ? { attachment_ids: attachments.ids } : {}),
+        // 답글 인용 (t_62897e88 / 백엔드 t_02f58030): invalid는 서버가 무시하고 발화 통과(강등 only, throw 없음)
+        ...(replyTo ? { reply_to_id: replyTo.message_id } : {}),
       });
       if (!env.ok || !env.data) throw new Error('errors.response');
       if (generation !== runtime.generation) return { ok: false, error: 'errors.changed' };
@@ -613,6 +618,9 @@ export function useChatSession(
         const userId = env.data!.user_message_id || optimisticId;
         return confirmed
           .map((m) => (rootMessageId && !existing.has(m.id) ? { ...m, parentMessageId: rootMessageId } : m))
+          // 낙관 인용 보존 폴백 — 서버 echo 행이 structured_payload.reply_to를 아직 안 실어 보내면
+          // (구버전 강등) 확정 user 행에 로컬 요약을 이식한다. 서버 스냅샷이 있으면 덮지 않는다 (t_62897e88).
+          .map((m) => (m.id === userId && replyTo && !m.replyTo ? { ...m, replyToId: replyTo.message_id, replyTo } : m))
           // 확정 user 행의 attachments 요약이 빈 배열이면(저장 직렬화 시점 경쟁) 낙관 프리뷰로 유지 (t_4497cfce)
           .map((m) => (m.id === userId && attachments?.previews?.length && !(m.attachments as unknown[] | undefined)?.length ? { ...m, pendingAttachments: attachments.previews } : m));
       });
@@ -625,7 +633,7 @@ export function useChatSession(
       const error = errorText(e);
       if (generation === runtime.generation) {
         updateMessages((prev) => prev.map((m) => m.id === optimisticId ? { ...m, pending: false, status: 'failed' } : m));
-        runtime.lastFailedContent = { content, id: optimisticId, attachments };
+        runtime.lastFailedContent = { content, id: optimisticId, attachments, replyTo };
         setLastError(error);
       }
       coordinator.finish(execId, sid ?? '', undefined, true);
@@ -636,11 +644,11 @@ export function useChatSession(
       coordinator.finish(execId, sid ?? '');
     }
   }, [runtimeRef, updateMessages, rootMessageId]);
-  const send = useCallback((content: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }) => performSend(content, undefined, attachments), [performSend]);
+  const send = useCallback((content: string, attachments?: { ids: string[]; previews: ChatMessage['pendingAttachments'] }, replyTo?: ReplyQuote) => performSend(content, undefined, attachments, replyTo), [performSend]);
   const retryLastSend = useCallback((): Promise<SendResult> => {
     const runtime = runtimeRef.current;
     const failed = runtime.lastFailedContent;
-    return failed ? performSend(failed.content, failed.id, failed.attachments ?? undefined)
+    return failed ? performSend(failed.content, failed.id, failed.attachments ?? undefined, failed.replyTo)
       : Promise.resolve({ ok: false, error: 'errors.noRetry' });
   }, [runtimeRef, performSend]);
   const enterDemo = useCallback(() => {
@@ -658,7 +666,8 @@ export function useChatSession(
     const attachments = message.pendingAttachmentIds?.length
       ? { ids: message.pendingAttachmentIds, previews: message.pendingAttachments }
       : undefined;
-    return performSend(message.draft ?? message.content, id, attachments);
+    // 재시도는 원 인용을 보존한다 (t_62897e88) — 낙관 행의 로컬 요약이 실패 행에 남아 있다.
+    return performSend(message.draft ?? message.content, id, attachments, message.replyTo);
   }, [performSend]);
   const deleteMessage = useCallback((id: string) => {
     if (runtimeRef.current.lastFailedContent?.id === id) runtimeRef.current.lastFailedContent = null;

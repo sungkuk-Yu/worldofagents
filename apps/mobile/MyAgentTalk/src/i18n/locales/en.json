@@ -22,6 +22,8 @@
   },
   "chat": {
     "me": "You",
+    "replyQuoting": "Replying to {{name}}",
+    "cancelQuote": "Cancel reply",
     "failed": "Couldn’t send",
     "sending": "Sending…",
     "sent": "Sent",

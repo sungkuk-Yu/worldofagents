@@ -25,7 +25,7 @@ import { useAttachments } from '../hooks/useAttachments';
 import PhotoEditorSheet, { PhotoEditResult } from '../components/PhotoEditorSheet';
 import { pickImages, measureImage } from '../lib/imagePicker';
 import { errorKey } from '../lib/errorKeys';
-import type { ForkOrigin } from '../types';
+import type { ForkOrigin, ReplyQuote } from '../types';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../i18n/format';
 // Screen 2: 텍스트 채팅 (ChatScreen) — Phase 2 채팅 MVP
@@ -54,10 +54,12 @@ import {
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { colors, webScreenMotion } from '../theme';
-import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
+import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion, canReplyTo, localReplyQuote } from '../lib/chatLogic';
 import QueueStrip from '../components/QueueStrip';
 import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
+import MessageActionSheet from '../components/MessageActionSheet';
+import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
 
@@ -187,6 +189,10 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 선택 모드/ID 집합/파생값은 useChatSelection 소유 (t_70cbbd6b 순수 추출).
   const selection = useChatSelection(messages);
   const { selectedMessages: selectionMessages, exit: exitSelection, toggle: toggleSelect, begin: beginSelection } = selection;
+  // 답글/인용 (t_62897e88 백로그④) — actionTarget=롱프레스 메뉴 행, draftQuote=발송 대기 인용(입력바 위 바).
+  // 확정 인용은 메시지 replyTo(서버 structured_payload.reply_to 스냅샷)로 별도 저장 — 이 두 상태는 '쓰는 중'뿐.
+  const [actionTarget, setActionTarget] = useState<ChatMessage | null>(null);
+  const [draftQuote, setDraftQuote] = useState<ReplyQuote | null>(null);
   const forkSelected = useCallback(() => {
     const lastAgent = [...selectionMessages].reverse().find((m) => m.role === 'agent');
     const target = lastAgent ?? selectionMessages[selectionMessages.length - 1];
@@ -202,13 +208,18 @@ export default function ChatScreen({ navigation, route }: Props) {
     // 첨부 게이트 (t_4497cfce P1-2): 텍스트 필수 + 업로드 중 행 없음 + 완료 행만 동봉 (서버 400 방어 = UX 선방어)
     if (!validation.ok) return;
     if (att.uploading) { setUnavailableError('errors.uploadPending'); return; }
+    // 답글 인용 발화 (t_62897e88): 대기 중인 인용 요약이면 reply_to_id+요약을 attach. 실패 시 원문과 함께
+    // 인용도 복원(재시도 바가 다시 뜬다). 성공/전송 개시 시 바는 즉시 소멸(텔레그램: 전송=인용 해소).
+    const quote = draftQuote ?? undefined;
     if (!att.items.length) {
       const text = input;
       setInput('');
+      setDraftQuote(null);
       setSendFailed(false);
-      void send(text).then((res) => {
+      void send(text, undefined, quote).then((res) => {
         if (!res.ok) {
           setInput((current) => restoreFailedDraft(current, text));
+          setDraftQuote(quote ?? null);
           setSendFailed(true);
         } else {
           try { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); } catch { /* web no-op */ }
@@ -220,10 +231,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     const text = input;
     const payload = { ids: att.ids(), previews: att.items.map((it) => ({ localId: it.localId, name: it.name, uri: it.localUri, type: it.type, status: 'done' as const })) };
     setInput('');
+    setDraftQuote(null);
     setSendFailed(false);
-    void send(text, payload).then((res) => {
+    void send(text, payload, quote).then((res) => {
       if (!res.ok) {
         setInput((current) => restoreFailedDraft(current, text));
+        setDraftQuote(quote ?? null);
         setSendFailed(true);
         // 첨부는 재시도 실패 시 낙관 행(failed)의 pendingAttachments로 유지 — 서버 링크 실패와 무관하게 ID 재전송 가능
       } else {
@@ -231,7 +244,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         try { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); } catch { /* web no-op */ }
       }
     });
-  }, [input, send, att, setUnavailableError]);
+  }, [input, send, att, draftQuote, setUnavailableError]);
 
   const retry = useCallback(() => {
     setSendFailed(false);
@@ -280,6 +293,27 @@ export default function ChatScreen({ navigation, route }: Props) {
   // freeform 행 탭 = 카드 점프 + 입력창 개방 (키보드 계층 신호는 콘솔이 소유, nonce로 재요청 가능)
   const [composeNonce, setComposeNonce] = useState(0);
   const requestJump = strip.requestJump; // 안정 ref — memo deps는 개별 함수로 (t_70cbbd6b 관례)
+  // ── 답글/인용 배선 (t_62897e88 백로그④) ─────────────────────────
+  // 롱프레스(모바일)/홀드(웹 마우스 450ms, rnw PressResponder) → 액션 시트.
+  // 미전송/실패 행은 답글 대상 불가(서버 FK 될 수 없음) + 데모 세션은 시트 자체를 열지 않는다.
+  const openActionSheet = useCallback((message: ChatMessage) => {
+    if (isDemo || selection.active) return;
+    setActionTarget(message);
+  }, [isDemo, selection.active]);
+  // '답글' 실행 → 인용 바 개방(취소 가능) + 기존 카드의 openThread(스레드)와 달리 발화 자체는 입력바 경유.
+  const startReply = useCallback((message: ChatMessage) => {
+    if (isDemo || !sessionId || !canReplyTo(message)) { setUnavailableError('errors.unavailableAction'); return; }
+    const source = messages.find((m) => m.id === message.id);
+    if (!source) return;
+    setDraftQuote(localReplyQuote(source, source.role === 'user' ? t('chat.me') : agentName));
+    // 음성 계층(A)이면 키보드 개방 nonce로 B 계층을 연다 (t_363c0faa 점프 관례 재사용). PC/네이티브는 입력바 상시 — 무해.
+    setComposeNonce((n) => n + 1);
+  }, [isDemo, sessionId, messages, agentName, t, setUnavailableError]);
+  // 시트 액션 (t_62897e88) — 시트가 실행+종료를 한 번에. 즐겨찾기/포크는 기존 화면 로직 재사용.
+  const sheetReply = useCallback(() => { if (actionTarget) startReply(actionTarget); }, [actionTarget, startReply]);
+  const sheetFavorite = useCallback(() => { if (actionTarget) handlers.toggleFavorite(actionTarget); }, [actionTarget, handlers]);
+  const sheetFork = useCallback(() => { if (actionTarget) forkOf(actionTarget.id); }, [actionTarget, forkOf]);
+  const sheetSelect = useCallback(() => { if (actionTarget) beginSelection(actionTarget.id); }, [actionTarget, beginSelection]);
   // 예/아니오 빠른 회신 (t_043539ff 조이스틱 대응 — 발화 '예'/'아니오' 동일): suggested 칩(sendSuggested)과
   // 동일 전송 경로. 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
   const sendPendingReply = useCallback((utterance: string) => {
@@ -303,13 +337,20 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 점프 소스 2종 (t_2f45ccb1): 즐겨찾기/피드 딥링크(focusMessageId) + 상단 큐 칩 탭(strip.jump, 우선)
   const jumpTarget = strip.jump?.id ?? focusMessageId;
   const jumpNonce = strip.jump?.nonce ?? 0;
+  // nonce 점프 소비 가드 (t_62897e88 발견 결함): 하이라이트 2.8초 소멸이 highlightId dep를 바꾸면
+  // effect가 재실행되고, strip.jump 미사용 경로(nonce=0)는 같은 타깃을 무한 재점화한다.
+  // 딥링크(focusMessageId)는 세션당 1회뿐이라는 원 계약과 인용 라인 재탭 재점화 요구를 모두 지키려면
+  // '성공한 점프의 nonce'를 기억했다가 동일 nonce 재실행을 차단한다.
+  const consumedJump = useRef<number | null>(null); // null 시작 — 딥링크 nonce=0과 구분 (초점 진입 1회 발동 보존)
   useEffect(() => {
     if (!jumpTarget) return;
+    if (jumpNonce === consumedJump.current) return;
     // setTimeout(0) 지연 — DialogueListScreen의 refresh 패턴과 동일 (effect 동기 setState 회피)
     const find = setTimeout(() => {
       const groupIndex = groups.findIndex((g) => g.items.some((m) => m.id === jumpTarget));
       if (groupIndex >= 0) {
         if (highlightId !== jumpTarget) {
+          consumedJump.current = jumpNonce;
           setHighlightId(jumpTarget);
           const groupKey = groups[groupIndex].key;
           const layout = layouts.current.get(groupKey);
@@ -465,6 +506,19 @@ export default function ChatScreen({ navigation, route }: Props) {
         onQuickReply={(_messageId, utterance) => sendPendingReply(utterance)}
         onJumpCompose={jumpComposePending}
       />
+      {/* 카드 롱프레스 액션 시트 (t_62897e88) — 답글/즐겨찾기/갈라내기/선택. transparent Modal:
+          FlatList 히트테스트가 카드 위 드롭다운을 압도하는 루트cause 교훈(t_3116c5bc) 재발 방지 */}
+      <MessageActionSheet
+        visible={!!actionTarget}
+        excerpt={actionTarget ? (actionTarget.content || '').replace(/\s+/g, ' ').slice(0, 80) : ''}
+        canFork={canFork && !isDemo}
+        favorited={!!(actionTarget && decorate(actionTarget).favorite)}
+        onClose={() => setActionTarget(null)}
+        onReply={sheetReply}
+        onFavorite={sheetFavorite}
+        onFork={sheetFork}
+        onSelect={sheetSelect}
+      />
 
       {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.
           빈 상태의 chat.aiNotice와 달리 메시지가 쌓여도 사라지지 않는다 (AI 기본법 제31조 ①). */}
@@ -508,6 +562,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           onToggleSelect={toggleSelect}
           onResend={(message) => { void retryMessage(message.id).then((result) => { if (!result.ok) setInput((current) => restoreFailedDraft(current, message.draft ?? message.content)); }); }}
           onDelete={deleteMessage}
+          onMessageLongPress={openActionSheet}
+          onQuoteJump={requestJump}
         />}
         CellRendererComponent={renderCell}
         onScrollBeginDrag={() => { prependAnchor.current = null; }}
@@ -568,6 +624,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           (초장문 안내 한 줄 포함).
           t_e735d936 요구 1 유지: 웹 모바일은 기본이 음성 콘솔(조이스틱 홀드-투-톡), 입력창은 키보드를
           열었을 때만 나타나는 2차 UI. PC/네이티브/데모는 기존 입력창 상시. */}
+      {/* 답글 발송 대기 인용 바 (t_62897e88 백로그④) — 입력 콘솔 바로 위, ✕로 취소(발행 중단) */}
+      {draftQuote && <ReplyDraftBar quote={draftQuote} onCancel={() => setDraftQuote(null)} />}
       <ChatInputConsole
         value={input}
         onChangeText={setInput}

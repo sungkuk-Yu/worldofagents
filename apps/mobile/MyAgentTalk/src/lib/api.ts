@@ -281,7 +281,7 @@ export const api = {
 
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환)
    *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크. */
-  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[] }) =>
+  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string }) =>
     request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),
