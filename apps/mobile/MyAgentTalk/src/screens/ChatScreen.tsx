@@ -611,18 +611,26 @@ export default function ChatScreen({ navigation, route }: Props) {
     nearBottom.current = false;
     await loadOlder();
   }, [groups, loadOlder, loadingHistory]);
+  // t_1213a6a4 P0 회귀 교정 — CellRendererComponent identity는 불변이어야 한다.
+  // React는 element type(여기서 renderCell 함수 참조)이 바뀌면 같은 key라도 트리 전체를 unmount/remount한다.
+  // t_34f3e92c가 syncPinnedDate(→feed closure)를 deps에 넣으면서 메시지 1건 확정에도 feed이 재생성되어
+  // renderCell 새 identity → 전 카드 셀 재마운트 → FormCard submitted/입력값 등 컴포넌트 로컬 상태 소실
+  // (wave1 재현 실측: POST 확정 후 전 message-agent 노드 __probed=NEW). VoiceStage cbRef와 동일 latest-ref
+  // 우회: 콜백 identity는 고정하고 호출 시점에만 최신 클로저를 소비한다(onLayout은 commit 후 실행 → 효과 순서 안전).
+  const syncPinnedDateRef = useRef(syncPinnedDate);
+  useEffect(() => { syncPinnedDateRef.current = syncPinnedDate; }, [syncPinnedDate]);
   const renderCell = useCallback(({ children, onLayout, item, style, onFocusCapture }: React.ComponentProps<NonNullable<React.ComponentProps<typeof FlatList<FeedItem>>['CellRendererComponent']>>) => <View style={style} {...{ onFocusCapture }} onLayout={(event) => {
           onLayout?.(event);
           const id = item.key;
           const layout = event.nativeEvent.layout;
           layouts.current.set(id, { y: layout.y, height: layout.height });
-          if (isDateSeparator(item)) syncPinnedDate(); // 구분선 측정/재배치 직후 고정 탭 보정(스크롤 정지 중에도)
+          if (isDateSeparator(item)) syncPinnedDateRef.current(); // 구분선 측정/재배치 직후 고정 탭 보정(스크롤 정지 중에도)
           const anchor = prependAnchor.current;
           if (anchor?.id === id && layout.y !== anchor.y) {
             prependAnchor.current = null;
             listRef.current?.scrollToOffset({ offset: Math.max(0, layout.y - anchor.relative), animated: false });
           }
-        }}>{children}</View>, [syncPinnedDate]);
+        }}>{children}</View>, []);
 
   const [viewportInset, setViewportInset] = useState(0);
   // t_4758f25d #311 패딩 계약: A 계층(투명 strip) 활성 기간에만 리스트 하단 패딩 = strip 높이
