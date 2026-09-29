@@ -128,7 +128,11 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
   }, []);
 
   const startCaptureIfIdle = useCallback(() => {
-    if (activeRef.current || !enabled) return;
+    if (activeRef.current) return;
+    // t_cb8e978a ①: talk.ready(WS subscribe+sid) 전 홀드는 조용히 삼키지 않는다 —
+    // '연결 중' 안내를 에러 경로(micDenied와 동일 폴백: VoiceStage fallback / PttBanner)로 노출.
+    // 김비서 판관 항목: 안내 텍스트 vs 연결 확립 후 자동 캡처 — 안내 텍스트로 결정(부메랑 캡처 금지).
+    if (!enabled) { setError('errors.micNotReady'); return; }
     activeRef.current = true;
     setActive(true);
     setError(null);
@@ -148,7 +152,8 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
   }, [enabled, talk, pushLevel, mode]);
 
   const press = useCallback(() => {
-    if (!enabled) return;
+    // t_cb8e978a ①: 키보드 경로도 동일 — ready 전 누름을 무반응으로 삼키지 않고 '연결 중' 안내.
+    if (!enabled) { setError('errors.micNotReady'); return; }
     if (mode === 'toggle') {
       if (activeRef.current) stopCapture(true);
       else startCaptureIfIdle();
@@ -164,9 +169,18 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
 
   const cancel = useCallback(() => stopCapture(false), [stopCapture]);
 
-  // 키보드 PTT — window 리스너. 입력 예외(③)·반복 이벤트 무시·우클릭/포커스아웃 시 릴리스 보장.
+  // '연결 중' 안내는 토스트성 — 2.5s 후 자동 소거(권한 거부 micDenied는 지속 노출).
   useEffect(() => {
-    if (!enabled || !isWeb || typeof window === 'undefined') return;
+    if (error !== 'errors.micNotReady') return;
+    const timer = setTimeout(() => setError((e) => (e === 'errors.micNotReady' ? null : e)), 2500);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  // 키보드 PTT — window 리스너. 입력 예외(③)·반복 이벤트 무시·우클릭/포커스아웃 시 릴리스 보장.
+  // t_cb8e978a ①: 장착 게이트는 talk.ready가 아니라 active 여부 — ready 전에도 리스너가 살아있어야
+  // 누름이 '연결 중' 피드백(press → errors.micNotReady)으로 이어진다(조용한 무응답 금지).
+  useEffect(() => {
+    if (!isWeb || opts.active === false || typeof window === 'undefined') return;
     const key = pttKey;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -194,7 +208,7 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
       window.removeEventListener('keydown', onCancel);
       releaseAll(); // 언마운트(화면 이탈) 중이면 릴리스 전송으로 마무리
     };
-  }, [enabled, isWeb, pttKey, press, release, cancel]); // 키 재매핑/ press 변경 시 리스너 재장착
+  }, [enabled, isWeb, opts.active, pttKey, press, release, cancel]); // 키 재매핑/ press 변경 시 리스너 재장착
 
   // 언마운트 안전망 — 릴리스 미달 상태로 화면을 나가면 서버 안전망(30s/5m)에 기대지 않고 취소
   useEffect(() => () => { captureRef.current?.stop(false); }, []);
