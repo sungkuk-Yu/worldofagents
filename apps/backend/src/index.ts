@@ -17,6 +17,7 @@ import { neuronRoutes } from './routes/neurons';
 import { classifyRoutes } from './routes/classify';
 import { meRoutes } from './routes/me';
 import { vaultRoutes } from './routes/vault';
+import { vaultLibraryRoutes } from './lib/vaultLibrary';
 import { boardRoutes, cardRoutes } from './routes/boards';
 import { uploadRoutes } from './routes/upload';
 import { attachmentRoutes } from './routes/attachments';
@@ -78,6 +79,8 @@ export async function build() {
   await app.register(classifyRoutes, { prefix: '/api/classify' });
   await app.register(meRoutes, { prefix: '/api/me' });
   await app.register(vaultRoutes, { prefix: '/api/vault' });
+  // 볼트 도서관 검색 (t_d469fac3) — 관리자 토큰 엔드, vaultRoutes와 같은 프리픽스 별개 레인
+  await app.register(vaultLibraryRoutes, { prefix: '/api/vault' });
   await app.register(boardRoutes, { prefix: '/api/boards' });
   await app.register(cardRoutes, { prefix: '/api/cards' });
   // 첨부 (t_401c5bd1) — 업로드 인입 + 열람/링크

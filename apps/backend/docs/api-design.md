@@ -1249,6 +1249,7 @@ GET /api/favorites?limit=50&offset=0
 | GET | `/api/vault/tree` | 폴더 트리. 응답: `{tree:{name,path,note_count,children[]}, note_total}` — note_count는 폴더 직속 노트 수, 중간 폴더는 비어 있어도 경로 유지 |
 | GET | `/api/vault/search?q=` | title/content 대소문자 무시 부분 검색(MVP — 사용자 본인 노트만 로드해 서버측 필터, Postgres ILIKE 동등; pg_trgm 인덱스는 후속). 쿼리: `q*`(없으면 400), `folder`, `limit`. 응답 항목: `{id,title,folder,tags,snippet,updated_at}` — snippet은 첫 매칭 주변 ±60자 |
 | POST | `/api/vault/notes/from-message` | **대화→노트 저장.** body: `{message_id*, title?, folder?, tags?}` → 201 |
+| GET | `/api/vault/library?q=&k=` | **볼트 도서관 (t_d469fac3).** 공용 옵시디언 볼트의 BM25(FTS5 trigram)+e5-small 임베딩 하이브리드(RRF) 검색. 인증: `x-vault-key` 관리자 토큰(VAULT_ADMIN_TOKEN, 앱 JWT와 별개 레인). k 기본 3(1~10 클램프). 미설정 시 404 · 토큰 불일치 403 · 사이드카(127.0.0.1:9834) 다운/미준비 503 VAULT_LIBRARY_UNAVAILABLE. 응답 항목: `{rank,score,path,title,heading,date,snippet(≤400자),kind}` — 에이전트는 통째 read 대신 이 결과만 주입한다 |
 
 `from-message` 변환 규칙(규칙 기반, LLM 미사용): 메시지는 소유권 검증(getOwnedMessage — 내 세션 메시지만, 아니면 404) 후 마크다운 노트로 변환된다. content는 YAML풍 메타 헤더(`source/speaker(역할·에이전트명)/date(UTC)/dialogue_type/session_id/message_id`) + 원문 그대로. title 미지정 시 본문 첫 줄에서 파생(마크다운 기호 제거, 60자 캡), folder 기본 `/대화`, tags 기본 `['대화저장']`. 행에 source_session_id/source_message_id 기록.
 
