@@ -60,6 +60,8 @@ import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
+import { ackResultCardIds } from '../lib/ackChips';
+import { QUIET_PROGRESS } from '../lib/featureFlags';
 
 interface Props {
   navigation: any;
@@ -410,10 +412,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     void send(q.text);
   }, [isDemo, send]);
 
-  // 공감 재질문 카드 하단 예/아니요 버튼 행 + 조이스틱 홀드-arm (t_043539ff → t_c62a2eb7 텔레그램식 격상) —
-  // 전송 payload는 백엔드 isConfirmationUtterance 집합과 일치하는 라벨 텍스트(기본 '예'/'아니요',
-  // 어미 바인딩 시 '맞아요'/'아니에오'; en Yes/No·Yeah/Nope) 1회 send.
+  // 공감 재질문 카드 하단 예/아니요 버튼 행 + 조이스틱 끝방향 ack (t_043539ff → t_c62a2eb7 → t_64e3edd6) —
+  // 전송 payload는 백엔드 isConfirmationUtterance 집합과 일치하는 라벨 텍스트('예'/'아니요', en Yes/No) 1회 send.
+  // t_64e3edd6: ① 표시 후 2.5초 미터치 자동 소진(useAckChip 타이머) ② ack 결과 user 카드는 렌더 숨김
+  // ③ 좌예·우아니요 조이스틱은 이 버튼 행이 활성일 때만 (VoiceStage ackActive).
   const ackChip = useAckChip(messages);
+  const hiddenAckIds = useMemo(() => ackResultCardIds(messages, [t('chat.ackYes'), t('chat.ackNo')]), [messages, t]);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
     void send(text);
@@ -452,8 +456,10 @@ export default function ChatScreen({ navigation, route }: Props) {
         onBeginSelection={() => beginSelection()}
       />
 
-      {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기. */}
-      <QueueStrip items={strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
+      {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기.
+          t_64e3edd6 ③ (#324/#325 QUIET_PROGRESS): 스트리밍/타이핑 중에는 칩 행 숨김 — 병렬 위젯 창 축소,
+          카드 스트림+입력 위 한 줄만 남긴다. 런 종료 후 복원(도중 칩 갱신도 잠시 숨김 — 의도된 단순화). */}
+      <QueueStrip items={QUIET_PROGRESS && (typing || streams.length > 0) ? [] : strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
       <ThreadListModal visible={threadsOpen} threads={threads} onClose={() => setThreadsOpen(false)} onOpenThread={openThreadOf} />
       {/* 답변 대기 모달 (t_363c0faa) — 발췌 목록 + 예/아니오 빠른 회신 + freeform 점프. 해소 스냅샷(count 0) 시 자동 닫힘. */}
       <PendingReplyModal
@@ -491,6 +497,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           timeLabel={times.get(item.key)}
           highlightId={highlightId}
           ackChipId={ackChip?.id ?? null}
+          hiddenAckIds={hiddenAckIds}
           onSendAck={sendAck}
           decorate={decorate}
           handlers={handlers}
@@ -586,6 +593,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         onHoldEnd={ptt.endHold}
         onHoldAbort={ptt.abortHold}
         onSendAck={sendAck}
+        ackActive={!!ackChip}
         onStageActiveChange={setStageActive}
         forceOpenKeyboard={composeNonce}
       />

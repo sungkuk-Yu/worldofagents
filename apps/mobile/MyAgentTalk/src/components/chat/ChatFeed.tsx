@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import TypingCard from '../TypingCard';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
+import { QUIET_PROGRESS } from '../../lib/featureFlags';
 import type { SuggestedQuestion, StreamingAnswer } from '../../lib/chatLogic';
 
 interface FooterProps {
@@ -31,7 +32,9 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
       <Text style={styles.msgRoleAgent}>{agentName}</Text>
       <Text style={styles.msgText}>{stream.text}</Text>
       <Text testID="ai-generated-badge" style={styles.pendingMark}>{t('common.aiGenerated')}</Text>
-      <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>
+      {/* t_64e3edd6 ③ QUIET_PROGRESS: 스트리밍 카드의 quip 줄('생각 중' 등 진행 텍스트) 제거 — 본문만.
+          비활성 시 기존 줄 복원. AI 고지 배지는 법정 표시라 유지. */}
+      {!QUIET_PROGRESS && <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>}
     </Surface>)}
     {/* 후속 질문 칩 (t_1797f432 ③): 백엔드가 run.completed에 생성해 준 예상 질문 2~3개 — 없으면 렌더 없음 */}
     {!typing && !streams.length && suggested.length > 0 && !isDemo && (
