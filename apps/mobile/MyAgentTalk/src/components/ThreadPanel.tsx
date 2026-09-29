@@ -98,7 +98,8 @@ export default function ThreadPanel({ target, navigation, onBack, onOpenNested }
         </View>;
       }}
       ListFooterComponent={<View>
-        {chat.typing && <TypingCard agentName={agentName} count={chat.activeCount} quip={chat.typingQuip} />}
+        {/* t_4af94b1c②: 스트리밍 카드와 타이핑 카드 quip 이중 렌더 방지 — streams가 있으면 quip은 카드 쪽 소유 */}
+        {chat.typing && <TypingCard agentName={agentName} count={chat.activeCount} quip={chat.typingQuip} hideQuip={chat.streams.length > 0} />}
         {chat.streams.map((stream) => <View key={stream.runId} style={styles.reply}>
           <Text style={cardStyles.body}>{stream.text}</Text>
           <Text testID="ai-generated-badge" style={cardStyles.micro}>{t('common.aiGenerated')}</Text>
