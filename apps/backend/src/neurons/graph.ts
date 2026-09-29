@@ -24,6 +24,7 @@ import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
+import { ReplyToSummary, resolveReplyContext, replyToColumn, classifyReplyInsertError, markReplyToColumnMissing } from '../lib/replyTo';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
@@ -110,6 +111,8 @@ export interface NeuronState {
   empathyTemplateId?: string | null;
   /** 김비서 room 브리지 (t_620d5549) — true면 answerNode가 로컬 LLM 대신 Hermes kimsecretary를 호출. */
   secretaryBridge?: boolean;
+  /** 답글 인용 스냅샷 (t_02f58030) — 검증 통과 시 processTurn이 주입. answerNode 지시문·user 행 요약. */
+  replyTo?: ReplyToSummary | null;
   // 컴포즈
   finalResponse: { empathy: string | null; answer: string | null; visualsRequested: boolean };
   events: NeuronStatusEvent[];
@@ -131,6 +134,9 @@ export interface ProcessTurnOptions {
   sttMetadata?: Record<string, unknown> | null;
   /** 첨부 링크 (t_401c5bd1): 사용자 메시지 저장 후 messages_attachments에 링크할 ID 목록. */
   attachmentIds?: string[];
+  /** 답글 인용 원문 ID (t_02f58030, 마이그레이션 012): 존재+같은 세션 검증 후 user 행 reply_to_id·
+   *  structured_payload.reply_to 요약으로 영속. invalid는 무시(발화 통과) — resolveReplyContext 계약. */
+  replyToId?: unknown;
   /** 짧은 확인음 노출 후 답변 시작 전 대기(ms) — 대표님 9/28 ①. 생략 시 config.answerLeadMs. */
   answerLeadMs?: number;
 }
@@ -377,6 +383,16 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   };
 }
 
+/** 답글 인용 지시문 (t_02f58030, 백로그④) — answerNode 프롬프트 삽입용. 인용 원문 요약+ID를
+ *  LLM이 "무엇에 대한 답글인가"로 정렬한다. 발췌는 발행 시점 스냅샷(원문 삭제 후에도 유효). */
+function replyInstruction(state: NeuronState): string {
+  const r = state.replyTo;
+  if (!r) return '';
+  return state.locale === 'en'
+    ? `\n\nThe user replied to an earlier message — answer as a reply to it. Quoted message (id ${r.message_id}) from ${r.by}: "${r.text}"`
+    : `\n\n사용자가 특정 발화에 답글을 달했습니다: [${r.by}] "${r.text}" (원문 id: ${r.message_id}). 인용된 발화에 대한 답글로 답변하세요.`;
+}
+
 async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
   if (!state.activationPlan.includes('answer')) return {};
   // ① 짧은 확인음(ack) 후 답변 스트리밍 전 체감 공백 (t_344e047a, 대표님 9/28 ①) —
@@ -451,7 +467,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       .filter(m => m.role === 'user' || (m.role === 'agent' && m.source_neuron !== 'empathy' && !(m.structured_payload && (m.structured_payload.empathy_question || m.structured_payload.empathy_full))))
       .slice(-(Math.max(0, config.chatLlm.historyTurns) || Infinity))
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
-    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + groundingBlock, state.locale);
+    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + groundingBlock + replyInstruction(state), state.locale);
     try {
       const result = await chatCompletion({
         messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
@@ -801,7 +817,9 @@ export async function processTurn(
         opts.onTurnStatus?.('processing', { stage: e.stage });
       }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false },
       // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
-      leadMs: opts.answerLeadMs ?? config.answerLeadMs,
+      // 음성 턴은 지연 0 (t_5cba9ebb 9/29 #325 보강 2항): 공감 스테이지가 없어 지연할
+      // 확인음이 존재하지 않는다 — answer.delta가 전사 직후 시작되는 것이 목표(≤3.5s).
+      leadMs: opts.sttMetadata ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
       // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
       db };
       const dialogueType = classifyDialogueType(userMessage);
@@ -848,8 +866,13 @@ export async function processTurn(
       // 예/아니오 게이트 (t_135a19b5, 대표님 9/28 정정): 프론트 3초 예/아니오 칩(또는 직접 입력)의
       // 짧은 확인 발화이자 직전 턴 컨텍스트에 empathy 행(또는 직전 발화도 확인 — 연속 체인)이면
       // 복창을 생성하지 않는다 — 중복 에코 루프 방지. 답변은 직결(침묵 금지, routerNode 강제 활성).
-      const empathySuppressed = isConfirmationUtterance(userMessage)
-        && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || []));
+      // 음성 경로 공감 스테이지 생략 (t_5cba9ebb, 대표님 9/29 #325 확정 1항): audio.end→전사→
+      // 즉시 답변(복명복창 폐기 — "사실상 복명복창은 안하고 지금의 텔레그램처럼"). empathy 재질문은
+      // 텍스트 입력 전용. 전사문 자체는 user 카드로 표시(#325 2항 — 저장 경로는 그대로).
+      const isVoiceTurn = Boolean(opts.sttMetadata);
+      const empathySuppressed = isVoiceTurn
+        || (isConfirmationUtterance(userMessage)
+          && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || [])));
       // 동일 발화 재전송 (t_c31e3f45, 김비서 case "뭘 말해도 같은 소리"): 직전 user 행과
       // 정규화 동일 텍스트면 공감 재질문 회전을 정지한다 — 에코가 아니라 진행으로 답한다.
       const lastUser = lastUserUtterance(history || []);
@@ -858,6 +881,11 @@ export async function processTurn(
       // 앱 속 실 김비서 브리지 (t_620d5549): 엔드포인트 설정 + 에이전트 이름 '김비서' 정합 시
       // answerNode가 로컬 LLM 대신 Hermes kimsecretary를 부른다. 그 외 room은 false — 기존 동작 1:1.
       const secretaryBridge = isBridgeConfigured() && isKimSecretaryAgent((agentRow as { name?: string } | null)?.name);
+
+      // 답글 인용 (t_02f58030, 마이그레이션 012): 수신 검증은 invalid-무시 계약 — 없는 ID/
+      // 다른 세션이면 null 강등 후 발화 통과. 요약 스냅샷은 user 행 structured_payload.reply_to에
+      // 박아 원문 삭제(SET NULL) 후에도 인용바가 렌더된다 (텔레그램 관습).
+      const replyCtx = opts.replyToId !== undefined ? await resolveReplyContext(db, sessionId, opts.replyToId, userId, agentId) : { replyToId: null, summary: null };
 
       const initial: NeuronState = {
         locale,
@@ -890,6 +918,7 @@ export async function processTurn(
         empathyEcho: null,
         empathyTemplateId: null,
         secretaryBridge,
+        replyTo: replyCtx.summary,
         finalResponse: { empathy: null, answer: null, visualsRequested: false },
         events: [],
         engine: 'simple',
@@ -914,8 +943,12 @@ export async function processTurn(
       };
       let nextTurn = await getNextTurn();
 
-      // 사용자 메시지 저장
-      const saveUser = () => db
+      // 답글 인용 컬럼/요약 (t_02f58030): replyCols는 래치(on)면 빈 객체. 강등 2종 —
+      //  · column-drop: 012 미적용(PGRST204/42703) → 래치 후 컬럼 생략 재시도 (011 관례, 요약 payload 유지)
+      //  · ref-drop: 23503/FK·CROSS_SESSION 트리거(검증 후 원문 삭제 경쟁 등) → 인용 정보 탈락 재시도 (발화 통과)
+      const replyPayload = replyCtx.summary ? { structured_payload: { reply_to: replyCtx.summary } } : {};
+      const replyCols = replyToColumn(replyCtx.replyToId);
+      const saveUser = (extra: Record<string, unknown>) => db
         .from('messages')
         .insert({
           session_id: sessionId,
@@ -934,14 +967,24 @@ export async function processTurn(
           attachments: [],
           persona_guard: {},
           user_feedback: null,
+          ...extra,
         })
         .select()
         .single();
 
-      let { data: msgUser, error: errUser } = await saveUser();
+      let { data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload });
       if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
         nextTurn = await getNextTurn();
-        ({ data: msgUser, error: errUser } = await saveUser());
+        ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
+      }
+      if (errUser) {
+        const replyRetry = classifyReplyInsertError(errUser, Object.keys(replyCols).length > 0);
+        if (replyRetry === 'column-drop') {
+          markReplyToColumnMissing();
+          ({ data: msgUser, error: errUser } = await saveUser(replyPayload));
+        } else if (replyRetry === 'ref-drop') {
+          ({ data: msgUser, error: errUser } = await saveUser({}));
+        }
       }
       if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
       // 첨부 링크 (t_401c5bd1): LLM 호출 전에 실패시켜 비용을 물리지 않는다. 소유권/이중링크 검증은 공유 lib.
@@ -1063,7 +1106,12 @@ export async function processTurn(
           message_type: 'text',
           content: final.answerResponse,
           dialogue_type: final.structured.dialogue_type,
-          structured_payload: final.structured.structured_payload,
+          // 답글 인용 사본 (t_02f58030 ③): 카드는 "message.new/answer payload에 reply_to 요약 포함"이
+          // 리터럴 계약 — 답변 행에도 같은 스냅샷을 병합해 어떤 수신자(유저 버블/답변 버블)든 인용
+          // 컨텍스트를 갖는다. 프론트(t_62897e88)는 user 행 reply_to를 인용바 1차 소스로 권장.
+          structured_payload: replyCtx.summary
+            ? { ...final.structured.structured_payload, reply_to: replyCtx.summary }
+            : final.structured.structured_payload,
           stt_metadata: null,
           source_neuron: 'answer',
           attachments: [],

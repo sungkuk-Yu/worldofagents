@@ -7,8 +7,11 @@ import assert from 'node:assert/strict';
 import * as ackChips from '../../src/lib/ackChips';
 import {
   ACK_LIVE_STALE_MS,
+  ACK_AUTO_PROCEED_MS,
   isEmpathyEchoMessage,
   visibleAckChip,
+  ackResultCardIds,
+  normalizeAckText,
 } from '../../src/lib/ackChips';
 import type { ChatMessage } from '../../src/lib/chatLogic';
 
@@ -29,17 +32,18 @@ test('isEmpathyEchoMessage — 메인 피드 공감 행만 true', () => {
   assert.equal(isEmpathyEchoMessage(empathy({ id: 'e0', content: '  ' })), false);         // 빈 본문 제외
 });
 
-test('t_c62a2eb7 #2: 3초 창 폐기 — 발화 진행 없으면 재질문 카드에 버튼 행 유지 (deadline 필드 없음)', () => {
+test('t_64e3edd6: 2.5초 미터치 자동 소진 — 표시 창 내만 노출, 그 후 null (자동 진행은 백엔드 파이프라인)', () => {
   const m = empathy();
   const list = [msg({ id: 'u1', role: 'user', turnIndex: 1, createdAt: iso(-1000) }), m];
   const first = visibleAckChip(list, T0 + 1000);
   assert.ok(first);
   assert.equal(first!.id, 'e1');
-  assert.ok(!('deadline' in first!), 'deadline 제거 — 시각 수명 소유권 폐기');
-  // 구 3초 창 종료 지점(T0+4001)에서도 여전히 노출 (staleMs 15s 내)
-  assert.ok(visibleAckChip(list, T0 + 4001));
-  // 10초 후에도 유지 (ACK_LIVE_STALE_MS=15s 내)
-  assert.ok(visibleAckChip(list, T0 + 10000));
+  assert.ok(!('deadline' in first!), 'deadline 제거 — 수명 판정은 visibleAckChip(now) 단일 진입');
+  // 창 경계: 2.5s 이내 유지, 초과 시 소멸
+  assert.ok(visibleAckChip(list, T0 + 2500));
+  assert.equal(visibleAckChip(list, T0 + 2501), null);
+  // 오래된 시각(T0+10s)도 소멸 — 무한 유지(t_c62a2eb7 #2)는 9/29 개정으로 폐기
+  assert.equal(visibleAckChip(list, T0 + 10000), null);
 });
 
 test('소멸: 공감보다 늦은 user 발화(버튼 탭 낙관/직접 발화/큐 드레인) 시 즉시 소멸', () => {
@@ -78,9 +82,52 @@ test('공감 행 없으면 null', () => {
   assert.equal(visibleAckChip([], T0), null);
 });
 
+// ── t_cc232982 요구3: 스트리밍 중 억제 — answer.done 전 반쯤 쓰인 카드에 버튼 행 금지 ──
+
+test('t_cc232982 #3: streaming=true 이면 생생한 재질문도 버튼 행 억제 (기본값 false — 기존 호출 무변경)', () => {
+  const m = empathy();
+  const list = [msg({ id: 'u1', role: 'user', turnIndex: 1, createdAt: iso(-1000) }), m];
+  assert.ok(visibleAckChip(list, T0 + 1000), '미스트리밍 = 기존 노출 유지');
+  assert.equal(visibleAckChip(list, T0 + 1000, undefined, true), null, '스트리밍 중 = 억제');
+  assert.equal(visibleAckChip(list, T0 + 1000, ACK_LIVE_STALE_MS, false)!.id, 'e1', 'false 명시 = 노출 (answer.done 후 해제 경로)');
+});
+
 // ── t_1b123e59 라벨 고정 — 템플릿 바인딩(t_c62a2eb7 #4) 폐기 regression 가드 ──
 
 test('t_1b123e59 #1: ackChips는 라벨 바인딩을 노출하지 않는다 — eq_confirm이어도 예/아니요 고정 (원문②)', () => {
   assert.ok(!('ackLabelKeysFor' in ackChips), 'ackLabelKeysFor 폐기 — template_id→맞아요 바인딩 부재 보장');
   assert.ok(!('ACK_MATCH_TEMPLATE_IDS' in ackChips), 'ACK_MATCH_TEMPLATE_IDS 폐기');
+});
+
+// ── t_64e3edd6 (9/29): 자동 소진 상수 + ack 결과 카드 숨김 판정 ──
+
+test('t_64e3edd6 ①: ACK_AUTO_PROCEED_MS = 2500 (3초→2.5초, #321)', () => {
+  assert.equal(ACK_AUTO_PROCEED_MS, 2500);
+});
+
+test("t_64e3edd6 ②: ackResultCardIds — 재질문 뒤 '예'/'아니요' user 행만 집합, 일반 발화 시 리셋", () => {
+  const labels = ['예', '아니요'];
+  const list = [
+    msg({ id: 'u1', role: 'user', content: '일정 정리 도와줄래', turnIndex: 1, createdAt: iso(-1000) }),
+    empathy({ id: 'e1', turnIndex: 2, createdAt: iso(0) }),
+    msg({ id: 'u2', role: 'user', content: '예', turnIndex: 3, createdAt: iso(500) }),
+  ];
+  assert.deepEqual([...ackResultCardIds(list, labels)], ['u2']);
+  // 어미 구두점/공백/대소문자 정규화 일치 ('예.', 'YES')
+  assert.deepEqual([...ackResultCardIds([
+    empathy({ id: 'e1' }), msg({ id: 'u2', role: 'user', content: '예. ', turnIndex: 3 }),
+    empathy({ id: 'e2', turnIndex: 4 }), msg({ id: 'u3', role: 'user', content: 'YES', turnIndex: 5 }),
+  ], ['예', '아니요', 'Yes', 'No'])], ['u2', 'u3']);
+  // 그 사이 일반 user 발화 = 창 종료 → 이후 같은 라벨도 숨김 아님 (새 재질문 기준)
+  const closed = [
+    empathy({ id: 'e1', turnIndex: 2 }),
+    msg({ id: 'u2', role: 'user', content: '아 맞다', turnIndex: 3 }),
+    msg({ id: 'u3', role: 'user', content: '예', turnIndex: 4 }),
+  ];
+  assert.equal(ackResultCardIds(closed, labels).size, 0);
+  // 재질문 없는 단독 '예' 발화(일반 대화)는 절대 숨기지 않는다
+  assert.equal(ackResultCardIds([msg({ id: 'u1', role: 'user', content: '예', turnIndex: 1 })], labels).size, 0);
+  // 에이전트 행은 대상 아님 (role=user만)
+  assert.equal(ackResultCardIds([empathy({ id: 'e1' }), msg({ id: 'a1', role: 'agent', content: '예', turnIndex: 3 })], labels).size, 0);
+  assert.equal(normalizeAckText(' 아니요!! '), '아니요');
 });

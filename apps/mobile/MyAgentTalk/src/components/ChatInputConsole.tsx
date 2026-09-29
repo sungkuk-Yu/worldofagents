@@ -43,8 +43,10 @@ interface Props {
   onPressHoldStart: () => void;
   onHoldEnd: () => void;
   onHoldAbort: () => void;
-  /** t_043539ff: 끝방향 0.8s arm → '예'/'아니요' 텍스트 발화 */
+  /** t_043539ff→t_64e3edd6 ③: 재질문 활성 시 좌/우 끝 릴리스 → '예'/'아니요' 텍스트 발화 */
   onSendAck: (text: string) => void;
+  /** t_64e3edd6 #324/#325: 공감 재질문 예/아니요 버튼 행 활성 — false면 좌/우도 음성 send(무확인 진행) */
+  ackActive?: boolean;
   /** 답변 대기 freeform 점프 (t_363c0faa) — 값이 바뀌면 음성 모드에서도 키보드 입력바를 개방(focus).
    *  0 = 요청 없음. nonce 패턴: 같은 행 재탭에도 재발동 (queue strip jump nonce와 동일 관례). */
   forceOpenKeyboard?: number;
@@ -59,7 +61,7 @@ export default function ChatInputConsole({
   value, onChangeText, onSubmit, isDemo,
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
   voiceMode, initialKeyboardOpen, recording, level, pttError,
-  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, forceOpenKeyboard, viewportHeight,
+  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive, forceOpenKeyboard, viewportHeight,
   onStageActiveChange,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -101,6 +103,7 @@ export default function ChatInputConsole({
             onHoldEnd={onHoldEnd}
             onHoldAbort={onHoldAbort}
             onSendAck={onSendAck}
+            ackActive={ackActive}
             onOpenKeyboard={() => setKeyboardOpen(true)}
             recording={recording}
             level={level}

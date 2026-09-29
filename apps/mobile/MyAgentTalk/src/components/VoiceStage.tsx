@@ -2,11 +2,17 @@
 // 고정 조이스틱 콘솔 폐기 → 수직 2분할: 상부 = 스크롤/탭 영역(히스토리 절대 안 가림),
 // 하부 ~30% = 투명 조이스틱 스트립(0-호스트 위 absolute, bottom:0). 대기 상태는 빈 영역만(잘림/겹침 버그 소멸):
 //  - 첫 진입 힌트 알약 "여길 길게 눌러 말하기" 3초 후 페이드(localStorage로 2차 진입부터 생략)
-//  - 홀드 → 링+초록 마이크(56px = 홀 160의 ~35%, #307-2) + 홀 둘레 글로우 호흡 펄스(#316)
+//  - 홀드 → 링+초록 마이크 + 홀 둘레 글로우 호흡 펄스(#316)
 //  - 실시간 sine 리본 3중(100/60/35%, 초록 단색): 진폭 = 마이크 실측 게인(level prop),
 //    rAF 구동 + 지수 감쇠(매끄럽게 차오름), 무음 = 잔물결만, bg 투명(채팅 배후 비침). 막대 EQ 금지(#318).
 //  - 놓기 = 전송 → 초록 체크 200ms 후 원상복구(잔상/점멸 금지) / ↑ 슬라이드 = 키보드 계층(B) /
-//    좌·우 끝 0.8s 홀드 = 예/아니요(t_043539ff 계승) / 좌·우·하단 링 밖 완전 이탈 = 폐기.
+//    좌·우 끝 홀드 = 예/아니요(t_043539ff 계승) / 좌·우·하단 링 밖 완전 이탈 = 폐기.
+// t_64e3edd6 (대표님 9/29 #324/#325 확정):
+//  - 음성 = 무확인 진행: 홀드-릴리스는 전사→즉시 답변 파이프라인(텔레그램식). 예/아니오 게이트·타이머 없음.
+//  - 조이스틱 좌예·우아니오는 **재질문 버튼 행이 활성일 때만** 발동(ackActive prop) — 비활성 시
+//    좌우 끝도 평범한 홀드로 send 경로(전사 진행)를 따른다(↑/이탈 계약은 불변).
+//  - 마이크 링 축소 (#321 ~60%): STAGE_RING 160→96, 마이크 디스크 56→34. 아이콘 ≥16px,
+//    탭 판독 최소 44px는 스트립 전체 홀드 영역이 담당(디스크 단독 탭 버튼 아님 — 계약 불변).
 // 제스처: getDirection(8방향 스냅 — JoystickMic과 동일 lib, 제스처 매핑 호환) — 벡터는 그랜트 지점 기준.
 // 권한 첫 요구 = 그랜트 시점(onPressHoldStart) — 로드 중 getUserMedia 없음(계약 불변).
 // 웹 모바일(voiceFirstConsole 게이트) 전용 마운트 — PC/네이티브/데모는 기존 텍스트 입력바(t_e735d936 ⑧).
@@ -15,18 +21,18 @@ import { Animated, Easing, PanResponder, Platform, StyleSheet, View, type Gestur
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { getDirection } from '../lib/gesture';
-import { ACK_HOLD_MS, ackPhraseForDirection } from '../lib/ackHold';
+import { ackPhraseForDirection } from '../lib/ackHold';
 import { stageReleaseOutcome } from '../lib/voiceStage';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
 import { MicIcon } from './Icon';
 
-export const STAGE_RING = 160;      // 링 지름 — 중앙 마이크 56 = 35% (#307-2)
-const MIC_BUTTON = 56;
+export const STAGE_RING = 96;       // t_64e3edd6 ④ (#321): 160 → 96 (~60%) — "마이크 버튼이 너무 커"
+const MIC_BUTTON = 34;              // 56 → 34 (링의 ~35% 유지, 아이콘 18px ≥16px 판독)
 const DONE_MS = 200;                // 체크 유지 후 소멸 (#316)
 const HINT_KEY = 'at-voicestage-hint-seen';
-const RIBBON_W = 240;
-const RIBBON_H = 48;
+const RIBBON_W = 160;               // t_64e3edd6 ④: 240 → 160 — 링 축소에 맞춰 리본도 축소(링 폭과 같아 부조화 제거)
+const RIBBON_H = 40;
 const ESCAPE = 10;                  // 링 밖 완전 이탈 판정 오차(px) — ↑ 이탈은 DIR_UP 스냅 후라 keyboard 우선
 
 interface Props {
@@ -38,8 +44,10 @@ interface Props {
   onHoldEnd: () => void;
   /** 릴리스 폐기 (audio.cancel) */
   onHoldAbort: () => void;
-  /** 예/아니요 arm 발화 ('예'/'아니요') */
+  /** 예/아니요 발화 ('예'/'아니요') — ackActive일 때만 좌/우 끝 릴리스로 발생 */
   onSendAck: (text: string) => void;
+  /** t_64e3edd6 #324/#325: 공감 재질문 예/아니요 버튼 행 활성 여부 — false면 좌/우도 일반 send(음성 무확인 진행) */
+  ackActive?: boolean;
   /** ↑ 슬라이드 = 키보드 계층(B) 개방 */
   onOpenKeyboard: () => void;
   recording: boolean;
@@ -51,10 +59,10 @@ interface Props {
 
 type Phase = 'idle' | 'holding' | 'done';
 
-export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, recording, level, error }: Props) {
+export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error }: Props) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
-  const [armedAck, setArmedAck] = useState<'yes' | 'no' | null>(null);
+  const [ackHint, setAckHint] = useState<'yes' | 'no' | null>(null);
   const [upTarget, setUpTarget] = useState(false);
   const [hintSeen, setHintSeen] = useState(() => {
     try { return Platform.OS === 'web' && typeof localStorage !== 'undefined' && localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
@@ -69,9 +77,6 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const stripRef = useRef<View | null>(null);
   const gestureRef = useRef<JoystickGesture | null>(null);
   const escapedRef = useRef(false);
-  const candidateRef = useRef<JoystickGesture | null>(null);
-  const armedRef = useRef<JoystickGesture | null>(null);
-  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 리본 캔버스 — RNW에서 <canvas> JSX 미지원 → 실제 DOM canvas를 effect로 부착(#318 rAF 요구)
@@ -83,23 +88,15 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const levelRef = useRef(level);
   const recordingRef = useRef(recording);
   const phaseRef = useRef<Phase>('idle');
-  const cbRef = useRef({ onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, t });
+  const cbRef = useRef({ onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t });
   useEffect(() => {
     levelRef.current = level;
     recordingRef.current = recording;
     phaseRef.current = phase;
-    cbRef.current = { onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, t };
+    cbRef.current = { onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t };
   });
 
-  const clearArm = useCallback(() => {
-    if (armTimerRef.current) { clearTimeout(armTimerRef.current); armTimerRef.current = null; }
-    candidateRef.current = null;
-    armedRef.current = null;
-    setArmedAck(null);
-  }, []);
-
   useEffect(() => () => {
-    if (armTimerRef.current) clearTimeout(armTimerRef.current);
     if (doneTimerRef.current) clearTimeout(doneTimerRef.current);
     if (rafRef.current && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(rafRef.current);
   }, []);
@@ -249,36 +246,19 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
       if (!g || g === gestureRef.current) return;
       gestureRef.current = g;
       setUpTarget(g === 'DIR_UP');
-      // 예/아니요 arm (t_043539ff): 좌/우 끝방향 0.8s 유지 → arm. 다른 방향 이동 = 해제.
-      const phrase = ackPhraseForDirection(g);
-      if (!phrase) {
-        if (armTimerRef.current) { clearTimeout(armTimerRef.current); armTimerRef.current = null; }
-        candidateRef.current = null;
-        armedRef.current = null;
-        setArmedAck(null);
-        return;
-      }
-      if (candidateRef.current === g) return;
-      candidateRef.current = g;
-      armedRef.current = null;
-      setArmedAck(null);
-      if (armTimerRef.current) clearTimeout(armTimerRef.current);
-      armTimerRef.current = setTimeout(() => {
-        armTimerRef.current = null;
-        armedRef.current = g;
-        setArmedAck(ackPhraseForDirection(g));
-      }, ACK_HOLD_MS);
+      // 예/아니요 힌트 (t_64e3edd6 ③): 재질문 활성 시 좌/우 방향 = 즉시 '예'/'아니요' 표시(arm 타이머 폐지).
+      // 비활성 시 좌우 이동은 평범한 홀드(send) — 음성은 무확인 진행(#324).
+      setAckHint(cbRef.current.ackActive ? ackPhraseForDirection(g) : null);
     },
     onPanResponderRelease: () => {
       if (!startedRef.current) return;
       startedRef.current = false;
       const g = gestureRef.current;
-      const armed = armedRef.current;
-      const ack = armed && g === armed ? ackPhraseForDirection(armed) : null;
-      clearArm();
+      const ack = g ? ackPhraseForDirection(g) : null;
+      setAckHint(null);
       setUpTarget(false);
-      const outcome = stageReleaseOutcome({ escaped: escapedRef.current, armedAck: !!ack, gesture: g });
-      if (outcome === 'ack') {
+      const outcome = stageReleaseOutcome({ escaped: escapedRef.current, ackActive: cbRef.current.ackActive, gesture: g });
+      if (outcome === 'ack' && ack) {
         cbRef.current.onHoldAbort(); // 음성 폐기 + 텍스트 발화
         cbRef.current.onSendAck(cbRef.current.t(ack === 'yes' ? 'chat.ackYes' : 'chat.ackNo'));
         finishDone();
@@ -299,14 +279,14 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
     onPanResponderTerminate: () => {
       if (!startedRef.current) return;
       startedRef.current = false;
-      clearArm();
+      setAckHint(null);
       setUpTarget(false);
       cbRef.current.onHoldAbort(); // 시스템 인터럽트 = 폐기(전송 없음)
       setPhase('idle');
     },
     });
     setPanHandlers(responder.panHandlers);
-  }, [clearArm, finishDone]);
+  }, [finishDone]);
 
   const holding = phase === 'holding';
 
@@ -337,12 +317,12 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
           {/* 리본: 링 상부 손가락 위 — canvas는 effect가 DOM 부착 (#316 '링 내부 또는 상부') */}
           <View ref={ribbonHostRef} testID="voice-stage-ribbon" pointerEvents="none" style={styles.ribbonWrap} />
           <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp]}>
-            <MicIcon size={Math.round(MIC_BUTTON * 0.52)} color={colors.onPrimary} />
+            <MicIcon size={Math.max(16, Math.round(MIC_BUTTON * 0.52))} color={colors.onPrimary} />
           </View>
           {upTarget && <Text style={styles.upLabel}>{t('chat.voiceStageToKeyboard')}</Text>}
-          {armedAck && (
+          {ackHint && (
             <Text testID="joystick-ack-armed" style={styles.armedText}>
-              {t(armedAck === 'yes' ? 'chat.ackHoldArmedYes' : 'chat.ackHoldArmedNo')}
+              {t(ackHint === 'yes' ? 'chat.ackHoldArmedYes' : 'chat.ackHoldArmedNo')}
             </Text>
           )}
           {phase === 'done' && (
@@ -381,8 +361,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   pulse: {
-    position: 'absolute', left: -14, top: -14, right: -14, bottom: -14,
-    borderRadius: radii.full, borderWidth: 3, borderColor: colors.accent,
+    position: 'absolute', left: -10, top: -10, right: -10, bottom: -10, // ④: -14→-10 — 축소 링(96) 비례
+    borderRadius: radii.full, borderWidth: 2, borderColor: colors.accent,
   },
   ribbonWrap: { position: 'absolute', top: -RIBBON_H - 6, width: RIBBON_W, height: RIBBON_H, alignItems: 'center' },
   micDisc: {
@@ -396,6 +376,6 @@ const styles = StyleSheet.create({
     position: 'absolute', width: MIC_BUTTON, height: MIC_BUTTON, borderRadius: radii.full,
     backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
   },
-  doneCheck: { color: colors.onPrimary, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  doneCheck: { color: colors.onPrimary, fontSize: 18, fontWeight: '700', lineHeight: 22 }, // ④: 26→18 — 34px 디스크에 맞춤
   recordingText: { ...typography.caption, color: colors.accent, fontWeight: '600', position: 'absolute', bottom: spacing.sp2 },
 });

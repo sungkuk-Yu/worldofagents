@@ -134,5 +134,9 @@ export function serializeMessage(row: MessagesRow): MessagesRow {
     favorite: row.favorite ?? false,
     // 답변 대기 (t_811e176c) — 011 미적용/dev 행은 false 정규화 (프론트 배지 판정 안정).
     awaiting_reply: row.awaiting_reply ?? false,
+    // 답글 인용 (t_02f58030) — 012 미적용/dev는 null 정규화(devstore 기본 null, 실DB DEFAULT NULL).
+    // 요약 스냅샷은 structured_payload.reply_to에 유지 — 최상위 승격 없음: raw insert echo와
+    // serialize가 같은 형태여야 하는 toEqual 계약(thread-fork)과 실DB 컬럼 형상을 보존한다.
+    reply_to_id: row.reply_to_id ?? null,
     dialogue_type: row.dialogue_type ?? null, structured_payload: row.structured_payload ?? {} };
 }

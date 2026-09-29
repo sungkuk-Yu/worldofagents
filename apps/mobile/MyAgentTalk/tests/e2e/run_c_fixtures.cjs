@@ -1,6 +1,6 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, sender = false } = {}) {
-  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [] };
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false } = {}) {
+  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
@@ -158,6 +158,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     if (messages) {
       const sid = messages[1];
       if (request.method() === 'GET') return ok(state.messages[sid] || []);
+      // t_4af94b1c e2e 픽스처: dedupWindow = 백엔드 ingress 드롭 응답 그대로({deduped:true,message} 전용) —
+      // 프론트의 유령 낙관 행 제거 분기를 검증한다.
+      if (dedupWindow) return ok({ deduped: true, message: '동일 발화가 방금 접수되었습니다.' });
       const index = state.calls.length;
         // 첨부 링크 에코 (t_4497cfce e2e): attachment_ids → messages.attachments 요약 (백엔드 linkAttachmentsToMessage 규격)
         const echo = (body.attachment_ids || []).map((id, k) => ({ id, url: 'https://cdn.test/object/' + id + '.png', mime: 'image/png', size: 1200, name: 'photo.png' }));
@@ -179,7 +182,10 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
           ? { id: 'emp' + index, role: 'agent', source_neuron: 'empathy', content: requestion, turn_index: base + 1, created_at: new Date().toISOString(), structured_payload: { empathy_ack: '네, 확인했어요', empathy_full: '에코: ' + body.content, empathy_question: requestion, template_id: tid } }
           : null;
         if (!body.parent_message_id) state.messages[sid].push(user, ...(empathy ? [empathy] : []), answer);
-        return ok({ user_message_id: user.id, empathy_message_id: empathy ? empathy.id : null, empathy_response: empathy ? empathy.content : null, messages: { user, empathy, answer }, run_id: 'r' + index });
+        const result = { user_message_id: user.id, empathy_message_id: empathy ? empathy.id : null, empathy_response: empathy ? empathy.content : null, messages: { user, empathy, answer }, run_id: 'r' + index };
+        // t_4af94b1c in-flight 가드 e2e: gateSend = 첫 POST 응답을 테스트가 풀어줄 때까지 보류(실행 중 창 재현).
+        if (gateSend && !state.resolveSend) return new Promise((resolve) => { state.resolveSend = () => ok(result); });
+        return ok(result);
     }
     const session = path.match(/^\/api\/sessions\/([^/]+)$/);
     if (session) return ok(state.sessions.find((s) => s.id === session[1]));

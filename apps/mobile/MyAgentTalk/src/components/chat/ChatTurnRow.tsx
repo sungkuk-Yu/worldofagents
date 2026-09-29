@@ -18,6 +18,8 @@ interface Props {
   highlightId: string | null;
   /** t_c62a2eb7: 예/아니요 대형 버튼 행이 붙은 공감 재질문 카드 id (없으면 null — 수명 판정은 화면/useAckChip 소유) */
   ackChipId?: string | null;
+  /** t_64e3edd6 ②: ack 결과(탭/조이스틱 '예'·'아니요' 발화) user 카드 id 집합 — 렌더 제외(전송은 정상 진행) */
+  hiddenAckIds?: Set<string>;
   /** 버튼 탭 → '예'/'아니요'(또는 어미 바인딩 '맞아요'/'아니에오') 텍스트 발화 (백엔드 확인 발화 게이트 계약 텍스트) */
   onSendAck?: (text: string) => void;
   decorate: (m: ChatMessage) => ChatMessage;
@@ -38,13 +40,17 @@ interface Props {
 }
 
 export default function ChatTurnRow({
-  group, timeLabel, highlightId, ackChipId, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
+  group, timeLabel, highlightId, ackChipId, hiddenAckIds, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
   senderFlags, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
 }: Props) {
   const { t } = useTranslation();
   return <View>
     {timeLabel && <Text style={styles.pendingMark}>{timeLabel}</Text>}
-    {group.items.map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
+    {group.items
+      // t_64e3edd6 ② (대표님 9/29 "예 아 니오의 결과는 사실상 카드로 안 보여줘도 돼"):
+      // 재질문 뒤 '예'/'아니요' 발화(user 행)는 렌더 제외 — 전송·게이트 판정은 정상 진행, 화면만 숨김.
+      .filter((message) => !hiddenAckIds?.has(message.id))
+      .map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
       {/* t_55b7e30c 백로그③ (텔레그램/Slack 관습) — 발신자 헤더(이름)는 발화 그룹 시작마다 재출력:
           role 전환 / agentId 변경 / 60초 초과 시에만 노출, 같은 그룹 연속 카드는 생략 + 좌 오프셋으로
           묶음 시각화. t_64af90b0 #3의 '첫 에이전트 메시지만 노출'을 대체 (다중 에이전트·릴레이 판별 불가 해결).

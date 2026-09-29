@@ -17,6 +17,7 @@ import { logger } from '../utils/logger';
 import { AudioStreamBuffer, transcribeAudio, hasVoiceActivity } from '../lib/stt';
 import { normalizePttMode, normalizeDeviceLabel, isPttIdleTimeout, isPttHoldOverflow, PttMode } from '../lib/pushToTalk';
 import { runTextTurn } from '../lib/chatTurn';
+import { queueJoinLine } from '../lib/personaVoice';
 import { parseAttachmentIds } from '../lib/attachments';
 import { enqueueQuestion, listQueue, queueSnapshot, isQueueKnownUnavailable } from '../lib/questionQueue';
 import { SessionsRow } from '../types/db';
@@ -106,11 +107,27 @@ function queueIngress(socket: WSSocket, raw: Buffer | string, isBinary?: boolean
   pendingIngress.set(socket, q);
 }
 
-function drainIngress(socket: WSSocket, deliver: (raw: Buffer | string, isBinary?: boolean) => void): void {
+/** 테스트 훅 (t_5cba9ebb 드레인 순서 회귀) — 실 소켓 대신 plain object로 큐를 채운다. */
+export const __ingressTestHooks = {
+  queue: (socket: object, raw: string) => queueIngress(socket as WSSocket, raw),
+  drain: (socket: object, deliver: (raw: Buffer | string, isBinary?: boolean) => Promise<unknown> | void) =>
+    drainIngress(socket as WSSocket, deliver),
+};
+
+function drainIngress(socket: WSSocket, deliver: (raw: Buffer | string, isBinary?: boolean) => Promise<unknown> | void): Promise<void> {
   const q = pendingIngress.get(socket);
-  if (!q || q.length === 0) return;
+  if (!q || q.length === 0) return Promise.resolve();
   pendingIngress.delete(socket);
-  for (const item of q) deliver(item.raw, item.isBinary);
+  // 도착 순서 보장 = 체이닝 (t_5cba9ebb 실측 결함): 병렬 fire-and-forget은 각 프레임의
+  // assertSessionOwnership DB 왕복 완료 순이 비결정적이라 handshake 보류분에서
+  // audio.end가 audio.start(state.audio 미설정)보다 먼저 실행될 수 있다
+  // — 재현: 실DB WS 음성 발화 '활성 오디오 스트림이 없습니다'. 주석 계약("도착 순서대로")을
+  // 구현이 위반하고 있던 것. 개별 프레임 실패가 후속 프레임을 막지 않는다.
+  return (async () => {
+    for (const item of q) {
+      try { await deliver(item.raw, item.isBinary); } catch { /* per-frame swallow */ }
+    }
+  })();
 }
 
 /** subscribed 회신 단일 지점 — send 후 state.subscribedSent 기록 (t_83946f45:
@@ -344,11 +361,21 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           // message_queue에 적재하고 queue.updated 체크포인트를 발행한다. 답변은 현재 run
           // 완료 후 워커(drainSessionQueue)가 position 순서로 이어한다.
           // parseAttachmentIds를 먼저 호출해 형식 검증(VALIDATION_ERROR)이 큐 경보다 앞선다.
+          // 답글 인용 발화(t_02f58030)도 큐를 우회 — message_queue 스키마는 메인 발화 전용이라
+          // reply_to 컨텍스트가 드레인에서 소멸한다(스레드·첨부 우회 규칙과 동일 판정).
+          // null/비문자열 reply_to_id는 무인용 발화 — 큐 경로 유지(프론트가 인용바 없이 null을
+          // 보내는 경우까지 우회하면 ②가 죽는다).
           const hasAttachments = parseAttachmentIds(message).length > 0;
-          if (!thread && !hasAttachments && hasActiveRun(session!.id)) {
+          const hasQuote = typeof message.reply_to_id === 'string' && !!message.reply_to_id.trim();
+          if (!thread && !hasAttachments && !hasQuote && hasActiveRun(session!.id)) {
             const item = await enqueueQuestion(supabaseAdmin, { sessionId: session!.id, userId: state.userId, content: message.content.trim(), locale: state.locale });
             if (item) {
-              broadcastToSession(session!.id, { type: 'queue.updated', session_id: session!.id, ...queueSnapshot(await listQueue(supabaseAdmin, session!.id)) });
+              const snap = queueSnapshot(await listQueue(supabaseAdmin, session!.id));
+              broadcastToSession(session!.id, { type: 'queue.updated', session_id: session!.id, ...snap });
+              // busy 입력 합류 고지 (t_5cba9ebb 보강 5항): 큐 뉴런이 1인칭 한 줄로 대신 말한다 —
+              // "앞에 N개 있어요, 순서대로 챙기고 있어요" (무정보 ETA 금지).
+              const join = queueJoinLine(snap.pending_count, state.locale);
+              if (join) broadcastToSession(session!.id, { type: 'persona.line', session_id: session!.id, source: 'queue', line: join });
               break;
             }
             // null 원인 분기: 008 미적용(래치)이면 기존 직렬 실행으로 폴백, 아니면 대기 상한 429.
@@ -357,7 +384,7 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
             }
           }
           // 종료 상태는 공유 실행기의 finally에서 보장한다.
-          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), emit: e => broadcastToSession(session!.id, e) });
+          await runTextTurn(supabaseAdmin, session!, state.userId, message.content.trim(), { locale: state.locale, thread, attachmentIds: parseAttachmentIds(message), replyToId: message.reply_to_id, emit: e => broadcastToSession(session!.id, e) });
           break;
         }
 
@@ -400,8 +427,10 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
   }
 
   // handshake 완료: 검증 중에 보류된 프레임을 도착 순서대로 처리한다 (t_83946f45).
+  // deliver가 반환하는 Promise를 그대로 드림 — void하면 체이닝이 무의미해져
+  // audio.start/audio.end가 병렬 DB 왕복 순으로 뒤집힌다 (t_5cba9ebb 실측 회귀 방지).
   handshakeDone = true;
-  drainIngress(socket, (raw, isBinary) => void handleMessage(raw, isBinary));
+  drainIngress(socket, (raw, isBinary) => handleMessage(raw, isBinary));
 }
 
 // ── 오디오 스트리밍 ────────────────────────────────────
@@ -502,6 +531,19 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
     return;
   }
 
+  // 음성 확정 발화 즉시 브로드캐스트 (t_5cba9ebb, 대표님 9/29 #325 2항: "질문은 텍스트로
+  // 내가 뭘 질문했는지는 보여줬으면해") — 답변 실행을 기다리지 않고 전사문이 user 발화 자리에
+  // 뜬다. turn_index/message_id는 런 완료 후 message.new(user)로 확정 (구계약 호환: 그 값들은
+  // pending 표식). 실패 시에도 화면에는 이미 확정 텍스트가 남는다.
+  broadcastToSession(target, {
+    type: 'transcript.final', session_id: target, turn_index: -1,
+    text: result.text,
+    confidence: result.confidence,
+    language: result.language,
+    duration_ms: result.durationMs,
+    message_id: null,
+  });
+
   await handleTr({
     locale: state.locale,
     text: result.text,
@@ -509,6 +551,7 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
     session,
     userId,
     stt: { confidence: result.confidence, language: result.language, duration_ms: result.durationMs, service: result.service },
+    transcriptEarly: true,
   });
 }
 
@@ -521,9 +564,12 @@ interface TrInput {
   session: SessionsRow;
   userId: string;
   stt?: Record<string, unknown>;
+  /** transcript.final을 이미 선행 브로드캐스트한 경로 (audio.end 즉시 발화, t_5cba9ebb) —
+   *  런 완료 후 중복 브로드캐스트를 막는다. 확정 id는 message.new(user)가 전달한다. */
+  transcriptEarly?: boolean;
 }
 
-async function handleTr({ locale, text, isFinal, session, userId, stt }: TrInput) {
+async function handleTr({ locale, text, isFinal, session, userId, stt, transcriptEarly }: TrInput) {
   const sessionId = session.id;
   if (typeof text !== 'string' || !text.trim()) return;
   if (session.status === 'archived') throw Object.assign(new Error('아카이브된 세션입니다.'), { code: 'SESSION_ARCHIVED' });
@@ -546,17 +592,20 @@ async function handleTr({ locale, text, isFinal, session, userId, stt }: TrInput
     emit: e => broadcastToSession(sessionId, e),
   });
 
-  // 최종 트랜스크립트 + 응답 브로드캐스트
-  broadcastToSession(sessionId, {
-    type: 'transcript.final',
-    session_id: sessionId,
-    turn_index: result.messages.user.turn_index,
-    text,
-    confidence: (stt?.confidence as number) || 0.95,
-    language: (stt?.language as string) || locale,
-    duration_ms: (stt?.duration_ms as number) || 0,
-    message_id: result.userMessageId,
-  });
+  // 최종 트랜스크립트 + 응답 브로드캐스트 — audio.end 경로가 이미 전사 즉시 브로드캐스트했다면
+  // 중복 발행하지 않는다 (t_5cba9ebb. 확정 turn_index/message_id는 message.new(user)가 전달).
+  if (!transcriptEarly) {
+    broadcastToSession(sessionId, {
+      type: 'transcript.final',
+      session_id: sessionId,
+      turn_index: result.messages.user.turn_index,
+      text,
+      confidence: (stt?.confidence as number) || 0.95,
+      language: (stt?.language as string) || locale,
+      duration_ms: (stt?.duration_ms as number) || 0,
+      message_id: result.userMessageId,
+    });
+  }
 
   broadcastToSession(sessionId, {
     type: 'queue.update',

@@ -34,18 +34,19 @@ export const CHAT_LIST_ANCHOR = {
 export type StageOutcome = 'keyboard' | 'ack' | 'send' | 'cancel';
 
 /**
- * 릴리스 판정 우선순위 (제스처 계약 불변):
- *  1. 예/아니오 arm된 끝방향 릴리스 → ack (t_043539ff)
+ * 릴리스 판정 우선순위 (t_64e3edd6 9/29 #324 개정):
+ *  1. 재질문 버튼 행 활성(ackActive) + 좌/우 끝방향 릴리스 → ack (좌=예, 우=아니요 — 0.8s arm 폐지, 즉시)
  *  2. ↑ → keyboard (B 계층 개방 — 이탈 판정보다 우선: ↑ 이탈은 곧 키보드 구간)
  *  3. 좌·우·하단 완전 이탈 → cancel (발화 폐기)
- *  4. 그 외(탭/제자리 홀드) → send
+ *  4. 그 외(탭/제자리/좌우 홀드 — 재질문 비활성 시) → send (음성 = 무확인 진행, 전사→즉시 답변)
  */
 export function stageReleaseOutcome(opts: {
   escaped: boolean;
-  armedAck: boolean;
+  /** 공감 재질문 예/아니요 버튼 행이 화면에 활성일 때만 좌/우 ack 게이트 발동 (#325) */
+  ackActive: boolean;
   gesture: JoystickGesture | null;
 }): StageOutcome {
-  if (opts.armedAck) return 'ack';
+  if (opts.ackActive && (opts.gesture === 'DIR_LEFT' || opts.gesture === 'DIR_RIGHT')) return 'ack';
   if (opts.gesture === 'DIR_UP') return 'keyboard';
   if (opts.escaped) return 'cancel';
   return 'send';

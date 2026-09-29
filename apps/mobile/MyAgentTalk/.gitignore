@@ -39,6 +39,16 @@ yarn-error.*
 # local build/test outputs (Phase 1)
 dist-web/
 dist-test-unit/
+dist-deploy/
+dist-dbg-*/
+dist-stage-*/
+dist-dr/
+dist-e2e-*/
+dist-frbase/
+dist-frrefactor/
+dist-p0fix/
+dist-queue/
+dist-t*/
 
 # generated native folders
 /ios

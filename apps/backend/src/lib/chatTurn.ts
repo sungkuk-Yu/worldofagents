@@ -2,6 +2,7 @@ import { config } from '../config';
 import { Locale, PATIENCE_PLAN, patienceQuipAt, pickQuip, QuipKey } from './locale';
 import { RelayCurtain, relayStageForEvent } from './relay';
 import type { RelayStage } from './relay';
+import { personaAckLine, personaLine, personaPatienceLine, queueJoinLine, PERSONA_SILENCE_FILL_MS, type PersonaLineSource } from './personaVoice';
 import { registerRun, hasActiveRun } from '../websocket/eventlog';
 import { randomUUID } from 'node:crypto';
 import { DbClient } from './supabase';
@@ -16,16 +17,57 @@ import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './que
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
 
-export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' }>;
+export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' | 'persona.line' }>;
+
+/** 단일 페르소나 보이스 채널 발행자 (t_5cba9ebb — 대표님 9/29 "여러 개의 동시 출력 창이
+ *  제거 대상", 볼트 리서치 반영). 한 시점 한 줄 규칙의 백엔드 발화점:
+ *  ack(접수 ≤2s) → relay stage 진행(content-bearing) → patience(4초+ 침묵 fill).
+ *  answer.delta가 시작되면 kill() — 답변 첫 문장이 줄을 흡수하므로 이후 줄은 발화하지 않는다. */
+export class PersonaVoice {
+  private dead = false;
+  private lastLine = '';
+  constructor(
+    private readonly emit: (e: TurnEmitEvent) => void,
+    private readonly base: { session_id: string; run_id: string },
+    private readonly locale: Locale,
+  ) {}
+  /** 답변 스트리밍 개시 = 이 줄의 수명 종료 (프론트 교체 애니메이션 없음 — 같은 사람 발화 연속). */
+  kill(): void { this.dead = true; }
+  get killed(): boolean { return this.dead; }
+  /** 같은 문장 연속 재발송 금지 (한 시점 한 줄 — 노이즈 감소). */
+  private say(source: PersonaLineSource, text: string): void {
+    if (this.dead || !text.trim() || text === this.lastLine) return;
+    this.lastLine = text;
+    this.emit({ type: 'persona.line', ...this.base, line: text, source });
+  }
+  /** 접수 ack — run.started 직동 (첫 발화 ≤2s SLA). 롤 전환 무통보(Intercom Fin): 어떤 뉴런이 받는지 말하지 않는다. */
+  ack(): void { this.say('ack', personaAckLine(this.locale)); }
+  /** 릴레이 진행 → 페르소나 1인칭 content-bearing 줄. briefing(=ack 중복)·done(=answer 중복)은 생략. */
+  stage(stage: RelayStage, pending = 0): void {
+    if (stage === 'briefing' || stage === 'done') return;
+    this.say('progress', personaLine(stage, this.locale, { pending }));
+  }
+  /** 발화 간 공백 fill (침묵 = 실패). 단 답변 스트리밍이 이미 시작된 뒤엔 침묵 허용(answer가 말 중). */
+  patience(tick: number): void { this.say('progress', personaPatienceLine(tick, this.locale)); }
+  /** busy 입력 합류 고지 (Claude Code/Open WebUI 관례 — 1인칭·감소하는 위치, 무정보 ETA 금지). */
+  queueJoin(pending: number): void {
+    this.say('queue', queueJoinLine(pending, this.locale));
+  }
+}
+
 
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
   db: DbClient, session: SessionsRow, userId: string, content: string,
-  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; answerLeadMs?: number; emit: (e: TurnEmitEvent) => void }
+  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; replyToId?: unknown; answerLeadMs?: number; emit: (e: TurnEmitEvent) => void }
 ): Promise<TurnResult> {
   const locale = opts.locale ?? config.defaultLocale;
   const turnId = randomUUID();
   const base = { session_id: session.id, run_id: turnId };
+  // 단일 페르소나 보이스 채널 (t_5cba9ebb): 모든 연출 발화가 여기 한 줄로 수렴한다.
+  const voice = new PersonaVoice(opts.emit, base, locale);
+  // 4초+ 침묵 fill 타이머 (try 밖 선언 — finally에서 정리).
+  let silenceFill: ReturnType<typeof setTimeout> | undefined;
   let completed = false;
   let processing = false;
   let lastStage: NeuronStage | undefined;
@@ -48,6 +90,8 @@ export async function runTextTurn(
     if (step) {
       lastStage = step.stage;
       opts.emit({ type: 'run.progress', ...base, stage: step.stage, quip: quip(step.quip) });
+      // 페르소나 줄도 같은 공백을 content-bearing 한 줄로 메운다 (침묵 = 실패, ≤4s SLA).
+      voice.patience(quipTick);
     }
     if (++quipTick >= PATIENCE_PLAN.length) clearInterval(patience);
   }, config.quipPatienceMs);
@@ -85,6 +129,11 @@ export async function runTextTurn(
       if (text !== null) opts.emit({ type: 'relay.updated', ...base, stage, quip: text });
     };
     opts.emit({ type: 'run.started', ...base, quip: quip('started') });
+    // 페르소나 첫 발화 (≤2s SLA — 볼트 리서치 2항): 접수 ack을 한 줄로 낸다.
+    // run.progress(ack)는 하위 호환으로 유지, 프론트는 persona.line만 렌더한다.
+    voice.ack();
+    // 4초+ 침묵 fill (research §2): ack 후에도 릴레이 줄이 없으면 content-bearing 한 줄을 강제한다.
+    silenceFill = setTimeout(() => voice.stage('research'), PERSONA_SILENCE_FILL_MS);
     // ① 짧은 확인음 (t_344e047a, 대표님 9/28 정정): 공감 복명복창을 대체하는 "예/아니오"
     // 수준 확인음을 접수 직후 run.progress(stage=thinking, 계약 코드 유지)로 내보낸다.
     // 공감 노드는 계속 동작하며(생성·neuron.status·DB 기록 유지), UI 노출만 최소화한다.
@@ -99,6 +148,8 @@ export async function runTextTurn(
       signal: abort.signal,
       sttMetadata: opts.sttMetadata,
       attachmentIds: opts.attachmentIds,
+      // 답글 인용 (t_02f58030): 존재+같은 세션 검증은 processTurn 내부 — invalid 무시, 발화 통과.
+      replyToId: opts.replyToId,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
       onTurnStatus: (status, extra) => {
@@ -114,10 +165,17 @@ export async function runTextTurn(
         opts.emit({ type: 'neuron.status', session_id: session.id,
           neuron: { slug: e.neuron, name: NEURON_NAMES[e.neuron] || e.neuron }, status: e.status, stage: e.stage, quip: e.quip });
         const relayStage = relayStageForEvent(e);
-        if (relayStage) emitRelay(relayStage);
+        if (relayStage) {
+          emitRelay(relayStage);
+          // persona.line은 릴레이와 달리 페르소나 무관 전 room 채널 (9/29 확정 아키텍처:
+          // 한 사람처럼 빈틈없이 — 진행 한 줄은 방 구분 없이 필요하다).
+          voice.stage(relayStage);
+        }
       },
       onAnswerDelta: (delta, index) => {
         partialText += delta;
+        // 답변 스트리밍 시작 = 보이스 줄 수명 종료 (첫 답변 문장이 줄을 자연 흡수, 9/29 4항).
+        if (index === 0) voice.kill();
         opts.emit({ type: 'answer.delta', ...base, delta, index });
       },
     });
@@ -156,6 +214,7 @@ export async function runTextTurn(
     throw err;
   } finally {
     clearInterval(patience);
+    if (silenceFill) clearTimeout(silenceFill);
     unregister();
     // WS message.send를 포함한 모든 호출 경로에서 실패 종료를 보장한다.
     if (!completed) {

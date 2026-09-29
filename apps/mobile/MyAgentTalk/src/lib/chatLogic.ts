@@ -176,6 +176,13 @@ export function oldestCursor(messages: ChatMessage[]): number | null {
 // 겹쳐 들어와도 "활성 소스 ≥ 1개"인 동안 상태가 소실되면 안 된다 (텔레그램식 깜빡임 금지).
 
 export const DEFAULT_QUIP = 'quip.default';
+/**
+ * t_cc232982: answer.delta 렌더 플래시 배칭 창(ms). 토큰마다 setStreams→재렌더 금지
+ * (김비서 적용 게이트 1 — 외부 관습 50~100ms: 사람이 읽는 속도면 충분, 레이아웃 스래시 방지).
+ * answer.done/message.new/run.failed/cancelled·세션 전환·디스커넥트는 항상 즉시 플래시(잔류 무효화).
+ * 0 = 배칭 폐기(변경 전 동작) — 롤백 플러그: 코드 되돌리기 없이 이 상수만 0으로.
+ */
+export const STREAM_FLUSH_DEBOUNCE_MS = 80;
 export function quipKeyForStage(stage?: string): string {
   return stage && ['thinking', 'organizing', 'finalizing', 'rendering'].includes(stage) ? `quip.${stage}` : DEFAULT_QUIP;
 }
