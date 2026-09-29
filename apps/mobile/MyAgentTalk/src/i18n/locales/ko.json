@@ -22,6 +22,8 @@
   },
   "chat": {
     "me": "나",
+    "replyQuoting": "{{name}}에게 답글",
+    "cancelQuote": "답글 취소",
     "failed": "전송 실패",
     "sending": "전송중…",
     "sent": "전송됨",
