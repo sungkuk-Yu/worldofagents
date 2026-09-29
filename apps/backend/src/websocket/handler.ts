@@ -10,7 +10,7 @@ import { getOwnedMessage } from '../lib/helpers';
  */
 import { FastifyRequest } from 'fastify';
 import { consumeTicket } from '../routes/wsTicket';
-import { recordEvent, currentSeq, replaySince, cancelRun, hasActiveRun } from './eventlog';
+import { recordEvent, currentSeq, replaySince, cancelRun, hasActiveRun, isDuplicateIngress } from './eventlog';
 import { config } from '../config';
 import { supabaseAdmin } from '../lib/supabase';
 import { logger } from '../utils/logger';
@@ -329,6 +329,9 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           // 없으면 여기서 implicit subscribe로 보낸다 — 대기 창에 유실됐던 구구조와 달리
           // 첫 발화의 run.* 이벤트가 이 소켓으로 확실히 라우팅된다.
           if (!state.subscribedSent) sendSubscribed(socket, state);
+          // 요구① (t_c31e3f45): 실행 중 짧은 창 동일 content 재발송(Enter+버튼 동시 탭)은
+          // 드롭 — 큐 적재·드레인으로 user 중복 행이 되는 것을 막는다 (eventlog.isDuplicateIngress).
+          if (isDuplicateIngress(session!.id, message.content.trim())) break;
           let thread;
           if (message.parent_message_id !== undefined) {
             if (typeof message.parent_message_id !== 'string' || !message.parent_message_id) {

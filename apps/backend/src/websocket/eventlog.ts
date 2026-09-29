@@ -54,6 +54,21 @@ export function hasActiveRun(sessionId: string): boolean {
   return (activeRuns.get(sessionId)?.length ?? 0) > 0;
 }
 
+/**
+ * 진입 중복 억제 (t_c31e3f45 요구①, 9/29 재현): Enter+전송 버튼 동시 탭 등 짧은 창
+ * 동일 content 재발송은 **실행 중인 턴이 있을 때** 큐→드레인으로 user 행 2개로 영속된다
+ * (재현 실측: POST#1 201 + POST#2 202 queued → 드레인 후 user 2행). 이 경우만 accident로
+ * 보고 드롭한다. 실행이 끝난 뒤 동일 발화 재전송(실수정/재요청)은 통과 — 그쪽은
+ * repeatUtterance 에코 게이트가 담당 (의미 있는 재요청은 답변 진행으로 답한다).
+ */
+const ingressSeen = new Map<string, { content: string; at: number }>();
+export const INGRESS_DEDUP_WINDOW_MS = 3000;
+export function isDuplicateIngress(sessionId: string, content: string, now = Date.now()): boolean {
+  const prev = ingressSeen.get(sessionId);
+  ingressSeen.set(sessionId, { content, at: now }); // 모든 접수가 기록 — 다음 판정 시드
+  return !!prev && prev.content === content && now - prev.at < INGRESS_DEDUP_WINDOW_MS && hasActiveRun(sessionId);
+}
+
 export function cancelRun(sessionId: string, runId?: string): boolean {
   const runs = activeRuns.get(sessionId);
   const run = runId === undefined ? runs?.at(-1) : runs?.find(entry => entry.runId === runId);

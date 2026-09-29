@@ -101,6 +101,8 @@ export interface NeuronState {
   photoEditPending?: boolean;
   /** 예/아니오 확인 발화 에코 억제 (t_135a19b5, 대표님 9/28 정정) — true면 empathy 뉴런 skip. */
   empathySuppressed?: boolean;
+  /** 동일 발화 재전송 (t_c31e3f45, 김비서 case: 같은 소리 반복) — true면 empathy skip + no-repeat 강제. */
+  repeatUtterance?: boolean;
   /** 공감 재질문 (t_44f8896c) — 직전 empathy 행의 template_id. 회전 시드(연속 재사용 금지). */
   empathyLastTemplateId?: string | null;
   /** 공감 재질문 (t_44f8896c) — 행 content는 재질문 문장, 복창 원문(에코)은 empathy_full로 보존. */
@@ -179,7 +181,9 @@ function waitOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
 function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
   // 예/아니오 게이트 (t_135a19b5, 대표님 9/28 정정): 직전 empathy 행 뒤의 짧은 확인 발화에는
   // 복창을 생성하지 않는다 — 중복 에코 루프 방지, 답변으로 직결.
-  if (state.empathySuppressed) return {};
+  // 동일 발화 재전송 (t_c31e3f45, 김비서 라이브 진단): 직전 user 행과 같은 텍스트면 재질문
+  // 회전을_stop — "뭘 말해도 같은 소리" 에코 루프의 직접 원인. 답변은 계속 직결(answer_always).
+  if (state.empathySuppressed || state.repeatUtterance) return {};
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
   // 복창 원문(에코 문장)은 empathy_full로 보존 (t_135a19b5), 화면 노출은 재질문으로 교체
@@ -193,6 +197,88 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
     empathyTemplateId: templateId,
     events: [...state.events, { neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') }],
   };
+}
+
+// ── 에코 루프 차단 (t_c31e3f45, 김비서 라이브 진단 9/29) ──
+// 발화 정규화: 공백/대소문자/말미 구두점 제거 — "같은 발화 재전송" 판정용.
+export function normalizeUtterance(text: string): string {
+  return text.trim().toLowerCase().replace(/[\s]+/g, ' ').replace(/[.!~〜？?。，,、]+$/g, '');
+}
+
+/** history(내림차순 아님 — 최신이 뒤)에서 직전 사용자 발화. 이번 발화와 동일하면 재전송. */
+function lastUserUtterance(history: HistoryMessage[]): string | null {
+  const last = [...history].reverse().find(m => m.role === 'user');
+  return last ? normalizeUtterance(String(last.content ?? '')) : null;
+}
+
+/**
+ * LLM 컨텍스트용 히스토리 필터 (t_c31e3f45 A, 김비서 판정):
+ * 공감 재질문/복창 행(source_neuron='empathy' 또는 payload.empathy_*)과 자기 발화 에코로
+ * 쓰이는 모든 컨텍스트 주입 지점에서 공유한다. 답변(answer)과 사용자 발화만 남긴다.
+ * 소스 뉴런이 없는 레거시 agent 행(음성 확정 등)은 content가 답변이었으므로 answer로 본다.
+ */
+export function answerableHistory(history: HistoryMessage[]): HistoryMessage[] {
+  return (history || []).filter(m =>
+    m.role === 'user' ||
+    (m.role === 'agent' && !(
+      m.source_neuron === 'empathy' ||
+      (m.structured_payload && (m.structured_payload.empathy_full || m.structured_payload.empathy_question))
+    ))
+  );
+}
+
+/** 문자 2-gram Dice 계수 (0~1) — 재귀 생성 판정용 (t_c31e3f45 B, 임계 0.8). */
+export function textSimilarity(a: string, b: string): number {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const grams = (s: string) => {
+    const set = new Set<string>();
+    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+    return set;
+  };
+  const ga = grams(norm(a));
+  const gb = grams(norm(b));
+  if (!ga.size || !gb.size) return 0;
+  let inter = 0;
+  for (const g of ga) if (gb.has(g)) inter++;
+  return (2 * inter) / (ga.size + gb.size);
+}
+
+/** 직전 답변 행 content (answerNode 재생성 판정·히스토리 차단 문구용). */
+function lastAnswerContent(history: HistoryMessage[]): string | null {
+  const last = answerableHistory(history).slice().reverse().find(m => m.role === 'agent');
+  const c = last ? String(last.content ?? '') : '';
+  return c.length > 20 ? c : null;
+}
+
+/** no-repeat 지시문 (t_c31e3f45 B) — 시스템 프롬프트에 append. */
+const NO_REPEAT_INSTRUCTION: Record<Locale, string> = {
+  ko: '절대로 직전 답변이나 사용자 발화를 그대로 복사용하지 말고, 같은 요청이라도 새 관점·새 구성으로 앞서 나아가는 내용을 말하라.',
+  en: "Never copy your previous answer or the user's wording verbatim; even for a repeated request, advance with a fresh angle and structure.",
+};
+
+/**
+ * 지시형 발화 판정 (t_c31e3f45 요구1): "정리해 주세요" 류 — 공백 제거 후 어미 검사.
+ *Stage 3 '해줘' 패턴이 공백 변형("해 주","해주세요")에서 놓치는 것과 같은 뿌리 결함
+ * 보충 (오탐 비용=골격 1줄 < 미탐 비용=상투어 반복).
+ */
+export function isDirectiveUtterance(text: string): boolean {
+  const t = text.replace(/\s+/g, '').toLowerCase();
+  return /(해주세요|해주시|해드릴|해줘|해다오|정리해|정리할|요약해|보여줘|알려줘|알려드릴|만들어줘|만들어줄|작성해|보내줘|시작해|확인해|준비해|schedule|organize|summarize|prepare|createit)/.test(t)
+    || /\b(please|could you|can you|set up|sort ?out|list ?out)\b/.test(text.toLowerCase());
+}
+
+/**
+ * '약속만 하고 산출물 없는' 답변 판정 (t_c31e3f45 요구1): 번호/글머리/표 등 구조화된
+ * 산출물이 전혀 없고 ~해 드릴게요/도움이 되길/나열해 주시겠 류 미래 약속 어미만 있는 답변.
+ * 실제 목록·표가 있으면 false(개입 없음). 지시형 발화에만 적용한다.
+ */
+export function looksLikeEmptyPromise(answer: string, locale: Locale): boolean {
+  const hasArtifact = /(^|\n)\s*(\d+[.)、]|[-•*]\s|\|)|```/.test(answer) || answer.length > 600;
+  if (hasArtifact) return false;
+  const promise = locale === 'en'
+    ? /(i will|i'?ll|let me|i can|i'd be happy|would you like|please (tell|provide|share))/i
+    : /(드릴게요|드릴게|드리길|되길|나열해|정리해 드|알려드릴|보여드릴|시작할|준비할|확인할|말씀해 주|알려주|보내주|추가해|적어)/;
+  return promise.test(answer);
 }
 
 /** 짧은 확인 발화(3초 예/아니오 칩 tapped 산출물 포함) 판별 — 순수 확인만, 부분일치 금지. */
@@ -243,7 +329,9 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   let dialogueStage: 1 | 2 | 3 = plan.dialogueStage;
   let confidence = plan.confidence;
   if (plan.dialogueStage === 3) {
-    const history = (state.history || []).slice(-6).map(h => `${h.role}: ${String(h.content).slice(0, 200)}`);
+    // A (t_c31e3f45): Stage2 컨텍스트에도 공감 재질문 행을 주입하지 않는다 —
+    // 자기 발화 에코가 분류기를 오염시켜 같은 소리를 재생산한다.
+    const history = answerableHistory(state.history || []).slice(-6).map(h => `${h.role}: ${String(h.content).slice(0, 200)}`);
     const llm = await classifyByLLM(state.userMessage, { history, signal: ctx.signal });
     if (llm && llm.confidence >= CLASSIFY_ADOPT) {
       dialogueType = llm.type;
@@ -270,7 +358,14 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   // plan이 answer 없이 끝나면 응답이 완전 침묵이 되므로 강제 활성한다.
   if (state.empathySuppressed && !activationPlan.includes('answer')) {
     activationPlan = [...activationPlan, 'answer'];
-    reason = `${reason}, confirm_gate=answer_forced`;
+    reason = `${reason}, ${state.repeatUtterance ? 'repeat_gate' : 'confirm_gate'}=answer_forced`;
+  }
+  // C (t_c31e3f45, 김비서 case 1 "답변 없이 공감행만"): 공감 행이 plan을 만들어도
+  // 답변은 매 발화 존재해야 한다 — "empathy alone" 구조 원천 금지.
+  // 실행 골격(buildAnswerTemplate)은 LLM 장애 시에도 답변 행을 내보낸다.
+  if (!activationPlan.includes('answer')) {
+    activationPlan = [...activationPlan, 'answer'];
+    reason = `${reason}, answer_always=empathy_never_alone`;
   }
   return {
     dialogueType,
@@ -299,7 +394,9 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     let bridgeResult: { text: string; state: string } | null = null;
     let bridgeFailReason = '';
     try {
-      bridgeResult = await sendTurnToSecretary(ctx.db, state.sessionId, state.userMessage, state.history);
+      // A (t_c31e3f45): 브리지 자전 다이제스트도 answerable만 — 공감 재질문 행이
+      // 김비서 컨텍스트에 섞이면 같은 소리 재생산의 공급원이 된다.
+      bridgeResult = await sendTurnToSecretary(ctx.db, state.sessionId, state.userMessage, answerableHistory(state.history || []));
     } catch (err) {
       bridgeFailReason = (err as BridgeError)?.kind || 'transport';
       if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) bridgeFailReason = 'transport';
@@ -318,7 +415,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     const bridgeReply = detectReplyRequest(answerResponse);
     if (bridgeReply) bridgeStructured = { ...bridgeStructured, structured_payload: { ...bridgeStructured.structured_payload, reply_request: bridgeReply } };
     if (!ctx.signal?.aborted) {
-      const contextLines = [...(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
+      const contextLines = [...answerableHistory(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
         `user: ${state.userMessage.slice(0, 200)}`, `agent: ${answerResponse.slice(0, 400)}`];
       const questions = await generateSuggestedQuestions(contextLines.join('\n'), state.locale, { signal: ctx.signal });
       if (questions?.length) bridgeStructured = { ...bridgeStructured, structured_payload: { ...bridgeStructured.structured_payload, suggested_questions: questions } };
@@ -344,13 +441,20 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   }
   const groundingBlock = grounding && grounding.status === 'grounded' ? `\n\n${buildGroundingPrompt(grounding, state.locale)}` : '';
   if (isLlmConfigured()) {
-    const history: ChatMessage[] = (config.chatLlm.historyTurns > 0 ? state.history : [])
-      .filter(m => m.role === 'user' || (m.role === 'agent' && m.source_neuron === 'answer'))
+    // A (t_c31e3f45, 김비서 판정): LLM 컨텍스트에서 공감 재질문·복창 행을 완전 배제.
+    // source_neuron='empathy' 뿐 아니라 payload.empathy_* 보유 행(음성 확정 등 레거시)도 필터 —
+    // 'agent: 이거 맞죠? …'가assistant 발화로 주입되면 모델이 자기 직전 발화를 복창/혼합한다.
+    const prevAnswer = lastAnswerContent(state.history || []);
+    // B (t_c31e3f45): 직전 답변 복창 방지 — no-repeat 지시문 append.
+    const noRepeat = state.repeatUtterance || prevAnswer ? `\n${NO_REPEAT_INSTRUCTION[state.locale]}` : '';
+    const history: ChatMessage[] = (config.chatLlm.historyTurns > 0 ? answerableHistory(state.history || []) : [])
+      .filter(m => m.role === 'user' || (m.role === 'agent' && m.source_neuron !== 'empathy' && !(m.structured_payload && (m.structured_payload.empathy_question || m.structured_payload.empathy_full))))
       .slice(-(Math.max(0, config.chatLlm.historyTurns) || Infinity))
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + groundingBlock, state.locale);
     try {
       const result = await chatCompletion({
-        messages: [{ role: 'system', content: appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + groundingBlock, state.locale) }, ...history, { role: 'user', content: state.userMessage }],
+        messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
         onDelta: d => ctx.onDelta?.(d),
         signal: ctx.signal,
       });
@@ -370,12 +474,45 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
         ctx.llm = { used: false, model: null, fallback: true, reason: err.code };
       }
     }
+    // B (t_c31e3f45, 김비서 case 4 "이전 답변이 그대로 반복"): 직전 답변과 80%+ 유사하면
+    // 복창으로 판정해 재생성 1회. 스트리밍 델타가 이미 나갔을 수 있어 재생성 응답은
+    // answer.done 확정 텍스트로 교체된다 (프론트 reduceStreams: done.text가 최종본).
+    if (prevAnswer && ctx.llm.used && textSimilarity(answerResponse, prevAnswer) >= 0.8) {
+      ctx.emit({ neuron: 'answer', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') });
+      try {
+        const regen = await chatCompletion({
+          messages: [
+            { role: 'system', content: systemPrompt + `\n\n[ANTI-ECHO] ${state.locale === 'en' ? 'Your previous answer was: ' : '네 직전 답변: '}${prevAnswer.slice(0, 600)}\n${NO_REPEAT_INSTRUCTION[state.locale]}` },
+            ...history,
+            { role: 'user', content: state.userMessage },
+          ],
+          // 재생성도 스트림 — 델타는 이어 붙지만 프론트는 answer.done 확정 텍스트로 교체한다
+          // (reduceStreams: done.text가 최종본). 미스트림이면 확정 텍스트와 화면이 어긋난다.
+          onDelta: d => ctx.onDelta?.(d),
+          signal: ctx.signal,
+        });
+        if (regen.text && textSimilarity(regen.text, prevAnswer) < 0.8) {
+          answerResponse = regen.text;
+          ctx.llm = { used: true, model: regen.model, fallback: regen.fallback, provider: regen.provider, usage: regen.usage, durationMs: regen.durationMs };
+        } else {
+          // 재생성도 복창이면 골격으로 마감 — 발화 내용 기반이라 최소 실행 골격 응답을 보장한다 (C).
+          answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
+        }
+      } catch { /* 재생성 실패는 1차 응답 유지 (턴 사망 금지) */ }
+    }
   } else if (grounding && grounding.status === 'grounded') {
     answerResponse = groundingAnswerText(grounding, state.locale);
     ctx.llm = { used: false, model: null, fallback: false, reason: 'LLM_UNCONFIGURED' };
   } else {
     answerResponse = buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
     ctx.llm = { used: false, model: null, fallback: false, reason: 'LLM_UNCONFIGURED' };
+  }
+  // 요구1 (t_c31e3f45, 대표님 9/29 카드): 지시형 발화인데 LLM 답변이 '약속'으로만 끝나면
+  // (정리해 드릴게요/보여드릴게요류 — 실제 산출물 없음) 즉시 실행 가능한 번호 목록
+  // 골격+빈 슬롯 형태로 승격한다. 판단 근거는 답변 원문(접미 ~만 사용) — 오탐 시에도
+  // 골격은 발화 내용을 담고 있어 무해. 그라운딩/브리지 경유 답변은 이미 실체 있어 제외.
+  if (isDirectiveUtterance(state.userMessage) && !grounding && answerResponse && looksLikeEmptyPromise(answerResponse, state.locale)) {
+    answerResponse = `${answerResponse.trimEnd()}\n\n${buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale)}`;
   }
   let structured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
   if (grounding) {
@@ -386,7 +523,7 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   // ③ 후속 예상 질문 2~3개 (t_344e047a) — 세션 최근 발화·볼트 노트·사용자 preference를
   // 컨텍스트로 LLM 1회. 실패(미설정/타임아웃/파싱/조회 오류)는 조용히 생략, 체감 0. 절대 던지지 않는다.
   if (!ctx.signal?.aborted) {
-    const contextLines = [...(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
+    const contextLines = [...answerableHistory(state.history || []).slice(-6).map(h => `${h.role === 'user' ? 'user' : 'agent'}: ${String(h.content).slice(0, 200)}`),
       `user: ${state.userMessage.slice(0, 200)}`, `agent: ${answerResponse.slice(0, 400)}`];
     try {
       if (ctx.db) {
@@ -523,14 +660,25 @@ export function buildEmpathyRequestion(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function buildAnswerTemplate(message: string, _dialogueType: DialogueType, prompt: string, locale: Locale): string {
-  if (locale === 'en') return `I have reviewed "${message.trim().slice(0, 50)}". Please share your specific goals and deadline so I can help further.`;
-  // DEV: LLM 없이도 동작하는 상세 답변 템플릿
+export function buildAnswerTemplate(message: string, _dialogueType: DialogueType, prompt: string, locale: Locale): string {
+  // C+요구1 (t_c31e3f45, 대표님 9/29 card + 김비서 case 1): LLM 장애/타임아웃·복창再生성
+  // 실패 시에도 "정리해 드릴게요"류 약속만 남기지 않는다 — 지시형 발화에는 즉시 실행
+  // 가능한 형태(번호 목록 골격+빈 슬롯)로 답한다. 발화 내용을 1번 항목에 반영해
+  // 직전 답변과 겹치지 않는다 (에코 게이트 t_135a19b5 방식 차용).
+  const key = message.trim().slice(0, 50);
+  if (locale === 'en') {
+    return (
+      `Here is the working frame for "${key}":\n\n` +
+      `1. Goal: ${key} — done when:\n2. Next action: ___ (who / by when)\n3. Needs from me: ___\n\n` +
+      `Fill in what you can and I will take it from there.`
+    );
+  }
   return (
-    `네, "${message.trim().slice(0, 50)}"에 대해 정리해드렸어요.\n\n` +
-    `- 핵심 요약: 요청하신 내용을 확인했고, 지금 바로 진행할 수 있어요.\n` +
-    `- 필요한 정보: 구체적인 목표와 마감 일정을 알려주시면 더 정확하게 준비할게요.\n\n` +
-    `더 필요한 부분이 있으면 말씀해주세요!`
+    `\"${key}\" 바로 정리해 드릴게요. 먼저 이 골격으로 시작해요.\n\n` +
+    `1. 목표: ${key} — 완료 기준: ___\n` +
+    `2. 다음 할 일: ___ (누가 / 언제까지)\n` +
+    `3. 저에게 필요한 것: ___\n\n` +
+    `비어 있는 칸만 채워 주시면 제가 이어서 정리할게요.`
   );
 }
 
@@ -592,6 +740,7 @@ async function langGraphPipeline(initial: NeuronState, ctx: NodeContext): Promis
     grounding: Annotation,
     photoEditPending: Annotation,
     empathySuppressed: Annotation,
+    repeatUtterance: Annotation,
     empathyLastTemplateId: Annotation,
     empathyEcho: Annotation,
     empathyTemplateId: Annotation,
@@ -701,6 +850,10 @@ export async function processTurn(
       // 복창을 생성하지 않는다 — 중복 에코 루프 방지. 답변은 직결(침묵 금지, routerNode 강제 활성).
       const empathySuppressed = isConfirmationUtterance(userMessage)
         && (hasTrailingEmpathyRow(history || []) || previousTurnWasConfirmation(history || []));
+      // 동일 발화 재전송 (t_c31e3f45, 김비서 case "뭘 말해도 같은 소리"): 직전 user 행과
+      // 정규화 동일 텍스트면 공감 재질문 회전을 정지한다 — 에코가 아니라 진행으로 답한다.
+      const lastUser = lastUserUtterance(history || []);
+      const repeatUtterance = !empathySuppressed && !!lastUser && normalizeUtterance(userMessage) === lastUser;
 
       // 앱 속 실 김비서 브리지 (t_620d5549): 엔드포인트 설정 + 에이전트 이름 '김비서' 정합 시
       // answerNode가 로컬 LLM 대신 Hermes kimsecretary를 부른다. 그 외 room은 false — 기존 동작 1:1.
@@ -732,6 +885,7 @@ export async function processTurn(
         grounding: null,
         photoEditPending,
         empathySuppressed,
+        repeatUtterance,
         empathyLastTemplateId: lastEmpathyTemplateId(history || []),
         empathyEcho: null,
         empathyTemplateId: null,
