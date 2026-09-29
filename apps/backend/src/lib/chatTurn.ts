@@ -7,14 +7,14 @@ import { registerRun, hasActiveRun } from '../websocket/eventlog';
 import { randomUUID } from 'node:crypto';
 import { DbClient } from './supabase';
 import { assertAttachmentsOwned } from './attachments';
-import { SessionsRow, MessagesRow } from '../types/db';
+import { MessagesRow, SessionsRow } from '../types/db';
 import { processTurn, TurnResult, NeuronStage, ProcessTurnOptions } from '../neurons/graph';
 import { rowToPersonaConfig } from './persona';
 import { ApiError } from './errors';
 import { serializeMessage } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
-import { findExistingByClientReqId, normalizeClientReqId } from './idempotency';
+import { clientReqColumns, findExistingByClientReqId, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing, normalizeClientReqId } from './idempotency';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
 
@@ -63,13 +63,103 @@ export interface IdempotentTurnResult extends TurnResult {
   deduped: true;
 }
 
+/**
+ * 전사 확정 발화의 user 행 선(先)영속 (t_2133e4fc, 대표님 #324 "질문은 텍스트로
+ * 내가 뭘 질문했는지는 보여줬으면해") — handleTr가 runTextTurn 실행 **이전**에 이 함수로
+ * user 메시지를 저장하고 transcript.final+message.new를 즉시 브로드캐스트한다.
+ * LLM 실행이 37~300s 걸리거나 실패(run.failed)해도 발화 텍스트는 화면에 남는다(텔레그램처럼).
+ * runTextTurn(persistedUser)이 같은 행을 재사용해 중복 영속하지 않는다 (ingress contract 유지).
+ * 세션 제목 자동 채움도 여기서 선처리 — 실행 실패로도 목록 제목이 실전되지 않는다.
+ *
+ * 013 멱등 계약 존지 (t_3486b1d7, 재베이스 r2 통합 판정): clientReqId 공급 시
+ *  · 사전 조회 — 같은 (session, client_req_id) user 행이 있으면 insert 없이 그 행을 반환(재전송 선방어)
+ *  · clientReqColumns로 스탬프 — MESSAGE_IDEMPOTENCY_DISABLED/013 래치 시 컬럼 미접촉(강등 존지)
+ *  · 013 미적용 실DB(PGRST204/42703) 직격 → markIdempotencyColumnMissing 후 컬럼 없이 1회 재시도
+ *  · client_req 유니크 충돌(사전 조회를 뚫은 레이스)은 turn_index 리트라이로 삼키지 않고 CONFLICT
+ *    (processTurn insert와 동일 사다리 — 선영속이 멱등을 우회하는 경로가 되지 않는다).
+ *  · deduped=true(재전송이 사전 조회에 걸림)면 handleTr은 선방송을 건너뛰고 runTextTurn의
+ *    deduped 경로(메시지 1건, 턴 미실행)에 위임한다 — 선영속이 재전송_duplicate_턴_실행_구멍이 되지 않는다.
+ */
+export interface EarlyUserResult {
+  row: MessagesRow;
+  /** 사전 조회로 기존 client_req_id 행을 재사용한 재전송이면 true (insert 0건). */
+  deduped: boolean;
+}
+
+export async function persistUserUtteranceEarly(
+  db: DbClient, session: SessionsRow, userId: string, content: string,
+  opts: { locale?: Locale; sttMetadata?: Record<string, unknown> | null; clientReqId?: string | null } = {}
+): Promise<EarlyUserResult> {
+  if (session.user_id !== userId) throw new ApiError('FORBIDDEN', '세션 소유자만 메시지를 보낼 수 있습니다.');
+  if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션입니다.');
+  const locale = opts.locale ?? config.defaultLocale;
+  // 정규화는 runTextTurn과 같은 단일 함수 — 사전 조회 키와 stamp 키가 반드시 일치한다.
+  const clientReqId = normalizeClientReqId(opts.clientReqId ?? null);
+  const prior = await findExistingByClientReqId(db, session.id, clientReqId);
+  if (prior) return { row: prior, deduped: true }; // 재전송: 같은 user message_id (insert 0, 선방송 skip)
+  if (!sessionTitleOf(session)) {
+    const derived = deriveSessionTitle(content);
+    if (derived) {
+      session.title = derived; // runTextTurn의 재세팅 방지 가드와 같은 객체 변형 계약
+      await setSessionTitleIfEmpty(db, session.id, derived).catch(() => undefined);
+    }
+  }
+  const getNextTurn = async () => {
+    const { data: lastMsg, error } = await db.from('messages').select('turn_index')
+      .eq('session_id', session.id).order('turn_index', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new ApiError('INTERNAL_ERROR', error.message);
+    return ((lastMsg as { turn_index?: number } | null)?.turn_index ?? -1) + 1;
+  };
+  // processTurn saveUser 관례: clientReqColumns는 insert 시점에 재계산 — 래치 on 후
+  // 재시도에서 컬럼이 실제 제외된다. 진입 시점 포착(userCols)은 래치 판정 가드용.
+  const buildRow = (turn: number) => ({
+    session_id: session.id,
+    parent_message_id: null,
+    root_message_id: null,
+    turn_index: turn,
+    role: 'user',
+    locale,
+    ai_generated: false,
+    message_type: opts.sttMetadata ? 'voice' : 'text',
+    content,
+    dialogue_type: null,
+    structured_payload: {},
+    stt_metadata: opts.sttMetadata ?? null,
+    source_neuron: null,
+    attachments: [],
+    persona_guard: {},
+    user_feedback: null,
+    ...clientReqColumns(clientReqId),
+  });
+  const userCols = clientReqColumns(clientReqId);
+  let { data, error } = await db.from('messages').insert(buildRow(await getNextTurn())).select().single();
+  // client_req 유니크 충돌 = 재전송 레이스 — turn_index 리트라이로 삼키면 중복 user 행 영속.
+  if (error && isClientReqConflict(error)) throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
+  // 013 미적용 강등 사다리 (008/011 관례): 래치 후 컬럼 없이 1회 재시도.
+  if (error && userCols.client_req_id !== undefined && isMissingClientReqColumn(error)) {
+    markIdempotencyColumnMissing();
+    ({ data, error } = await db.from('messages').insert(buildRow(await getNextTurn())).select().single());
+  }
+  // processTurn과 동일 강등: UNIQUE(session_id,turn_index) 레이스는 번호 재읽기로 1회 재시도.
+  if (error && /duplicate|unique/i.test(String(error.message || ''))) {
+    ({ data, error } = await db.from('messages').insert(buildRow(await getNextTurn())).select().single());
+  }
+  if (error || !data) throw new ApiError('INTERNAL_ERROR', error?.message || '사용자 메시지 저장 실패');
+  return { row: data as MessagesRow, deduped: false };
+}
+
 /** REST와 WS가 공유하는 상태 전이 및 확정 메시지 발행 경계. */
 export async function runTextTurn(
   db: DbClient, session: SessionsRow, userId: string, content: string,
-  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; replyToId?: unknown; answerLeadMs?: number; clientReqId?: string | null; emit: (e: TurnEmitEvent) => void }
+  opts: { locale?: Locale; thread?: ProcessTurnOptions['thread']; sttMetadata?: Record<string, unknown> | null; attachmentIds?: string[]; replyToId?: unknown; answerLeadMs?: number; clientReqId?: string | null; emit: (e: TurnEmitEvent) => void;
+    /** 선방송 run_id (t_2133e4fc): handleTr가 message.new에 이미 실은 run_id와 같아야 한다. */
+    turnId?: string;
+    /** 선영속 user 행 (t_2133e4fc): processTurn은 이를 재사용(중복 insert 금지)하고,
+     *  history에서 이 id를 배제(자신이 직전 발화로 오인되는 repeatUtterance 오탐 방지)한다. */
+    persistedUser?: MessagesRow }
 ): Promise<TurnResult | IdempotentTurnResult> {
   const locale = opts.locale ?? config.defaultLocale;
-  const turnId = randomUUID();
+  const turnId = opts.turnId || randomUUID();
   const base = { session_id: session.id, run_id: turnId };
   // 단일 페르소나 보이스 채널 (t_5cba9ebb): 모든 연출 발화가 여기 한 줄로 수렴한다.
   const voice = new PersonaVoice(opts.emit, base, locale);
@@ -112,7 +202,10 @@ export async function runTextTurn(
     // run.started 이전 위치: quip fake-timer 이벤트 순서 계약 보존(추가 이벤트 0건으로 종료).
     // 정규화(trim/≤64자)는 사전 조회와 user 행 stamp가 반드시 같은 키를 쓰도록 단일 지점에서.
     const clientReqId = normalizeClientReqId(opts.clientReqId ?? null);
-    const prior = await findExistingByClientReqId(db, session.id, clientReqId);
+    // 선영속 경로(t_2133e4fc)는 사전 조회 스킵 — 행을 먼저 심은 주체가 handleTr이므로
+    // 여기서 같은 client_req_id로 조회하면 자기 선영속 행에 자가-힛트해 턴이 통째로
+    // deduped(턴 미실행)가 된다. 멱등 선방어는 persistUserUtteranceEarly가 이미 끝냈다.
+    const prior = opts.persistedUser ? null : await findExistingByClientReqId(db, session.id, clientReqId);
     if (prior) {
       completed = true; // finally의 run.failed 보장·드레인 트리거 우회 (턴을 실행한 적 없음)
       // ② clientId reconcile 에코 (t_3486b1d7, 프론트 전제조건 코멘트 #198): 같은 client_req_id의
@@ -180,11 +273,16 @@ export async function runTextTurn(
       clientReqId,
       // 답글 인용 (t_02f58030): 존재+같은 세션 검증은 processTurn 내부 — invalid 무시, 발화 통과.
       replyToId: opts.replyToId,
+      // 선(先)영속 user 행 (t_2133e4fc): processTurn은 insert 생략·같은 message_id 재사용.
+      persistedUser: opts.persistedUser,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
       // ⑤ user 카드 사전 emit — run.started 이전에 message.new user 발행 (cardFirst일 때만).
+      // 선영속(t_2133e4fc)은 handleTr가 이미 message.new(user)를 선방송했다 — 여기서 재발행
+      // 금지(같은 id 2회 = 프론트 카드 중복). id 캡처만 유지(userMessageId = 선영속 id).
       onUserCreated: cardFirst ? (userRow => {
         userMessageId = userRow.id;
+        if (opts.persistedUser) return;
         opts.emit({ type: 'message.new', ...base, message: serializeMessage(userRow), user_message_id: userRow.id });
       }) : undefined,
       // ⑤ run.started emit — user 카드 직후 (cardFirst일 때만).
@@ -247,11 +345,15 @@ export async function runTextTurn(
         };
       })(),
     });
-    // ⑤ empathy/answer만 emit (user는 onUserCreated에서 사전 발행함). cardFirst off면 user 포함
-    // 484eec2f 베이스 순서(run.started→user→empathy→answer)로 복귀.
+    // ⑤ empathy/answer만 emit (user는 onUserCreated에서 사전 발행함; persistedUser 경로는
+    // handleTr가 runTextTurn 이전에 이미 message.new(user)를 선방송 — 두 경우 모두 user 제외).
+    // cardFirst off면 user 포함 484eec2f 베이스 순서(run.started→user→empathy→answer)로 복귀하되,
+    // 선영속이 있으면 user 카드 선방송이 이미 끝나 있어 같은 id 재발행은 금지(t_2133e4fc).
     // source_message_id (김비서 9/29 A2A): persona line은 user_message_id를 태워 프론트 id-set dedupe.
     // cardFirst off에서는 필드 자체를 생략(베이스와 이벤트 페이로드 1:1 동일 계약).
-    for (const message of cardFirst ? [result.messages.empathy, result.messages.answer] : [result.messages.user, result.messages.empathy, result.messages.answer]) {
+    for (const message of cardFirst
+      ? [result.messages.empathy, result.messages.answer]
+      : [opts.persistedUser ? null : result.messages.user, result.messages.empathy, result.messages.answer]) {
       // serializeMessage: devstore 기본값 미충족·011 이전 행의 awaiting_reply를 false로 정규화
       // (WS message.new = REST 히스토리 동일 형상 계약).
       if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message), ...(cardFirst ? { source_message_id: userMessageId } : {}) });
