@@ -100,6 +100,10 @@ export const styles = StyleSheet.create({
     paddingVertical: spacing.sp3,
     gap: spacing.sp2,
     flexGrow: 1,
+    // t_dee9e982(대표님 9/29 "채팅창이 위로 당겨져있잖아"): 콘텐츠가 뷰포트보다 짧은
+    // 새 세션·단기 히스토리에서 발화가 상단에 붙고 아래가 텅 비는 것의根治 —
+    // flex column이므로 짧은 내용은 하단 앵커, 초과 시 정상 스크롤(무해).
+    justifyContent: 'flex-end',
   },
   // 전폭 사각형 카드 스택 — 메신저 말풍선 관습(좌우 배치) 배제
   msgCard: {
