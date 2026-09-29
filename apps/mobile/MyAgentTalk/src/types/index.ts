@@ -154,6 +154,9 @@ export interface ChatMessage {
   status?: 'pending' | 'sent' | 'failed';
   runId?: string;
   draft?: string;
+  /** random_id相当 (t_3486b1d7 ①② / 프론트 소비 t_17edbc88 ①): 낙관 행과 서버 에코(message.new
+   *  user_message_id·message.client_req_id)를 같은 키로 in-place 병합하는 연결 자국. 확정 후 유지. */
+  clientReqId?: string;
   /** 첨부 요약 (messages.attachments JSONB — {id,url,mime,size,name}[], 백엔드 t_401c5bd1) */
   attachments?: unknown;
   /** 전송 실패 시 재시도용 업로드 완료 ID (previews와 한 쌍) */

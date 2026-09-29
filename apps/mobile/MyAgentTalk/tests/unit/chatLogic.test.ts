@@ -442,3 +442,80 @@ test('groupByTurn — user/system은 항상 단독 그룹, runId 있어도 role 
   const groups = groupByTurn([msg('a1', 1, 'agent', 'r1'), msg('s1', 1, 'system'), msg('a2', 1, 'agent', 'r1')]);
   assert.deepEqual(groups.map((g) => g.items.map((m) => m.id)), [['a1'], ['s1'], ['a2']]);
 });
+
+// ── t_17edbc88: client_req_id merge + seq epoch diff sync (pure logic gate) ──
+import { newClientReqId, reconcilePendingUserEcho, planEventSyncReplay } from '../../src/lib/chatLogic';
+
+test('newClientReqId — RFC4122 v4 자형과 재현 가능한 랜덤, 64자 제한 내', () => {
+  let n = 0.0;
+  const rand = () => (n = (n + 0.37) % 1);
+  const id = newClientReqId(rand);
+  assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(id.length, 36);
+  assert.notEqual(newClientReqId(rand), newClientReqId(() => 0.9));
+});
+
+test('sequence — epoch 첫 관측은 기록만, 변경 시 true, reset은 lastSeq만 0화', () => {
+  const seq = createSequenceTracker();
+  assert.equal(seq.observeEpoch('E1'), false); // 첫 관측 — 재기동 오인 금지
+  seq.accept(30);
+  assert.equal(seq.observeEpoch('E1'), false);
+  assert.equal(seq.observeEpoch('E2'), true);  // 서버 재기동
+  assert.equal(seq.lastSeq, 30);
+  seq.reset();
+  assert.equal(seq.lastSeq, 0);
+  assert.equal(seq.epoch, 'E2');
+  assert.equal(seq.accept(1), true); // 재기동 후 낮은 seq 통과
+});
+
+test('planEventSyncReplay — epoch 불일치/truncated는 full, 정상은 seq 단조 게이트 후 replay', () => {
+  const base = { lastSeq: 10, epoch: 'E1' };
+  assert.deepEqual(planEventSyncReplay({ seq_epoch: 'E2', events: [{ seq: 11 }] }, base, 's'), { action: 'full', events: [], current_seq: null, seq_epoch: 'E2' });
+  assert.deepEqual(planEventSyncReplay({ events: [{ seq: 11 }], truncated: true, seq_epoch: 'E1' }, base, 's').action, 'full');
+  const ok = planEventSyncReplay({
+    events: [
+      { seq: 11, type: 'message.new', session_id: 's' },
+      { seq: 11, type: 'message.new', session_id: 's' },        // 역순/중복 차단
+      { seq: 9, type: 'run.failed', session_id: 's' },          // 역순 차단
+      { seq: 12, type: 'answer.delta', session_id: 'other' },   // 세션 오버플로 차단
+      { seq: 13, type: 'run.completed', session_id: 's' },
+    ],
+    current_seq: 13, seq_epoch: 'E1', truncated: false,
+  }, base, 's');
+  assert.equal(ok.action, 'replay');
+  assert.deepEqual(ok.events.map((e) => e.seq), [11, 13]);
+  assert.equal(ok.current_seq, 13);
+  // unexpected payload → none (대화를 깨지 않음)
+  assert.equal(planEventSyncReplay(null, base, 's').action, 'none');
+  assert.equal(planEventSyncReplay({ events: 'nope' }, base, 's').action, 'none');
+});
+
+test('reconcilePendingUserEcho — client_req_id 일치 낙관 카드를 서버 ID로 in-place 확정', () => {
+  const pending: ChatMessage = { id: 'local-1', role: 'user', content: '안녕', turnIndex: 4, pending: true, status: 'pending', draft: '안녕 ', clientReqId: 'REQ-1' };
+  const echo: ChatMessage = { id: 'srv-1', role: 'user', content: '안녕', turnIndex: 4, status: 'sent', clientReqId: 'REQ-1', createdAt: '2026-09-30T00:00:00Z' };
+  const out = reconcilePendingUserEcho([pending], echo);
+  assert.ok(out);
+  assert.deepEqual(out.map((m) => m.id), ['srv-1']);
+  assert.equal(out[0].status, 'sent');
+  assert.equal(out[0].pending, false);
+  assert.equal(out[0].draft, '안녕 ');
+  assert.equal(out[0].clientReqId, 'REQ-1');
+});
+
+test('reconcilePendingUserEcho — content 폴백(서버 req_id 없음)과 역행 turn_index 차단', () => {
+  const pending: ChatMessage = { id: 'local-2', role: 'user', content: '이어해요', turnIndex: 8, pending: true, status: 'pending' };
+  // req_id 없는 드레인 에코 — content+turn_index 일치로 병합
+  const echo: ChatMessage = { id: 'srv-2', role: 'user', content: '이어해요', turnIndex: 8, status: 'sent' };
+  const merged = reconcilePendingUserEcho([pending], echo);
+  assert.deepEqual(merged?.map((m) => m.id), ['srv-2']);
+  // 늦은 과거 턴 에코는 새 pending 카드를 오인하지 않는다
+  const old: ChatMessage = { id: 'srv-old', role: 'user', content: '이어해요', turnIndex: 2, status: 'sent' };
+  assert.equal(reconcilePendingUserEcho([pending], old), null);
+  // req_id가 다른데 content만 같은 재요청은 병합 대상 아님
+  const other: ChatMessage = { id: 'srv-3', role: 'user', content: '이어해요', turnIndex: 9, status: 'sent', clientReqId: 'REQ-X' };
+  assert.equal(reconcilePendingUserEcho([pending], other), null);
+  // 실패 카드(CONFLICT 회수)도 병합 대상
+  const failed: ChatMessage = { id: 'local-3', role: 'user', content: '재전송', turnIndex: 5, status: 'failed', clientReqId: 'REQ-3' };
+  const rescue: ChatMessage = { id: 'srv-4', role: 'user', content: '재전송', turnIndex: 5, status: 'sent', clientReqId: 'REQ-3' };
+  assert.deepEqual(reconcilePendingUserEcho([failed], rescue)?.map((m) => m.id), ['srv-4']);
+});

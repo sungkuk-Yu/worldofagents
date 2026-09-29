@@ -53,6 +53,9 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     // 첨부 요약 (t_4497cfce) — messages.attachments JSONB {id,url,mime,size,name}[] (백엔드 독해 위임 코멘트)
     attachments: Array.isArray(r.attachments) ? r.attachments : undefined,
     runId: typeof r.run_id === 'string' ? r.run_id : undefined,
+    // random_id 멱등 키 (t_3486b1d7 ①② / t_17edbc88 ①) — GET messages·message.new 에코의
+    // client_req_id를 낙관 행과 연결하는 자국. 013 미적용 행은 null(결측) → undefined.
+    clientReqId: typeof r.client_req_id === 'string' && r.client_req_id ? r.client_req_id : undefined,
     status: 'sent',
   })).sort((a, b) => a.turnIndex - b.turnIndex);
 }
@@ -415,8 +418,22 @@ export function buildTimeGroups(messages: ChatMessage[], locale: string, now = n
 
 export function createSequenceTracker() {
   let lastSeq = 0;
+  /** seq 에포크 (t_3486b1d7 ③ / t_17edbc88 ③): 서버 재기동 시 eventlog 에포크가 UUID째
+   *  교체된다. subscribed/GET events 응답의 seq_epoch가 마지막 관측값과 다르면 lastSeq는
+   *  무의미 — 클라이언트는 차등 재생 대신 전량 재조회로 전환한다. 미관측(null)은 첫 접속. */
+  let epoch: string | null = null;
   return {
     get lastSeq() { return lastSeq; },
+    get epoch() { return epoch; },
+    /** 관측 에포크 반영 — 이전 관측값이 있고 다를 때만 true(서버 재기동 → 전체 재조회 트리거).
+     *  첫 관측(null→값)은 기록만 하고 false: 첫 접속을 재기동으로 오인하면 안 된다(t_17edbc88 ③). */
+    observeEpoch(value: unknown): boolean {
+      if (typeof value !== 'string' || !value) return false;
+      if (epoch === value) return false;
+      const changed = epoch !== null;
+      epoch = value;
+      return changed;
+    },
     accept(seq: unknown) {
       if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq <= 0) return seq === undefined;
       if (seq <= lastSeq) return false;
@@ -427,7 +444,113 @@ export function createSequenceTracker() {
       if (typeof current === 'number' && current >= 0 && current < lastSeq) { lastSeq = 0; return true; }
       return false;
     },
+    /** 전량 캐치업 전환(t_17edbc88 ③): 에포크 변경/truncated 시 lastSeq=0 — 재기동 서버의
+     *  낮은 seq 리플레이가 accept 필터에 잘려 유실되는 것을 막는다(에포크는 보존). */
+    reset() { lastSeq = 0; },
   };
+}
+
+/** 재시도/재전송 payload가 client_req_id를 안정적으로 재사용하도록 uuid v4 생성 (RFC 4122 랜덤). */
+export function newClientReqId(rand: () => number = Math.random): string {
+  const hex = '0123456789abcdef';
+  let out = '';
+  for (let i = 0; i < 36; i++) {
+    if (i === 8 || i === 13 || i === 18 || i === 23) { out += '-'; continue; }
+    if (i === 14) { out += '4'; continue; } // version 4
+    // variant nibble (RFC 4122): position 19는 8|9|a|b 중 하나
+    if (i === 19) { out += hex[8 + Math.floor(rand() * 4)]; continue; }
+    out += hex[Math.floor(rand() * 16)];
+  }
+  return out;
+}
+
+/**
+ * diff-sync 리플레이 게이트 (t_17edbc88 ③ / t_3486b1d7 ③ — 텔레그램 getDifferences 이식).
+ * GET /api/sessions/:id/events?after_seq 응답 {events,current_seq,seq_epoch,truncated}에서
+ * 리플레이할 이벤트만 고른다:
+ *  - epoch 불일치(서버 재기동) → { action:'full' } — 차등 재생 무의미, 전량 재조회로 전환.
+ *  - truncated → { action:'full' } — 500-캡으로 옛 이벤트가 밀려남(유실 보전 불가).
+ *  - 정상 → { action:'replay', events } — 서버는 이미 after_seq 초과만 반환하지만,
+ *    관측(seq) 단조성과 session_id 일치로 한 번 더 게이트(역순·중복·세션 오버플로 차단).
+ * response가 예상 밖 형태(에러Envelope/dev 폴백)면 조용히 { action:'none' } — 대화 경로를 깨지 않는다.
+ */
+export interface EventSyncResponse {
+  events?: unknown;
+  current_seq?: unknown;
+  seq_epoch?: unknown;
+  truncated?: unknown;
+}
+export function planEventSyncReplay(
+  body: unknown,
+  observed: { lastSeq: number; epoch: string | null },
+  sessionId: string
+): { action: 'full' | 'replay' | 'none'; events: Record<string, unknown>[]; current_seq: number | null; seq_epoch: string | null } {
+  const empty = { action: 'none' as const, events: [] as Record<string, unknown>[], current_seq: null, seq_epoch: null };
+  if (!isRecord(body)) return empty;
+  const seqEpoch = typeof body.seq_epoch === 'string' && body.seq_epoch ? body.seq_epoch : null;
+  const currentSeq = typeof body.current_seq === 'number' && Number.isFinite(body.current_seq) ? body.current_seq : null;
+  // 서버가 에포크를 숨기는 구간(EVENT_SYNCDisabled/구번들)은 null — 이 경우엔 전량 전환하지 않고 diff만 신뢰.
+  if (seqEpoch && observed.epoch && seqEpoch !== observed.epoch) return { action: 'full', events: [], current_seq: currentSeq, seq_epoch: seqEpoch };
+  if (body.truncated === true) return { action: 'full', events: [], current_seq: currentSeq, seq_epoch: seqEpoch };
+  const raw = Array.isArray(body.events) ? body.events.filter(isRecord) : null;
+  if (!raw) return empty;
+  const events: Record<string, unknown>[] = [];
+  let lastSeq = observed.lastSeq;
+  for (const ev of raw) {
+    if (ev.session_id !== undefined && ev.session_id !== sessionId) continue; // 세션 오버플로 방어
+    const seq = ev.seq;
+    if (typeof seq === 'number' && Number.isSafeInteger(seq)) {
+      if (seq <= lastSeq) continue; // 역순/중복 차단
+      lastSeq = seq;
+    }
+    events.push(ev);
+  }
+  if (!events.length) return { action: 'replay', events: [], current_seq: currentSeq, seq_epoch: seqEpoch };
+  return { action: 'replay', events, current_seq: currentSeq, seq_epoch: seqEpoch };
+}
+
+/**
+ * pending 낙관 user 카드 ↔ 서버 user 행 에코의 in-place 병합 (t_3486b1d7 ①② / t_17edbc88 ①) —
+ * 중복 카드 소멸이 목적. 매칭 2계층:
+ *  1) client_req_id 정확 일치 (random_id 상당 에코 — message.new의 message.client_req_id·
+ *     GET messages 행의 clientReqId. 낙관 행이 같은 키를 보유).
+ *  2) content 완전 일치 + turn_index 역행 금지 폴백 — 질문 큐 드레인(t_344e047a)·음성 전사처럼
+ *     서버 행에 req_id가 없는 경로. 늦은 과거 턴 에코가 새 pending 카드를 오인하지 못하도록
+ *     서버 행 turn_index ≥ 카드 turn_index만 허용.
+ *  매칭 대상은 pending 또는 failed user 카드 — failed 포함은 CONFLICT(409, 유니크 인덱스 레이스)
+ *  실낙진 사례: POST은 떨어졌지만 서버에 행이 존재 → 에코가 카드를 회수한다 (t_17edbc88 ①).
+ * 병합 시: 카드를 서버 ID로 교체(status='sent'), 낙관 첨부 프리뷰는 서버 요약이 올 때까지 보존.
+ * 매칭 실패/null 반환 시 호출자의 mergeIncoming id 중복 방어가 기존 동작대로 수렴.
+ * 인자 부족(멱등 미적용 서버/013 래치) 환경에서는 2계층만 작동 — 기존 merge와 무해하게 대칭.
+ */
+export function reconcilePendingUserEcho(existing: ChatMessage[], echo: ChatMessage): ChatMessage[] | null {
+  if (echo.role !== 'user' || typeof echo.id !== 'string' || !echo.id) return null;
+  const openCard = (m: ChatMessage) => m.role === 'user' && (m.pending === true || m.status === 'failed');
+  const pending =
+    (echo.clientReqId
+      ? existing.find((m) => openCard(m) && m.clientReqId === echo.clientReqId)
+      : undefined) ??
+    existing.find((m) =>
+      openCard(m) && !!m.content && m.content === echo.content &&
+      // content 폴백은 서버에 req_id가 없을 때만 — req_id가 있는데 카드와 다르면 다른 발화(재요청).
+      (!echo.clientReqId || echo.clientReqId === m.clientReqId) &&
+      Number.isFinite(echo.turnIndex) && echo.turnIndex >= m.turnIndex);
+  if (!pending) return null;
+  const merged: ChatMessage = {
+    ...echo,
+    turnIndex: Number.isFinite(echo.turnIndex) && echo.turnIndex >= 0 ? echo.turnIndex : pending.turnIndex,
+    draft: pending.draft ?? echo.draft,
+    pending: false,
+    status: 'sent',
+    clientReqId: echo.clientReqId ?? pending.clientReqId,
+    content: echo.content || pending.content,
+    // 첨부: 서버 요약 우선, 없으면 낙관 프리뷰 유지 (t_4497cfce 관례)
+    ...(!(echo.attachments as unknown[] | undefined)?.length && pending.pendingAttachments?.length
+      ? { pendingAttachments: pending.pendingAttachments, pendingAttachmentIds: pending.pendingAttachmentIds, attachments: echo.attachments ?? [] }
+      : {}),
+  };
+  const without = existing.filter((m) => m.id !== pending.id && m.id !== echo.id);
+  return [...without, merged].sort((a, b) => a.turnIndex - b.turnIndex);
 }
 
 // ── 비서실 백스테이지 릴레이 자막 (Phase B, t_961ca593) ──────────────────

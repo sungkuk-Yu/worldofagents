@@ -13,6 +13,7 @@ import {
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
+  newClientReqId, reconcilePendingUserEcho, planEventSyncReplay,
 } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
@@ -322,8 +323,41 @@ export function useChatSession(
           connect(sid);
         }, nextBackoffMs(attempt++));
       };
-      try {
-        runtime.socket = connectVoiceSocket(sid, {
+      async function catchUpDiffSync(targetSid: string) {
+        // 텔레그램 getDifferences 이식 (t_3486b1d7 ③ / t_17edbc88 ③): 저장 lastSeq 이후 갭만
+        // 되감기. GET events 불가(404 — EVENT_SYNC_DISABLED/구번들)·네트워크 실패는 기존 계약
+        // 'gap' 페이지 갱신으로 폴백. 에포크 불일치/truncated는 무차등 — lastSeq 리셋+0 재구독+
+        // 전체 재조회(subscribed 역감지와 동일 경로). 정상 리플레이는 WS 라이브와 같은 onRaw를
+        // 통과한다: seq 필터·answer.delta 재배칭(80ms 플래시 — 서버 300ms 배칭 위에 합류)·dedupe.
+        const observed = { lastSeq: runtime.sequence.lastSeq, epoch: runtime.sequence.epoch };
+        let body: import('../lib/api').EventSyncBody | undefined;
+        try {
+          const env = await api.getSessionEvents(targetSid, observed.lastSeq);
+          if (env.ok && env.data && typeof env.data === 'object') body = env.data;
+        } catch {
+          // errors.unsupported(404) 등 — 아래 폴백 경로.
+        }
+        if (!current() || disconnected) return;
+        if (!body) {
+          void refresh(targetSid, false, 'gap').catch(() => { if (current()) setLastError('errors.recovery'); });
+          return;
+        }
+        const epochSwitch = typeof body.seq_epoch === 'string' && !!body.seq_epoch && !!observed.epoch && body.seq_epoch !== observed.epoch;
+        runtime.sequence.observeEpoch(body.seq_epoch);
+        if (epochSwitch || body.truncated === true) {
+          runtime.sequence.reset();
+          runtime.tracker.endAll();
+          runtime.streams = []; publishStreams();
+          runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: targetSid, last_seq: 0, device: deviceRef.current }));
+          await refresh(targetSid, false, 'all').catch(() => { if (current()) setLastError('errors.recovery'); });
+          return;
+        }
+        const plan = planEventSyncReplay(body, observed, targetSid);
+        for (const ev of plan.events) handlers.onRaw?.(ev);
+      }
+      // 핸들러를 먼저 이름 바인딩: diff-sync REST 재접속 리플레이(t_17edbc88 ③)가
+      // WS 라이브 프레임과 동일 경로(onRaw: seq 필터·재배칭·dedupe)를 통과하게 한다.
+      const handlers: import('../lib/api').VoiceSocketHandlers = {
           onStatusChange: (status) => {
             if (!current()) return;
             if (status === 'connected' && !disconnected) {
@@ -332,9 +366,10 @@ export function useChatSession(
               const recovering = connectedOnce || attempt > 0;
               connectedOnce = true;
               attempt = 0;
-              if (recovering) void refresh(sid, false, 'gap').catch(() => {
-                if (current()) setLastError('errors.recovery');
-              });
+              // ③ seq diff sync (t_17edbc88 / 백엔드 t_3486b1d7 ③): 재접속 시 저장 lastSeq 이후의
+              // 갭만 GET events로 리플레이(planEventSyncReplay 게이트), 응답 없으면(구 서버/
+              // EVENT_SYNC_DISABLED 404) 기존 'gap' 페이지 갱신으로 폴백.
+              if (recovering) void catchUpDiffSync(sid);
             } else if (status === 'disconnected') reconnect();
           },
           // 릴레이 자막 전용 경로 (t_961ca593 Phase B): api.ts switch case 'relay.updated' → 여기.
@@ -403,10 +438,15 @@ export function useChatSession(
             }
             if (type === 'subscribed') {
               if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
-              if (runtime.sequence.subscribed(raw.current_seq)) {
+              // seq 에포크 (t_17edbc88 ③ / 백엔드 t_3486b1d7 ③): 재기동으로 에포크가 바뀌면
+              // lastSeq는 무의미 — 기존 current_seq 역행 감지(리셋+0 재구독+전체 재조회)와
+              // 동일한 경로로 전량 캐치업 전환. 첫 관측은 기록만(false) 하고 차등 재생 신뢰.
+              const epochChanged = runtime.sequence.observeEpoch(raw.seq_epoch);
+              if (epochChanged || runtime.sequence.subscribed(raw.current_seq)) {
+                runtime.sequence.reset(); // 에포크 전환 단독 진입 시에도 낮은 seq 리플레이를 허용
                 runtime.tracker.endAll();
                 runtime.streams = []; publishStreams();
-                runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: 0 }));
+                runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: 0, device: deviceRef.current }));
                 void refresh(sid, false, 'all').catch((e) => { if (current()) setLastError(errorText(e)); });
               }
               return;
@@ -432,7 +472,15 @@ export function useChatSession(
             publishStreams(typeof type === 'string' ? type : undefined);
             if (type === 'message.new' || type === 'message.created') {
               const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
-              if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
+              if (row && row.id) {
+                const echo = normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])[0];
+                // ① 서버 user 행 에코 ↔ 낙관 카드 in-place 병합 — 중복 카드 소멸 (t_17edbc88 / t_3486b1d7 ①②).
+                // client_req_id 우선, content+turn_index 폴백은 req_id 없는 경로(음성 전사·큐 드레인)까지 커버.
+                // USER_CARD_FIRST on/off 어느 순서에도 안전(④): user 카드·run.started·REST 확정 순서 의존 없음.
+                if (echo) {
+                  updateMessages((prev) => (echo.role === 'user' ? reconcilePendingUserEcho(prev, echo) : null) ?? mergeIncoming(prev, [echo]));
+                }
+              }
             } else if ((typeof type === 'string' && type.startsWith('run.')) || type === 'turn.status' || type === 'neuron.status' || type === 'answer.done' || type === 'answer.delta') {
               // delta도 실행 상태에 반영한다. 확정 본문은 message.new/REST/재조회에서 머지한다.
               runtime.coordinator.observe(streamEvent as unknown as TurnEvent, sid);
@@ -479,7 +527,9 @@ export function useChatSession(
             runtime.socket?.close();
             setConnection('offline');
           },
-        }, deviceRef.current);
+        };
+      try {
+        runtime.socket = connectVoiceSocket(sid, handlers, deviceRef.current);
       } catch (e) {
         if (current()) { setLastError(errorText(e)); setConnection('offline'); }
       }
@@ -572,6 +622,11 @@ export function useChatSession(
     const execId = `exec-${Date.now()}-${++executionCounter}`;
     const optimisticId = retryId ?? `local-${execId}`;
     const base = runtime.messages.find((m) => m.id === retryId)?.turnIndex ?? nextTurnIndex(runtime.messages);
+    // random_id 상당 (t_17edbc88 ① / 백엔드 t_3486b1d7 ①②): 발송 키는 낙관 행에 저장하고
+    // 재시도(retryId 재사용 경로)에서는 같은 값을 재전송 — 서버 멱등 사전 조회가 재전송을
+    // dedupe 응답(기존 user 행 에코)으로 답하고 중복 턴이 실행되지 않는다. 새 발화는 새 uuid v4.
+    const existingCard = retryId ? runtime.messages.find((m) => m.id === retryId) : undefined;
+    const clientReqId = existingCard?.clientReqId ?? newClientReqId();
     const sid = runtime.sid;
     // 동일 텍스트 in-flight 가드 (t_4af94b1c①): Enter+전송 버튼 동시 탭의 2차 performSend는
     // 낙관 행도 POST도 만들지 않는다 — 백엔드 isDuplicateIngress(3초 창+실행 중 드롭)의 프론트 선반영.
@@ -584,6 +639,7 @@ export function useChatSession(
     setSuggested([]);
     updateMessages((prev) => appendOptimistic(prev, {
       id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
+      clientReqId,
       // 첨부 낙관 프리뷰 — 서버 확정 시 message.new/confirm의 attachments 요약으로 대체된다 (t_4497cfce)
       ...(attachments?.previews?.length ? { pendingAttachments: attachments.previews, pendingAttachmentIds: attachments.ids, attachments: [] } : {}),
     }));
@@ -610,15 +666,36 @@ export function useChatSession(
         ...(rootMessageId ? { parent_message_id: rootMessageId } : {}),
         // 첨부 링크 (t_4497cfce): 업로드 완료 ID만 — 서버가 user 메시지에 링크 후 messages.attachments 요약 발행
         ...(attachments?.ids?.length ? { attachment_ids: attachments.ids } : {}),
+        // random_id 상당 (t_17edbc88 ①): 낙관 행의 clientReqId와 동일 키 — 재전송/재시도에서
+        // 서버 멱등 사전 조회가 같은 키로 기존 행을 에코한다 (t_3486b1d7 ①②).
+        client_req_id: clientReqId,
       });
       if (!env.ok || !env.data) throw new Error('errors.response');
       if (generation !== runtime.generation) return { ok: false, error: 'errors.changed' };
       // 백엔드 ingress 드롭 (t_c31e3f45 / t_4af94b1c①): 3초 창 동일 content 재접수 → { deduped:true,
       // message } 만 내려온다(수용 행 없음). 낙관 행이 그대로 남으면 서버에 없는 유령 행이 된다 —
       // 첫 발송이 같은 발화를 이미 운반 중이므로 낙관 행을 제거하고 성공 처리한다(오류 배너 없음).
+      // 단, user_message_id/messages.user가 실린 dedupe는 멱등 재사용(t_3486b1d7 ①) — 기존 행이
+      // 존재한다는 에코다. 낙관 카드를 유지한 채 서버 행으로 in-place 확정한다.
       if (env.data.deduped) {
+        if (env.data.user_message_id || env.data.messages?.user) {
+          updateMessages((prev) => {
+            const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base);
+            return confirmed.map((m) => (m.id === (env.data!.user_message_id || optimisticId) && !m.clientReqId ? { ...m, clientReqId } : m));
+          });
+          if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
+          coordinator.finish(execId, sid, env.data);
+          return { ok: true };
+        }
         updateMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
+        return { ok: true };
+      }
+      // 질문 큐 202 (t_344e047a): 실행 중 발화가 서버 큐에 적재됨 — user 행은 아직 없다.
+      // 낙관 카드를 pending 그대로 유지(드레인의 message.new 에코가 content 폴백으로 in-place 확정)하고,
+      // 이번 REST 실행 표시는 종료한다. 실제 실행은 드레인 run 이벤트로 새로 시작된다.
+      if (env.data.queued) {
+        coordinator.finish(execId, sid);
         return { ok: true };
       }
       if (env.data.run_id) runtime.scopedRuns.add(env.data.run_id);
@@ -629,7 +706,9 @@ export function useChatSession(
         return confirmed
           .map((m) => (rootMessageId && !existing.has(m.id) ? { ...m, parentMessageId: rootMessageId } : m))
           // 확정 user 행의 attachments 요약이 빈 배열이면(저장 직렬화 시점 경쟁) 낙관 프리뷰로 유지 (t_4497cfce)
-          .map((m) => (m.id === userId && attachments?.previews?.length && !(m.attachments as unknown[] | undefined)?.length ? { ...m, pendingAttachments: attachments.previews } : m));
+          .map((m) => (m.id === userId && attachments?.previews?.length && !(m.attachments as unknown[] | undefined)?.length ? { ...m, pendingAttachments: attachments.previews } : m))
+          // 확정 카드에 발송 키 유지 (t_17edbc88 ①) — 이후 멱등 재전송·서버 에코의 연결 자국.
+          .map((m) => (m.id === userId && !m.clientReqId ? { ...m, clientReqId } : m));
       });
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
