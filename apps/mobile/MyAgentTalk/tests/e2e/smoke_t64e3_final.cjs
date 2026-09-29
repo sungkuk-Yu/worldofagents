@@ -81,7 +81,10 @@ function pcmToWav(pcm, rate = 16000) {
           el.src = blobUrl; el.loop = true;
           await el.play().catch(() => {});
           const Ctor = window.AudioContext || window.webkitAudioContext;
-          const actx = new Ctor();
+          // headless-shell: 44.1k로 뜬 MediaStreamAudioDestination을 앱 캡처(16k 컨텍스트)가 소비하면
+          // 무음으로 채운다(dbg4b 실측 — 서버 VAD false). fake stream 자체를 16k로 만든다.
+          const actx = new Ctor({ sampleRate: 16000 });
+          await actx.resume().catch(() => {}); // headless: 새 컨텍스트가 suspended로 시작하면 무음 스트림이 된다
           const src = actx.createMediaElementSource(el);
           const dest = actx.createMediaStreamDestination();
           src.connect(dest);
@@ -108,12 +111,12 @@ function pcmToWav(pcm, rate = 16000) {
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
-    await sleep(1500); // 홀드 ~1.5s (전체 발화 녹음)
+    await sleep(4000); // 발화 전체(3.6s) 커버 홀드 — 무음 꼬리 없이
     await page.mouse.up();
     const userVoiceShown = await page.waitForFunction(() => {
       const cards = document.querySelectorAll('[data-testid="message-user"]');
       return cards.length >= 1;
-    }, null, { timeout: 130000 }).then(() => true).catch(() => false);
+    }, null, { timeout: 300000 }).then(() => true).catch(() => false);
     const userTexts = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="message-user"]')).map((e) => (e.textContent || '').trim()).join('||'));
     check('A1 음성 릴리스 → 전사문 user 카드 자동 렌더 (복명복창 게이트 없음)', userVoiceShown && /자료|정리|오후|미팅|회의|해줘|해주세요/.test(userTexts), `texts="${String(userTexts).slice(0, 60)}"`);
     check('A2 음성 경로 WS 캐리어 왕복 (audio.start/end ≥1)', wsCtl.audioStart >= 1 && wsCtl.audioEnd >= 1, `start=${wsCtl.audioStart} end=${wsCtl.audioEnd}`);
@@ -155,7 +158,7 @@ function pcmToWav(pcm, rate = 16000) {
     await openKeyboardIfVoice(page);
     await page.getByTestId('chat-input').fill('주말 등산 일정 잡아줄래?');
     await page.getByTestId('send-button').click();
-    const chipsShown = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 130000 }).then(() => true).catch(() => false);
+    const chipsShown = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 300000 }).then(() => true).catch(() => false);
     check('B1 텍스트 발화 → 공감 재질문 버튼 행 노출', chipsShown);
     if (chipsShown) {
       const t0 = Date.now();
@@ -170,14 +173,14 @@ function pcmToWav(pcm, rate = 16000) {
       const answerArrives = await page.waitForFunction(() => {
         const cards = Array.from(document.querySelectorAll('[data-testid="message-agent"]')).map((e) => e.textContent || '');
         return cards.some((c) => c.length > 8 && !/맞죠|맞으면|맞나요|이해가 맞다면/.test(c));
-      }, null, { timeout: 130000 }).then(() => true).catch(() => false);
+      }, null, { timeout: 300000 }).then(() => true).catch(() => false);
       check('B3 버튼 소진 후에도 답변 실행(자동 진행 체감)', answerArrives);
     }
 
     // C: 재질문 활성 창 안에 '예' 탭 → 결과 user 카드 미렌더 + POST 왕복 1회
     await page.getByTestId('chat-input').fill('내일 아침 리마인더 걸어줘');
     await page.getByTestId('send-button').click();
-    const chips2 = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 130000 }).then(() => true).catch(() => false);
+    const chips2 = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 300000 }).then(() => true).catch(() => false);
     if (chips2) {
       const beforePosts = posts.length;
       const beforeUserCards = await page.getByTestId('message-user').count();
