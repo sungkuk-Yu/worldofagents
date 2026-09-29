@@ -151,7 +151,7 @@ export interface ChatMessage {
   taskOverrides?: Record<number, boolean>;
   contentKey?: string;
   contentParams?: Record<string, string>;
-  status?: 'pending' | 'sent' | 'failed';
+  status?: 'pending' | 'sent' | 'failed' | 'streaming';
   runId?: string;
   draft?: string;
   /** 첨부 요약 (messages.attachments JSONB — {id,url,mime,size,name}[], 백엔드 t_401c5bd1) */

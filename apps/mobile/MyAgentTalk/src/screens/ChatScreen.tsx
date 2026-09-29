@@ -337,7 +337,8 @@ export default function ChatScreen({ navigation, route }: Props) {
     previousMessages.current = messages;
     const ids = new Set(previous.map((m) => m.id));
     const tail = previous[previous.length - 1];
-    const added = messages.filter((m) => !ids.has(m.id) && (!tail || m.turnIndex >= tail.turnIndex)).length;
+    // ①(t_5c559e85): 인라인 스트림 카드는 확정 행과 같은 자리의 transient — '새 메시지' 카운트 제외(중복 셈).
+    const added = messages.filter((m) => m.status !== 'streaming' && !ids.has(m.id) && (!tail || m.turnIndex >= tail.turnIndex)).length;
     if (!nearBottom.current && added) {
       // 목록 변경으로 새 메시지 알림 수를 동기화한다.
       setUnseen((count) => count + added);

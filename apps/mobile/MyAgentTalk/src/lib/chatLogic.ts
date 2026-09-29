@@ -6,7 +6,7 @@ import { formatDayLabel } from '../i18n/format';
 //   POST /api/sessions/:id/messages → data: { user_message_id, empathy_response, answer_response, ... }
 import type { ChatMessage as BaseChatMessage } from '../types';
 
-export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed'; dialogueType?: string | null; runId?: string; draft?: string };
+export type ChatMessage = BaseChatMessage & { status?: 'pending' | 'sent' | 'failed' | 'streaming'; dialogueType?: string | null; runId?: string; draft?: string };
 
 /** 서버 messages 행 (최소 필드 — ApiEnvelope data[] 항목) */
 export interface ServerMessageRow {
@@ -464,6 +464,55 @@ export function clearRelayOnRunEnd(prev: RelayCaption | null, runId?: unknown): 
 }
 
 export interface StreamingAnswer { runId: string; text: string; messageId?: string; index: number; quip: string; done: boolean }
+
+// ── ① single card ID patch (t_5c559e85, Telegram edit-in-place/updateEditMessage 규범) ──
+// answer.delta를 footer 임시 카드가 아니라 리스트 내 같은 run의 고정 ID 스트림 카드(`stream-<runId>`)의
+// content 갱신으로 렌더. 확정 message.new(같은 run의 answer 행, 통상 answer turn = user+2) 도착 시
+// 같은 자리에 서버 행이 자리.replace되고 카드는 한 틱에 제거 — 이중 카드/본문 점프 클래스의 근본 차단.
+// 플래그 off 시 기존 footer 스트림 카드 경로로 완전 복귀 (f40bc3a5 이전 거동).
+export const streamCardId = (runId: string) => `stream-${runId}`;
+export const isStreamCard = (m: ChatMessage) => m.role === 'agent' && typeof m.id === 'string' && m.id.startsWith('stream-');
+
+/** 첫 토큰 전 placeholder row — run.progress/run.started 시 빈 카드로 자리 확보(점프 제거).
+ *  delta 없이 종료되면 reduceStreams의 기존 drop 경로가 함께 정리한다. */
+export function ensureStreamPlaceholder(streams: StreamingAnswer[], runId: string, quip: string): StreamingAnswer[] {
+  if (streams.some((s) => s.runId === runId)) return streams;
+  return [...streams, { runId, text: '', index: -1, quip, done: false }];
+}
+
+/** streams 상태 → 리스트 인라인 카드 사영(projection). delta 상태가 유일한 원천 —
+ *  카드 생성은 run당 1회, 이후 같은 id의 content/quip만 갱신. streams에서 빠진 run의 카드는 제거. */
+export function syncStreamCards(existing: ChatMessage[], streams: StreamingAnswer[]): ChatMessage[] {
+  const ids = new Set(streams.map((s) => streamCardId(s.runId)));
+  let out = existing;
+  if (out.some((m) => isStreamCard(m) && !ids.has(m.id))) out = out.filter((m) => !isStreamCard(m) || ids.has(m.id));
+  for (const s of streams) {
+    const id = streamCardId(s.runId);
+    const quip = s.done ? 'chat.saving' : s.quip;
+    const found = out.find((m) => m.id === id);
+    if (!found) {
+      // 백엔드 턴 산포 정렬 안전: user=t, empathy=t+1, answer=t+2. 직전 꼬리(empathy 있으면 t+1,
+      // 없으면 user의 t)에 +1 → 확정 answer 행과 같은 자리에 안착, 1틱 경쟁 시에도 순서 붕괴 없음.
+      const tail = out.reduce((max, m) => (isStreamCard(m) ? max : Math.max(max, m.turnIndex)), -1);
+      out = [...out, {
+        id, role: 'agent', content: s.text, turnIndex: tail + 1,
+        status: 'streaming', sourceNeuron: 'answer', runId: s.runId, dialogueType: 'stream',
+        aiGenerated: true, payload: { streamQuip: quip, streamDone: s.done }, createdAt: new Date().toISOString(),
+      }];
+    } else if (found.content !== s.text || found.payload?.streamQuip !== quip || found.payload?.streamDone !== s.done) {
+      out = out.map((m) => (m.id === id ? { ...m, content: s.text, payload: { ...m.payload, streamQuip: quip, streamDone: s.done } } : m));
+    }
+  }
+  return out;
+}
+
+/** 확정 answer 행이 저장된 run의 잔류 스트림 카드 정리 — refresh/재구독 갭 회수용 (멱등). */
+export function purgeSettledStreamCards(existing: ChatMessage[]): ChatMessage[] {
+  if (!existing.some(isStreamCard)) return existing;
+  const settled = new Set(existing.filter((m) => m.role === 'agent' && m.sourceNeuron === 'answer' && m.status !== 'streaming' && m.runId).map((m) => m.runId as string));
+  return existing.filter((m) => !isStreamCard(m) || !settled.has(m.runId ?? ''));
+}
+
 export function reduceStreams(streams: StreamingAnswer[], event: Record<string, unknown>, messages: ChatMessage[]): StreamingAnswer[] {
   const runId = event.run_id;
   if (typeof runId !== 'string') return streams;
@@ -475,7 +524,8 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
     return streams;
   }
   if (event.type !== 'answer.delta' && event.type !== 'answer.done' && event.type !== 'run.progress') return streams;
-  if (messages.some((m) => m.runId === runId && m.sourceNeuron === 'answer')) return streams.filter((s) => s.runId !== runId);
+  // 확정 저장 행 우선 — 단 ①의 인라인 스트림 카드(stream-*)는 '확정 행'이 아니다(자기 자신과 매칭 금지).
+  if (messages.some((m) => m.runId === runId && m.sourceNeuron === 'answer' && !isStreamCard(m))) return streams.filter((s) => s.runId !== runId);
   if (event.type === 'run.progress' && !old) return streams;
   const next = { ...old ?? { runId, text: '', index: -1, quip: DEFAULT_QUIP, done: false } };
   if (event.type === 'answer.delta') {
@@ -492,7 +542,6 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
   if (event.type === 'run.progress' || typeof event.stage === 'string') next.quip = quipKeyForStage(typeof event.stage === 'string' ? event.stage : undefined);
   return [...streams.filter((s) => s.runId !== runId), next];
 }
-
 // ── 질문 큐 체크포인트 (t_1797f432 ② / 백엔드 t_344e047a 계약) ──────────
 // 답변 실행 중 추가 발화가 유실되지 않고 서버 세션 큐(message_queue)에 적재된다.
 // WS `queue.updated`(전체 스냅샷) / GET messages 응답의 queue 배열로 수신 →

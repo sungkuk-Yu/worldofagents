@@ -10,10 +10,12 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
+  syncStreamCards, purgeSettledStreamCards,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
 } from '../lib/chatLogic';
+import { renderFlags } from '../lib/renderFlags';
 
 export const PAGE_SIZE = 30;
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -201,6 +203,13 @@ export function useChatSession(
     setPendingReplies(EMPTY_PENDING_REPLIES); // 답변 대기 잔상 동일 원칙 (t_363c0faa)
     setThreads(EMPTY_THREADS);
     setSuggested([]);
+    // ① single card ID patch: streams → 리스트 인라인 카드(content 갱신, run당 카드 1장 고정).
+    // 메인 피드만 — 스레드 패널(rootMessageId)은 footer 임시 카드 경로 유지(병합 순서/커서 간섭 차단).
+    const commitStreams = () => {
+      if (!alive()) return;
+      setStreams(runtime.streams);
+      if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
+    };
     const stop = () => {
       disposed = true;
       ++runtime.generation;
@@ -355,7 +364,9 @@ export function useChatSession(
               if (Array.isArray(raw.devices)) setPeers(peersOf(raw.devices as PresenceDevice[], deviceRef.current));
               if (runtime.sequence.subscribed(raw.current_seq)) {
                 runtime.tracker.endAll();
-                runtime.streams = []; setStreams([]);
+                runtime.streams = [];
+                updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), [])); // ① 잔류 인라인 카드 정리(전용 필터 불요 — sync가 제거)
+                setStreams([]);
                 runtime.socket?.send(JSON.stringify({ type: 'subscribe', session_id: sid, last_seq: 0 }));
                 void refresh(sid, false, 'all').catch((e) => { if (current()) setLastError(errorText(e)); });
               }
@@ -378,7 +389,7 @@ export function useChatSession(
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
               updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string, aiGenerated: typeof raw.ai_generated === 'boolean' ? raw.ai_generated : message.aiGenerated } : message));
             }
-            setStreams(runtime.streams);
+            commitStreams(); // ① streams→인라인 카드 동기 발행
             if (type === 'message.new' || type === 'message.created') {
               const row = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
               if (row && row.id) updateMessages((prev) => mergeIncoming(prev, normalizeServerMessages([{ ...row, run_id: typeof raw.run_id === 'string' ? raw.run_id : undefined }])));
@@ -568,6 +579,8 @@ export function useChatSession(
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
       setStreams(runtime.streams);
+      // ① REST 확정 경로에서도 인라인 스트림 카드를 정리한다 (잔류 stream-* 제거, 메인 피드만).
+      if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
       if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
       return { ok: true };
     } catch (e) {
