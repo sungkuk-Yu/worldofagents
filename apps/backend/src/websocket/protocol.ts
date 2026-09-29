@@ -23,7 +23,7 @@ export interface PresenceDevice {
 // message.send는 ack 필드를 요구하지 않는다 (t_5cba9ebb 2항 계약 — 예/아니오 미터치 시
 // 프론트는 ack 없이 그대로 진행, 파이프라인은 원래 ack 비동기: answer_always=t_c31e3f45).
 export type ClientMessage =
-  | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string }
+  | { type: 'message.send'; session_id: string; content: string; parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string; client_req_id?: string }
   | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
   | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string; mode?: PttMode; device?: string } }
@@ -35,7 +35,7 @@ export type ClientMessage =
 
 // 서버 → 클라이언트 (error/session.error/run.failed의 message는 폴백, code로 프론트 i18n 번역)
 export type ServerMessage =
-  | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage }
+  | { type: 'message.new'; seq?: number; run_id: string; session_id: string; message: SavedMessage; user_message_id?: string; source_message_id?: string | null; deduped?: boolean }
   | { type: 'run.started'; session_id: string; run_id: string; seq?: number; quip: string }
   | { type: 'run.progress'; session_id: string; run_id: string; seq?: number; stage: 'thinking' | 'organizing' | 'finalizing' | 'rendering'; quip: string }
   | { type: 'run.completed'; structured?: { dialogue_type: DialogueCardType; structured_payload: Record<string, unknown> }; classifier?: { type: DialogueType; stage: 1 | 2 | 3; confidence: number }; session_id: string; run_id: string; seq?: number; message_ids: { user: string; empathy: string | null; answer: string | null }; llm: { used: boolean; model: string | null; fallback: boolean }; grounding?: GroundingSummary | null }
@@ -44,7 +44,10 @@ export type ServerMessage =
   | { type: 'answer.delta'; seq?: number; session_id: string; run_id: string; delta: string; index: number }
   | { type: 'answer.done'; ai_generated: true; locale: Locale; seq?: number; session_id: string; run_id: string; text: string; message_id: string | null; llm: { used: boolean; model: string | null; fallback: boolean; usage: unknown | null }; grounding?: GroundingSummary | null }
   | { type: 'connected'; session_id: string | null; timestamp: string }
-  | { type: 'subscribed'; current_seq?: number; session_id: string; channels: WSChannel[]; devices?: PresenceDevice[] }
+  /** current_seq/seq_epoch (t_3486b1d7 ③): last_seq 미전송 접속(초 구독)에서는 서버 버퍼가
+   *  이 지점부터의 diff 기준점이다. 에포크가 이전 관측값과 다르면(재기동) 클라이언트는
+   *  GET /messages 전량 캐치업으로 전환. */
+  | { type: 'subscribed'; current_seq?: number; seq_epoch?: string; session_id: string; channels: WSChannel[]; devices?: PresenceDevice[] }
   | { type: 'error'; code: string; message: string }
   | { type: 'audio.started'; session_id: string; config: Record<string, unknown> }
   | { type: 'audio.received'; bytes: number; timestamp: string }

@@ -24,6 +24,7 @@ import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
+import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
 import { ReplyToSummary, resolveReplyContext, replyToColumn, classifyReplyInsertError, markReplyToColumnMissing } from '../lib/replyTo';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
@@ -134,11 +135,17 @@ export interface ProcessTurnOptions {
   sttMetadata?: Record<string, unknown> | null;
   /** 첨부 링크 (t_401c5bd1): 사용자 메시지 저장 후 messages_attachments에 링크할 ID 목록. */
   attachmentIds?: string[];
+  /** random_id 멱등 (t_3486b1d7 ①, migration 013): user 행에 stamp. 013 미적용/플래그 off 시 컬럼 미접촉. */
+  clientReqId?: string | null;
   /** 답글 인용 원문 ID (t_02f58030, 마이그레이션 012): 존재+같은 세션 검증 후 user 행 reply_to_id·
    *  structured_payload.reply_to 요약으로 영속. invalid는 무시(발화 통과) — resolveReplyContext 계약. */
   replyToId?: unknown;
   /** 짧은 확인음 노출 후 답변 시작 전 대기(ms) — 대표님 9/28 ①. 생략 시 config.answerLeadMs. */
   answerLeadMs?: number;
+  /** ⑤ user 카드 사전 emit (t_3486b1d7, 김비서 9/29 A2A): 저장 직후 콜백 → chatTurn이 run.started보다 먼저 message.new user를 브로드캐스트. */
+  onUserCreated?(userRow: MessagesRow): void;
+  /** ⑤ run.started emit 타이밍 (t_3486b1d7): user 카드 emit 직후 콜백. chatTurn이 여기서 run.started를 발행해 이벤트 순서 계약 충족. */
+  onRunReady?(): void;
 }
 
 export interface TurnResult {
@@ -943,6 +950,10 @@ export async function processTurn(
       };
       let nextTurn = await getNextTurn();
 
+      // 사용자 메시지 저장 — 013 멱등 컬럼 + 012 인용 컬럼/payload 강등 사다리 공용.
+      // userCols(처음 포착): 진입 시 스탬프 시도 여부 — 래치 판정 가드용.
+      // insert 안에서는 매 시도 재계산: 래치 on 후 재시도에서 컬럼이 실제 제외되게.
+      const userCols = clientReqColumns(opts.clientReqId ?? null);
       // 답글 인용 컬럼/요약 (t_02f58030): replyCols는 래치(on)면 빈 객체. 강등 2종 —
       //  · column-drop: 012 미적용(PGRST204/42703) → 래치 후 컬럼 생략 재시도 (011 관례, 요약 payload 유지)
       //  · ref-drop: 23503/FK·CROSS_SESSION 트리거(검증 후 원문 삭제 경쟁 등) → 인용 정보 탈락 재시도 (발화 통과)
@@ -967,12 +978,24 @@ export async function processTurn(
           attachments: [],
           persona_guard: {},
           user_feedback: null,
+          ...clientReqColumns(opts.clientReqId ?? null),
           ...extra,
         })
         .select()
         .single();
 
       let { data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload });
+      // client_req 유니크 충돌(t_3486b1d7 ①) = 사전 조회를 뚫고 들어온 재전송 레이스 —
+      // turn_index 충돌 리트라이로 삼키면 중복 user 행이 영속된다. 즉시 CONFLICT로 마감.
+      if (errUser && isClientReqConflict(errUser)) {
+        throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
+      }
+      // 013 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
+      // 래치 후 컬럼 없이 1회 재시도 (008/011 관례). insert 내 clientReqColumns가 재계산되어 제외.
+      if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
+        markIdempotencyColumnMissing();
+        ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
+      }
       if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
         nextTurn = await getNextTurn();
         ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
@@ -987,6 +1010,10 @@ export async function processTurn(
         }
       }
       if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
+      // ⑤ user 카드 사전 emit (t_3486b1d7, 김비서 9/29 A2A): chatTurn이 run.started보다 먼저 message.new user를 브로드캐스트한다.
+      opts.onUserCreated?.(msgUser as MessagesRow);
+      // ⑤ run.started emit 타이밍: user 카드 직후 콜백. chatTurn이 여기서 run.started를 발행.
+      opts.onRunReady?.();
       // 첨부 링크 (t_401c5bd1): LLM 호출 전에 실패시켜 비용을 물리지 않는다. 소유권/이중링크 검증은 공유 lib.
       let linkedAttachments: { url: string; mime: string }[] = [];
       if (opts.attachmentIds?.length) {

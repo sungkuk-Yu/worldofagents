@@ -1,8 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { ServerMessage } from './protocol';
 
 type StampedMessage = ServerMessage & { seq: number };
 const sequences = new Map<string, number>();
 const buffers = new Map<string, StampedMessage[]>();
+
+/**
+ * seq 에포크 (t_3486b1d7 ③, pts diff sync 이식) — 프로세스당 1회 생성.
+ * seq는 메모리 버퍼 기준이라 서버 재기동하면 0부터 다시 센다. 클라이언트는
+ * subscribed/event 응답의 seq_epoch가 마지막 관측값과 다르면 버퍼 트렁케이션 여부와
+ * 무관하게 전량 캐치업(GET /messages)으로 전환한다 (core.telegram.org/api/updates:
+ * local_seq+N==pts 적용 / <pts gap=getDifferences 상당 / 만료=전체 재조회).
+ */
+const epoch = randomUUID();
+export function currentEpoch(): string { return epoch; }
 const recordedTypes = new Set([
   'message.new', 'run.started', 'run.progress', 'run.completed', 'run.failed', 'run.cancelled',
   'answer.delta', 'answer.done', 'neuron.status', 'transcript.partial', 'transcript.final', 'queue.update',
@@ -30,6 +41,27 @@ export function currentSeq(sessionId: string): number {
 
 export function replaySince(sessionId: string, lastSeq: number): StampedMessage[] {
   return (buffers.get(sessionId) || []).filter(event => event.seq > lastSeq);
+}
+
+/**
+ * REST diff-sync 조회 (t_3486b1d7 ③, getDifferences 상당) — WS 재연결 후 버퍼 재생과
+ * 동일한 계산을 HTTP로. truncated는 500-캡 이후의 옛 seq를 요청한 경우(버퍼에서 밀려남)로,
+ * true면 클라이언트는 GET /messages 전량 캐치업으로 전환해야 한다.
+ */
+export function eventSyncState(sessionId: string, lastSeq: number): {
+  events: StampedMessage[];
+  current_seq: number;
+  seq_epoch: string;
+  truncated: boolean;
+} {
+  const buffer = buffers.get(sessionId) || [];
+  const floor = buffer[0]?.seq ?? 1; // 버퍼가 비면 '유실 없음' (전량 = diff 기준)
+  return {
+    events: replaySince(sessionId, lastSeq),
+    current_seq: currentSeq(sessionId),
+    seq_epoch: currentEpoch(),
+    truncated: lastSeq + 1 < floor && currentSeq(sessionId) > lastSeq,
+  };
 }
 
 interface ActiveRun {

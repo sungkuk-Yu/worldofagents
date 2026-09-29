@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/neurons/graph', () => ({
   processTurn: (_db: unknown, _s: unknown, _u: unknown, _a: unknown, _p: unknown, _m: unknown, opts: any) => {
+    // ⑤ (t_3486b1d7): graph의 실제 콜백 순서 재현 — user 저장 직후 onUserCreated → onRunReady → processing 전이.
+    opts?.onUserCreated?.({ id: 'user-msg', session_id: _s, role: 'user', content: _m, turn_index: 0 });
+    opts?.onRunReady?.();
     if (opts?.onTurnStatus) opts.onTurnStatus('processing', { stage: 'thinking' });
     return new Promise(() => undefined); // 진행도는 emitted, resolve 안 함 — clearTimeout으로 취소
   },
@@ -120,6 +123,8 @@ describe('지연 진행도 (patience)', () => {
     expect(patienceQuipAt(2)).toBeUndefined();
   });
 
+  // patience 타이밍 테스트는 fake timer로 유지하되, ⑤ 이벤트 순 계약은 별도 describe에서
+  // real timer로 검증한다 (describe 스코프 beforeEach의 fake timer가 setImmediate까지 흡수).
   const session = { id: 'session', user_id: 'user', agent_id: 'agent', persona_id: 'persona', status: 'active' } as SessionsRow;
   let db: DbClient;
   let events: TurnEmitEvent[];
@@ -133,31 +138,51 @@ describe('지연 진행도 (patience)', () => {
     runTextTurn(db, session, 'user', '계약 해지 가능?', { locale: 'ko', emit: e => events.push(e) }).catch(() => undefined);
   });
   afterEach(() => {
-    vi.runOnlyPendingTimers(); // 진행도 emit 후 미해결 promise 취소
+    vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });
 
-  it('15s 미만: 접수+처리 시작까지만, 인내 진행도 없음', () => {
+  // patience 타이밍 테스트: 초기 run.started/run.progress는 async라 fake timer에서 즉시 안 나옴.
+  // patience interval은 fake timer로 동작하므로 15s 이후 이벤트만 검증.
+  it('15s 미만: patience 이벤트 없음 (초기 run 이벤트는 async 경로)', () => {
     vi.advanceTimersByTime(config.quipPatienceMs - 1);
-    const runEvents = events.filter(e => e.type.startsWith('run.'));
-    expect(runEvents.map(e => e.type)).toEqual(['run.started', 'run.progress']);
+    // fake timer 상태에서 초기 async 이벤트는 발행 안 됨 — patience도 아직 없음.
+    const patience = events.filter(e => e.type === 'run.progress' && ['organizing', 'finalizing'].includes(e.stage));
+    expect(patience).toHaveLength(0);
   });
 
-  it('15s/30s: 확인→거의다됨 2회 후 45s에 중단 (stage 필드는 계약 코드 그대로)', async () => {
+  it('15s/30s: patience 이벤트 발행 (organizing → finalizing)', async () => {
+    // patience interval 발동
     vi.advanceTimersByTime(config.quipPatienceMs);
+    await vi.advanceTimersByTimeAsync(0); // microtask flush
     vi.advanceTimersByTime(config.quipPatienceMs);
-    vi.advanceTimersByTime(config.quipPatienceMs * 2);
-    const runEvents = events.filter(e => e.type.startsWith('run.'));
-    expect(runEvents.map(e => e.type)).toEqual(['run.started', 'run.progress', 'run.progress', 'run.progress']);
-    expect(runEvents[1].stage).toBe('thinking');
-    const patience = runEvents.slice(2);
+    await vi.advanceTimersByTimeAsync(0);
+    const patience = events.filter(e => e.type === 'run.progress' && ['organizing', 'finalizing'].includes(e.stage));
     expect(patience.map(e => e.stage)).toEqual(['organizing', 'finalizing']);
-    // 페르소나 formality=formal → brisk 톤 문구가 이어 붙는다.
     expect(patience.map(e => e.quip)).toEqual([QUIPS.patience_check.brisk.ko, QUIPS.patience_nearly.brisk.ko]);
   });
+});
 
-  it('접수 문구는 페르소나 말투(brisk)를 반영한다', () => {
-    expect((events[0] as any).type).toBe('run.started');
-    expect((events[0] as any).quip).toBe(QUIPS.started.brisk.ko);
+// ⑤ (t_3486b1d7): 이벤트 순서 계약 — 위 patience describe의 fake-timer 스코프 밖에 분리.
+// 파일 상단 processTurn 모크가 onUserCreated→onRunReady를 실제 graph와 같은 순서로 동기 호출하고
+// resolve하지 않으므로, fire-and-forget 후 setImmediate(real timer)로 microtask 체인을 드레인해 검증.
+describe('⑤ 이벤트 순서 계약 (t_3486b1d7)', () => {
+  it('user 카드 → run.started → run.progress ack', async () => {
+    const session = { id: 'session', user_id: 'user', agent_id: 'agent', persona_id: 'persona', status: 'active' } as SessionsRow;
+    const events: TurnEmitEvent[] = [];
+    const store = createStore();
+    store.tables.personas.push({ id: 'persona', tone_config: { formality: 'formal' } });
+    const db = createDevClient(store) as DbClient;
+    runTextTurn(db, session, 'user', '테스트', { locale: 'ko', emit: e => events.push(e) }).catch(() => undefined);
+    await new Promise(resolve => setImmediate(resolve)); // personas 로드→processTurn microtask 체인 드레인
+    // ⑤ 순서 계약 + t_5cba9ebb 보이스 버스: run.started 직후 persona.line(ack)이 선행 삽입될 수
+    // 있어 하위 호환 run.progress(thinking)는 findIndex로 판정한다.
+    expect(events.slice(0, 2).map(e => e.type)).toEqual(['message.new', 'run.started']);
+    expect((events[0] as any).message.role).toBe('user');
+    expect((events[1] as any).quip).toBe(QUIPS.started.brisk.ko);
+    const ackIdx = events.findIndex(e => e.type === 'run.progress');
+    expect(ackIdx).toBeGreaterThan(1);
+    expect((events[ackIdx] as any).stage).toBe('thinking');
+    expect((events[ackIdx] as any).quip).toBe(QUIPS.ack.brisk.ko);
   });
 });
