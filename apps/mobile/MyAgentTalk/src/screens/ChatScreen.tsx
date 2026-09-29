@@ -243,6 +243,19 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   const nearBottom = useRef(true);
   const offset = useRef(0);
+  // 텔레그램식 꼬리 추종 (t_1731f0f6 — 대표님 9/29: "새 카드 발동 시 그 카드로, 글이
+  // 길어지면 그 끝으로"). 라이브 실패 root cause 2종:
+  //  (1) scrollToEnd 단발(onContentSizeChange)이 레이아웃 확정(줄바꿈 리레이아웃) 전에 실행돼
+  //      옛 끝에 닿음 → 수리: 측정 기반 bottom clamp(scrollToOffset(contentH - viewportH)) +
+  //      레이아웃 확정 rAF 재시도 2회 루프(카드 D 지시: 단발 금지).
+  //  (2) 성장 직후 스크롤 이벤트가 'contentSize 커진 값 + offset 옛값' stale 쌍으로 도착해
+  //      gap>100 오판 → nearBottom=false 전향(추종 영구 사망) + unseen 배지 오탐(라이브에서
+  //      답마다 배지 뜬 증상) → 수리: gap>100 전향은 추종 유휴일 때만, 이탈 판정은 실질 상방
+  //      오프셋 감소 우선. clamp 타깃이 strip 패딩 포함 절대 끝이라 마지막 카드가 voice-stage
+  //      아래로 넘어가지 않고(요구 C), flex-end 짧은 히스토리 앵커와는 직교(무해).
+  const tailRef = useRef({ raf: 0, budget: 0, contentH: 0, viewportH: 0 });
+  const loadingRef = useRef(false);
+  useEffect(() => { loadingRef.current = loadingHistory; }, [loadingHistory]);
   const layouts = useRef(new Map<string, { y: number; height: number }>());
   const prependAnchor = useRef<{ id: string; relative: number; y: number } | null>(null);
   const [unseen, setUnseen] = useState(0);
@@ -326,12 +339,67 @@ export default function ChatScreen({ navigation, route }: Props) {
     }, 0);
     return () => clearTimeout(find);
   }, [jumpTarget, jumpNonce, groups, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
+  // ── 꼬리 추종 (t_1731f0f6) ──────────────────────────────────────────
+  // growth 이벤트(onContentSizeChange — 신규 카드/스트리밍 delta/타입잉 카드·예/아니오 행
+  // 등장)마다 측정 기반 bottom clamp scrollToOffset(contentH - viewportH)을 즉시 1회 +
+  // 레이아웃 확정 rAF 재시도 2회 (카드 D: scrollToEnd 단발 금지). 레이아웃이 이벤트보다
+  // 늦게 확정되면 첫 스크롤은 옛 끝에 닿고, 확정 시 새 contentSize로 onContentSizeChange가
+  // 재발화 → 루프 재시작. 정착(offset≥target-2) 시 즉시 중단. delta 박자마다 재시작이라
+  // 한 박자 딜레이는 허용(요구 B)되 최종 완료 시점엔 반드시 끝에 도달한다.
+  const cancelFollow = useCallback(() => {
+    const t = tailRef.current;
+    if (t.raf) {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(t.raf); else clearTimeout(t.raf);
+      t.raf = 0;
+    }
+    t.budget = 0;
+  }, []);
+  const followTail = useCallback((steps = 3, animated = false) => {
+    const t = tailRef.current;
+    if (t.raf) {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(t.raf); else clearTimeout(t.raf);
+      t.raf = 0;
+    }
+    t.budget = steps;
+    const step = () => {
+      t.raf = 0;
+      if (!nearBottom.current || loadingRef.current) { t.budget = 0; return; }
+      t.budget -= 1;
+      const target = t.contentH > 0 && t.viewportH > 0 ? Math.max(0, t.contentH - t.viewportH) : null;
+      if (target !== null && offset.current >= target - 2) { t.budget = 0; return; } // 정착 — 잔여 재시도 불필요
+      if (target !== null) listRef.current?.scrollToOffset({ offset: target, animated });
+      else listRef.current?.scrollToEnd({ animated }); // 뷰포트 미측정(초기 프레임) — 폴백
+      if (t.budget > 0) {
+        t.raf = typeof requestAnimationFrame === 'function'
+          ? requestAnimationFrame(step)
+          : (setTimeout(step, 16) as unknown as number);
+      }
+    };
+    step();
+  }, []);
+  useEffect(() => cancelFollow, [cancelFollow]);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const t = tailRef.current;
+    if (layoutMeasurement.height > 0) t.viewportH = layoutMeasurement.height;
+    const scrolledUp = contentOffset.y < offset.current - 4;
     offset.current = contentOffset.y;
-    nearBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y <= 80;
-    if (nearBottom.current) setUnseen(0);
-  }, []);
+    const gap = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    if (gap <= 100) {
+      // 정착(근거: 텔레그램/Slack 관습 near-bottom ~100px — 김비서 적용 게이트 t_c6cbcd53 ①):
+      // 추종 종료 + 배지 해제. 콘텐츠가 줄어드는 프레임(타입잉/스트림 카드 → 확정 카드 교체)에서
+      // 브라우저가 offset을 클램프해 scrolledUp이 켜져도 gap≤100이면 여전히 말미 — 오판 금지.
+      cancelFollow();
+      nearBottom.current = true; setUnseen(0);
+    } else if (scrolledUp) {
+      // 이탈의 유일한 신호 = 오프셋 실질 감소(사용자 상방 스크롤/딥링크 점프). 추종 중
+      // 'contentSize 커진 값 + offset 옛값'의 stale 쌍(gap>100, 감소 아님)에서 false 전향하면
+      // 추종이 영구 사망 + unseen 배지 오탐 — 라이브 증상의 root cause (t_1731f0f6).
+      // growth는 onContentSizeChange가 추적 재시작을 담당하므로 여기선 상태만 지난다.
+      cancelFollow();
+      nearBottom.current = false;
+    }
+  }, [cancelFollow]);
   useEffect(() => {
     const previous = previousMessages.current;
     previousMessages.current = messages;
@@ -344,9 +412,12 @@ export default function ChatScreen({ navigation, route }: Props) {
     }
   }, [messages]);
   const jumpToEnd = useCallback(() => {
+    // 배지 탭 = 명시적 하강. animated bottom clamp + 레이아웃 확정 rAF 재시도(정착 확인).
+    // 스트리밍 추종과 동일 루프지만 animated — 콘텐츠가 계속 성장해도 각 스텝이 새 타깃으로
+    // 부드럽게 재수렴한다 (t_1731f0f6).
     nearBottom.current = true; setUnseen(0);
-    listRef.current?.scrollToEnd({ animated: true });
-  }, []);
+    followTail(3, true);
+  }, [followTail]);
   const loadHistory = useCallback(async () => {
     if (loadingHistory) return;
     const anchor = groups.find((g) => {
@@ -513,7 +584,25 @@ export default function ChatScreen({ navigation, route }: Props) {
         onMomentumScrollEnd={onScroll}
         scrollEventThrottle={16}
         maintainVisibleContentPosition={Platform.OS === 'web' ? undefined : { minIndexForVisible: 0 }}
-        onContentSizeChange={() => { if (nearBottom.current && !loadingHistory) listRef.current?.scrollToEnd({ animated: false }); }}
+        onContentSizeChange={(_w, h) => {
+          // 꼬리 추종 트리거 (t_1731f0f6): 신규 카드·스트리밍 delta·타입잉 카드/예아니오 행
+          // 등장 = contentSize grow(이벤트가 새 높이 실측 동봉). scrollToEnd 단발(old)은 레이아웃
+          // 확정 전에 실행돼 라이브에서 끝에 닿지 못했다 → 측정 기반 rAF 루프(즉시+재시도 2)로 교체.
+          const t = tailRef.current;
+          if (h <= 0) return;
+          const maxOffset = t.viewportH > 0 ? Math.max(0, h - t.viewportH) : null;
+          t.contentH = h;
+          if (maxOffset !== null && offset.current > maxOffset) {
+            // 수축 clamp: 스트림 카드→짧은 확정 카드 교체 등으로 콘텐츠가 줄면 브라우저가
+            // scroll 이벤트 없이 bottom clamp한다(오프셋 미러가 낡은 채로 말미에 도달). 미러를
+            // 동기화하고 정착 처리 — 배지 잔등/추종 오탐 방지 (t_1731f0f6).
+            offset.current = maxOffset;
+            cancelFollow();
+            nearBottom.current = true; setUnseen(0);
+          } else if (nearBottom.current && !loadingHistory) {
+            followTail(3, false);
+          }
+        }}
         keyExtractor={(item) => item.key}
         contentContainerStyle={[styles.listContent, chatListPaddingOverride(stageActive, viewportHeight)]}
         ListHeaderComponent={renderHeader}
@@ -535,7 +624,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         }
       />
 
-      {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
+      {unseen > 0 && <Button testID="unseen-badge" onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
       {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.
           t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지. */}
       {Platform.OS === 'web' && !isDemo && !voiceMode && (
