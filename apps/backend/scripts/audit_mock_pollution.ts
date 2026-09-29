@@ -97,13 +97,14 @@ async function main() {
         }
       }
       // ③ 같은 턴(직후 answer 행)의 suggested_questions — mock 문맥 기반 칩 제거 대상
+      // 같은 answer 행을 두 mock 발화가 공유하면(연속 재전송) 한 번만 적는다.
       const { data: answers } = await supabaseAdmin.from('messages')
         .select('id,session_id,turn_index,role,content,source_neuron,stt_metadata,structured_payload')
         .eq('session_id', sessionId).eq('role', 'agent').eq('source_neuron', 'answer')
         .gt('turn_index', r.turn_index).order('turn_index').limit(1);
       const ans = (answers as MsgRow[] | null)?.[0];
       const sq = ans?.structured_payload?.suggested_questions;
-      if (Array.isArray(sq) && sq.length) {
+      if (Array.isArray(sq) && sq.length && !sqFixes.some(f => f.message_id === ans.id)) {
         sqFixes.push({ message_id: ans.id, session_id: sessionId, before: sq });
         if (FIX) {
           await supabaseAdmin.from('messages')
