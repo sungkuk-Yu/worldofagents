@@ -99,7 +99,12 @@ async function login(page, stamp) {
 
     // ② 읽는 중: 위로 스크롤 → 강제이동 없음. 배지 시나리오는 2발째 전송으로 결정적으로 만든다
     //    (1발 답이 이미 끝났을 수 있어 자연 arrival 레이싱 금지). 입력바(B)는 열려 있으므로 재사용.
-    await page.evaluate(() => { const l = document.querySelector('[data-testid="message-list"]'); l.scrollTop = Math.max(0, l.scrollTop - 700); });
+    // r5: 이탈 = 사용자 의도(wheel/touch) 판정 — 실제 사용자처럼 WheelEvent 디스패치 후 이동.
+    await page.evaluate(() => {
+      const l = document.querySelector('[data-testid="message-list"]');
+      l.dispatchEvent(new WheelEvent('wheel', { deltaY: -700, bubbles: true, cancelable: true }));
+      l.scrollTop = Math.max(0, l.scrollTop - 700);
+    });
     await page.waitForTimeout(300);
     const readPos = await tailGeometry(page);
     await page.getByTestId('chat-input').fill('추가 확인: 요약 한 줄만');
@@ -123,10 +128,17 @@ async function login(page, stamp) {
     check('③ 배지 탭 후 말미 정착(gap≤130)', landed.gap <= 130, `gap=${landed.gap}`);
     check('③ 배지 소멸', !landed.badge);
 
-    // ④ 음성 계층 복귀 — 마지막 카드 bottom ≤ strip 상단
+    // ④ 음성 계층 복귀 — 마지막 카드 bottom ≤ strip 상단.
+    //    B→A 전환 직전 프레임은 입력바 잔존/스트리밍 카드 성장 중이라 card>edge·card=null이
+    //    관측된다(9/29 r6/r8 실측, 9/26 교훈: 전환애니 후 측정은 페인트 대기). 전환+추종이
+    //    정착할 때까지 최대 8회(≈4s) 대기 — 그 뒤에도 안 붙으면 진짜 실패로 판정.
     await backToVoice(page);
-    await page.waitForTimeout(600);
-    const g4 = await tailGeometry(page);
+    let g4 = null;
+    for (let s = 0; s < 8; s++) {
+      await page.waitForTimeout(500);
+      g4 = await tailGeometry(page);
+      if (g4.lastCardBottom !== null && g4.edgeTop !== null && g4.lastCardBottom <= g4.edgeTop + 2) break;
+    }
     check('④ 마지막 카드 bottom ≤ voice-stage 상단', !!g4.lastCardBottom && !!g4.edgeTop && g4.lastCardBottom <= g4.edgeTop + 2, `card=${g4.lastCardBottom} edge=${g4.edgeTop}`);
     await page.screenshot({ path: shot('live-04-landed') });
     check('모바일 페이지 오류 없음', errors.length === 0, errors.slice(0, 2).join(' | '));
@@ -140,7 +152,8 @@ async function login(page, stamp) {
     await page2.getByTestId('send-button').click();
     const samples2 = [];
     const t2 = Date.now();
-    while (Date.now() - t2 < 45000) {
+    // r8b: 고로드에서 PC 답 스트림 시작이 45s를 넘긴 적 있음(samples=0건) — 창 75s로 확장.
+    while (Date.now() - t2 < 75000) {
       const g = await tailGeometry(page2);
       if (g.scrollable) {
         samples2.push(g.gap);

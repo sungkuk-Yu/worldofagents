@@ -117,21 +117,36 @@ async function tailGeometry(page) {
     send({ type: 'run.started', run_id: 'run1', seq: ++seq });
     await page.getByTestId('typing-indicator').waitFor({ timeout: 5000 });
 
-    // answer.delta 24조각 — 뷰포트 초과까지 성장, 매 조각 후 gap 샘플링
+    // answer.delta 24조각 — 뷰포트 초과까지 성장, 매 조각 후 gap 샘플링.
+    // r5 표본 규정(카드 요구 B 문구 반영): '한 박자 딜레이 허용' → 샘플 gap>110이면 100ms 후
+    // 재샘플, 그때 회복(≤110)이면 통과. 연속 2회 실패 = 영구 미추종(라이브 r4 증상, 1,500px대)
+    // → FAIL. 무관용 단일 임계는 고로드(머신 load↑) 레이아웃 지연에서 플레이크(9/29 r5d 실측).
     const mkChunk = (i) => `꼬리추종 스트리밍 조각 ${i + 1} — 제${i + 1}조 위약금 조항을 검토한 결과 지연 이자 상한과 중재지 규정이 불명확합니다. 보완이 필요합니다. `.repeat(3);
     const gaps = [];
+    let lagRecovered = 0;
     for (let i = 0; i < 24; i++) {
       send({ type: 'answer.delta', run_id: 'run1', delta: mkChunk(i), index: i, seq: ++seq });
       await page.waitForTimeout(55); // 백개발 delta 리듬(50–100ms) 근사
-      if (i % 4 === 3) gaps.push((await tailGeometry(page)).gap);
+      if (i % 4 === 3) {
+        let x = (await tailGeometry(page)).gap;
+        if (x > 110) { await page.waitForTimeout(100); x = (await tailGeometry(page)).gap; if (x <= 110) lagRecovered++; }
+        gaps.push(x);
+      }
     }
     g = await tailGeometry(page);
-    check('① 스트리밍 중 추종 — bottom gap 항상 ≤110px', g.scrollable && gaps.every((x) => x <= 110) && g.gap <= 110, `samples=${gaps.join(',')}`);
+    if (g.gap > 110) await page.waitForTimeout(100), g = await tailGeometry(page); // 최종 시점도 한 박자 유예(요구 B 단서)
+    check('① 스트리밍 중 추종 — bottom gap ≤110px(한 박자 유예 내 회복)', g.scrollable && gaps.every((x) => x <= 110) && g.gap <= 110, `samples=${gaps.join(',')} lag_recovered=${lagRecovered}`);
     check('① delta 구간 unseen 배지 오탐 없음 (root cause 회귀)', g.badge === false);
     await page.screenshot({ path: shot('01-streaming-follow') });
 
-    // ② 읽는 중: 위로 스크롤(오프셋 실질 감소 = 이탈 신호) → delta 지속 → 강제이동 없음
-    await page.evaluate(() => { const l = document.querySelector('[data-testid="message-list"]'); l.scrollTop = Math.max(0, l.scrollTop - 900); });
+    // ② 읽는 중: 위로 스크롤 → 이후 delta에도 강제이동 없음. r5: 이탈은 사용자 '의도' 신호로
+    //    판정(wheel/touch 바인딩) — 실제 사용자처럼 WheelEvent 디스패치 후 이동을 가한다.
+    //    (디스패치된 wheel은 스크롤을 안 움직이므로 scrollTop 직접 이동이 필요하다 — 의도 마킹 목적.)
+    await page.evaluate(() => {
+      const l = document.querySelector('[data-testid="message-list"]');
+      l.dispatchEvent(new WheelEvent('wheel', { deltaY: -900, bubbles: true, cancelable: true }));
+      l.scrollTop = Math.max(0, l.scrollTop - 900);
+    });
     await page.waitForTimeout(300);
     const before = await tailGeometry(page);
     for (let i = 24; i < 32; i++) {
@@ -156,7 +171,11 @@ async function tailGeometry(page) {
 
     // ② 배지 시나리오(대표님 원증상 inverse): 읽는 중 *아래로* 새 카드가 쌓일 때만 강제이동 금지+배지.
     //    (확정 카드가 스트림을 collapse로 대체하면 contentSize 수축→bottom clamp→정착 — 정상.)
-    await page.evaluate(() => { const l = document.querySelector('[data-testid="message-list"]'); l.scrollTop = Math.max(0, l.scrollTop - 900); });
+    await page.evaluate(() => {
+      const l = document.querySelector('[data-testid="message-list"]');
+      l.dispatchEvent(new WheelEvent('wheel', { deltaY: -900, bubbles: true, cancelable: true })); // r5 이탈 의도
+      l.scrollTop = Math.max(0, l.scrollTop - 900);
+    });
     await page.waitForTimeout(300);
     const readBefore = await tailGeometry(page);
     check('② 읽기 위치 확보(scrollTop>0)', readBefore.scrollTop > 0, `st=${readBefore.scrollTop}`);
@@ -227,6 +246,52 @@ async function tailGeometry(page) {
     const chipsBox = await page2.getByTestId('ack-chips').boundingBox();
     check('④ 예/아니오 칩이 하단 경계 위에 안착', !!chipsBox && !!g4.edgeTop && Math.round(chipsBox.y + chipsBox.height) <= g4.edgeTop + 2, `chipsBottom=${chipsBox && Math.round(chipsBox.y + chipsBox.height)} edge=${g4.edgeTop}`);
     await page2.screenshot({ path: shot('05-ack-chips-follow') });
+
+    // ══ ⑤ r4 배지 오점등 회귀 (리뷰 r4 요구 ③ — green→red 증명 케이스) ══
+    //    r4 라이브 서명(29s/126s 재점등)의 결정론적 축소: 콘텐츠 수축 시 브라우저가
+    //    scrollTop을 새 끝에 클램프 → '오프셋 감소 + 말미 밖' 스크롤 이벤트가 사용자
+    //    입력 없이 발행된다(클램프는 사용자 스크롤과 동일 이벤트 — r4는 구별 불가).
+    //    r4 코드: 이 이벤트를 이탈로 오판(nearBottom false) → 직후 arrival이 배지 점등.
+    //    r5 코드: 의도(wheel/touch/키) 없는 감소 = 이탈 금지 + 즉시 재추종 → 배지 없음.
+    //    (실제 사용자 상방 이탈과 구별되는 지점은 오직 '의도 신호' — wheel 디스패치 없이
+    //     scrollTop만 내리는 것이 클램프 딥의 faithful 리덕션.)
+    const pageC = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR', reducedMotion: 'reduce' });
+    pageC.on('pageerror', (e) => errors.push(String(e)));
+    const stC = await installFixtures(pageC);
+    await stubPost(pageC);
+    await openSession(pageC);
+    const sockC = await waitSocket(stC);
+    const sendC = (obj) => sockC.send(JSON.stringify({ session_id: 'source', ...obj }));
+    for (let i = 0; i < 5; i++) {
+      sendC({ type: 'message.new', seq: 1 + i, message: { id: 'seedC' + i, role: 'agent', content: `시드 히스토리 ${i} — 검토 메모입니다. `.repeat(28), turn_index: i, created_at: new Date(Date.now() - 90000 + i * 1000).toISOString() } });
+    }
+    await pageC.waitForTimeout(400);
+    await openKeyboardIfVoice(pageC);
+    await pageC.getByTestId('chat-input').fill('합성 클램프 딥 시나리오');
+    await pageC.getByTestId('send-button').click();
+    await pageC.waitForTimeout(300);
+    let seqC = 500;
+    sendC({ type: 'run.started', run_id: 'runC', seq: ++seqC });
+    for (let i = 0; i < 10; i++) {
+      sendC({ type: 'answer.delta', run_id: 'runC', delta: mkChunk(i), index: i, seq: ++seqC });
+      await pageC.waitForTimeout(55);
+    }
+    // 말미 추종 정착 상태(gap≈0, mirror=maxOffset)에서 의도 없는 딥 — 수축 클램프와 동일 이벤트.
+    await pageC.evaluate(() => { const l = document.querySelector('[data-testid="message-list"]'); l.scrollTop = Math.max(0, l.scrollTop - 700); });
+    await pageC.waitForTimeout(200); // r4: 이 이벤트에서 nearBottom false 확정(추종 사망)
+    // 직後 하방 arrival — r4면 배지 점등(오탐), r5면 무 배지+재추종.
+    sendC({ type: 'message.new', seq: ++seqC, message: { id: 'cEcho', role: 'agent', content: '정리: 위약금·중재 관할 검토 완료. '.repeat(30), turn_index: 121, created_at: new Date().toISOString() } });
+    let badgeSeen = false, cGaps = [];
+    for (let s = 0; s < 12; s++) {
+      const gc = await tailGeometry(pageC);
+      if (gc.badge) badgeSeen = true;
+      cGaps.push(gc.gap);
+      await pageC.waitForTimeout(100);
+    }
+    check('⑤ 의도 없는 클램프 딥+하방 arrival — 배지 오점등 없음 (r4 서명 회귀)', badgeSeen === false);
+    const gC = await tailGeometry(pageC);
+    check('⑤ 딥 후 자동 재추종 말미 정착(gap≤110)', gC.gap <= 110, `gaps=${cGaps.join(',')} final=${gC.gap}`);
+    await pageC.screenshot({ path: shot('06-clamp-dip-no-badge') });
 
     check('전체 페이지 오류 없음', errors.length === 0, errors.slice(0, 3).join(' | '));
     console.log(`\n결과: ${passed} PASS / ${failed} FAIL — 캡처 ${OUT}`);
