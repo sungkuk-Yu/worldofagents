@@ -17,6 +17,7 @@ import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './que
 import { clientReqColumns, findExistingByClientReqId, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing, normalizeClientReqId } from './idempotency';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
+import type { JournalRow } from './runCheckpoint';
 
 export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' | 'persona.line' }>;
 
@@ -156,10 +157,14 @@ export async function runTextTurn(
     turnId?: string;
     /** 선영속 user 행 (t_2133e4fc): processTurn은 이를 재사용(중복 insert 금지)하고,
      *  history에서 이 id를 배제(자신이 직전 발화로 오인되는 repeatUtterance 오탐 방지)한다. */
-    persistedUser?: MessagesRow }
+    persistedUser?: MessagesRow;
+    /** 내구성 실행 resume 시드 (t_7182aa8f③): 부팅 스캐너가 넘긴 graph_runs 행. */
+    resume?: JournalRow }
 ): Promise<TurnResult | IdempotentTurnResult> {
   const locale = opts.locale ?? config.defaultLocale;
-  const turnId = opts.turnId || randomUUID();
+  // resume 실행은 크래시 전 run_id를 thread로 재사용해야 체크포인터/결정적 메시지 id가
+  // 이어진다 (t_7182aa8f③). 선방송 run_id(t_2133e4fc)가 그다음, 일반 실행은 새 UUID.
+  const turnId = opts.resume?.run_id || opts.turnId || randomUUID();
   const base = { session_id: session.id, run_id: turnId };
   // 단일 페르소나 보이스 채널 (t_5cba9ebb): 모든 연출 발화가 여기 한 줄로 수렴한다.
   const voice = new PersonaVoice(opts.emit, base, locale);
@@ -175,7 +180,9 @@ export async function runTextTurn(
   const abort = new AbortController();
   // 첨부 선검증 (t_401c5bd1): 소유권 없는 attachment_ids로 고아 user 메시지/LLM 비용이 남지 않게
   // 턴 저장·실행 전에 실패시킨다. WS message.send/REST sendMessage/replies 공통 경로.
-  if (opts.attachmentIds?.length) await assertAttachmentsOwned(db, userId, opts.attachmentIds);
+  // resume는 진입 시점에 이미 검증·링크된 첨부 (assert가 '이미 연결됨'을 거부하므로 생략 —
+  // processTurn의 링크 read-back 가드가 구간 재시작을 담당).
+  if (!opts.resume && opts.attachmentIds?.length) await assertAttachmentsOwned(db, userId, opts.attachmentIds);
   const unregister = registerRun(session.id, { runId: turnId, abort, partial: () => partialText });
   let failure = { code: 'INTERNAL_ERROR', message: '턴 처리 중 오류가 발생했습니다.' };
   // 지연 진행도 티커: patienceMs 이후 "확인 중→거의 다 됨" 2회까지 이어 붙이고 그 뒤 정지한다.
@@ -205,7 +212,8 @@ export async function runTextTurn(
     // 선영속 경로(t_2133e4fc)는 사전 조회 스킵 — 행을 먼저 심은 주체가 handleTr이므로
     // 여기서 같은 client_req_id로 조회하면 자기 선영속 행에 자가-힛트해 턴이 통째로
     // deduped(턴 미실행)가 된다. 멱등 선방어는 persistUserUtteranceEarly가 이미 끝냈다.
-    const prior = opts.persistedUser ? null : await findExistingByClientReqId(db, session.id, clientReqId);
+    // resume도 스킵: 재실행 대상 run의 client_req_id는 자기 행에 이미 스탬프돼 자가-힛트한다.
+    const prior = (opts.resume || opts.persistedUser) ? null : await findExistingByClientReqId(db, session.id, clientReqId);
     if (prior) {
       completed = true; // finally의 run.failed 보장·드레인 트리거 우회 (턴을 실행한 적 없음)
       // ② clientId reconcile 에코 (t_3486b1d7, 프론트 전제조건 코멘트 #198): 같은 client_req_id의
@@ -277,6 +285,9 @@ export async function runTextTurn(
       persistedUser: opts.persistedUser,
       // ① 답변 스트리밍 전 체감 공백(기본 config.answerLeadMs=3000). 취소·0 통과.
       answerLeadMs: opts.answerLeadMs,
+      // 내구성 실행 resume (t_7182aa8f③): 저널 시드 행을 processTurn에 전달 — 저장 지점
+      // 가드(user/empathy/answer/tail)와 체크포인터 invoke(null)이 이 시드로 동작한다.
+      resume: opts.resume,
       // ⑤ user 카드 사전 emit — run.started 이전에 message.new user 발행 (cardFirst일 때만).
       // 선영속(t_2133e4fc)은 handleTr가 이미 message.new(user)를 선방송했다 — 여기서 재발행
       // 금지(같은 id 2회 = 프론트 카드 중복). id 캡처만 유지(userMessageId = 선영속 id).

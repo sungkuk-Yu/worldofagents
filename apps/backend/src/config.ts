@@ -196,6 +196,21 @@ export const config = {
    */
   neuronEngine: process.env.NEURON_ENGINE || 'langgraph',
 
+  /**
+   * 내구성 실행 (t_7182aa8f, 자비스 오케스트레이션 [4]) — LangGraph 체크포인터 + 런 저널.
+   * - LANGGRAPH_CHECKPOINT=true: run 단위 스레드(thread_id=run_id)로 슈퍼스텝마다 상태를
+   *   graph_checkpoints에 직렬화하고, graph_runs 레시피로 재시작 후 미완 run을 resume한다.
+   * - 기본 false: 현행 무영속 경로와 1:1 동일 (롤백 게이트 — 대표님 9/29 전보드 지시).
+   * 014 미적용 실DB는 첫 조회 실패(PGRST205)에서 래치되어 조용히 꺼진다 (008 관례).
+   */
+  runCheckpoint: {
+    enabled: process.env.LANGGRAPH_CHECKPOINT === 'true',
+    /** 부팅 resume 스캔 캡 — 한 번에 되살릴 최대 미완 run ( 폭주 방패 ). */
+    maxResumePerBoot: parseInt(process.env.LANGGRAPH_CHECKPOINT_MAX_RESUME || '10', 10),
+    /** resume 대상 최소 경과(ms) — 크래시로 막 죽은 run만 대상 (정상 진행과의 레이스 회피). */
+    resumeMinAgeMs: parseInt(process.env.LANGGRAPH_CHECKPOINT_RESUME_MIN_AGE_MS || '5000', 10),
+  },
+
   ws: {
     pingIntervalMs: 30000,
     pongTimeoutMs: 60000,
