@@ -54,7 +54,10 @@ import {
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { colors, webScreenMotion } from '../theme';
-import { ChatMessage, TurnGroup, groupByTurn, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
+import { ChatMessage, TurnGroup, FeedItem, groupByTurn, insertDateSeparators, isDateSeparator, buildTimeGroups, validateMessageInput, restoreFailedDraft, SuggestedQuestion } from '../lib/chatLogic';
+import DateSeparatorRow from '../components/chat/DateSeparatorRow';
+import DatePinnedHeader, { DatePinnedHandle, SepMetric } from '../components/chat/DatePinnedHeader';
+import { formatDateSeparator } from '../i18n/format';
 import QueueStrip from '../components/QueueStrip';
 import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
@@ -197,7 +200,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     exitSelection();
   }, [selectionMessages, isDemo, sessionId, exitSelection, setForkMessage, setUnavailableError]);
   const [sendFailed, setSendFailed] = useState(false);
-  const listRef = useRef<FlatList<TurnGroup>>(null);
+  const listRef = useRef<FlatList<FeedItem>>(null);
 
   const submit = useCallback(() => {
     const validation = validateMessageInput(input);
@@ -255,6 +258,35 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => () => { if (pendingClear.current) clearTimeout(pendingClear.current); }, []);
   const previousMessages = useRef<ChatMessage[]>([]);
   const groups = useMemo(() => groupByTurn(messages), [messages]);
+  // 날짜 구분선 합성 아이템 (t_34f3e92c②): groups 경계에 separator 삽입 — feed이 곧 FlatList data.
+  // scrollToIndex/KeyExtractor/CellRenderer layouts가 같은 인덱스·키 공간을 공유해 딥링크 정합성 유지.
+  const labelForDate = useCallback((first: ChatMessage) => (first.createdAt && Number.isFinite(new Date(first.createdAt).getTime())
+    ? formatDateSeparator(new Date(first.createdAt), i18n.language, { today: t('chat.dateToday'), yesterday: t('chat.dateYesterday') })
+    : null), [i18n.language, t]);
+  const feed = useMemo(() => insertDateSeparators(groups, labelForDate), [groups, labelForDate]);
+  // 상단 고정 날짜 탭 (t_34f3e92c②): 스크롤 오프셋과 구분선 레이아웃(layouts 맵 — CellRenderer가
+  // 이미 key→{y,height} 측정 중)에서 산출. sticky CSS가 아닌 오버레이 — react-native-web ScrollView의
+  // stickyHeaderIndices는 자식을 단일 컨테이너에 감싸 push-out(밀려남)이 아닌 겹침이 된다(소스 확인).
+  const pinnedRef = useRef<DatePinnedHandle>(null);
+  const listWrapRef = useRef<HTMLElement | null>(null);
+  const syncPinnedDate = useCallback(() => {
+    // 오프셋은 state가 아닌 DOM 실측 — 프로그램 scrollToEnd/scrollToOffset은 onScroll를
+    // guarantee하지 않아 ref 값이 낡으면 최상단에서도 고정 탭이 붙는 오동작(9/29 스모크 실측).
+    // RNW View ref는 호스트 DOM element를 포워딩한다(forwardedRef → hostRef).
+    const scroller = (listWrapRef.current?.querySelector?.('[data-testid="message-list"]') as HTMLElement | null) ?? null;
+    const liveOffset = scroller ? scroller.scrollTop : offset.current;
+    const seps: SepMetric[] = [];
+    for (const it of feed) {
+      if (!isDateSeparator(it)) continue;
+      const l = layouts.current.get(it.key);
+      if (l) seps.push({ key: it.key, label: it.label, y: l.y, h: l.height });
+    }
+    seps.sort((a, b) => a.y - b.y);
+    pinnedRef.current?.update(seps, liveOffset);
+  }, [feed]);
+  // feed 교체(히스토리 prepend/새 발화) 후 레이아웃 반영 타이 — 스크롤이 멈춘 상태에서도 고정 탭이
+  // 최신 레이아웃을 따르도록 2회 재동기(즉시/차 프레임)한다. CellRenderer onLayout이 추가 보정.
+  useEffect(() => { syncPinnedDate(); const r = requestAnimationFrame(syncPinnedDate); return () => cancelAnimationFrame(r); }, [syncPinnedDate]);
   // 답글 스레드 목록 모달 (t_2f45ccb1 확장 3) — 앱바 우측 버튼, 배지 = 활성(미종료) 스레드 수.
   const [threadsOpen, setThreadsOpen] = useState(false);
   const activeThreadCount = threads.filter((th) => !th.ended).length;
@@ -309,11 +341,11 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (!jumpTarget) return;
     // setTimeout(0) 지연 — DialogueListScreen의 refresh 패턴과 동일 (effect 동기 setState 회피)
     const find = setTimeout(() => {
-      const groupIndex = groups.findIndex((g) => g.items.some((m) => m.id === jumpTarget));
+      const groupIndex = feed.findIndex((it) => !isDateSeparator(it) && it.items.some((m) => m.id === jumpTarget));
       if (groupIndex >= 0) {
         if (highlightId !== jumpTarget) {
           setHighlightId(jumpTarget);
-          const groupKey = groups[groupIndex].key;
+          const groupKey = (feed[groupIndex] as TurnGroup).key;
           const layout = layouts.current.get(groupKey);
           try {
             if (layout) listRef.current?.scrollToOffset({ offset: Math.max(0, layout.y - 60), animated: true });
@@ -327,13 +359,14 @@ export default function ChatScreen({ navigation, route }: Props) {
       if (hasMoreHistory && !loadingHistory && focusTries.current < 12) { focusTries.current += 1; void loadOlder(); }
     }, 0);
     return () => clearTimeout(find);
-  }, [jumpTarget, jumpNonce, groups, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
+  }, [jumpTarget, jumpNonce, feed, hasMoreHistory, loadingHistory, loadOlder, highlightId]);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     offset.current = contentOffset.y;
     nearBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y <= 80;
     if (nearBottom.current) setUnseen(0);
-  }, []);
+    syncPinnedDate();
+  }, [syncPinnedDate]);
   useEffect(() => {
     const previous = previousMessages.current;
     previousMessages.current = messages;
@@ -361,17 +394,18 @@ export default function ChatScreen({ navigation, route }: Props) {
     nearBottom.current = false;
     await loadOlder();
   }, [groups, loadOlder, loadingHistory]);
-  const renderCell = useCallback(({ children, onLayout, item, style, onFocusCapture }: React.ComponentProps<NonNullable<React.ComponentProps<typeof FlatList<TurnGroup>>['CellRendererComponent']>>) => <View style={style} {...{ onFocusCapture }} onLayout={(event) => {
+  const renderCell = useCallback(({ children, onLayout, item, style, onFocusCapture }: React.ComponentProps<NonNullable<React.ComponentProps<typeof FlatList<FeedItem>>['CellRendererComponent']>>) => <View style={style} {...{ onFocusCapture }} onLayout={(event) => {
           onLayout?.(event);
           const id = item.key;
           const layout = event.nativeEvent.layout;
           layouts.current.set(id, { y: layout.y, height: layout.height });
+          if (isDateSeparator(item)) syncPinnedDate(); // 구분선 측정/재배치 직후 고정 탭 보정(스크롤 정지 중에도)
           const anchor = prependAnchor.current;
           if (anchor?.id === id && layout.y !== anchor.y) {
             prependAnchor.current = null;
             listRef.current?.scrollToOffset({ offset: Math.max(0, layout.y - anchor.relative), animated: false });
           }
-        }}>{children}</View>, []);
+        }}>{children}</View>, [syncPinnedDate]);
 
   const [viewportInset, setViewportInset] = useState(0);
   // t_4758f25d #311 패딩 계약: A 계층(투명 strip) 활성 기간에만 리스트 하단 패딩 = strip 높이
@@ -491,10 +525,11 @@ export default function ChatScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      <View style={styles.listWrap} ref={(el) => { listWrapRef.current = (el as unknown as HTMLElement | null) ?? null; }}>
       <FlatList
         ref={listRef}
-        data={groups}
-        renderItem={({ item }) => <ChatTurnRow
+        data={feed}
+        renderItem={({ item }) => isDateSeparator(item) ? <DateSeparatorRow separator={item} /> : <ChatTurnRow
           group={item}
           timeLabel={times.get(item.key)}
           highlightId={highlightId}
@@ -543,6 +578,10 @@ export default function ChatScreen({ navigation, route }: Props) {
           ) : null
         }
       />
+      {/* 상단 고정 날짜 탭 오버레이 (t_34f3e92c②) — 스크롤 박스(listWrap) 좌상단 absolute.
+          본문 DOM에는 data-testid="pinned-date" 한 개만 존재, 인-플로우 구분선과 별도 testID. */}
+      <DatePinnedHeader ref={pinnedRef} />
+      </View>
 
       {unseen > 0 && <Button onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
       {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.

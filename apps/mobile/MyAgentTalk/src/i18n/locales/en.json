@@ -27,6 +27,8 @@
     "sent": "Sent",
     "resend": "Resend",
     "delete": "Delete",
+    "dateToday": "Today",
+    "dateYesterday": "Yesterday",
     "saving": "Saving your response…",
     "history": "Load earlier messages",
     "connecting": "Connecting…",
