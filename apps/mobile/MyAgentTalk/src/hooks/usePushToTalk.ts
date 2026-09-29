@@ -141,7 +141,11 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
   }, []);
 
   const startCaptureIfIdle = useCallback(() => {
-    if (activeRef.current || !enabled) return;
+    if (activeRef.current) return;
+    // t_cb8e978a ①: talk.ready(WS subscribe+sid) 전 홀드는 조용히 삼키지 않는다 —
+    // '연결 중' 안내를 에러 경로(micDenied와 동일 폴백: VoiceStage fallback / PttBanner)로 노출.
+    // 김비서 판관 항목: 안내 텍스트 vs 연결 확립 후 자동 캡처 — 안내 텍스트로 결정(부메랑 캡처 금지).
+    if (!enabled) { setError('errors.micNotReady'); return; }
     activeRef.current = true;
     setActive(true);
     setError(null);
@@ -163,6 +167,9 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
   // ── t_5058e15f ② 지연 시작 (라이브 결함 #2): talk.ready=false 홀드의 조용한 스킵 폐지.
   // 그랜트(pressIn/키)는 유효하지만 WS subscribe 미완료가 cause → 캡처를 시작 못 한다.
   // 계약(holdStart.ts): 캡처만 대기, 상태 안내 pendingStart, 20s 타임아웃.
+  // t_cb8e978a ①(r1 판관): 홀드-'연결 중' 경로는 pendingStart가 흡수(안내 텍스트+폐기는 대체됨).
+  // errors.micNotReady 토스트 메커니즘은 캡처 실패/권한 거부 경로용으로 유지(아래 2.5s 소거 effect,
+  // ChatInputConsole hardError 제외).
   const clearPending = useCallback(() => {
     if (pendingWaitRef.current) { clearTimeout(pendingWaitRef.current); pendingWaitRef.current = null; }
     if (pendingRef.current) { pendingRef.current = false; setPendingStart(false); }
@@ -214,11 +221,22 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
     stopCapture(false);
   }, [stopCapture, clearPending]);
 
-  // 키보드 PTT — window 리스너. 입력 예외(③)·반복 이벤트 무시·우클릭/포커스아웃 시 릴리스 보장.
-  // t_5058e15f ②: 리스너 장착 게이트를 enabled(talk.ready)가 아닌 canHold로 — 연결 중에도
-  // V 키 홀드가 '연결 중' 지연 시작(pending)으로 이어진다(조용한 무반응 금지).
+  // '연결 중' 안내는 토스트성 — 2.5s 후 자동 소거(권한 거부 micDenied는 지속 노출).
+  // t_5058e15f ②(r1 판관): 홀드-'연결 중' 경로는 pendingStart가 흡수 — 이 토스트는
+  // 캡처 실패/경계 micNotReady 노출용에만 유지(t_cb8 A계층 계약 보존).
   useEffect(() => {
-    if (!canHold || !isWeb || typeof window === 'undefined') return;
+    if (error !== 'errors.micNotReady') return;
+    const timer = setTimeout(() => setError((e) => (e === 'errors.micNotReady' ? null : e)), 2500);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  // 키보드 PTT — window 리스너. 입력 예외(③)·반복 이벤트 무시·우클릭/포커스아웃 시 릴리스 보장.
+  // t_5058e15f ② + t_cb8e978a ①(동일 판정, 단일 구현): 장착 게이트는 enabled(talk.ready)가 아닌
+  // canHold(isWeb && 화면 활성) — ready 전에도 V 키 홀드가 '연결 중' 지연 시작(pending)으로 이어진다
+  // (조용한 무반응 금지; 홀드-연결 중 텍스트 경로는 pendingStart가 흡수).
+  // caveat(r1): canHold=isWeb 기반 — non-ready 홀드의 true-그랜트 보존은 웹 렌더 전용(현행 제품 범위).
+  useEffect(() => {
+    if (!canHold || typeof window === 'undefined') return;
     const key = pttKey;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -246,7 +264,7 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
       window.removeEventListener('keydown', onCancel);
       releaseAll(); // 언마운트(화면 이탈) 중이면 릴리스 전송으로 마무리
     };
-  }, [canHold, isWeb, pttKey, press, release, cancel]); // 키 재매핑/ press 변경 시 리스너 재장착
+  }, [canHold, isWeb, pttKey, press, release, cancel]); // 키 재매핑/ press 변경 시 리스너 재장착 (canHold=isWeb&&active — t_cb8 opts.active 게이트 흡수)
 
   // 언마운트 안전망 — 릴리스 미달 상태로 화면을 나가면 서버 안전망(30s/5m)에 기대지 않고 취소
   useEffect(() => () => {

@@ -1,12 +1,12 @@
 /**
- * 예/아니요 텔레그램식 50/50 버튼 행 LIVE 왕복 실측 — t_043539ff 브리프 → t_c62a2eb7 갱신
- * (대표님 9/28 격상: 소형 척 3초 검사 → 버튼 행 검사 — 3초 소멸 폐기, 발화 진행까지 유지).
+ * 예/아니요 텔레그램식 50/50 버튼 행 LIVE 왕복 실측 — t_043539ff 브리프 → t_c62a2eb7 → t_64e3edd6 갱신
+ * (9/29 #321: '무한 유지' 폐기 — 표시 후 2.5초 미터치 자동 소진 + 답변 자동 진행. 라이브 실측 회귀).
  * 백엔드: 기동 중 DEV_MODE=true (BACKEND_URL, 기본 :3020 — CORS에 서빙 포트 포함 확인) /
  *   정적서버: node tests/e2e/fr-serve.cjs dist-tc62a2eb7 8083
  *   (worldofagent.ai Netlify 자동빌드 정지 상태 — 라이브 배포는 김비서 수동 netlify deploy 소관, 메모 9/26)
  * 검증: ① 발화 후 공감 재질문 카드 하단 버튼 행 ≤수초 내 노출, 라벨=게이트 허용 텍스트 한 쌍
- *       ② 4.5초 경과 후에도 버튼 행 유지 (t_c62a2eb7 #2: 3초 소멸 폐기 — 상시 확인 가능)
- *       ③ affirmative 탭 → POST 발화 정확히 1회 왕복 + 탭 후 구 버튼 행 소멸(발화 진행)
+ *       ② 소진 전(노출 확인 후 ≤2.2s) 유지 + 3.4s(유예 포함) 시점 자동 소진 — 라이브 백엔드 실측
+ *       ③ affirmative 탭 → POST 발화 정확히 1회 왕복 + 탭 후 구 버튼 행 소멸(발화 진행) — 소진 창 내 즉시 탭(새 턴)
  *       ④ 새로고침 히스토리 재현 무버튼 (stale 가드)
  * 실행: APP_URL=http://localhost:8083 node tests/e2e/verify_ack_live.cjs
  */
@@ -64,10 +64,11 @@ function check(name, cond, extra = '') {
     await page.getByTestId('new-chat-button').click();
     await openKeyboardIfVoice(page);
 
-    // ① 첫 발화 → 공감 재질문 카드 하단 버튼 행 (empathy 행 message.new는 턴 마무리 직전 발행 — 30s 유예)
+    // ① 첫 발화 → 공감 재질문 카드 하단 버튼 행 (empathy 행 message.new는 턴 마무리 직전 발행.
+    //    라이브 LLM 왕복은 호스트 부하에 따라 30s↑ — t64e3_final과 동일 300s 유예)
     await page.getByTestId('chat-input').fill('오늘 일정을 정리하는 데 도와줄래?');
     await page.getByTestId('send-button').click();
-    const shown = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
+    const shown = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 300000 }).then(() => true).catch(() => false);
     check('LIVE ① 발화 후 재질문 카드 하단 예/아니요 버튼 행 노출', shown);
     const labels = shown ? await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="ack-chips"] > *')).map((k) => k.textContent.trim())) : [];
     check('LIVE ① 라벨 = 예(좌)/아니요(우) 고정 (t_1b123e59: 맞아요 폐기, template_id 무관)',
@@ -76,15 +77,24 @@ function check(name, cond, extra = '') {
     await page.screenshot({ path: path.join(OUT, '01-live-buttons.png') });
     if (!shown) throw new Error('버튼 행 미노출 — 후속 검사 불가');
 
-    // ② t_c62a2eb7 #2: 4.5초 경과 후에도 유지 (구 소형 척이면 이 시점 소멸 — 발화 진행 전 = 상시 확인 가능)
-    await sleep(4500);
-    check('LIVE ② 4.5초 경과 후 버튼 행 유지 (3초 소멸 폐기)', (await page.getByTestId('ack-chips').count()) >= 1);
-    await page.screenshot({ path: path.join(OUT, '02-alive-4.5s.png') });
+    // ② t_64e3edd6 #321: 소진 전 유지 + 미터치 자동 소진 (라이브 왕복 실측). t0 = 노출 확인 시점(생성 후).
+    //    실측 소진 ≈2.5s + tick 200ms → 3.4s 시점 확정 소멸. 이후 ③은 새 턴에서 소진 창 내 즉시 탭.
+    const t0 = Date.now();
+    await sleep(1200);
+    check('LIVE ② 소진 전(≤2.4s) 버튼 행 유지', (await page.getByTestId('ack-chips').count()) >= 1, `elapsed=${Date.now() - t0}ms`);
+    await page.screenshot({ path: path.join(OUT, '02-alive-before-burn.png') });
+    await sleep(Math.max(0, 3400 - (Date.now() - t0)));
+    check('LIVE ② 2.5초 미터치 자동 소진 (무한 유지 폐기, 3.4s 유예 내)', (await page.getByTestId('ack-chips').count()) === 0, `elapsed=${Date.now() - t0}ms`);
 
-    // ③ affirmative 탭 → POST 발화 정확히 1회 왕복 + 발화 진행으로 구 버튼 행 소멸
+    // ③ 새 턴에서 affirmative 탭 → POST 발화 정확히 1회 왕복 + 발화 진행으로 구 버튼 행 소멸 (소진 창 내 탭)
+    await page.getByTestId('chat-input').fill('주간 브리핑도 준비해줄래?');
+    await page.getByTestId('send-button').click();
+    const shown2 = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 300000 }).then(() => true).catch(() => false);
+    check('LIVE ③ 두 번째 턴 재질문 버튼 행 노출(탭 전제)', shown2);
+    const labels2 = shown2 ? await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="ack-chips"] > *')).map((k) => k.textContent.trim())) : labels;
     const before = posts.length;
-    const yesLabel = labels.length === 2 ? labels[0] : '예'; // 좌측 affirmative (t_1b123e59 순서: 좌 '예'/우 '아니요')
-    await page.getByTestId('ack-chip-yes').click({ timeout: 3000 }).catch(() => {});
+    const yesLabel = labels2.length === 2 ? labels2[0] : '예'; // 좌측 affirmative (t_1b123e59 순서: 좌 '예'/우 '아니요')
+    if (shown2) await page.getByTestId('ack-chip-yes').click({ timeout: 3000 }).catch(() => {}); // 노출 직후 — 2.5s 창 내
     let tapped = false;
     for (let i = 0; i < 16 && !tapped; i++) { tapped = posts.slice(before).some((c) => c === yesLabel); if (!tapped) await sleep(250); }
     check('LIVE ③ 버튼 탭 → POST content = 라벨 텍스트 정확히 1회 왕복', tapped && posts.slice(before).length === 1, `label=${yesLabel} posts=${JSON.stringify(posts.slice(before))}`);

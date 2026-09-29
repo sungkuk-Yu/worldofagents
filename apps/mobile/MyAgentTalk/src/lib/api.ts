@@ -151,6 +151,18 @@ export interface ServerChatMessage {
   thread_reply_count?: unknown;
   created_at?: string;
   dialogue_type?: string | null;
+  /** random_id 멱등 키 (t_3486b1d7 ①② / t_17edbc88 ①) — user 행의 client_req_id 에코. 013 미적용 행은 null. */
+  client_req_id?: string | null;
+}
+
+/** GET /api/sessions/:id/events 응답 본문 (t_17edbc88 ③ / 백엔드 eventlog.eventSyncState)
+ *  events는 스탬프된 ServerMessage[] (seq 채번된 순서). truncated=true → 500-캡으로 옛 이벤트가
+ *  밀려남: 클라이언트는 GET /messages 전량 캐치업으로 전환. seq_epoch 변경 = 서버 재기동. */
+export interface EventSyncBody {
+  events?: Record<string, unknown>[];
+  current_seq?: number;
+  seq_epoch?: string;
+  truncated?: boolean;
 }
 
 /** POST /api/sessions/:id/messages 동기 응답 (api-design.md §3.4) */
@@ -158,6 +170,10 @@ export interface SendMessageResult {
   /** 백엔드 ingress 드롭 (t_c31e3f45 요구①): 3초 창 동일 content 재접수 시 { deduped:true, message } 만 내려온다. */
   deduped?: boolean;
   message?: string;
+  /** 백엔드 질문 큐 202 (t_344e047a): 실행 중 메인 발화 적재 — user_message_id 없이 내려온다.
+   *  프론트는 낙관 pending 카드를 유지하고 queue.updated로 체크포인트를 연결한다 (t_17edbc88 ①). */
+  queued?: boolean;
+  queue_item?: { id: string; status: string; position: number };
   messages?: { user: ServerChatMessage | null; empathy: ServerChatMessage | null; answer: ServerChatMessage | null };
   llm?: { used: boolean; model: string | null; fallback: boolean; usage?: unknown };
   turn_id?: string;
@@ -282,9 +298,21 @@ export const api = {
   getPendingReplies: (sessionId: string) =>
     request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(sessionId)}/pending`),
 
+  /** seq diff sync catch-up — GET /api/sessions/:id/events?after_seq (t_17edbc88 ③ / 백엔드 t_3486b1d7 ③)
+   *  텔레그램 getDifferences 상당: WS 재연결 후 서버 이벤트 버퍼(500-캡)의 갭을 원래 seq 순서로.
+   *  계약: {events, current_seq, seq_epoch, truncated}. EVENT_SYNC_DISABLED/구번들 404 → errors.unsupported
+   *  (호출자가 최신 페이지 갱신 폴백으로 전환). planEventSyncReplay(chatLogic)가 소비 게이트. */
+  getSessionEvents: (sessionId: string, afterSeq: number) =>
+    request<ApiEnvelope<EventSyncBody>>(`/api/sessions/${encodeURIComponent(sessionId)}/events?after_seq=${Math.max(0, Math.floor(afterSeq))}`),
+
   /** 텍스트 메시지 전송 — POST /api/sessions/:id/messages (동기 전체 턴 결과 반환)
-   *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크. */
-  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string }) =>
+   *  attachment_ids (t_401c5bd1): /api/upload로 선업로드한 첨부 ID — 서버가 이 user 메시지에 링크.
+   *  reply_to_id (t_62897e88/t_02f58030): 답글 인용 원문 — invalid는 서버가 무시하고 발화 통과.
+   *  client_req_id (t_17edbc88 ① / 백엔드 t_3486b1d7 ①②): random_id 상당 멱등 키. 낙관 행의
+   *  ChatMessage.clientReqId(uuid v4)와 동일 값을 전송 — 재전송 시 재사용(서버 dedupe),
+   *  응답의 user_message_id/message.client_req_id로 서버 에코와 in-place 병합한다.
+   *  client_exec_id는 레거시 실행 추적 키(t_3486b1d7 이전 계약)로 유지 — 서버는 이를 무시한다. */
+  sendMessage: (sessionId: string, content: string, clientExecId?: string, options?: { parent_message_id?: string; attachment_ids?: string[]; reply_to_id?: string; client_req_id?: string }) =>
     request<ApiEnvelope<SendMessageResult>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: JSON.stringify({ ...options, content, client_exec_id: clientExecId, message_type: 'text', attachments: [] }),

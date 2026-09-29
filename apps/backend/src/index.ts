@@ -26,6 +26,7 @@ import { websocketHandler } from './websocket/handler';
 import { logger } from './utils/logger';
 import { ensureDefaultNeurons } from './neurons/registry';
 import { supabaseAdmin } from './lib/supabase';
+import { resumeOpenRuns } from './lib/resume';
 
 export const app = Fastify({
   logger: true,
@@ -128,6 +129,11 @@ export async function start(): Promise<void> {
   }
   await app.listen({ port: config.port, host: config.host });
   logger.info(`🚀 MyAgentTalk Backend running on ${config.host}:${config.port} (mode: ${config.devMode ? 'dev' : 'prod'})`);
+  // 내구성 실행 (t_7182aa8f③): 미완 run resume — listen 이후(허브 준비됨), 부팅 차단 금지(백그라운드).
+  // flag off/014 래치는 no-op. 재시작·재배포로 죽은 답변을 이어 완성한다.
+  void resumeOpenRuns().then(n => {
+    if (n > 0) logger.info(`♻️ 부팅 resume 완료: ${n}개 run 이어 실행`);
+  }).catch(err => logger.warn(`부팅 resume 실패(서버는 계속): ${(err as Error).message}`));
 }
 
 export async function stop(): Promise<void> {

@@ -76,9 +76,11 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   };
   // 큐잉 해지: loading이 끝난 순간의 agents/연결 상태 기준으로 그 자리에서 실행.
   // 오프라인 해지(서버 실패)면 폐기 — 원래 버튼이 비활성인 상태와 동일(오프라인 패널이 안내).
+  // error 확정 시 폐기(t_cb8 드레인 계약): 실패한 starting의 재자동 실행 루프 금지 — 오류 배너 확인 후 사용자 판단.
   useEffect(() => {
     if (loading || !queuedTap.current) return;
     queuedTap.current = false;
+    if (error) return;
     const signedOutNow = error === 'errors.auth' && !loading;
     if (!connected && !signedOutNow) return;
     if (newChatQueuedAction(agents.length > 0) === 'chooserOpen') setChoosing(true);
@@ -117,7 +119,7 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       <Text style={styles.errorText}>{error === 'errors.auth' ? t('dialogueList.loginHint', { error: t(error) }) : t(error)}</Text>
     </TouchableOpacity>}
     {/* t_5058e15f ①: 로딩 중에는 disabled 대신 탭 큐잉(onPress가 queue로 흡수) — 첫 탭 무반응 결함 제거.
-        starting(스피너 노출 중)/offline(패널 안내)만 비활성. */}
+        starting(스피너 노출 중)/offline(패널 안내)만 비활성. (t_cb8e978a 인라인 큐잉은 lib/newChatTap 단일 구현으로 흡수) */}
     <TouchableOpacity style={styles.newChatButton} onPress={onNewChatTap} disabled={starting || offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
       {starting && <ActivityIndicator size="small" color={colors.onPrimary} />}
       <Text style={styles.newChatText}>{t(starting ? 'dialogueList.preparing' : 'dialogueList.new')}</Text>

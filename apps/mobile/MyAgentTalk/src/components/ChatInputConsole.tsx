@@ -81,7 +81,10 @@ export default function ChatInputConsole({
   }, [forceOpenKeyboard]);
   // 폴백(error): 스테이지는 유지(거부 해제 후 재홀드 가능)하되 안내 한 줄이 뜨고,
   // 입력창이 자동 개방되어 텍스트만으로 완전 작동(t_e735d936 요구 1 계승).
-  const inputOpen = !voiceMode || keyboardOpen || !!pttError;
+  // t_cb8e978a ①: '연결 중'(micNotReady)은 토스트성 안내 — 권한 박탈이 아니므로 키보드 강제
+  // 개방으로 A 계층을 떠밀지 않는다(스테이지 안내 줄만).
+  const hardError = !!pttError && pttError !== 'errors.micNotReady';
+  const inputOpen = !voiceMode || keyboardOpen || hardError;
   useEffect(() => { if (voiceMode && inputOpen) inputRef.current?.focus(); }, [voiceMode, inputOpen]);
   // A 계층 활성 = 패딩 계약의 단일 판정 (화면은 strip 높이지만 소유, 마운트 여부는 여기가 안다).
   // t_e735d936 parity: error가 나도 A는 유지(재홀드 재시도), 안내 줄이 뜨고 입력창이 병행 개방된다.
