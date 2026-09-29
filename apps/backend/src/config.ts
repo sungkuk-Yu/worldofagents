@@ -170,6 +170,26 @@ export const config = {
   },
 
   /**
+   * 메시지 프로토콜 (t_3486b1d7, 대표님 9/29 텔레그램标准 이식 + 김비서 4턴 A2A 확정 필드 계약).
+   * 롤백 게이트: 각 기능 env 플래그로 독립 온/오프 — off 시 484eec2f 베이스 동작과 1:1 동일.
+   * - idempotency (DELTA… 생략, MESSAGE_IDEMPOTENCY_DISABLED): send 프레임 client_req_id 멱등
+   *   (random_id 상당). 013 미적용 실DB는 래치로 컬럼 생략 폴백 (008/011 관례).
+   * - userCardFirst (USER_CARD_FIRST=false로 off): user 카드(message.new)가 run.started보다 먼저,
+   *   run.started에 user_message_id·persona line(run.progress)에 source_message_id 태움.
+   * - deltaBatchMs/deltaBatchChars (DELTA_BATCH_MS, DELTA_BATCH_CHARS): answer.delta 백프레셔 —
+   *   whichever-first 배칭. MS=0이면 비배칭(구동작).
+   * - seqDiffSync (EVENT_SYNC_DISABLED=true로 off): GET /:id/events?after_seq (getDifferences 상당)
+   *   + subscribed/events의 seq_epoch (서버 재기동 시 버퍼 에포크 교체 → 클라이언트 전량 캐치업 신호).
+   */
+  protocol: {
+    idempotency: process.env.MESSAGE_IDEMPOTENCY_DISABLED !== 'true',
+    userCardFirst: process.env.USER_CARD_FIRST !== 'false',
+    deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
+    deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
+    seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',
+  },
+
+  /**
    * 뉴런 오케스트레이션 엔진 선택:
    * - 'langgraph': LangGraph StateGraph 기반 (설치/런타임 정상 시)
    * - 'simple'   : 동일 노드 로직을 순차 파이프라인으로 실행 (폴백)

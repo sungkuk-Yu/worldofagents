@@ -138,5 +138,8 @@ export function serializeMessage(row: MessagesRow): MessagesRow {
     // 요약 스냅샷은 structured_payload.reply_to에 유지 — 최상위 승격 없음: raw insert echo와
     // serialize가 같은 형태여야 하는 toEqual 계약(thread-fork)과 실DB 컬럼 형상을 보존한다.
     reply_to_id: row.reply_to_id ?? null,
+    // random_id 멱등 (t_3486b1d7 ①②) — 013 미적용/dev는 null 정규화. 프론트 reconcile은
+    // message.client_req_id로 optimistic 카드와 병합하므로 raw insert echo와 같은 형태가 필요하다.
+    client_req_id: row.client_req_id ?? null,
     dialogue_type: row.dialogue_type ?? null, structured_payload: row.structured_payload ?? {} };
 }

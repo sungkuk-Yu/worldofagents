@@ -31,6 +31,8 @@ export default defineConfig({
       // 필요한 테스트가 config.answerLeadMs / config.suggestedQuestions.enabled를 켠다.
       ANSWER_LEAD_MS: '0',
       SUGGEST_QUESTIONS_DISABLED: 'true',
+      // t_3486b1d7 ④: delta 배칭 지연을 단위 테스트에서 해제 — 즉시 emit 모드로 기존 계약 유지.
+      DELTA_BATCH_MS: '0',
     },
     testTimeout: 20000,
     hookTimeout: 20000,

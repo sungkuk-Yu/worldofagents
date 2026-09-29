@@ -131,6 +131,10 @@ export interface MessagesRow {
   /** 답글 인용 원문 ID(t_02f58030) — 마이그레이션 012. 같은 세션 참조, 원문 삭제 시 null. 012 미적용 환경은 undefined.
    *  인용 요약 스냅샷은 structured_payload.reply_to = { message_id, by, text } (프론트 인용바 소스). */
   reply_to_id?: string | null;
+  /** random_id 멱등 식별자(t_3486b1d7①) — 마이그레이션 013. user 행만 보유, agent 행 null.
+   *  013 미적용 환경은 undefined. 프론트 ② reconcile: optimistic 카드 client_req_id와 message.new의
+   *  message.client_req_id가 같으면 같은 message_id 재이벤트로 in-place replace(이중 렌더 금지). */
+  client_req_id?: string | null;
   created_at: string;
 }
 
