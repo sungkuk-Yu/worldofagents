@@ -40,6 +40,8 @@ interface Props {
   level: number;
   /** errors.* 키 — 권한 거부/캡처 실패 폴백 안내 */
   pttError: string | null;
+  /** t_5058e15f ②: hold grant + WS 준비 대기 — '연결 중' 안내 표시(캡처 지연 시작) */
+  pttPending?: boolean;
   onPressHoldStart: () => void;
   onHoldEnd: () => void;
   onHoldAbort: () => void;
@@ -60,7 +62,7 @@ interface Props {
 export default function ChatInputConsole({
   value, onChangeText, onSubmit, isDemo,
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
-  voiceMode, initialKeyboardOpen, recording, level, pttError,
+  voiceMode, initialKeyboardOpen, recording, level, pttError, pttPending,
   onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive, forceOpenKeyboard, viewportHeight,
   onStageActiveChange,
 }: Props) {
@@ -108,6 +110,7 @@ export default function ChatInputConsole({
             recording={recording}
             level={level}
             error={pttError}
+            pending={pttPending}
           />
         </View>
       )}

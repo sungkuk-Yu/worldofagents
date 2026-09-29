@@ -1,5 +1,5 @@
 // 대화 목록과 에이전트 선택은 서버의 실제 데이터를 카드로 표시한다.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
@@ -7,6 +7,7 @@ import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import ResumeBanner from '../components/ResumeBanner';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
+import { newChatTapAction, newChatQueuedAction } from '../lib/newChatTap';
 import { formatDayLabel } from '../i18n/format';
 import { BoardIcon, FeedIcon, GearIcon, MicIcon, StarIcon, VaultIcon } from '../components/Icon';
 
@@ -23,6 +24,10 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const [connected, setConnected] = useState(false);
   const [starting, setStarting] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  // 탭 큐잉 (t_5058e15f ①/9/30 실패로그 #1): 라이브 첫 refresh(DNS+TLS 수 초) 동안의 '새 대화'
+  // 탭이 disabled에 조용히 흡수됨(재탭 2~5회 실측) — 흡수 대신 큐잉하고 로딩 해지 시점의
+  // 데이터로 그 순간 실행(재탭과 동일 결과). 실행은 loading→!loading 전환 useEffect에서.
+  const queuedTap = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const agentTitle = (agent?: AgentSummary) => agent?.preset?.titleKey && i18n.exists(agent.preset.titleKey)
     ? t(agent.preset.titleKey) : agent?.name || t('common.agent');
@@ -60,6 +65,25 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     } catch (e) { setError(errorKey(e)); }
     finally { setStarting(false); }
   };
+  // '새 대화' 탭 (t_5058e15f ①): 상태 판정은 lib/newChatTap 순수 로직.
+  // 로딩 중 탭 = 조용한 흡수 대신 큐잉 — 로딩 해지 시점의 데이터로 실행(재탭과 동일 결과).
+  const onNewChatTap = () => {
+    const action = newChatTapAction({ starting, loading, offline, hasAgents: agents.length > 0, choosing });
+    if (action === 'queue') { queuedTap.current = true; return; }
+    if (action === 'chooserOpen') { setChoosing(true); return; }
+    if (action === 'chooserClose') { setChoosing(false); return; }
+    if (action === 'start') void startChat();
+  };
+  // 큐잉 해지: loading이 끝난 순간의 agents/연결 상태 기준으로 그 자리에서 실행.
+  // 오프라인 해지(서버 실패)면 폐기 — 원래 버튼이 비활성인 상태와 동일(오프라인 패널이 안내).
+  useEffect(() => {
+    if (loading || !queuedTap.current) return;
+    queuedTap.current = false;
+    const signedOutNow = error === 'errors.auth' && !loading;
+    if (!connected && !signedOutNow) return;
+    if (newChatQueuedAction(agents.length > 0) === 'chooserOpen') setChoosing(true);
+    else void startChat();
+  }, [loading, connected, error, agents.length]);
   // 미로그인(error=auth)은 온보딩, 오프라인은 네트워크/서버 실제 실패에만 (t_c0fb3b22 P0)
   const signedOut = error === 'errors.auth' && !loading;
   const offline = !connected && !loading && !signedOut;
@@ -92,7 +116,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     {error && <TouchableOpacity style={styles.errorBar} onPress={() => error === 'errors.auth' ? navigation.navigate('Login') : void refresh()} testID="login-hint">
       <Text style={styles.errorText}>{error === 'errors.auth' ? t('dialogueList.loginHint', { error: t(error) }) : t(error)}</Text>
     </TouchableOpacity>}
-    <TouchableOpacity style={styles.newChatButton} onPress={() => agents.length ? setChoosing(!choosing) : void startChat()} disabled={starting || loading || offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
+    {/* t_5058e15f ①: 로딩 중에는 disabled 대신 탭 큐잉(onPress가 queue로 흡수) — 첫 탭 무반응 결함 제거.
+        starting(스피너 노출 중)/offline(패널 안내)만 비활성. */}
+    <TouchableOpacity style={styles.newChatButton} onPress={onNewChatTap} disabled={starting || offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
       {starting && <ActivityIndicator size="small" color={colors.onPrimary} />}
       <Text style={styles.newChatText}>{t(starting ? 'dialogueList.preparing' : 'dialogueList.new')}</Text>
     </TouchableOpacity>
