@@ -3,7 +3,7 @@
 // 표시 후 ACK_AUTO_PROCEED_MS 경과 미터치 → 소멸. 시각이 상태를 결정하므로 exposed 상태에서 시계 리렌더가
 // 필요하다 — 단, 노출 창이 2.5초로 유한하므로 재질문 등장 시에만 시작하는 자가 종료 타이머(폴링 상주 금지).
 // 렌더는 순수 유지(react-hooks/purity): 시각은 state로만 소비 (useChatSession과 동일 관례).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { visibleAckChip, type AckChipView } from '../lib/ackChips';
 import type { ChatMessage } from '../lib/chatLogic';
 
@@ -11,19 +11,16 @@ const TICK_MS = 200;
 
 export function useAckChip(messages: ChatMessage[]): AckChipView | null {
   const [now, setNow] = useState(() => Date.now());
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const view = visibleAckChip(messages, now);
+  const viewId = view?.id ?? null;
   // 노출 중일 때만 시계 틱 — 소진(2.5s) 또는 user 발화 소멸 시 자동 정리. 상주 폴링 금지.
   useEffect(() => {
-    if (!view) return;
+    if (!viewId) return;
     const tick = setInterval(() => setNow(Date.now()), TICK_MS);
-    timerRef.current = tick;
-    return () => { clearInterval(tick); if (timerRef.current === tick) timerRef.current = null; };
-  }, [view?.id]);
+    return () => clearInterval(tick);
+  }, [viewId]);
   // 새 행(재질문 등장/낙관 user append)마다 시계 갱신 → 다음 렌더에서 판정 즉시 반영.
-  const lastMessages = useRef(messages);
-  useEffect(() => {
-    if (lastMessages.current !== messages) { lastMessages.current = messages; setNow(Date.now()); }
-  }, [messages]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setNow(Date.now()); }, [messages]);
   return view;
 }
