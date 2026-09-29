@@ -27,9 +27,9 @@ export type ClientMessage =
   | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
   | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string; mode?: PttMode; device?: string } }
-  | { type: 'audio.end'; session_id: string }
+  | { type: 'audio.end'; session_id: string; client_req_id?: string }
   | { type: 'audio.cancel'; session_id: string }
-  | { type: 'transcript'; text: string; session_id: string; is_final?: boolean }
+  | { type: 'transcript'; text: string; session_id: string; is_final?: boolean; client_req_id?: string }
   | { type: 'ping'; ts?: number }
   | { type: 'pong'; ts?: number };
 

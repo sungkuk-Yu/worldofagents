@@ -146,6 +146,10 @@ export interface ProcessTurnOptions {
   onUserCreated?(userRow: MessagesRow): void;
   /** ⑤ run.started emit 타이밍 (t_3486b1d7): user 카드 emit 직후 콜백. chatTurn이 여기서 run.started를 발행해 이벤트 순서 계약 충족. */
   onRunReady?(): void;
+  /** 선(先)영속 user 행 (t_2133e4fc): 음성 전사 확정 시 handleTr가 runTextTurn 실행 전에 저장·선방송한
+   *  행. processTurn은 insert를 건너뛰고 이 id를 재사용(중복 영속 금지), history에서 자기 행을
+   *  배제(재전송 오탐·LLM 컨텍스트 복제 방지), 에이전트 번호는 최신 turn_index 뒤에서 받는다. */
+  persistedUser?: MessagesRow;
 }
 
 export interface TurnResult {
@@ -857,10 +861,15 @@ export async function processTurn(
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
         history = [root, ...(replies || []).reverse()];
       } else if (!history) {
-        const { data, error } = await db.from('messages').select('role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
+        const { data, error } = await db.from('messages').select('id,role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
           .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3));
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
-        history = (data || []).reverse();
+        // 선(先)영속 행 배제 (t_2133e4fc): 이번 발화가 history의 "직전 user 행"으로 자기 자신과
+        // 만나면 repeatUtterance 오탐 + LLM 컨텍스트 복제가 된다. 배제는 load-only —
+        // lastUserUtterance 등 history 판정자 전부에 일관 적용(호출 지점 추가 수정 불필요).
+        history = (data || []).reverse().filter((m: any) => !opts.persistedUser || m.id !== opts.persistedUser.id);
+      } else if (opts.persistedUser) {
+        history = history.filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id);
       }
 
       // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴이면
@@ -954,6 +963,22 @@ export async function processTurn(
       // userCols(처음 포착): 진입 시 스탬프 시도 여부 — 래치 판정 가드용.
       // insert 안에서는 매 시도 재계산: 래치 on 후 재시도에서 컬럼이 실제 제외되게.
       const userCols = clientReqColumns(opts.clientReqId ?? null);
+
+      // 선(先)영속 user 행 재사용 (t_2133e4fc): handleTr가 run 전에 저장·선방송한 행.
+      // insert 건너뛰기 = 같은 user message_id 유지(중복 영속 금지, ingress contract).
+      // 013 멱등 사다리(사전 조회·강등·CONFLICT)는 persistUserUtteranceEarly가 선처리 —
+      // 선영속 경로가 멱등을 우회하는 구멍이 되지 않는다.
+      // user 행은 이미 존재하므로 this turn의 에이전트 번호는 락 획득 시점의 최신 최대+1로
+      // 재계산 — 선저장 이후 락 밖에서 끼어든 동시 턴과 UNIQUE(session_id,turn_index) 충돌 방지.
+      let msgUserEarly: MessagesRow | null = null;
+      if (opts.persistedUser) {
+        msgUserEarly = opts.persistedUser;
+        // user 행은 이미 존재 → nextTurn을 "직전 max"로 맞춘다 (max+1 - 1).
+        // 낙관 경로: user=T면 empathy=T+1, answer=T+2 (정상 경로와 동일 인접 번호).
+        // 락 밖 동시 턴이 T 뒤에 행을 심었으면 max가 그 뒤로 밀려 UNIQUE 충돌이 없다.
+        nextTurn = (await getNextTurn()) - 1;
+      }
+
       // 답글 인용 컬럼/요약 (t_02f58030): replyCols는 래치(on)면 빈 객체. 강등 2종 —
       //  · column-drop: 012 미적용(PGRST204/42703) → 래치 후 컬럼 생략 재시도 (011 관례, 요약 payload 유지)
       //  · ref-drop: 23503/FK·CROSS_SESSION 트리거(검증 후 원문 삭제 경쟁 등) → 인용 정보 탈락 재시도 (발화 통과)
@@ -984,29 +1009,37 @@ export async function processTurn(
         .select()
         .single();
 
-      let { data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload });
-      // client_req 유니크 충돌(t_3486b1d7 ①) = 사전 조회를 뚫고 들어온 재전송 레이스 —
-      // turn_index 충돌 리트라이로 삼키면 중복 user 행이 영속된다. 즉시 CONFLICT로 마감.
-      if (errUser && isClientReqConflict(errUser)) {
-        throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
-      }
-      // 013 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
-      // 래치 후 컬럼 없이 1회 재시도 (008/011 관례). insert 내 clientReqColumns가 재계산되어 제외.
-      if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
-        markIdempotencyColumnMissing();
+      // 선(先)영속 재사용 시 insert 전 구간 스킵 (t_2133e4fc) — 같은 user message_id 유지.
+      // 013 멱등 사다리(사전 조회→컬럼 강등→CONFLICT)는 persistUserUtteranceEarly가 선처리했다.
+      let msgUser: MessagesRow | null = null;
+      let errUser: { message?: string } | null = null;
+      if (msgUserEarly) {
+        msgUser = msgUserEarly as unknown as MessagesRow;
+      } else {
         ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
-      }
-      if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
-        nextTurn = await getNextTurn();
-        ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
-      }
-      if (errUser) {
-        const replyRetry = classifyReplyInsertError(errUser, Object.keys(replyCols).length > 0);
-        if (replyRetry === 'column-drop') {
-          markReplyToColumnMissing();
-          ({ data: msgUser, error: errUser } = await saveUser(replyPayload));
-        } else if (replyRetry === 'ref-drop') {
-          ({ data: msgUser, error: errUser } = await saveUser({}));
+        // client_req 유니크 충돌(t_3486b1d7 ①) = 사전 조회를 뚫고 들어온 재전송 레이스 —
+        // turn_index 충돌 리트라이로 삼키면 중복 user 행이 영속된다. 즉시 CONFLICT로 마감.
+        if (errUser && isClientReqConflict(errUser)) {
+          throw new ApiError('CONFLICT', '중복 전송이 이미 접수되었습니다.');
+        }
+        // 013 미적용 실DB 직격(PGRST204/42703, 사전 조회를 거치지 않은 processTurn 직접 호출) —
+        // 래치 후 컬럼 없이 1회 재시도 (008/011 관례). insert 내 clientReqColumns가 재계산되어 제외.
+        if (errUser && userCols.client_req_id !== undefined && isMissingClientReqColumn(errUser)) {
+          markIdempotencyColumnMissing();
+          ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
+        }
+        if (errUser && /duplicate|unique/i.test(errUser.message || '')) {
+          nextTurn = await getNextTurn();
+          ({ data: msgUser, error: errUser } = await saveUser({ ...replyCols, ...replyPayload }));
+        }
+        if (errUser) {
+          const replyRetry = classifyReplyInsertError(errUser, Object.keys(replyCols).length > 0);
+          if (replyRetry === 'column-drop') {
+            markReplyToColumnMissing();
+            ({ data: msgUser, error: errUser } = await saveUser(replyPayload));
+          } else if (replyRetry === 'ref-drop') {
+            ({ data: msgUser, error: errUser } = await saveUser({}));
+          }
         }
       }
       if (errUser || !msgUser) throw new ApiError('INTERNAL_ERROR', errUser?.message || '사용자 메시지 저장 실패');
