@@ -18,6 +18,8 @@ interface Props {
   highlightId: string | null;
   /** t_c62a2eb7: 예/아니요 대형 버튼 행이 붙은 공감 재질문 카드 id (없으면 null — 수명 판정은 화면/useAckChip 소유) */
   ackChipId?: string | null;
+  /** t_64e3edd6 ②: ack 결과(탭/조이스틱 '예'·'아니요' 발화) user 카드 id 집합 — 렌더 제외(전송은 정상 진행) */
+  hiddenAckIds?: Set<string>;
   /** 버튼 탭 → '예'/'아니요'(또는 어미 바인딩 '맞아요'/'아니에오') 텍스트 발화 (백엔드 확인 발화 게이트 계약 텍스트) */
   onSendAck?: (text: string) => void;
   decorate: (m: ChatMessage) => ChatMessage;
@@ -37,13 +39,17 @@ interface Props {
 }
 
 export default function ChatTurnRow({
-  group, timeLabel, highlightId, ackChipId, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
+  group, timeLabel, highlightId, ackChipId, hiddenAckIds, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
   firstAgentMessageId, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
 }: Props) {
   const { t } = useTranslation();
   return <View>
     {timeLabel && <Text style={styles.pendingMark}>{timeLabel}</Text>}
-    {group.items.map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
+    {group.items
+      // t_64e3edd6 ② (대표님 9/29 "예 아 니오의 결과는 사실상 카드로 안 보여줘도 돼"):
+      // 재질문 뒤 '예'/'아니요' 발화(user 행)는 렌더 제외 — 전송·게이트 판정은 정상 진행, 화면만 숨김.
+      .filter((message) => !hiddenAckIds?.has(message.id))
+      .map((message) => <View key={message.id} style={message.id === highlightId ? styles.focusHighlight : undefined} testID={message.id === highlightId ? 'focus-highlight' : undefined}>
       {/* t_64af90b0 #3 — 에이전트명 헤더는 대화의 첫 에이전트 메시지만 노출, 이후 생략 (Linear/Slack식).
           다중 선택 모드: 행 전체가 선택 토글 래퍼 — 비모드에는 래퍼 없이 카드 그대로 (#51 인터랙션 보존) */}
       {selectionActive
