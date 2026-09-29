@@ -44,9 +44,10 @@ async function openChat(browser, width) {
       await page.waitForTimeout(400);
       const labelCount = await page.getByTestId('message-user-label').count();
       assert.ok(labelCount >= 1, '#1(t_b250487a 반전) 사용자 밴드 \'나\' 라벨 존재');
-      // #3: 에이전트명 헤더는 첫 에이전트 메시지만 — 'Test Agent' 텍스트 노출 수 ≤ 1 (앱바 제외 본문 카드)
+      // #3 (t_64af90b0 → t_55b7e30c 대체): 에이전트명 헤더 = 발화 그룹 시작마다 재출력.
+      // 이 시나리오: wave 시드 7행(동일 ts 단일 그룹 → 첫 카드만) + 방금 전송 응답(user 전환 경계 → 헤더) = 2.
       const bodyAgentName = await page.locator('[data-testid="message-agent"] >> text="Test Agent"').count();
-      assert.ok(bodyAgentName <= 1, `#3 에이전트명 라벨 중복 제거 (본문 카드 내 ${bodyAgentName}회)`);
+      assert.ok(bodyAgentName === 2, `#3/t_55b7e30c 그룹 시작에만 라벨 — 시드 1 + 실시간 경계 1 (실측 ${bodyAgentName}회)`);
       // #2: t_4b1bd4c2 요구 1 — 입력창 옆 마이크 버튼 완전 제거 (ptt-mic-button 미렌더)
       assert.equal(await page.getByTestId('ptt-mic-button').count(), 0, '#2+t_4b1bd4c2 마이크 홀드 버튼 제거');
       // 즐겨찾기 별 SVG (카드 헤더)

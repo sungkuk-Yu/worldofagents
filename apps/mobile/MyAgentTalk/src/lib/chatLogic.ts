@@ -15,6 +15,10 @@ export interface ServerMessageRow {
   turn_index: number;
   role: 'user' | 'agent' | 'system';
   content: string;
+  /** t_55b7e30c 선행 계약(백엔드 messages.agent_id 컬럼 아직 없음 — 미송신 시 단일 발화자 취급):
+   *  다중 에이전트 room에서 행이 에이전트 id/이름을 내려주면 그룹 경계·헤더 라벨 분기에 사용한다. */
+  agent_id?: string | null;
+  agent_name?: string | null;
   source_neuron?: string | null;
   created_at?: string;
   dialogue_type?: string | null;
@@ -40,6 +44,9 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     aiGenerated: typeof r.ai_generated === 'boolean' ? r.ai_generated : undefined,
     role: r.role === 'user' ? 'user' : r.role === 'system' ? 'system' : 'agent',
     content: typeof r.content === 'string' ? r.content : '',
+    // t_55b7e30c: 발화자 신원(다중 에이전트 room 대비) — 서버 미송신 시 undefined = 단일 발화자 취급
+    agentId: typeof r.agent_id === 'string' && r.agent_id ? r.agent_id : undefined,
+    senderName: typeof r.agent_name === 'string' && r.agent_name ? r.agent_name : undefined,
     turnIndex: typeof r.turn_index === 'number' && Number.isFinite(r.turn_index) ? r.turn_index : 0,
     sourceNeuron: typeof r.source_neuron === 'string' ? r.source_neuron : null,
     createdAt: typeof r.created_at === 'string' ? r.created_at : undefined,
@@ -754,6 +761,54 @@ export const EMPTY_THREADS: ThreadIndexEntry[] = [];
 /** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
 export function restoreFailedDraft(current: string, failed: string): string {
   return !current || current === failed ? failed : `${current}\n${failed}`;
+}
+
+// ── 연속 발화 그룹핑 (t_55b7e30c, 백로그③ — 텔레그램/Slack 관습) ──────────
+// 같은 발화자의 연속 메시지(≤60초, 사이에 상대 발화 없음)는 발신자 헤더(이름)를 생략하고
+// 좌측 오프셋으로 묶음을 시각화한다. 그룹 경계 = ① 발화자 전환(user↔agent) ② agentId 변경
+// (양쪽 id가 있을 때만 — 백엔드 messages.agent_id 미전환 환경에서는 단일 발화자 취급)
+// ③ createdAt 간격 >60초 (둘 다 있을 때만 — 결측은 같은 그룹 유지).
+// t_64af90b0 #3의 firstAgentMessageId(대화 전체에서 첫 카드만 헤더)를 대체한다: 다중 에이전트·
+// 릴레이·답변 연쇄에서 무헤드가 지속되면 누가 말했는지 판별 불가 → 그룹 시작마다 재출력.
+// 사용자 카드의 '나' 라벨은 t_b250487a 확정 계약(밴드+라벨)이므로 본 규칙의 생략 대상이 아니다.
+export const SENDER_GROUP_WINDOW_MS = 60_000;
+
+function senderBoundary(prev: ChatMessage | null, cur: ChatMessage): boolean {
+  if (!prev) return true;
+  if (prev.role !== cur.role) return true; // 발화자 전환
+  if (prev.agentId && cur.agentId && prev.agentId !== cur.agentId) return true; // 다른 에이전트
+  if (prev.createdAt && cur.createdAt) {
+    const gap = new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime();
+    if (Number.isFinite(gap) && gap > SENDER_GROUP_WINDOW_MS) return true; // 시간 창 이탈
+  }
+  return false;
+}
+
+export interface SenderGroupFlag { id: string; header: boolean; continuation: boolean }
+
+/** 목록 순서대로 메시지별 헤더/연속 발화 플래그 — header=에이전트 그룹 시작(이름 표시), continuation=같은 그룹 지속(오프셋) */
+export function buildSenderGroups(messages: ChatMessage[]): SenderGroupFlag[] {
+  let prev: ChatMessage | null = null;
+  return messages.map((m) => {
+    const boundary = senderBoundary(prev, m);
+    const out = {
+      id: m.id,
+      header: m.role === 'agent' && boundary,
+      continuation: m.role === 'agent' && !boundary,
+    };
+    prev = m;
+    return out;
+  });
+}
+
+/** 푸터 연출 카드(타이핑/스트리밍)의 헤더 노출 — 목록 꼬리가 에이전트 행이고 창(≤60초) 내면
+ *  현재 그룹이 이어지는 중이므로 생략. 없음/유저 행/시간 창 이탈/파싱 불가(안전측) = 노출. */
+export function streamingHeaderAfter(last: ChatMessage | undefined, now = Date.now()): boolean {
+  if (!last || last.role !== 'agent') return true;
+  const t = last.createdAt ? new Date(last.createdAt).getTime() : NaN;
+  if (!Number.isFinite(t)) return true; // 시각 판정 불가 → 그룹 시작 취급(안전측 노출)
+  if (now - t > SENDER_GROUP_WINDOW_MS) return true;
+  return false;
 }
 
 // ── 턴 그룹핑 (t_70cbbd6b: ChatScreen→lib 순수 추출, 로직 무변경) ──

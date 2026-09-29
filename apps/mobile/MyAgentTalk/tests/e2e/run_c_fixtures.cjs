@@ -1,10 +1,10 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
-  const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: '2026-09-26T12:00:00Z' });
+  const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: '2026-09-26T12:00:00Z', agent_id: 'agent', agent_name: agent.name });
   const LONG_PARA = '계약서 검토 결과, 제14조 위약금 조항에서 연 5퍼센트의 지연 이자를 상한으로 두되 기한이익 상실 요건을 채무자의 명시적-payment 거절로 한정하는 것이 안전하다. 제22조의 해지 통보 기한은 30일로 충분하며 중재지는 서울로, 준거법은 대한민국 법률로 정한다. 부속 합의서의 비밀유지 조항은 존속기간을 계약 종료 후 5년으로 연장하고 예외 사유를 법령상 의무, 이미 공개된 정보, 독립적으로 개발된 정보로 한정한다. 각 조항의 충돌 시 부속 합의서가 우선하며 분할 가능성이 인정되지 않는 조항은 무효로 두되 나머지 조항의 효력에는 영향이 없다. 통지는 서면으로 하되 전자서명된 메일을 유효한 서면으로 본다.'.repeat(6);
   const TABLE_ROWS = Array.from({ length: 40 }, (_, i) => [`항목 ${i + 1}`, (i + 1) * 120, i % 3 === 0 ? '완료' : '대기']);
   state.messages.source = reader ? [
@@ -43,6 +43,25 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     state.messages.source = [
       { id: 'hu', role: 'user', content: '이전 질문', turn_index: 0, created_at: '2026-09-26T12:00:00Z' },
       { id: 'he', role: 'agent', source_neuron: 'empathy', content: '이전 질문 복창', turn_index: 1, created_at: '2026-09-26T12:00:01Z', structured_payload: { empathy_ack: '네, 확인했어요' } },
+    ];
+  }
+  if (sender) {
+    // t_55b7e30c 연속 발화 그룹핑 시드 — created_at=런타임 기준(모노토닉)으로 결정적 재현.
+    // 기대 헤더: s1(role 전환) s4(120초 간격=창 초과) s5(agentId 전환) s7(user 재전환) = 4.
+    // 기대 무명+오프셋: s2(정확히 60초=경계 포함) s3(20초) s6(10초 same id) = 3.
+    // 라벨 분기(서버 agent_name 우선): 김비서×3(s1·s4·s7) + 전문가×1(s5, agent_id=other).
+    const NOW = Date.now();
+    const ago = (sec) => new Date(NOW - sec * 1000).toISOString();
+    state.messages.source = [
+      { id: 'u0', role: 'user', content: '연쇄 질문', turn_index: 0, created_at: ago(400) },
+      { id: 's1', role: 'agent', content: 'EMPATHY-ONE', turn_index: 1, created_at: ago(300), agent_id: 'agent', agent_name: agent.name },
+      { id: 's2', role: 'agent', content: 'ANSWER-TWO', turn_index: 2, created_at: ago(240), agent_id: 'agent', agent_name: agent.name },
+      { id: 's3', role: 'agent', content: 'ANSWER-THREE', turn_index: 3, created_at: ago(220), agent_id: 'agent', agent_name: agent.name },
+      { id: 's4', role: 'agent', content: 'STALE-GROUP', turn_index: 4, created_at: ago(100), agent_id: 'agent', agent_name: agent.name },
+      { id: 's5', role: 'agent', content: 'OTHER-AGENT', turn_index: 5, created_at: ago(90), agent_id: 'other', agent_name: '전문가' },
+      { id: 's6', role: 'agent', content: 'OTHER-CONT', turn_index: 6, created_at: ago(80), agent_id: 'other', agent_name: '전문가' },
+      { id: 'u1', role: 'user', content: '다시 질문', turn_index: 7, created_at: ago(60) },
+      { id: 's7', role: 'agent', content: 'AFTER-USER', turn_index: 8, created_at: ago(30), agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (feedPhoto) {
@@ -149,7 +168,7 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
         // 턴 인덱스 = 백엔드 실규격 순증 (user=nextTurn, empathy=+1, answer=+2 — graph.ts 저장 경계)
         const base = state.messages[sid].length;
         const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: base, created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, attachments: echo };
-        const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id };
+        const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, agent_id: 'agent', agent_name: agent.name };
         // t_043539ff ack 픽스처 → t_c62a2eb7/t_44f8896c 계약형 empathy 행: content=재질문("이거 맞냐" 4종
         // 회전 시뮬레이션), structured_payload={empathy_question,template_id,empathy_full,empathy_ack},
         // created_at=요청 시각(실시간 행). 확인 발화 재에코 금지 상태 머신은 백엔드 소관이라 프론트 스모크는 미검.
