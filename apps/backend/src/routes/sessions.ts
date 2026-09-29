@@ -10,7 +10,7 @@ import { SessionsRow } from '../types/db';
 import { runTextTurn, textTurnResponse } from '../lib/chatTurn';
 import { parseAttachmentIds } from '../lib/attachments';
 import { broadcastToSession, sessionPresence } from '../websocket/handler';
-import { hasActiveRun } from '../websocket/eventlog';
+import { hasActiveRun, isDuplicateIngress } from '../websocket/eventlog';
 import { listQueue, queueSnapshot, enqueueQuestion, skipAllPending, isQueueKnownUnavailable } from '../lib/questionQueue';
 import { resolvePendingReplies, replyPendingSnapshot } from '../lib/awaitingReply';
 import { classifyDialogueType } from '../neurons/router';
@@ -343,6 +343,13 @@ export async function sessionRoutes(app: FastifyInstance) {
     const content = (body.content || '').trim();
     if (!content) throw badRequest('메시지 내용(content)은 필수입니다.');
     const attachmentIds = parseAttachmentIds(body);
+
+    // 요구① (t_c31e3f45): Enter+전송 버튼 동시 탭 등 짧은 창 동일 content 재발송 드롭 —
+    // 재현 실측(9/29): 100ms 간격 동일 POST 2회 → 1개는 실행 중 끼어들기로 큐 적재,
+    // 드레인이 다시 execute해 user 행 2·answer 행 2로 영속됐다. 메인 발화만(첨부 없음) 대상.
+    if (!attachmentIds.length && isDuplicateIngress(session.id, content)) {
+      return reply.status(200).send(ok({ deduped: true, message: '동일 발화가 방금 접수되었습니다.' }));
+    }
 
     // ② 질문 큐 (t_344e047a): 실행 중 메인 발화는 message_queue에 적재 후 202로 알린다.
     // 체크포인트는 GET /:id/queue 또는 WS queue.updated로 확인; 답변은 run 완료 후 워커가 순차 처리.

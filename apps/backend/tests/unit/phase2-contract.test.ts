@@ -100,7 +100,11 @@ it('소유자의 WS 텍스트·음성 입력은 같은 상태 계약을 발행�
   expect(socket.events.at(-1)).toMatchObject({ type: 'run.completed' });
   socket.events.length = 0;
   await send({ type: 'transcript', session_id: session.id, text: '어떻게 하나요?', is_final: true });
-  expect(socket.events.filter(e => e.type === 'message.new')).toHaveLength(3);
+  // t_c31e3f45 동일 발화 재전송 게이트: 이 transcript는 직전 message.send와 정규화 동일 텍스트 →
+  // 공감 재질문 에코가 suppressed된다. 텍스트/음성 공통 계약은 "같은 발화도 같은 세트"로 유지
+  // (user+answer 2행, empathy=null) — 3행 기대가 에코 루프의 원인이었다.
+  expect(socket.events.filter(e => e.type === 'message.new')).toHaveLength(2);
+  expect(socket.events.find(e => e.type === 'run.completed')?.message_ids.empathy).toBeNull();
   expect(socket.events.find(e => e.type === 'run.completed')).toBeTruthy();
   expect(socket.events.find(e => e.type === 'transcript.final')?.message_id).toBeTruthy();
   await send({ type: 'message.send', session_id: session.id, content: '  ' });

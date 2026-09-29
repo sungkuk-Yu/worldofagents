@@ -16,12 +16,14 @@ beforeEach(() => {
   vi.spyOn(config.chatLlm, 'enabled', 'get').mockReturnValue(false);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
-const run = (events: TurnEmitEvent[] = []) => runTextTurn(db, session, 'user', '왜 그런가요?', { emit: e => events.push(e) });
+const run = (events: TurnEmitEvent[] = [], text = '왜 그런가요?') => runTextTurn(db, session, 'user', text, { emit: e => events.push(e) });
 
 describe('공유 턴 실행', () => {
   it('동시 전송도 번호가 겹치지 않고 접수·처리·완료를 순서대로 발행한다', async () => {
     const events: TurnEmitEvent[] = [];
-    const results = await Promise.all([run(events), run(events), run(events)]);
+    // t_c31e3f45: 발화 텍스트를 서로 다르게 — 동일 텍스트 재전송은 repeatUtterance 게이트로
+    // 공감 행이 억제되어 행 수가 줄어든다(에코 루프 차단 계약). 동시 번호 검증은 행 수 일정해야 하므로 구분.
+    const results = await Promise.all([run(events, '왜 그런가요?'), run(events, '이건 어때'), run(events, '저건 어때')]);
     expect(store.tables.messages.map(m => m.turn_index)).toEqual([0,1,2,3,4,5,6,7,8]);
     expect(new Set(results.map(r => r.turnId)).size).toBe(3);
     for (const r of results) {
