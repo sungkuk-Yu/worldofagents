@@ -152,6 +152,8 @@ export const config = {
     strict: process.env.NARA_SPELLER_STRICT === 'true',
     /** 봇월 시 http2 폴백 (9/30 실측: nara는 h2만 통과). 단위 테스트는 'false' 봉인. */
     h2: process.env.NARA_SPELLER_H2 !== 'false',
+    /** t_f5a9b570 — 운영(전역) 고유명사 보호 사전, 콤마 구분. 코드 기본값과 합산된다. */
+    protectedTerms: (process.env.NARA_SPELLER_PROTECTED_TERMS || '').split(',').map(s => s.trim()).filter(Boolean),
   },
 
   jwt: {
