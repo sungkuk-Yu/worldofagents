@@ -33,6 +33,10 @@ export default defineConfig({
       SUGGEST_QUESTIONS_DISABLED: 'true',
       // t_3486b1d7 ④: delta 배칭 지연을 단위 테스트에서 해제 — 즉시 emit 모드로 기존 계약 유지.
       DELTA_BATCH_MS: '0',
+      // t_45256c7a: 나라맞춤법(PNU) 후처리 — 단위 테스트는 실서비스 엔드를 절대 타지 않게 봉인.
+      // 필요한 테스트가 config.naraSpeller.enabled/url을 스파이로 켜고 fetch를 모킹한다.
+      NARA_SPELLER_ENABLED: '',
+      NARA_SPELLER_H2: 'false', // fetch 모킹 실패 경로가 실네트워크 http2 폴백을 타지 않게
     },
     testTimeout: 20000,
     hookTimeout: 20000,
