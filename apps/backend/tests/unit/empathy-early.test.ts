@@ -30,6 +30,9 @@ beforeEach(() => {
   db = createDevClient(store) as DbClient;
   vi.spyOn(config.chatLlm, 'enabled', 'get').mockReturnValue(true);
   vi.spyOn(config.chatLlm, 'apiKey', 'get').mockReturnValue('test-key');
+  // 기본 OFF(옵트인) — 선노출 계약 테스트는 플래그를 명시적으로 켠다 (3×DEV 실측: 기본 ON은
+  // queued 발화의 칩 창을 created_at 앵커로 소진시켜 F 결정적 FAIL → 프론트 후속 전까지 OFF).
+  vi.spyOn(config.protocol, 'empathyEarly', 'get').mockReturnValue(true);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
