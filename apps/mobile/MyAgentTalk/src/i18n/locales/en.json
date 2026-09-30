@@ -356,6 +356,8 @@
     "replies_other": "{{countText}} replies",
     "favorite": "Favorite",
     "unfavorite": "Remove favorite",
+    "echoOffAction": "Skip asking",
+    "echoOnAction": "Ask before answering",
     "starIcon": "☆",
     "starredIcon": "★",
     "checkedIcon": "☑",

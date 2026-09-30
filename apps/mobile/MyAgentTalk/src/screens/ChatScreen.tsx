@@ -16,7 +16,7 @@ import PendingReplyModal from '../components/PendingReplyModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
 import { voiceStageHeight, chatListPaddingOverride } from '../lib/voiceStage';
-import { getPttKey, getPttMode } from '../lib/userPrefs';
+import { getPttKey, getPttMode, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT, subscribePrefs } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
 import { parseForkOrigin, canForkAgent } from '../lib/cardLogic';
@@ -213,6 +213,13 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 확정 인용은 메시지 replyTo(서버 structured_payload.reply_to 스냅샷)로 별도 저장 — 이 두 상태는 '쓰는 중'뿐.
   const [actionTarget, setActionTarget] = useState<ChatMessage | null>(null);
   const [draftQuote, setDraftQuote] = useState<ReplyQuote | null>(null);
+  // 되물음 행(t_8bf12fa4) — userPrefs.subscribePrefs로 설정 화면 토글 변경도 시트 라벨에 실시간 반영(동일 상태).
+  const [, prefsTick] = useState(0);
+  useEffect(() => subscribePrefs(() => prefsTick((n) => n + 1)), []);
+  const sheetEchoOn = (getEchoMode() ?? ECHO_MODE_DEFAULT) === 'on';
+  const sheetToggleEcho = useCallback(() => {
+    void setEchoMode(sheetEchoOn ? 'off' : 'on');
+  }, [sheetEchoOn]);
   const forkSelected = useCallback(() => {
     const lastAgent = [...selectionMessages].reverse().find((m) => m.role === 'agent');
     const target = lastAgent ?? selectionMessages[selectionMessages.length - 1];
@@ -739,11 +746,13 @@ export default function ChatScreen({ navigation, route }: Props) {
         excerpt={actionTarget ? (actionTarget.content || '').replace(/\s+/g, ' ').slice(0, 80) : ''}
         canFork={canFork && !isDemo}
         favorited={!!(actionTarget && decorate(actionTarget).favorite)}
+        echoOn={sheetEchoOn}
         onClose={() => setActionTarget(null)}
         onReply={sheetReply}
         onFavorite={sheetFavorite}
         onFork={sheetFork}
         onSelect={sheetSelect}
+        onToggleEcho={sheetToggleEcho}
       />
 
       {/* AI 사전고지 상시 바 (t_eb7f13e9 항목 2) — 이용약관 제3조2항이 약속한 '채팅 화면 상단 고지'.

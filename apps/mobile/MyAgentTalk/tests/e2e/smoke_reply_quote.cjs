@@ -66,6 +66,9 @@ async function longPress(page, locator) {
     check('① 답글 행', await page.getByTestId('action-reply').isVisible());
     check('① 즐겨찾기 행', await page.getByTestId('action-favorite').isVisible());
     check('① 선택 행', await page.getByTestId('action-select').isVisible());
+    // 되물음 행 (t_8bf12fa4) — 미저장 계정은 기본 'on' → 라벨은 반전 권유 '되물음 끄기'
+    check('① 되물음 행 (on→끄기 라벨)', await page.getByTestId('action-echo').isVisible()
+      && (await page.getByTestId('action-echo').innerText()).includes('되물음 끄기'));
     // 갈라내기 게이트: rich 픽스처 에이전트는 'Test Agent'(비서 아님) → fork 행 미노출
     check('① 갈라내기는 김비서 room 게이트 (Test Agent=비노출)', (await page.getByTestId('action-fork').count()) === 0);
     await page.screenshot({ path: shot('01-action-sheet') });
@@ -117,6 +120,29 @@ async function longPress(page, locator) {
     check('⑧ 선택 진입 + 카드 선택', await page.getByTestId('select-info').isVisible() && await page.getByTestId('selection-bar').isVisible());
     await page.keyboard.press('Escape').catch(() => {});
     await page.getByTestId('selection-bar').or(page.getByTestId('appbar-selection-exit')).first().waitFor({ timeout: 2000 }).catch(() => {});
+
+    // ⑫ 되물음 행 (t_8bf12fa4) — 시트에서 설정 진입 없이 즉시 토글: on→끄기 클릭 → 라벨 '켜기' 반전 + 낙관 로컬 저장.
+    // 선택 모드(⑧) 잔존 간섭 회피: 신세대 픽스처 페이지에서 격리 실행.
+    const pE = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR', reducedMotion: 'reduce' });
+    await installFixtures(pE, { rich: true });
+    await pE.goto(APP, { waitUntil: 'networkidle' });
+    await pE.getByTestId('session-card').click();
+    await pE.getByTestId('message-list').waitFor({ timeout: 8000 });
+    await longPress(pE, pE.getByTestId('message-row-text'));
+    await pE.getByTestId('action-echo').click();
+    await pE.waitForTimeout(300); // 시트 종료 + PATCH 시도(미로그인 목은 삼킴 — 로컬 폴백 유지, 요구 3과 동일 정책)
+    check('⑫ 실행 즉시 시트 종료', (await pE.getByTestId('msg-action-sheet').count()) === 0);
+    const prefsRaw = await pE.evaluate(() => localStorage.getItem('at-prefs-v1'));
+    check('⑫ 낙관 로컬 반영 echoMode=off', !!prefsRaw && prefsRaw.includes('"echoMode":"off"'), String(prefsRaw).slice(0, 80));
+    await longPress(pE, pE.getByTestId('message-row-text'));
+    const echoLabel2 = await pE.getByTestId('action-echo').innerText();
+    check('⑫ 재오픈 시 라벨 반전 — 되물음 켜기', echoLabel2.includes('되물음 켜기'), echoLabel2);
+    await pE.screenshot({ path: shot('12-echo-off-label') });
+    await pE.getByTestId('action-echo').click(); // 왕복 원복 → 다시 '끄기' 라벨
+    await pE.waitForTimeout(300);
+    const prefsBack = await pE.evaluate(() => localStorage.getItem('at-prefs-v1'));
+    check('⑫ 재토글 원복 echoMode=on', !!prefsBack && prefsBack.includes('"echoMode":"on"'), String(prefsBack).slice(0, 80));
+    await pE.close();
 
     // ⑦a 미전송(pending) 행 답글 불가 — gateSend: 첫 POST 보류 중 = 낙관 행이 화면에 pending
     const p4 = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR', reducedMotion: 'reduce' });

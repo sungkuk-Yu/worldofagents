@@ -356,6 +356,8 @@
     "replies_other": "답글 {{countText}}개",
     "favorite": "즐겨찾기",
     "unfavorite": "즐겨찾기 해제",
+    "echoOffAction": "되물음 끄기",
+    "echoOnAction": "되물음 켜기",
     "starIcon": "☆",
     "starredIcon": "★",
     "checkedIcon": "☑",
