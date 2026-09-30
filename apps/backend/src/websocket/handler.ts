@@ -438,6 +438,20 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
 // ── 오디오 스트리밍 ────────────────────────────────────
 
 function handleAudioChunk(socket: WSSocket, state: ConnState, chunk: Buffer) {
+  // 크래시 안전망 (t_3a91fc08): VAD/버퍼 예외가 ws 리스너까지 새면 프로세스가
+  // exit-code 크래시(systemd 재기동 루프)한다. 소켓/프로세스를 죽이지 않고
+  // 해당 청크만 조용히 넘기되 사고 병기 원칙에 따라 원인을 남긴다.
+  try {
+    handleAudioChunkInner(socket, state, chunk);
+  } catch (err: any) {
+    logger.error(
+      { err: err?.message, byteOffset: chunk.byteOffset, byteLength: chunk.byteLength },
+      'audio chunk pipeline error (dropped, socket kept alive)'
+    );
+  }
+}
+
+function handleAudioChunkInner(socket: WSSocket, state: ConnState, chunk: Buffer) {
   if (!state.audio) {
     // 스트림 시작 전 도착 → 무시
     return;

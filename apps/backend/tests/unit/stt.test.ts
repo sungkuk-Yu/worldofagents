@@ -54,6 +54,67 @@ describe('STT 유틸', () => {
     expect(last).toBeGreaterThanOrEqual(buf.length / 2 - 10);
   });
 
+  // ── t_3a91fc08 회귀: 홀수 정렬 크래시 (RangeError: start offset of Int16Array) ──
+  describe('정렬 가드 — 홀수 byteOffset / 홀수 길이 청크 (t_3a91fc08)', () => {
+    /** 공유 ArrayBuffer 안의 홀수 오프셋 뷰 (WS 수신 Buffer.from(raw) 형태 재현) */
+    function oddOffsetView(buf: Buffer): Buffer {
+      const backing = Buffer.allocUnsafe(buf.length + 3);
+      buf.copy(backing, 1); // byteOffset = 1 (홀수)
+      return backing.subarray(1, 1 + buf.length);
+    }
+
+    it('hasVoiceActivity — 홀수 byteOffset 청크: RangeError 없이 결과 유지', () => {
+      const tone = toneBuffer(0.3, 0.3);
+      const direct = hasVoiceActivity(tone);
+      const odd = oddOffsetView(tone);
+      expect(odd.byteOffset % 2).toBe(1);
+      expect(() => hasVoiceActivity(odd)).not.toThrow();
+      expect(hasVoiceActivity(odd)).toBe(direct); // 절단 없이 동일 판정
+    });
+
+    it('hasVoiceActivity — 홀수 길이 청크: 마지막 바이트 절단, 크래시 없음', () => {
+      const tone = toneBuffer(0.3, 0.3);
+      const oddLen = tone.subarray(0, tone.length - 1); // 홀수 byte
+      expect(oddLen.length % 2).toBe(1);
+      expect(() => hasVoiceActivity(oddLen)).not.toThrow();
+      expect(hasVoiceActivity(oddLen)).toBe(true);
+    });
+
+    it('hasVoiceActivity — 홀수 오프셋 + 홀수 길이 동시 (버퍼 1바이트 손실 경로)', () => {
+      const tone = toneBuffer(0.3, 0.3);
+      const both = oddOffsetView(tone.subarray(0, tone.length - 1));
+      expect(both.byteOffset % 2).toBe(1);
+      expect(both.length % 2).toBe(1);
+      expect(() => hasVoiceActivity(both)).not.toThrow();
+      expect(hasVoiceActivity(both)).toBe(true);
+    });
+
+    it('findLastVoiceSample — 홀수 오프셋/홀수 길이: -1 판정과 샘플 위치 유지', () => {
+      const tone = toneBuffer(0.2, 0.5);
+      const ref = findLastVoiceSample(tone);
+      expect(findLastVoiceSample(oddOffsetView(tone))).toBe(ref);
+      expect(findLastVoiceSample(tone.subarray(0, tone.length - 1))).toBeGreaterThanOrEqual(0);
+      expect(findLastVoiceSample(oddOffsetView(silenceBuffer(0.1)))).toBe(-1);
+      expect(findLastVoiceSample(Buffer.alloc(1))).toBe(-1);
+    });
+
+    it('AudioStreamBuffer — 홀수 정렬 청크 push 후 hasSignal/hasSilenceBoundary 무-crash', () => {
+      const buf = new AudioStreamBuffer();
+      const odd = oddOffsetView(toneBuffer(0.5, 0.5));
+      expect(() => {
+        buf.push(odd);
+        void buf.hasSignal;
+        void buf.hasSilenceBoundary(odd); // 핸들러가 원 청크를 그대로 통과시키는 경로
+      }).not.toThrow();
+    });
+
+    it('투명성 — 짝수 정렬 버퍼는 기존 결과와 완전히 동일 (회귀 없음)', () => {
+      const tone = toneBuffer(0.3, 0.3);
+      expect(hasVoiceActivity(tone)).toBe(true);
+      expect(findLastVoiceSample(tone)).toBe(findLastVoiceSample(Buffer.from(tone)));
+    });
+  });
+
   it('AudioStreamBuffer — 누적/길이/bundle/한도', () => {
     const buf = new AudioStreamBuffer();
     expect(buf.durationMs).toBe(0);
