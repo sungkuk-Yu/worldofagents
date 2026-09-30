@@ -203,6 +203,11 @@ export const config = {
   protocol: {
     idempotency: process.env.MESSAGE_IDEMPOTENCY_DISABLED !== 'true',
     userCardFirst: process.env.USER_CARD_FIRST !== 'false',
+    // 공감 재질문 선(先)영속·선노출 (t_f46d1d7a, 김비서 9/29 flake 판정): empathy 행을
+    // 런 종료 후가 아니라 user 카드·run.started 직후(파이프라인 실행 전)에 저장·message.new
+    // 발행 — 프론트 예/아니오 칩 창(발화 직후 2.5s)이 답변 LLM/브리지 지연(15~186s实测)에
+    // 좌우되지 않게 한다. EMPATHY_EARLY=false로 off 시 구동작(런 종료 시 저장·발행)으로 복귀.
+    empathyEarly: process.env.EMPATHY_EARLY !== 'false',
     deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
     deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
     seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',
