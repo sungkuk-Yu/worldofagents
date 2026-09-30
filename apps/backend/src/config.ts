@@ -206,11 +206,13 @@ export const config = {
     // 공감 재질문 선(先)영속·선노출 (t_f46d1d7a, 김비서 9/29 flake 판정): empathy 행을
     // 런 종료 후가 아니라 user 카드·run.started 직후(파이프라인 실행 전)에 저장·message.new
     // 발행. 칩 창(서버 created_at 기준 2.5s)이 답변 LLM/브리지 지연(15~186s 실측) 전에 열림.
-    // ★ 기본 OFF (3×DEV 실측): ON이면 queued 발화에서 칩 창이 스트리밍/큐 대기 동안
-    // (created_at 앵커) 만료돼 dist-t64e3 F 구간이 3/3 결정적 FAIL — 프론트가 창을
-    // '도착 시점' 기준으로 삼는 후속 작업(t_888c1669 계열) 전까지 옵트인 플래그로 보존.
-    // EMPATHY_EARLY=true로 on 시에만 동작, off(기본)는 런 종료 시 저장·발행 구동작 1:1.
-    empathyEarly: process.env.EMPATHY_EARLY === 'true',
+    // ★ 기본 ON 전환 (9/30 t_fa37420e, frontdev A/B 재측 게이트 충족 t_08fa1d5d): 이전
+    // F 구간 결정적 FAIL은 created_at 앵커 하네스 소유 — 노출각/수신각 앵커 전환
+    // (ee39fdb7 t_b2004d50, main 병합 실측)에서 ON 팔 smoke_t64e3 3연속 19/19 PASS
+    // (empathy 도착 508ms vs run.completed 3517ms 선발행 실증), 동소스·플래그 OFF
+    // control도 3연속 19/19 PASS. 옵트아웃: EMPATHY_EARLY=false 시에만 런 종료 시
+    // 저장·발행 구동작 1:1 복귀.
+    empathyEarly: process.env.EMPATHY_EARLY !== 'false',
     deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
     deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
     seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',

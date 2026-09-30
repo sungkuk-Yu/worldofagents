@@ -127,7 +127,13 @@ it.each(['simple', 'langgraph'])('%s 스트림 취소는 부분 텍스트만 종
   expect(client.socket.events.at(-1)).toMatchObject({ type: 'run.cancelled', run_id: runId, partial_text: '부분 답변', seq: expect.any(Number) });
   expect(client.socket.events.some(e => ['run.failed', 'run.completed', 'session.error', 'answer.done'].includes(e.type))).toBe(false);
   const messages = await app.inject({ method: 'GET', url: `/api/sessions/${target.id}/messages`, headers: bearer(token) });
-  expect(messages.json().data.map((m: any) => m.role)).toEqual(['user']);
+  // t_fa37420e 기본 ON: empathy 재질문 행이 LLM 이전(취소 가능 구간 앞) 선영속·선발행된다 —
+  // 화면에 이미 뜬 카드를 DB에서 지우면 리플레이·새로고침과 갈라진다. 취소 계약의 대상은
+  // '부분 답변의 저장 금지'이므로 answer 행 부재로 봉인한다 (empathy 1행은 정상 잔존).
+  const rows = messages.json().data;
+  expect(rows.map((m: any) => m.role)).toEqual(['user', 'agent']);
+  expect(rows.filter((m: any) => m.source_neuron === 'answer')).toHaveLength(0);
+  expect(rows.some((m: any) => String(m.content).includes('부분 답변'))).toBe(false);
   await client.send({ type: 'run.cancel', session_id: target.id, run_id: runId });
   expect(client.socket.events.at(-1)).toMatchObject({ type: 'error', code: 'NOT_FOUND' });
 });

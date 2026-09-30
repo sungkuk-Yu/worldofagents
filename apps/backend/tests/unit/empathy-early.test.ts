@@ -9,6 +9,8 @@
  *  3. 같은 empathy id의 message.new는 런당 정확히 1회 (선발행 + post-loop 재발행 억제).
  *  4. 재질문 생성 결정성: 같은 발화 → 같은 문장·같은 template_id, 회전 시드는 pool 규칙.
  *  5. EMPATHY_EARLY=false 롤백: 구동작(LLM 이후 배치 발행)으로 1:1 복귀.
+ *  6. 기본값 ON (t_fa37420e 9/30, frontdev A/B 재측 게이트 충족): 플래그 미설정 시
+ *     early 경로. 옵트아웃(=false)에만 구동작.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,8 +32,8 @@ beforeEach(() => {
   db = createDevClient(store) as DbClient;
   vi.spyOn(config.chatLlm, 'enabled', 'get').mockReturnValue(true);
   vi.spyOn(config.chatLlm, 'apiKey', 'get').mockReturnValue('test-key');
-  // 기본 OFF(옵트인) — 선노출 계약 테스트는 플래그를 명시적으로 켠다 (3×DEV 실측: 기본 ON은
-  // queued 발화의 칩 창을 created_at 앵커로 소진시켜 F 결정적 FAIL → 프론트 후속 전까지 OFF).
+  // 기본 ON(t_fa37420e 9/30 전환): early 경로가 기본값 — 스파이는 계약 고정용(거동 무관 동일값).
+  // 옵트아웃(EMPATHY_EARLY=false) 롤백 경로는 아래 명시적 mockReturnValue(false) 테스트가 봉쇄.
   vi.spyOn(config.protocol, 'empathyEarly', 'get').mockReturnValue(true);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -104,6 +106,39 @@ describe('선발행 계약 (flake 교정 핵심)', () => {
     expect(events.filter(e => e.type === 'message.new' && (e as any).message.source_neuron === 'empathy')).toHaveLength(1);
     expect(result.empathyMessageId).toBeTruthy();
   });
+});
+
+describe('기본값 ON 전환 (t_fa37420e 9/30 — 옵트아웃만 구동작)', () => {
+  // config는 모듈 로드 시점에 process.env를 읽는다. 정적 config 바인딩은 beforeEach에서
+  // 'get' 스파이가 깔려 있어(데이터 속성 스파이 복원 시 속성이 날아가는 vitest 1.6 규약)
+  // 실제 기본값 증명은 resetModules + importActual로 새 인스턴스를 로드해서 한다.
+  const loadFresh = async (envValue?: string) => {
+    const saved = process.env.EMPATHY_EARLY;
+    if (envValue === undefined) delete process.env.EMPATHY_EARLY;
+    else process.env.EMPATHY_EARLY = envValue;
+    try {
+      vi.resetModules();
+      const mod = await vi.importActual<typeof import('../../src/config')>('../../src/config');
+      return mod.config.protocol.empathyEarly;
+    } finally {
+      if (saved === undefined) delete process.env.EMPATHY_EARLY;
+      else process.env.EMPATHY_EARLY = saved;
+      vi.resetModules();
+    }
+  };
+
+  it('EMPATHY_EARLY 미설정(플래그 없음) → 기본 true (early 경로가 기본값)', async () => {
+    expect(await loadFresh(undefined)).toBe(true);
+  });
+
+  it('EMPATHY_EARLY=true 하위호환 / 이상값도 ON 방향, 옵트아웃은 문자열 false 유일', async () => {
+    expect(await loadFresh('true')).toBe(true);     // 기존 옵트인값 동작 불변
+    expect(await loadFresh('garbage')).toBe(true);  // 오타 플래그는 새 계약(ON) 방향 유지
+    expect(await loadFresh('false')).toBe(false);   // EMPATHY_EARLY=false 만이 유일한 롤백
+  });
+
+  // 참고: loadFresh의 resetModules는 이후 동적 import만 영향 — 파일 상단 정적 import 바인딩은
+  // 원본 인스턴스를 유지하므로 후속 테스트(beforeEach 스파이 대상)와 무충돌.
 });
 
 describe('재질문 생성 결정성 (김비서 ① 판정 봉인)', () => {

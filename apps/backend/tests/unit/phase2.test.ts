@@ -102,7 +102,11 @@ describe('공유 턴 실행', () => {
       const messages = JSON.parse(options.body).messages;
       expect(messages.map((m: any) => m.content)).toContain('이전 답변');
       expect(messages.map((m: any) => m.content)).not.toContain('이전 공감');
-      expect(store.tables.messages.at(-1)?.role).toBe('user');
+      // t_fa37420e 기본 ON 전환: LLM fetch 시점에는 user 카드 + 공감 재질문 행이 이미 선영속 —
+      // 원계약("답변 행은 아직 저장되지 않았다")은 유지하되, 마지막 행이 empathy인 것을 봉인한다.
+      expect(store.tables.messages.at(-1)?.role).toBe('agent');
+      expect(store.tables.messages.at(-1)?.source_neuron).toBe('empathy');
+      expect(store.tables.messages.at(-2)?.content).toBe('왜 그런가요?'); // 그 직전은 새 user 카드
       return new Response('data: {"model":"test-model","choices":[{"delta":{"content":"금지어 답변"}}]}\n\ndata: [DONE]\n');
     }));
     const result = await run(events);
