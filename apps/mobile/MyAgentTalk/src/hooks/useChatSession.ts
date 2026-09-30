@@ -10,6 +10,8 @@ import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
   prependPage, ServerMessageRow, TurnEvent, createSequenceTracker, validateMessageInput, reduceStreams, StreamingAnswer,
+  // t_b2004d50: WS 에코 라이브 수신각 도장 (stampAckArrival 단일 도장, 재구독 리플레이 무해)
+  stampAckArrival,
   syncStreamCards, purgeSettledStreamCards, ensureStreamPlaceholder, quipKeyForStage, STREAM_FLUSH_DEBOUNCE_MS,
   normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
@@ -152,6 +154,14 @@ export function useChatSession(
   const runtimeRef = useRef(createRuntime((active, text, count) => {
     setTyping(active); setQuip(text); setActiveCount(count);
   }));
+  // t_b2004d50 (김비서 9/30 판정): 칩 창 앵커는 서버 created_at(=턴 시작 스탬프, 발행이 런
+  // 종료 시 +144s 실측 — 렌더 순간 창이 이미 만료)이 아니라 '클라이언트 최초 수신각'이다.
+  // transport 도장(stampAckArrival)은 실시간 도착 경로에만 부여 — ① WS message.new/created
+  // 에코 ② POST 확정 응답(confirmTurn의 arrivedAt 인자). 세션 진입 GET 배치·loadOlder·
+  // 스레드 머지는 절대 도장하지 않는다 → 미스탬프+created 경화 = 히스토리 재현 배제 유지
+  // (smoke_ack_chips ⑦ / verify_ack_live ④ 회귀 가드). 도장은 단일(기존값 보존)이라
+  // 재구독 리플레이·지연 중복이 수신각을 리셋하지 못한다. 창 개시 각인 자체는 useAckChip의
+  // '노출 가능 첫 관측' Map이 담당(요구3 스트리밍 억제 해제 후 2.5s 보장).
   // 동시 전송도 최신 목록을 읽도록 렌더를 기다리지 않고 원자적으로 반영한다.
   const updateMessages = useCallback((update: (prev: ChatMessage[]) => ChatMessage[]) => {
     const runtime = runtimeRef.current;
@@ -523,7 +533,9 @@ export function useChatSession(
                 // client_req_id 우선, content+turn_index 폴백은 req_id 없는 경로(음성 전사·큐 드레인)까지 커버.
                 // USER_CARD_FIRST on/off 어느 순서에도 안전(④): user 카드·run.started·REST 확정 순서 의존 없음.
                 if (echo) {
-                  updateMessages((prev) => (echo.role === 'user' ? reconcilePendingUserEcho(prev, echo) : null) ?? mergeIncoming(prev, [echo]));
+                  // t_b2004d50: WS 에코 = 라이브 도착 — 단일 도장(기존 arrivedAt 보존)으로 수신각 앵커 부여.
+                  const live = stampAckArrival(echo, Date.now());
+                  updateMessages((prev) => (live.role === 'user' ? reconcilePendingUserEcho(prev, live) : null) ?? mergeIncoming(prev, [live]));
                 }
               }
             } else if ((typeof type === 'string' && type.startsWith('run.')) || type === 'turn.status' || type === 'neuron.status' || type === 'answer.done' || type === 'answer.delta') {
@@ -729,7 +741,7 @@ export function useChatSession(
       if (env.data.deduped) {
         if (env.data.user_message_id || env.data.messages?.user) {
           updateMessages((prev) => {
-            const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base);
+            const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base, Date.now());
             return confirmed.map((m) => (m.id === (env.data!.user_message_id || optimisticId) && !m.clientReqId ? { ...m, clientReqId } : m));
           });
           if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
@@ -749,7 +761,8 @@ export function useChatSession(
       }
       if (env.data.run_id) runtime.scopedRuns.add(env.data.run_id);
       updateMessages((prev) => {
-        const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base);
+        // t_b2004d50: POST 확정 = 라이브 도착 — 응답으로 들어온 신규 행(empathy 포함)에 수신각 도장.
+        const confirmed = confirmTurn(prev, optimisticId, env.data!, text, env.data?.turn_index ?? base, Date.now());
         const existing = new Set(prev.filter((m) => m.id !== optimisticId).map((m) => m.id));
         const userId = env.data!.user_message_id || optimisticId;
         return confirmed

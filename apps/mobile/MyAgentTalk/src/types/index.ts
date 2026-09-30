@@ -144,6 +144,13 @@ export interface ChatMessage {
   content: string;
   /** 백엔드 turn_index — 페이지네이션 커서 기준 */
   turnIndex: number;
+  /** 프론트 최초 수신 시각 (live arrival stamp — WS message.new / POST 확정 / 데모·전사 행에만 부여)
+   *  t_b2004d50 (김비서 9/30 판정): 서버 created_at은 '턴 시작' 스탬프라 답변 LLM 지연(실측 +144s)과
+   *  경쟁해 칩 창(2.5s)이 도착 전 소진됨 — 예/아니요 발화 가능 창이 실질 0. 칩 수명 앵커는 이제
+   *  max(created_at, arrivedAt). 히스토리 재현(새로고침/loadOlder 배칭 GET)은 이 필드를 찍지
+   *  않는다 → 선버링된 구 created_at 행은 계속 배제. 찍힌 뒤에는 재도장 금지(단일 도장, 창 종료
+   *  후 재점등 원천 차단). */
+  arrivedAt?: number;
   /** 발화 에이전트 (messages.agent_id) — t_55b7e30c 런 어텐션: 에이전트가 둘 이상이면 카드 라벨이 이 id로 분기 */
   agentId?: string;
   /** 카드 헤더에 표시할 발화자 이름 (서버 agent_name 우선, 없으면 화면 agentName) — t_55b7e30c */
