@@ -5,7 +5,7 @@
  *       첫 진입 힌트 알약("여길 길게 눌러 말하기") + 3s 후 페이드.
  *   ② 로드 시 마이크 권한 미요구 (permissions.query=microphone state 'prompt')
  *   ③ 스트립 홀드 → 링+초록 펄스+리본 canvas 출현(녹음 시각화) → ↑ 이탈 릴리스 =
- *       audio.start→audio.cancel + 키보드(B) 개방. B 배치: 좌=전송(초록)/우=마이크(A 복귀).
+ *       audio.start→audio.cancel + 키보드(B) 개방. B 배치 (t_5e592321 되돌림): 좌=마이크(A 복귀)/우=전송(초록).
  *   ④ 스트립 탭-홀드 = audio.start→PCM→audio.end (놓으면 전송) + done 체크 후 잔상 0
  *   ⑤ 권한 거부 = 폴백 안내 한 줄 + 입력창 자동 개방(텍스트 완전 작동)
  *   ⑥ PC 1440 = 스테이지/링 없음, 입력창 상시·배치 불변(기존 동작 보존)
@@ -122,10 +122,11 @@ async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = 
       check('③ ↑ 홀드: audio.start 직후 audio.cancel (발화 폐기)', types.includes('audio.start') && types.includes('audio.cancel'), types.join(','));
       check('③ ↑ 홀드 후 전송(end) 없음', !types.includes('audio.end'));
       check('③ 키보드 계층(B) 개방', await page.getByTestId('chat-input').isVisible());
-      // B 배치 확정 (#304 보강): 좌=전송(초록) / 우=마이크 — 지금 화면과 좌우 반전
+      // t_5e592321 되돌림(대표님 9/30 "전송 버튼은 왼쪽에 있고 ... 위치가 바껴있어"):
+      // 우=전송 / 좌=마이크 토글 — 0d351d4d 반전 이전 배치로 복구.
       const sendBox = await page.getByTestId('send-button').boundingBox();
       const micBox = await page.getByTestId('chat-voice-back').boundingBox();
-      check('③ B 배치: 좌=전송 / 우=마이크 토글', !!sendBox && !!micBox && sendBox.x < micBox.x, `send.x=${sendBox && sendBox.x} mic.x=${micBox && micBox.x}`);
+      check('③ B 배치: 좌=마이크 토글 / 우=전송', !!sendBox && !!micBox && micBox.x < sendBox.x, `send.x=${sendBox && sendBox.x} mic.x=${micBox && micBox.x}`);
       const focused = await page.evaluate(() => {
         const el = document.querySelector('[data-testid="chat-input"]');
         const input = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ? el : el.querySelector('input,textarea'));

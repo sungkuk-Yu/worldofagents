@@ -369,7 +369,13 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp]}>
           <MicIcon size={Math.max(16, Math.round(MIC_BUTTON * 0.52))} color={colors.onPrimary} />
         </View>
-        {holding && (recording || !pending) && <Text testID="voice-stage-timer" style={styles.recordingTimer}>{formatRecordingDuration(elapsedMs)}</Text>}
+        {holding && (recording || !pending) && (
+          // t_5e592321 (대표님 9/30 "녹음 시간이 무슨 버튼 위에 올라가서 겹쳐져 있고"):
+          // 구 배치 = 패드 좌상단(left12/top4) — 96px 링 테두리를 가로질러(원경계와 4px차) 겹침.
+          // 신 배치 = 링 내부 상단 중앙(타이머 상단=ring y4, 하단≈y24) — 마이크 디스크(34px, y31~65) 위 7px 이격,
+          // 리본(링 밖 -6↑)/하단 '녹음 중' 라벨과도 수직 이격. 힌트/폴백과 동일 패턴: 패드 자식 + 스타일 none(t_f8c40db0 히트 계약).
+          <Text testID="voice-stage-timer" style={[styles.recordingTimer, { pointerEvents: 'none' }]}>{formatRecordingDuration(elapsedMs)}</Text>
+        )}
         {pending && !recording && (
           // t_5058e15f ②: 연결 대기 중 홀드 = 캡처 지연 시작 — '연결 중' 안내로 조용한 스킵 폐지(토스트 아닌 상태 신호).
           // r1 병합(t_cb8 계약 흡수): holding 게이트 없음 — 키보드(V) 경로의 pending도 A계층에서 보여야
@@ -433,7 +439,8 @@ const styles = StyleSheet.create({
   },
   doneCheck: { color: colors.onPrimary, fontSize: 18, fontWeight: '700', lineHeight: 22 }, // ④: 26→18 — 34px 디스크에 맞춤
   recordingText: { ...typography.caption, color: colors.accent, fontWeight: '600', position: 'absolute', bottom: spacing.sp2 },
-  // t_2eea055a: 'M:SS' 라이브 카운터 — 좌상단(텔레그램 위치). 백 디스크(우)/마이크(중)/라벨(하단)과
-  // 무충돌. fontVariant tabular-nums: 초가 갈 때마다 숫자 폭이 흔들리지 않게 (RNW 지원).
-  recordingTimer: { ...typography.bodyBold, color: colors.accent, position: 'absolute', left: spacing.sp3, top: spacing.sp1, fontVariant: ['tabular-nums'] },
+  // t_5e592321: 'M:SS' 카운터 — 링 내부 상단 중앙 고정(디스크 위 11px 이격).
+  // 구 배치(t_2eea055a 패드 좌상단 left12/top4)는 96px 링 테두리를 가로질러 버튼과 겹침(대표님 9/30 목격) → 폐기.
+  // chord 계산: y6~20에서 원경계 x≈24.8/71.2 — 'M:SS'(≤40px, bodyBold) 중앙정렬 시 테두리 안쪽 통과, 무충돌.
+  recordingTimer: { ...typography.bodyBold, color: colors.accent, position: 'absolute', top: 4, left: 0, right: 0, textAlign: 'center', lineHeight: 20, fontVariant: ['tabular-nums'] },
 });
