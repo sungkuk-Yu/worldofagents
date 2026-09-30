@@ -156,12 +156,18 @@ export function confirmTurn(
   optimisticId: string,
   confirm: TurnConfirm,
   userContent: string,
-  baseTurnIndex: number
+  baseTurnIndex: number,
+  /** t_b2004d50: POST 확정 = 라이브 도착 — 이 시각을 미스탬프 신규 행의 arrivedAt 앵커로 도장.
+   *  undefined(미지정)면 도장 없음(테스트·레거시 경로). */
+  arrivedAt?: number
 ): ChatMessage[] {
+  // t_b2004d50: 도장은 '이번 응답으로 새로 들어온 행'에만 — existing 히스토리 행에는 절대 소급
+  // 도장하지 않는다(미스탬프 유지 = created_at 평가 = 재현 배제). 단일 도장(기존값 보존).
+  const stamp = (m: ChatMessage): ChatMessage => (arrivedAt == null || m.arrivedAt != null ? m : { ...m, arrivedAt });
   if (confirm.messages) {
     const rows = Object.values(confirm.messages).filter((row): row is ServerMessageRow => row !== null);
     return mergeIncoming(existing.filter((m) => m.id !== optimisticId),
-      normalizeServerMessages(rows.map((row) => ({ ...row, run_id: confirm.run_id }))));
+      normalizeServerMessages(rows.map((row) => ({ ...row, run_id: confirm.run_id }))).map(stamp));
   }
   const withoutPending = existing.filter((m) => m.id !== optimisticId && m.id !== confirm.user_message_id);
   const confirmedUser: ChatMessage = {
@@ -172,21 +178,21 @@ export function confirmTurn(
     pending: false,
     status: 'sent',
   };
-  const out: ChatMessage[] = [...withoutPending, confirmedUser];
+  const out: ChatMessage[] = [...withoutPending, stamp(confirmedUser)];
   let offset = 1;
   if (confirm.empathy_response) {
-    out.push({
+    out.push(stamp({
       id: confirm.empathy_message_id || `empathy-${baseTurnIndex}`,
       role: 'agent',
       content: confirm.empathy_response,
       turnIndex: baseTurnIndex + offset,
       sourceNeuron: 'empathy',
       runId: confirm.run_id,
-    });
+    }));
     offset += 1;
   }
   if (confirm.answer_response) {
-    out.push({
+    out.push(stamp({
       id: confirm.answer_message_id || `answer-${baseTurnIndex}`,
       role: 'agent',
       content: confirm.answer_response,
@@ -194,13 +200,23 @@ export function confirmTurn(
       sourceNeuron: 'answer',
       dialogueType: confirm.dialogue_type,
       runId: confirm.run_id,
-    });
+    }));
   }
   // id 중복 방어 (WS가 먼저 같은 메시지를 뿌린 경우)
   const seen = new Set<string>();
   return out
     .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)))
     .sort((a, b) => a.turnIndex - b.turnIndex || (a.role === 'user' ? -1 : 1));
+}
+
+/**
+ * t_b2004d50 라이브 도착 도장 — WS message.new / POST 확정 응답으로 들어온 신규 행에만 부여하는
+ * 순수 헬퍼. 단일 도장: 이미 arrivedAt이 있으면 절대 덮지 않는다 (창 종료 후 재조회·재전송
+ * 응답이 도착각을 리셋해 버튼이 재점등되는 원천 경로 차단). 배치 GET(히스토리 재현/loadOlder/
+ * 차등 리플레이)에는 태우지 않는다 — 미스탬프 = created_at 단독 평가로 기존 배제가 유지된다.
+ */
+export function stampAckArrival<T extends { arrivedAt?: number }>(m: T, now: number): T {
+  return m.arrivedAt != null ? m : { ...m, arrivedAt: now };
 }
 
 /** WS로 수신한 에이전트 응답(브로드캐스트) 머지 — id 중복이면 스킵 */
