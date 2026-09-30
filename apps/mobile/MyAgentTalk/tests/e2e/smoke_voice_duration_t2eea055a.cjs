@@ -58,6 +58,27 @@ async function openMobileChat(browser) {
       const txt = visible ? (await timer.textContent()).trim() : '';
       check("① 홀드 중 voice-stage-timer 'M:SS' 렌더", visible, `txt=${txt}`);
       check("① 경과 실측 — 1.2s 홀드에서 '0:01' 이상", /^(\d+):([0-5]\d)$/.test(txt) && (Number(RegExp.$1) > 0 || Number(RegExp.$2) >= 1), `txt=${txt}`);
+      // t_5e592321 ② 겹침 제거: 타이머 vs 링 테두리(원 내부 소속 판정)/마이크 디스크/리본/라벨 DOM 히트박스 0
+      if (visible) {
+        const geo = await page.evaluate(() => {
+          const r = (sel) => { const el = document.querySelector(sel); if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+          const stripR = r('[data-testid="voice-stage"]');
+          const tR = r('[data-testid="voice-stage-timer"]');
+          const micR = r('[data-testid="voice-stage-mic"]');
+          const ribR = r('[data-testid="voice-stage-ribbon"]');
+          const recR = r('[data-testid="voice-stage-recording"]');
+          return { stripR, tR, micR, ribR, recR };
+        });
+        const ov = (a, b) => !!a && !!b && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        check('② 타이머-마이크디스크 겹침 0', !ov(geo.tR, geo.micR), JSON.stringify(geo.tR) + '|' + JSON.stringify(geo.micR));
+        check('② 타이머-리본 겹침 0', !ov(geo.tR, geo.ribR), JSON.stringify(geo.tR) + '|' + JSON.stringify(geo.ribR));
+        check('② 타이머-하단라벨 겹침 0', !ov(geo.tR, geo.recR), JSON.stringify(geo.tR) + '|' + JSON.stringify(geo.recR));
+        // 링 내부 소속: 타이머 4코너가 96px 링 사각 내부 (pad과 동심·동직경 — 테두리 가로지르기 = 실패)
+        const ring = await page.getByTestId('voice-stage-ring').boundingBox();
+        const inside = geo.tR.x >= ring.x - 1 && geo.tR.x + geo.tR.w <= ring.x + ring.width + 1
+          && geo.tR.y >= ring.y - 1 && geo.tR.y + geo.tR.h <= ring.y + ring.height + 1;
+        check('② 타이머 링 내부 완전 수납(테두리 미가로지름)', inside, `timer=${JSON.stringify(geo.tR)} ring=${JSON.stringify(ring)}`);
+      }
       // 카운터가 자라는지 1.2초 더 관측 (200ms 이하 간격 갱선 보장)
       const t0 = txt;
       await page.waitForTimeout(1200);

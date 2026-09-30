@@ -3,8 +3,9 @@
 //  A. 음성 계층 (기본): 하단 ~30% 투명 스트립(VoiceStage). 대기 = 빈 영역만 — 히스토리 잘림/가림 소멸.
 //     홀드 → 링+초록 마이크+펄스+실측 게인 sine 리본. 놓기=전송 / ↑ 슬라이드=B / 좌·우 끝 0.8s=예·아니요.
 //     키보드 전환 버튼 없음 — ↑ 제스처가 유일한 A→B 진입로.
-//  B. 키보드 계층 (↑로 열었을 때만): 입력바. 배치 확정 — 좌=전송(초록), 우=마이크 탭(B→A 복귀 1개뿐).
-//     (타이핑 중 엄지 스와이프는 오타 → 복귀는 버튼). 첨부 로직 불변.
+//  B. 키보드 계층 (↑로 열었을 때만): 입력바. t_5e592321 되돌림(대표님 9/30 "전송 버튼은 왼쪽에 있고
+//     ... 위치가 바껴있어") — 배치 원상복구: 우=전송(초록), 그 좌측=마이크 탭(B→A 복귀 1개뿐).
+//     (0d351d4d #304의 좌전송/우마이크 반전은 폐기). 첨부 로직 불변.
 // PC/네이티브/데모(voiceMode=false): 기존 입력바 상시(좌첨부-우전송) — DOM 불변 (t_e735d936 스모크 ⑧).
 // 권한 최초 요구는 A의 첫 홀드 시점(usePushToTalk.startHold) — 로드 중 getUserMedia 없음.
 import React, { useEffect, useRef, useState } from 'react';
@@ -120,22 +121,17 @@ export default function ChatInputConsole({
       {/* 권한 거부 폴백 안내는 VoiceStage 내부(chat-voice-fallback) — 자동 입력창 병행 개방은 inputOpen */}
       {inputOpen && (
         <View style={styles.inputBar} testID="chat-input-bar">
-          {/* B 계층 배치 확정 (#304 보강): 음성 모드 입력바는 좌=전송(초록) / 우=마이크(A 복귀).
+          {/* t_5e592321 되돌림(대표님 9/30): 마이크 탭을 입력좌·전송을 최우로 — 0d351d4d 반전 이전 배치 복구.
               PC·데모(voiceMode=false)는 기존 좌=첨부 … 우=전송 배치 DOM 불변. */}
           {voiceMode && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={t('chat.sendLabel')}
-              onPress={onSubmit}
-              disabled={!validateMessageInput(value).ok}
-              testID="send-button"
-              style={({ pressed }) => [
-                styles.sendButton,
-                { backgroundColor: validateMessageInput(value).ok ? colors.accent : colors.accent + '55' },
-                pressed && validateMessageInput(value).ok && { backgroundColor: colors.accent + 'CC' },
-              ]}
+              accessibilityLabel={t('chat.voiceBack')}
+              onPress={() => { inputRef.current?.blur(); setKeyboardOpen(false); }}
+              testID="chat-voice-back"
+              style={({ pressed }) => [styles.micButton, pressed && { backgroundColor: colors.surfaceHover }]}
             >
-              <Text style={styles.sendLabel}>{t('chat.send')}</Text>
+              <MicIcon size={iconSize.glyph} color={colors.accent} />
             </Pressable>
           )}
           <View style={styles.inputRow}>
@@ -162,35 +158,22 @@ export default function ChatInputConsole({
               accessibilityLabel={t('chat.input')}
             />
           </View>
-          {/* 마이크 탭 = 키보드 닫히고 A 복귀 — B→A 유일한 전이 (#304). 음성 모드에서만 렌더. */}
-          {voiceMode && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('chat.voiceBack')}
-              onPress={() => { inputRef.current?.blur(); setKeyboardOpen(false); }}
-              testID="chat-voice-back"
-              style={({ pressed }) => [styles.micButton, pressed && { backgroundColor: colors.surfaceHover }]}
-            >
-              <MicIcon size={iconSize.glyph} color={colors.accent} />
-            </Pressable>
-          )}
-          {/* PC/네이티브/데모: 기존 우측 전송 버튼 (t_64af90b0 #4 — paper Button disabled 색상 문제 → 커스텀 Pressable) */}
-          {!voiceMode && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('chat.sendLabel')}
-              onPress={onSubmit}
-              disabled={!validateMessageInput(value).ok}
-              testID="send-button"
-              style={({ pressed }) => [
-                styles.sendButton,
-                { backgroundColor: validateMessageInput(value).ok ? colors.accent : colors.accent + '55' },
-                pressed && validateMessageInput(value).ok && { backgroundColor: colors.accent + 'CC' },
-              ]}
-            >
-              <Text style={styles.sendLabel}>{t('chat.send')}</Text>
-            </Pressable>
-          )}
+          {/* 마이크 탭 = 키보드 닫히고 A 복귀 — B→A 유일한 전이 (#304). 전송의 좌측에 상치 (t_5e592321). */}
+          {/* PC/네이티브/데모 + 음성 모드 공통: 우측 끝 전송 버튼 (t_64af90b0 #4 — paper Button disabled 색상 문제 → 커스텀 Pressable) */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.sendLabel')}
+            onPress={onSubmit}
+            disabled={!validateMessageInput(value).ok}
+            testID="send-button"
+            style={({ pressed }) => [
+              styles.sendButton,
+              { backgroundColor: validateMessageInput(value).ok ? colors.accent : colors.accent + '55' },
+              pressed && validateMessageInput(value).ok && { backgroundColor: colors.accent + 'CC' },
+            ]}
+          >
+            <Text style={styles.sendLabel}>{t('chat.send')}</Text>
+          </Pressable>
         </View>
       )}
     </>
