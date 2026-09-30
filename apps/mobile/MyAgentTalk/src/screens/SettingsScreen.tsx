@@ -12,10 +12,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  TextInput,
   Platform,
 } from 'react-native';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
-import { getPttKey, getPttMode, setPttKey, setPttMode, subscribePrefs, hydratePrefs, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT } from '../lib/userPrefs';
+import { getPttKey, getPttMode, setPttKey, setPttMode, subscribePrefs, hydratePrefs, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT, getProtectedTerms, setProtectedTerms, PROTECTED_TERMS_MAX } from '../lib/userPrefs';
 import { capturePttKey, pttKeyLabel, PTT_DEFAULT_KEY } from '../lib/pttLogic';
 import WithdrawDialog from '../components/dialogs/WithdrawDialog';
 
@@ -60,6 +61,26 @@ export default function SettingsScreen({ navigation }: Props) {
   // 복명복창 토글 (t_43297d90 요구 1) — '답변 전 되물음'. 계약: preferences.echoMode 'on'|'off', 기본 'on'.
   // 프론트는 선호 저장만 한다 — 실제 재질문 게이트는 서버 단일 진실(t_d1dcd850), 프론트 필터 없음(요구 4).
   const echoMode = getEchoMode() ?? ECHO_MODE_DEFAULT;
+  // 고유명사 보호 사전 (t_64914144 요구 2) — preferences.protectedTerms: string[].
+  // 저장 규격은 백엔드와 동일(2~50자, 중복 제거, 50 상한 — userPrefs.normalizeProtectedTerms).
+  const protectedTerms = getProtectedTerms();
+  const [termDraft, setTermDraft] = React.useState('');
+  const [termMessage, setTermMessage] = React.useState<string | null>(null); // i18n key (errors.* 패턴과 동일하게 키로 보관)
+  const [termBusy, setTermBusy] = React.useState(false);
+  const addProtectedTerm = async () => {
+    const term = termDraft.trim();
+    if (term.length < 2) { setTermMessage('settings.protectedShort'); return; }
+    if (protectedTerms.includes(term)) { setTermMessage('settings.protectedExists'); return; }
+    if (protectedTerms.length >= PROTECTED_TERMS_MAX) { setTermMessage('settings.protectedLimit'); return; }
+    setTermMessage(null);
+    setTermBusy(true);
+    await setProtectedTerms([...protectedTerms, term]); // 낙관적 반영(subscribePrefs emit → 재렌더) 후 서버 PATCH
+    setTermBusy(false);
+    setTermDraft('');
+  };
+  const removeProtectedTerm = (index: number) => {
+    void setProtectedTerms(protectedTerms.filter((_, i) => i !== index));
+  };
   React.useEffect(() => {
     // 설정 화면 직접 진입(reload/깊이링크) 시 서버 값 하이드레이션 보장 — 미구동 화면에서도 read-back 가능
     void hydratePrefs().then(() => forceRender((n) => n + 1)).catch(() => undefined);
@@ -149,6 +170,59 @@ export default function SettingsScreen({ navigation }: Props) {
               trackColor={{ false: colors.surfaceHover, true: colors.accent }}
               thumbColor={colors.text1}
             />
+          </View>
+
+          {/* 고유명사 보호 사전 (t_64914144 요구 2) — preferences.protectedTerms. 서버가 매 턴 읽어
+              어문 게이트 과교정('김비서'→'김 비서'류) 차단 + [ORTHOS] 프롬프트 주입(d2ecf480).
+              testID: settings-protected-input / settings-protected-add / settings-protected-term-<i> / settings-protected-remove-<i> — 스모크 앵커. */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingBody}>
+              <Text style={styles.settingLabel}>{t('settings.protected')}</Text>
+              <Text style={styles.settingDescription}>{t('settings.protectedDescription')}</Text>
+              {protectedTerms.length > 0 && (
+                <View style={styles.termWrap}>
+                  {protectedTerms.map((term, i) => (
+                    <View key={term} style={styles.termChip} testID={`settings-protected-term-${i}`}>
+                      <Text style={styles.termChipText}>{term}</Text>
+                      <TouchableOpacity
+                        testID={`settings-protected-remove-${i}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${t('settings.protectedRemove')} ${term}`}
+                        onPress={() => removeProtectedTerm(i)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.termChipRemove}>×</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={styles.termAddRow}>
+                <TextInput
+                  testID="settings-protected-input"
+                  style={styles.termInput}
+                  value={termDraft}
+                  onChangeText={(v) => { setTermDraft(v); if (termMessage) setTermMessage(null); }}
+                  placeholder={t('settings.protectedHint')}
+                  placeholderTextColor={colors.text3}
+                  maxLength={50}
+                  submitBehavior="newline"
+                  onSubmitEditing={() => void addProtectedTerm()}
+                  returnKeyType="done"
+                  accessibilityLabel={t('settings.protected')}
+                />
+                <TouchableOpacity
+                  testID="settings-protected-add"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('settings.protectedAdd')}
+                  onPress={() => void addProtectedTerm()}
+                  style={[styles.modeChip, styles.termAddChip, termBusy && { opacity: 0.5 }]}
+                >
+                  <Text style={[styles.modeChipText, { color: colors.accent }]}>{t('settings.protectedAdd')}</Text>
+                </TouchableOpacity>
+              </View>
+              {termMessage && <Text accessibilityRole="alert" style={styles.termMessage}>{t(termMessage)}</Text>}
+            </View>
           </View>
 
           <TouchableOpacity
@@ -346,6 +420,35 @@ const styles = StyleSheet.create({
   modeChipActive: { borderColor: colors.accent, backgroundColor: colors.accentTint },
   modeChipText: { ...typography.caption, fontWeight: '600', color: colors.text2 },
   modeChipTextActive: { color: colors.accent },
+  // 고유명사 보호 사전 (t_64914144)
+  termWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.sp2, gap: spacing.sp2 },
+  termChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sp3,
+    paddingVertical: spacing.sp1,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceHover,
+  },
+  termChipText: { ...typography.caption, fontWeight: '600', color: colors.text1, ...(Platform.OS === 'web' ? { wordBreak: 'keep-all' } as never : {}) },
+  termChipRemove: { ...typography.body, color: colors.text3, marginLeft: spacing.sp2 },
+  termAddRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sp3, gap: spacing.sp2 },
+  termInput: {
+    flex: 1,
+    minWidth: 0,
+    ...typography.body,
+    color: colors.text1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sp3,
+    paddingVertical: spacing.sp2,
+    backgroundColor: colors.surface,
+  },
+  termAddChip: { marginLeft: 0, flexShrink: 0 },
+  termMessage: { ...typography.caption, color: colors.statusErr, marginTop: spacing.sp2 },
   footerText: {
     ...typography.micro,
     marginTop: spacing.sp8,

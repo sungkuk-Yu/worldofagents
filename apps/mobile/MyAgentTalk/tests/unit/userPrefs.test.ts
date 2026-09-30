@@ -171,3 +171,65 @@ test('echoMode: 오프라인 하이드레이션은 로컬 저장본 유지', asy
   await prefs.hydratePrefs();
   assert.equal(prefs.getEchoMode(), 'off');
 });
+
+// ── 고유명사 보호 사전 protectedTerms 영속 (카드 t_64914144 요구 2 — 백 d2ecf480 규격) ──────
+test('protectedTerms: 미저장 시 [](키 생략 — 서버는 백 기본 사전만 사용)', async (t) => {
+  const { prefs, state } = setup(t, { me: { preferences: {} } });
+  await prefs.hydratePrefs();
+  assert.deepEqual(prefs.getProtectedTerms(), []);
+  await prefs.setEchoMode('off'); // 다른 쓰기에도 protectedTerms 키 혼입 0
+  assert.equal('protectedTerms' in (state.patches[state.patches.length - 1] as { preferences: Record<string, unknown> }).preferences, false);
+});
+
+test('protectedTerms: 서버 preferences.protectedTerms 우선 복원 + 로컬 미러', async (t) => {
+  const { prefs, state } = setup(t, { me: { preferences: { theme: 'dark', protectedTerms: ['김비서', '내변호사'] } } });
+  await prefs.hydratePrefs();
+  assert.deepEqual(prefs.getProtectedTerms(), ['김비서', '내변호사']);
+  assert.ok(state.local.get('at-prefs-v1')?.includes('protectedTerms')); // 로컬 미러
+});
+
+test('protectedTerms: setProtectedTerms — 낙관적 즉시 반영 + PATCH protectedTerms 키만 + 다른 키 유실 0', async (t) => {
+  const { prefs, state } = setup(t, { me: { preferences: { theme: 'dark', echoMode: 'off', joystickMap: { ...DEFAULT_MAP } } } });
+  await prefs.hydratePrefs();
+  await prefs.setProtectedTerms(['김비서', '에이전트톡']);
+  assert.deepEqual(prefs.getProtectedTerms(), ['김비서', '에이전트톡']); // 낙관적 즉시
+  const sent = state.patches[state.patches.length - 1] as { preferences: Record<string, unknown> };
+  assert.deepEqual(sent.preferences.protectedTerms, ['김비서', '에이전트톡']);
+  assert.equal(sent.preferences.theme, 'dark');    // 다른 선호 키 보존
+  assert.equal(sent.preferences.echoMode, 'off');  // 에코 공존
+  assert.ok(sent.preferences.joystickMap);         // 맵 유실 0
+});
+
+test('protectedTerms: 정규화 — trim·1자 제외·비문자열 제외·중복 제거·50 상한', async (t) => {
+  const { prefs } = setup(t); // 목 경유 모듈 인스턴스 재사용 (실 api import 회피)
+  assert.deepEqual(prefs.normalizeProtectedTerms(['  김비서 ', '비서', 'x', '', '  ', 42, null, '김비서', 'AgentTalk']),
+    ['김비서', '비서', 'AgentTalk']);
+  const many = Array.from({ length: 80 }, (_, i) => `term${i}`);
+  assert.equal(prefs.normalizeProtectedTerms(many).length, prefs.PROTECTED_TERMS_MAX);
+  assert.deepEqual(prefs.normalizeProtectedTerms('not-an-array'), []);
+  assert.deepEqual(prefs.normalizeProtectedTerms(undefined), []);
+  assert.deepEqual(prefs.normalizeProtectedTerms(['가'.repeat(51)]), []); // 초장문 제외(50자 상한)
+});
+
+test('protectedTerms: 빈 배열도 정당한 저장(전체 삭제) — PATCH에 [] 발화', async (t) => {
+  const { prefs, state } = setup(t, { me: { preferences: { protectedTerms: ['김비서'] } } });
+  await prefs.hydratePrefs();
+  await prefs.setProtectedTerms([]);
+  assert.deepEqual(prefs.getProtectedTerms(), []);
+  const sent = state.patches[state.patches.length - 1] as { preferences: Record<string, unknown> };
+  assert.deepEqual(sent.preferences.protectedTerms, []); // 키가 실제로 나가야 서버 사전 비워짐(미저장부와 다른 상태)
+});
+
+test('protectedTerms: 서버 저장 실패해도 로컬 캐시/저장은 유지 (낙관적 — echoMode 정책 동일)', async (t) => {
+  const { prefs, state } = setup(t, { patchFails: true });
+  await prefs.hydratePrefs();
+  await prefs.setProtectedTerms(['최 비서']);
+  assert.deepEqual(prefs.getProtectedTerms(), ['최 비서']);
+  assert.ok(state.local.get('at-prefs-v1')?.includes('protectedTerms'));
+});
+
+test('protectedTerms: 손상된 서버 값(문자열)은 무시 → [](미저장 폴백)', async (t) => {
+  const { prefs } = setup(t, { me: { preferences: { protectedTerms: '김비서,내변호사' } } });
+  await prefs.hydratePrefs();
+  assert.deepEqual(prefs.getProtectedTerms(), []);
+});
