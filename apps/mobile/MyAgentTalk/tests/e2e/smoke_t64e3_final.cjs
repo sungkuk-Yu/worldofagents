@@ -183,9 +183,14 @@ function pcmToWav(pcm, rate = 16000) {
     check('D3 아이콘 ≥16px 판독 유지', svgSize && svgSize.w >= 16, svgSize ? `icon=${svgSize.w}px` : '미측정');
     const hit = await page.evaluate(([x, y]) => {
       const el = document.elementFromPoint(x, y);
-      return !!el && !!el.closest('[data-testid="voice-stage"]');
+      return !!el && !!el.closest('[data-testid="voice-stage-pad"]');
     }, [cx, cy]);
-    check('D4 탭 가능 최소 유지: 스트립 홀드 히트 영역 44px↑ (디스크 독립 버튼 아님)', hit && box.height >= 180, `strip=${box ? `${box.width}x${Math.round(box.height)}` : '?'}`);
+    // t_f8c40db0(9/30) 개정: 홀드 히트 = 지문형 패드(96px≥44)만 — 스트립 원 밖은 리스트 통과.
+    const outside = await page.evaluate(([x, y]) => {
+      const el = document.elementFromPoint(x, y);
+      return !!(el && el.closest('[data-testid="voice-stage"]'));
+    }, [box.x + 40, cy]);
+    check('D4 홀드 히트 = 중앙 패드 ≥44px; 스트립 좌측 원밖 = 스트립 히트 0(스크롤 통과) — t_f8c40db0', hit && !outside && box.height >= 180, `padHit=${hit} outside=${outside} strip=${box ? `${box.width}x${Math.round(box.height)}` : '?'}`);
     await page.screenshot({ path: path.join(OUT, 'D-ring-96px.png') });
     await page.mouse.up(); // send 경로 — 전사와 같은 픽스처 발화(무확인) 재확인용
     await sleep(1200);

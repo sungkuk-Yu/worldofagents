@@ -41,10 +41,10 @@ async function openMobileChat(browser) {
   return { page, state, errors };
 }
 
-// 스트립 중앙에서 시작해 상대 방향으로 천천히 Drag 후 릴리스 (이탈 포함)
+// 스트립 중앙이 아니라 지문형 패드(voice-stage-pad) 중앙에서 홀드 시작 — t_f8c40db0(9/30) 히트 축소.
 async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = false }) {
-  const box = await page.getByTestId('voice-stage').boundingBox();
-  assert.ok(box, 'voice-stage 박스');
+  const box = await page.getByTestId('voice-stage-pad').boundingBox();
+  assert.ok(box, 'voice-stage-pad 박스');
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
@@ -73,6 +73,22 @@ async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = 
         return el ? getComputedStyle(el).backgroundColor : null;
       });
       check('① strip 배경 투명(채팅 배후 비침)', bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent', `bg=${bg}`);
+      // ── t_f8c40db0 (대표님 9/30): 지문형 서클 패드만 인식 · 원 밖은 전역 스크롤 통과 ──
+      const pad = await page.getByTestId('voice-stage-pad').boundingBox();
+      check('① 홀드 패드(서클) 렌더 — 직경 ~96px', !!pad && Math.abs(pad.width - 96) <= 2 && Math.abs(pad.height - 96) <= 2, pad ? `${pad.width}x${pad.height}` : '없음');
+      check('① 패드 중심 = 스트립 중심(지문형 중앙 배치)', !!pad
+        && Math.abs((pad.x + pad.width / 2) - (strip.x + strip.width / 2)) <= 2
+        && Math.abs((pad.y + pad.height / 2) - (strip.y + strip.height / 2)) <= 2);
+      const hitMap = await page.evaluate(([cx, cy, lx, rx, uy]) => {
+        const at = (x, y) => {
+          const el = document.elementFromPoint(x, y);
+          return { pad: !!(el && el.closest('[data-testid="voice-stage-pad"]')), stage: !!(el && el.closest('[data-testid="voice-stage"]')) };
+        };
+        return { center: at(cx, cy), left: at(lx, cy), right: at(rx, cy), inStripAbovePad: at(cx, uy) };
+      }, [pad.x + pad.width / 2, pad.y + pad.height / 2, strip.x + 40, strip.x + strip.width - 40, strip.y + 20]);
+      check('① 패스-쓰루: 스트립 중앙 히트 = 패드만(홀드 시작 가능)', hitMap.center.pad && hitMap.center.stage);
+      check('① 패스-쓰루: 스트립 안 원밖(좌/우/패드 위) = 스트립 히트 0(리스트 스크롤 통과) — t_f8c40db0',
+        !hitMap.left.stage && !hitMap.right.stage && !hitMap.inStripAbovePad.stage, JSON.stringify(hitMap));
       check('① 고정 콘솔 DOM 0 (chat-voice-console 폐기)', (await page.getByTestId('chat-voice-console').count()) === 0
         && (await page.getByTestId('joystick-mic').count()) === 0);
       check('① 우측 키보드 원형 버튼 DOM 0 (#294-4)', (await page.getByTestId('chat-keyboard-button').count()) === 0);

@@ -11,11 +11,15 @@
 //  - 음성 = 무확인 진행: 홀드-릴리스는 전사→즉시 답변 파이프라인(텔레그램식). 예/아니오 게이트·타이머 없음.
 //  - 조이스틱 좌예·우아니오는 **재질문 버튼 행이 활성일 때만** 발동(ackActive prop) — 비활성 시
 //    좌우 끝도 평범한 홀드로 send 경로(전사 진행)를 따른다(↑/이탈 계약은 불변).
-//  - 마이크 링 축소 (#321 ~60%): STAGE_RING 160→96, 마이크 디스크 56→34. 아이콘 ≥16px,
-//    탭 판독 최소 44px는 스트립 전체 홀드 영역이 담당(디스크 단독 탭 버튼 아님 — 계약 불변).
+//  - 마이크 링 축소 (#321 ~60%): STAGE_RING 160→96, 마이크 디스크 56→34. 아이콘 ≥16px.
+//    탭 판독 최소 44px = 중앙 서클 패드(96px)가 담당 — t_f8c40db0(9/30) 폐지: 스트립 전체 홀드 →
+//    지문형 원만 인식, 원 밖 전역 스크롤 통과.
 // 제스처: getDirection(8방향 스냅 — JoystickMic과 동일 lib, 제스처 매핑 호환) — 벡터는 그랜트 지점 기준.
 // 권한 첫 요구 = 그랜트 시점(onPressHoldStart) — 로드 중 getUserMedia 없음(계약 불변).
 // 웹 모바일(voiceFirstConsole 게이트) 전용 마운트 — PC/네이티브/데모는 기존 텍스트 입력바(t_e735d936 ⑧).
+// t_f8c40db0 (대표님 9/30): 홀드 히트영역 = 중앙 지문형 서클 패드(STAGE_RING 크기)만.
+//   스트립 전체(box-none)는 터치 통과 — 원 밖 드래그는 리스트 스크롤이 그대로 받는다.
+//   스트립 레이아웃/패딩 계약(#311)·제스처 계약(↑/좌우/이탈 경계=스트립)은 불변 — 히트 시작점만 축소.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, Platform, StyleSheet, View, type GestureResponderHandlers } from 'react-native';
 import { Text } from 'react-native-paper';
@@ -77,6 +81,7 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   // 제스처 상태 refs — PanResponder는 1회 생성 (JoystickMic/MagicPad 패턴)
   const startedRef = useRef(false);
   const boxRef = useRef<{ left: number; right: number; bottom: number } | null>(null);
+  // 이탈/히트 기준 스냅샷용 — t_f8c40db0: 제스처 계약(이탈 경계)은 스트립 전체 유지, 히트만 패드로 축소
   const stripRef = useRef<View | null>(null);
   const gestureRef = useRef<JoystickGesture | null>(null);
   const escapedRef = useRef(false);
@@ -300,52 +305,63 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   return (
     <View
       ref={stripRef}
+      pointerEvents="box-none"
       style={[styles.strip, { height }]}
       testID="voice-stage"
-      accessibilityLabel={t('chat.voiceStageHint')}
-      {...panHandlers}
     >
-      {/* 첫 진입 힌트 알약 (대기 상태에서 유일한 표시, 3s 후 페이드) */}
-      {!hintSeen && phase === 'idle' && !error && (
-        <Animated.View pointerEvents="none" testID="voice-stage-hint" style={[styles.hintPill, { opacity: hintOpacity }]}>
-          <Text style={styles.hintText}>{t('chat.voiceStageHint')}</Text>
-        </Animated.View>
-      )}
-      {/* 권한 거부 폴백 안내 (자동 키보드 개방은 부모 ChatInputConsole 유지) */}
-      {!!error && phase === 'idle' && (
-        <Text testID="chat-voice-fallback" style={styles.fallbackText}>{t(error)}</Text>
-      )}
-      {phase !== 'idle' && (
-        <View testID="voice-stage-ring" pointerEvents="none" style={styles.ring}>
-          <Animated.View testID="voice-stage-pulse" style={[styles.pulse, {
-            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
-            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }],
-          }]} />
-          {/* 리본: 링 상부 손가락 위 — canvas는 effect가 DOM 부착 (#316 '링 내부 또는 상부') */}
-          <View ref={ribbonHostRef} testID="voice-stage-ribbon" pointerEvents="none" style={styles.ribbonWrap} />
-          <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp]}>
-            <MicIcon size={Math.max(16, Math.round(MIC_BUTTON * 0.52))} color={colors.onPrimary} />
+      {/* t_f8c40db0 (대표님 9/30): 스트립은 패스-쓰루 레이아웃 박스뿐 — 홀드 히트 = 서클 패드(96px) 한정.
+          원 밖 터치/드래그는 배후 FlatList가 그대로 받아 전역 스크롤 가능(#311 레이아웃·제스처 계약 불변).
+          RNW box-none 컴파일 = '.strip>*{pointer-events:auto!important}' — 직계자식 전역(atomic) 클래스와
+          특선·순서 승부가 모듈 로딩 순에 좌우됨(불안정). 회피: 장식(hint/fallback/링/글자)을 전부
+          패드 내부로 — 패드 자식은 위 >* 규칙 범위 밖, 명시 pointer-events:none 이 상속(auto)을 무조건 이김. */}
+      <View
+        {...panHandlers}
+        testID="voice-stage-pad"
+        accessibilityLabel={t('chat.voiceStageHint')}
+        style={styles.pad}
+      >
+        {/* 첫 진입 힌트 알약 — 패드 하방(스트립 bottom-16 위치 환산), 3s 후 페이드 */}
+        {!hintSeen && phase === 'idle' && !error && (
+          <Animated.View testID="voice-stage-hint" style={[styles.hintPill, { bottom: 16 - (height - STAGE_RING) / 2, opacity: hintOpacity, pointerEvents: 'none' }]}>
+            <Text style={styles.hintText}>{t('chat.voiceStageHint')}</Text>
+          </Animated.View>
+        )}
+        {/* 권한 거부 폴백 안내 (자동 키보드 개방은 부모 ChatInputConsole 유지) */}
+        {!!error && phase === 'idle' && (
+          <Text testID="chat-voice-fallback" style={[styles.fallbackText, { bottom: 16 - (height - STAGE_RING) / 2, pointerEvents: 'none' }]}>{t(error)}</Text>
+        )}
+        {phase !== 'idle' && (
+          <View testID="voice-stage-ring" style={styles.ring}>
+            <Animated.View testID="voice-stage-pulse" style={[styles.pulse, {
+              opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
+              transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }],
+            }]} />
+            {/* 리본: 링 상부 손가락 위 — canvas는 effect가 DOM 부착 (#316 '링 내부 또는 상부') */}
+            <View ref={ribbonHostRef} testID="voice-stage-ribbon" style={styles.ribbonWrap} />
+            {upTarget && <Text style={styles.upLabel}>{t('chat.voiceStageToKeyboard')}</Text>}
+            {ackHint && (
+              <Text testID="joystick-ack-armed" style={styles.armedText}>
+                {t(ackHint === 'yes' ? 'chat.ackHoldArmedYes' : 'chat.ackHoldArmedNo')}
+              </Text>
+            )}
+            {phase === 'done' && (
+              <Animated.View testID="voice-stage-done" style={[styles.doneBadge, { opacity: doneOpacity }]}>
+                <Text style={styles.doneCheck}>✓</Text>
+              </Animated.View>
+            )}
           </View>
-          {upTarget && <Text style={styles.upLabel}>{t('chat.voiceStageToKeyboard')}</Text>}
-          {ackHint && (
-            <Text testID="joystick-ack-armed" style={styles.armedText}>
-              {t(ackHint === 'yes' ? 'chat.ackHoldArmedYes' : 'chat.ackHoldArmedNo')}
-            </Text>
-          )}
-          {phase === 'done' && (
-            <Animated.View testID="voice-stage-done" style={[styles.doneBadge, { opacity: doneOpacity }]}>
-              <Text style={styles.doneCheck}>✓</Text>
-            </Animated.View>
-          )}
+        )}
+        <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp]}>
+          <MicIcon size={Math.max(16, Math.round(MIC_BUTTON * 0.52))} color={colors.onPrimary} />
         </View>
-      )}
-      {pending && !recording && (
-        // t_5058e15f ②: 연결 대기 중 홀드 = 캡처 지연 시작 — '연결 중' 안내로 조용한 스킵 폐지(토스트 아닌 상태 신호).
-        // r1 병합(t_cb8 계약 흡수): holding 게이트 없음 — 키보드(V) 경로의 pending도 A계층에서 보여야
-        // '무반응 금지'가 성립한다(pending은 pressIn/keydown 시에만 arm되고 릴리스/타임아웃에 해제됨).
-        <Text testID="voice-stage-connecting" style={styles.recordingText}>{t('chat.connecting')}</Text>
-      )}
-      {holding && (recording || !pending) && <Text testID="voice-stage-recording" style={styles.recordingText}>{t('chat.pttRecording')}</Text>}
+        {pending && !recording && (
+          // t_5058e15f ②: 연결 대기 중 홀드 = 캡처 지연 시작 — '연결 중' 안내로 조용한 스킵 폐지(토스트 아닌 상태 신호).
+          // r1 병합(t_cb8 계약 흡수): holding 게이트 없음 — 키보드(V) 경로의 pending도 A계층에서 보여야
+          // '무반응 금지'가 성립한다(pending은 pressIn/keydown 시에만 arm되고 릴리스/타임아웃에 해제됨).
+          <Text testID="voice-stage-connecting" style={[styles.recordingText, { bottom: 8 - (height - STAGE_RING) / 2 }]}>{t('chat.connecting')}</Text>
+        )}
+        {holding && (recording || !pending) && <Text testID="voice-stage-recording" style={[styles.recordingText, { bottom: 8 - (height - STAGE_RING) / 2 }]}>{t('chat.pttRecording')}</Text>}
+      </View>
     </View>
   );
 }
@@ -353,17 +369,27 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
 const styles = StyleSheet.create({
   strip: {
     position: 'absolute', left: 0, right: 0, bottom: 0, // 0-호스트 위 상방 성장 — 흐름 높이 0(#311 패딩 계약은 화면)
-    backgroundColor: 'transparent',  // 투명 스트립 — 채팅이 배후로 비침, 대기 시 콘솔 DOM 0
+    backgroundColor: 'transparent',  // 투명 스트립 — 채팅 배후 비침. t_f8c40db0: box-none — 원 밖은 리스트로 통과
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  pad: {
+    // 지문인식형 홀드 패드 (t_f8c40db0) — 링과 동일 중심·직경(96px), 대기 상태에서도 보이는 유일한 인식 원.
+    position: 'absolute', width: STAGE_RING, height: STAGE_RING,
+    left: '50%', top: '50%', marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
+    borderRadius: radii.full,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    backgroundColor: colors.surfaceRaise + '14',
+    alignItems: 'center', justifyContent: 'center',
   },
   hintPill: {
     paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp2,
     borderRadius: radii.full, backgroundColor: colors.surfaceRaise,
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    position: 'absolute', bottom: spacing.sp4, // 패드(중앙)와 겹치지 않게 하단 — t_f8c40db0
   },
   hintText: { ...typography.caption, color: colors.text2 },
-  fallbackText: { ...typography.caption, color: colors.statusWarn, textAlign: 'center' },
+  fallbackText: { ...typography.caption, color: colors.statusWarn, textAlign: 'center', position: 'absolute', bottom: spacing.sp4 }, // 패드(중앙)와 겹치지 않게 하단 — t_f8c40db0
   ring: {
     position: 'absolute', width: STAGE_RING, height: STAGE_RING,
     // 중심 = 스트립 중앙 고정 (#311) — 백분율+마진이라 실측 대기 없이도 정확
