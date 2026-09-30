@@ -15,7 +15,11 @@
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <!-- 폰트: Pretendard Variable(한글, OFL) + Inter(영문, OFL).
          로컬 woff2(assets → dist/fonts) 우선, jsDelivr CDN 폴백. expo-font가 인터폰트도 번들하지만
-         웹 초기 렌더에서 FOUT 없이 바로 잡히도록 CSS로도 선언한다. -->
+         웹 초기 렌더에서 FOUT 없이 바로 잡히도록 CSS로도 선언한다.
+         t_99322cc0 (모바일 한글 가독성, 9/30): 스택 순서를 한글 퍼스트로 — PretendardVariable이
+         한글을 직접 담당하고 Inter는 unicode-range(라틴 서브셋만)로 라틴만 회수한다.
+         src/theme/index.ts의 fontFamily(web)와 반드시 동일 순서 유지.
+         한글은 단어(조사) 단위 줄바꿈이 가독성의 핵심 → word-break: keep-all. -->
     <style>
       @font-face {
         font-family: 'PretendardVariable';
@@ -24,7 +28,7 @@
         font-display: block;
         src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
       }
-      html, body, #root { font-family: 'Inter', 'PretendardVariable', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', Roboto, sans-serif; }
+      html, body, #root { font-family: 'PretendardVariable', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; word-break: keep-all; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

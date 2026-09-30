@@ -67,28 +67,32 @@ export const spacing = {
 // ── 타이포그래피 ─────────────────────────────────────────────
 // fontFamily는 토큰에서 일괄 지정 — 화면 스타일에서 개별 지정 금지(하드코딩 검사 기준).
 export const fontFamily = Platform.select({
-  // 웹: CSS 스택 — Inter(영문) 우선, Pretendard Variable(한글) 후속.
-  // public/index.html의 CDN @font-face + public/fonts 로컬 woff2가 PretendardVariable을,
-  // expo-font(useFonts)가 Inter를 주입한다.
-  web: 'Inter, PretendardVariable, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", Roboto, sans-serif',
+  // 웹(t_99322cc0 — 모바일 한글 가독성, 대표님 9/30): 한글 퍼스트 스택.
+  // PretendardVariable(로컬 woff2, public/index.html @font-face)가 한글을 직접 담당하고,
+  // Inter는 CSS unicode-range 분할로 라틴만 회수한다(한글이 Inter에 닿지 않음 → 자형 통일).
+  // 공백: index.html의 CSS 스택과 반드시 동일 순서 유지.
+  web: 'PretendardVariable, "Apple SD Gothic Neo", "Noto Sans KR", Inter, -apple-system, BlinkMacSystemFont, Roboto, sans-serif',
   default: 'PretendardVariable',
 }) as string;
 
 // 라인하이트 비율은 tokens.json v1.1 기준, 트래킹은 mintlify.md 규칙(크기별 음수 축소).
 // t_64af90b0 #12 — 4단계 규모 체계 통일: h1 28 · h2 20 · body 16 · caption 13 (line-height 1.5·1.4·1.5·1.4).
+// t_99322cc0 (대표님 9/30 모바일 한글 가독성) — 본문 16→17px·lineHeight 1.55,
+// 한글 자형은 자간 음수에서 자소 간격이 뭉개져 보이므로 20px 이하 트래킹 0으로 완화
+// (음수는 28px+ 디스플레이급 유지 — 라틴 워드마크 오버라이드는 각 화면에서 별도).
 export const typography = {
-  display: { fontFamily, fontSize: 34, fontWeight: '700', lineHeight: 39, letterSpacing: -0.4 },  // 34/1.15
+  display: { fontFamily, fontSize: 34, fontWeight: '700', lineHeight: 39, letterSpacing: -0.2 },  // 34/1.15 — 음수 완화 -0.4→-0.2
   // t_64af90b0 #12 — 규모 체계 통일: h1=title1(28) 고정. title2(22)는 h1 슬롯 사용 금지.
-  title1: { fontFamily, fontSize: 28, fontWeight: '700', lineHeight: 34, letterSpacing: -0.3 },    // 28/1.2 — h1
-  title2: { fontFamily, fontSize: 20, fontWeight: '700', lineHeight: 28, letterSpacing: -0.2 },    // 20/1.4 — h2
-  headline: { fontFamily, fontSize: 17, fontWeight: '600', lineHeight: 22, letterSpacing: -0.2 },  // 17/1.3
-  body: { fontFamily, fontSize: 16, fontWeight: '400', lineHeight: 24, letterSpacing: 0 },         // 16/1.5 — 본문 (h1/h2/body/caption 체계)
-  bodyBold: { fontFamily, fontSize: 16, fontWeight: '600', lineHeight: 23, letterSpacing: 0 },      // 16/1.45
-  subhead: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19, letterSpacing: 0 },       // 13/1.45
-  caption: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18, letterSpacing: 0 },       // 13/1.4 — 캡션
-  micro: { fontFamily, fontSize: 11, fontWeight: '500', lineHeight: 14, letterSpacing: 0.1 },       // 11/1.3 — 미세 +트래킹 (mintlify Label 규칙)
-  microSm: { fontFamily, fontSize: 10, fontWeight: '600', lineHeight: 14, letterSpacing: 0.1 },     // 배지/메타용 (micro 하위)
-  microXs: { fontFamily, fontSize: 9, fontWeight: '700', lineHeight: 12, letterSpacing: 0.2 },      // 극소 배지 (삭제 뱃지 등)
+  title1: { fontFamily, fontSize: 28, fontWeight: '700', lineHeight: 34, letterSpacing: -0.2 },    // 28/1.2 — h1 — 음수 완화 -0.3→-0.2
+  title2: { fontFamily, fontSize: 20, fontWeight: '700', lineHeight: 28, letterSpacing: 0 },      // 20/1.4 — h2 — 한글 상용 크기, 자간 0
+  headline: { fontFamily, fontSize: 17, fontWeight: '600', lineHeight: 22, letterSpacing: 0 },    // 17/1.3 — 앱바 타이틀(한글) — 자간 0
+  body: { fontFamily, fontSize: 17, fontWeight: '400', lineHeight: 26.35, letterSpacing: 0 },     // 17/1.55 — 본문 (t_99322cc0: 16→17·1.55)
+  bodyBold: { fontFamily, fontSize: 17, fontWeight: '600', lineHeight: 25, letterSpacing: 0 },    // 17/1.47 — 본문 강조
+  subhead: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19, letterSpacing: 0 },      // 13/1.45
+  caption: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18, letterSpacing: 0 },      // 13/1.4 — 캡션
+  micro: { fontFamily, fontSize: 11, fontWeight: '500', lineHeight: 14, letterSpacing: 0.1 },      // 11/1.3 — 미세 +트래킹 (mintlify Label 규칙)
+  microSm: { fontFamily, fontSize: 10, fontWeight: '600', lineHeight: 14, letterSpacing: 0.1 },    // 배지/메타용 (micro 하위)
+  microXs: { fontFamily, fontSize: 9, fontWeight: '700', lineHeight: 12, letterSpacing: 0.2 },     // 극소 배지 (삭제 뱃지 등)
 } as const;
 
 // 아이콘 글리프 크기 — 텍스트가 아닌 유니코드 심볼(⚙ ← ☆ ✓ 등) 렌더용.
