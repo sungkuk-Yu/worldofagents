@@ -26,18 +26,36 @@ export function pcm16Rms(samples: Int16Array): number {
   return Math.sqrt(sum / samples.length);
 }
 
+/**
+ * Int16Array 정렬 가드 (t_3a91fc08 크래시 수정).
+ * WS 수신 Buffer는 공유 ArrayBuffer의 홀수 byteOffset을 가질 수 있고(서버는
+ * `Buffer.from(raw as ArrayBuffer)`로 슬라이스 뷰를 얻는다 — @fastify/websocket
+ * 스택이 2정렬 버퍼를 재활용하면 홀수 오프셋 발생), 청크 길이가 홀수 byte일 수도
+ * 있다. 둘 다 `new Int16Array(buffer, offset, n)`에서 RangeError를 던진다.
+ * 홀수 오프셋 → 홀수 길이까지 겹치면 바이트 1개를 잃으므로 **slice 복사본**을
+ * 쓴다(버퍼 뷰는 shared ArrayBuffer이므로 mutation 없이 복사 안전, 청크 ≤64KB).
+ */
+function alignedInt16(data: Buffer): Int16Array {
+  let view = data;
+  if (view.byteOffset % 2 !== 0 || view.byteLength % 2 !== 0) {
+    view = Buffer.from(view); // 독립 2정렬 버퍼(사본)로 정규화
+    if (view.byteLength % 2 !== 0) view = view.subarray(0, view.byteLength - 1); // 홀수 길이 절단
+  }
+  return new Int16Array(view.buffer, view.byteOffset, Math.floor(view.byteLength / 2));
+}
+
 /** 실제 음성(진폭) 감지 */
 export function hasVoiceActivity(data: Buffer, threshold = config.openai.stt.vadThreshold): boolean {
   if (data.length < 2) return false;
-  const samples = new Int16Array(data.buffer, data.byteOffset, Math.floor(data.length / 2));
-  return pcm16Rms(samples) >= threshold;
+  return pcm16Rms(alignedInt16(data)) >= threshold;
 }
 
 /** 무음 후 마지막 포인트 탐색 (문장 경계 후보) */
 export function findLastVoiceSample(data: Buffer, threshold = config.openai.stt.vadThreshold): number {
-  const sampleCount = Math.floor(data.length / 2);
+  if (data.length < 2) return -1;
+  const samples = alignedInt16(data);
+  const sampleCount = samples.length;
   if (sampleCount === 0) return -1;
-  const samples = new Int16Array(data.buffer, data.byteOffset, sampleCount);
   for (let i = sampleCount - 1; i >= 0; i--) {
     if (Math.abs(samples[i] / 32768) >= threshold) return i;
   }
