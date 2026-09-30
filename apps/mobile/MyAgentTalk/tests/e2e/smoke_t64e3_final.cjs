@@ -239,10 +239,14 @@ function pcmToWav(pcm, rate = 16000) {
 
     // ── F. 조이스틱 좌=예 (재질문 활성 시에만, #324) — 라이브 게이트 실측 ──
     // 재질문 버튼 활성 창(2.5s) 안에 B→A 복귀 후 스트립 좌드래그 릴리스 → '예' 발화 1회.
+    // t_888c1669 (김비서 9/30 F 실패 원인 판정): 발화 '이번 주 보고서 요약해줄래?'가 실작업
+    // 답변(3~149s)을 유발 → empathy created_at 앵커와 조작 창 경쟁, F flakes 15+.
+    // B와 같은 짧은 발화(답변 즉시·칩 창 안정)로 교체 — 마커 '조이스틱-프루브N'은 posts
+    // 대조 유지를 위해 보존. 전제(backToVoice·센터 좌표·순수 좌 6×22px) 불변.
     let fj = 0; let fOk = false;
     for (; fj < 2 && !fOk; fj++) {
       await openKeyboardIfVoice(page); // 실패 재시작 시 A layers 잔존 대비
-      await page.getByTestId('chat-input').fill(`조이스틱-프루브${fj} 이번 주 보고서 요약해줄래?`);
+      await page.getByTestId('chat-input').fill(`조이스틱-프루브${fj} 주말 등산 일정 잡아줄래?`);
       await page.getByTestId('send-button').click();
       const chips3 = await page.getByTestId('ack-chips').waitFor({ state: 'visible', timeout: 300000 }).then(() => true).catch(() => false);
       if (!chips3) { check('F 조이스틱 좌=예(재질문 활성)', false, `#${fj + 1} 재질문 행 미노출`); break; }
