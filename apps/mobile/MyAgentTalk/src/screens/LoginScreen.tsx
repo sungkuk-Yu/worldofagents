@@ -199,7 +199,6 @@ const styles = StyleSheet.create({
   },
   title: {
     ...typography.title1,
-    letterSpacing: -0.8,
     color: colors.text1,
     // t_391be23c #1 — 헤더 3줄(MAT·타이틀·서브텍스트) 중앙 정렬 통일 (#8에서 타이틀 행은 미렌더, 스타일만 정비)
     textAlign: 'center',
