@@ -339,8 +339,10 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
           )}
         </View>
       )}
-      {holding && pending && !recording && (
+      {pending && !recording && (
         // t_5058e15f ②: 연결 대기 중 홀드 = 캡처 지연 시작 — '연결 중' 안내로 조용한 스킵 폐지(토스트 아닌 상태 신호).
+        // r1 병합(t_cb8 계약 흡수): holding 게이트 없음 — 키보드(V) 경로의 pending도 A계층에서 보여야
+        // '무반응 금지'가 성립한다(pending은 pressIn/keydown 시에만 arm되고 릴리스/타임아웃에 해제됨).
         <Text testID="voice-stage-connecting" style={styles.recordingText}>{t('chat.connecting')}</Text>
       )}
       {holding && (recording || !pending) && <Text testID="voice-stage-recording" style={styles.recordingText}>{t('chat.pttRecording')}</Text>}
