@@ -15,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
-import { getPttKey, getPttMode, setPttKey, setPttMode, subscribePrefs } from '../lib/userPrefs';
+import { getPttKey, getPttMode, setPttKey, setPttMode, subscribePrefs, hydratePrefs, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT } from '../lib/userPrefs';
 import { capturePttKey, pttKeyLabel, PTT_DEFAULT_KEY } from '../lib/pttLogic';
 import WithdrawDialog from '../components/dialogs/WithdrawDialog';
 
@@ -57,6 +57,13 @@ export default function SettingsScreen({ navigation }: Props) {
   }, [capturing]);
   const pttKey = getPttKey() ?? PTT_DEFAULT_KEY;
   const pttMode = getPttMode() ?? 'hold';
+  // 복명복창 토글 (t_43297d90 요구 1) — '답변 전 되물음'. 계약: preferences.echoMode 'on'|'off', 기본 'on'.
+  // 프론트는 선호 저장만 한다 — 실제 재질문 게이트는 서버 단일 진실(t_d1dcd850), 프론트 필터 없음(요구 4).
+  const echoMode = getEchoMode() ?? ECHO_MODE_DEFAULT;
+  React.useEffect(() => {
+    // 설정 화면 직접 진입(reload/깊이링크) 시 서버 값 하이드레이션 보장 — 미구동 화면에서도 read-back 가능
+    void hydratePrefs().then(() => forceRender((n) => n + 1)).catch(() => undefined);
+  }, []);
 
   return (
     <SafeAreaView style={[styles.container, webScreenMotion('mat-slide-from-right')]}>
@@ -120,6 +127,25 @@ export default function SettingsScreen({ navigation }: Props) {
               accessibilityLabel={t('settings.auto')}
               value={autoTransition}
               onValueChange={setAutoTransition}
+              trackColor={{ false: colors.surfaceHover, true: colors.accent }}
+              thumbColor={colors.text1}
+            />
+          </View>
+
+          {/* 복명복창 OFF 기능 ②-프론트 (t_43297d90) — off 시 서버가 재질문을 생략(t_d1dcd850).
+              testID settings-echo-toggle: 스모크 reload-유지 검증 앵커. */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingBody}>
+              <Text style={styles.settingLabel}>{t('settings.echo')}</Text>
+              <Text style={styles.settingDescription}>
+                {echoMode === 'off' ? t('settings.echoOffDescription') : t('settings.echoDescription')}
+              </Text>
+            </View>
+            <Switch
+              testID="settings-echo-toggle"
+              accessibilityLabel={t('settings.echo')}
+              value={echoMode === 'on'}
+              onValueChange={(v) => void setEchoMode(v ? 'on' : 'off')}
               trackColor={{ false: colors.surfaceHover, true: colors.accent }}
               thumbColor={colors.text1}
             />

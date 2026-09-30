@@ -19,6 +19,14 @@ let modeCache: JoystickMode | null = null; // 카드 t_5de18a91 — 입력 모�
 // joystickMap과 상호 유실 없이 공존 — 패치에는 자기 키만 넣는다(read-modify-write 불요).
 let pttKeyCache: string | null = null;
 let pttModeCache: PttMode | null = null;
+// 카드 t_43297d90 요구 1 — 복명복창(답변 전 되물음) 선호. 계약: preferences.echoMode: 'on'|'off', 기본 'on'.
+// 백엔드 게이트(t_d1dcd850)와 무관하게 프론트는 키 저장/복원만 함 — scalar 키라 딥머지(t_d75ca81c)로 다른 선호와 공존.
+export type EchoMode = 'on' | 'off';
+export const ECHO_MODE_DEFAULT: EchoMode = 'on';
+function normalizeEchoMode(v: unknown): EchoMode | null {
+  return v === 'on' || v === 'off' ? v : null;
+}
+let echoModeCache: EchoMode | null = null;
 let writeQueue: Promise<void> = Promise.resolve(); // 쓰기 직렬화 — hydrate/set 교차 경쟁 방지
 let hydrated = false;
 
@@ -40,6 +48,7 @@ function writeLocalState(): Promise<void> {
   if (modeCache) payload.joystickMode = modeCache;
   if (pttKeyCache) payload.pttKey = pttKeyCache;
   if (pttModeCache) payload.pttMode = pttModeCache;
+  if (echoModeCache !== null) payload.echoMode = echoModeCache;
   const task = writeQueue.catch(() => {}).then(() =>
     secureStorage.set(PREFS_STORAGE_KEY, JSON.stringify(payload))
   ).catch(() => { /* 저장소 부재(웹 private mode 등) — 메모리 캐시로 세션은 지속 */ });
@@ -61,6 +70,7 @@ export async function hydratePrefs(): Promise<void> {
   let localMode: JoystickMode | null = null;
   let localPttKey: string | null = null;
   let localPttMode: PttMode | null = null;
+  let localEchoMode: EchoMode | null = null;
   try {
     const raw = await secureStorage.get(PREFS_STORAGE_KEY);
     if (raw) {
@@ -69,12 +79,14 @@ export async function hydratePrefs(): Promise<void> {
       localMode = normalizeJoystickMode(parsed?.joystickMode);
       localPttKey = typeof parsed?.pttKey === 'string' ? normalizePttKey(parsed.pttKey) : null;
       localPttMode = parsed?.pttMode === 'hold' || parsed?.pttMode === 'toggle' ? normalizePttMode(parsed.pttMode) : null;
+      localEchoMode = normalizeEchoMode(parsed?.echoMode);
     }
-  } catch { local = null; localMode = null; localPttKey = null; localPttMode = null; }
+  } catch { local = null; localMode = null; localPttKey = null; localPttMode = null; localEchoMode = null; }
   if (local) cache = local;
   if (localMode) modeCache = localMode;
   if (localPttKey) pttKeyCache = localPttKey;
   if (localPttMode) pttModeCache = localPttMode;
+  if (localEchoMode !== null) echoModeCache = localEchoMode;
   try {
     const env = await api.getMe();
     const remote = mapFromPreferences(env.data?.preferences);
@@ -84,11 +96,12 @@ export async function hydratePrefs(): Promise<void> {
         ? (env.data.preferences as { joystickMode?: unknown }).joystickMode : undefined);
     if (remoteMode) modeCache = remoteMode;
     const prefsObj = (typeof env.data?.preferences === 'object' && env.data?.preferences !== null)
-      ? env.data.preferences as { pttKey?: unknown; pttMode?: unknown } : null;
+      ? env.data.preferences as { pttKey?: unknown; pttMode?: unknown; echoMode?: unknown } : null;
     if (typeof prefsObj?.pttKey === 'string' && prefsObj.pttKey) pttKeyCache = normalizePttKey(prefsObj.pttKey);
     if (prefsObj?.pttMode === 'hold' || prefsObj?.pttMode === 'toggle') pttModeCache = normalizePttMode(prefsObj.pttMode);
+    if (normalizeEchoMode(prefsObj?.echoMode)) echoModeCache = normalizeEchoMode(prefsObj?.echoMode);
   } catch { /* 미로그인/오프라인 — 로컬 폴백 유지 (요구 2) */ }
-  if (cache || modeCache || pttKeyCache || pttModeCache) await writeLocalState();
+  if (cache || modeCache || pttKeyCache || pttModeCache || echoModeCache !== null) await writeLocalState();
 }
 
 /** 동기 읽기 — 하이드레이션 전이면 null (호출자는 프리셋 폴백) */
@@ -161,12 +174,30 @@ export async function setPttMode(mode: PttMode): Promise<void> {
   await patchPreferences({ pttMode: pttModeCache });
 }
 
+// ── 에코 모드 (t_43297d90 요구 1) — 읽기/쓰기. 백엔드 에코 게이트(t_d1dcd850)와 무관한 순수 선호 저장.
+//    미저장 시 null → 호출자는 ECHO_MODE_DEFAULT('on'=답변 전 되물음) 폴백.
+
+/** 에코 모드 동기 읽기 — 미저장 시 null(호출자는 ECHO_MODE_DEFAULT 폴백) */
+export function getEchoMode(): EchoMode | null {
+  return echoModeCache;
+}
+
+/** 에코 모드 갱신 ('on'|'off') — 낙관적 로컬 → 서버 preferences.echoMode (scalar 키, 딥머지 공존) */
+export async function setEchoMode(mode: EchoMode): Promise<void> {
+  echoModeCache = normalizeEchoMode(mode) ?? ECHO_MODE_DEFAULT;
+  hydrated = true;
+  await writeLocalState();
+  emit();
+  await patchPreferences({ echoMode: echoModeCache });
+}
+
 // 테스트/로그아웃 대응용 리셋 훅
 export function __resetPrefsForTests(): void {
   cache = null;
   modeCache = null;
   pttKeyCache = null;
   pttModeCache = null;
+  echoModeCache = null;
   hydrated = false;
   writeQueue = Promise.resolve();
 }
