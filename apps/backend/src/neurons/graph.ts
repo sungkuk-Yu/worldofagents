@@ -27,7 +27,7 @@ import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwa
 import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
 import { ReplyToSummary, resolveReplyContext, replyToColumn, classifyReplyInsertError, markReplyToColumnMissing } from '../lib/replyTo';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
-import { orthographyRules, applyNaraSpeller, SpellerSuggestion } from '../lib/koreanOrthography';
+import { orthographyRules, applyNaraSpeller, SpellerSuggestion, mergeProtectedTerms, normalizeProtectedTerms } from '../lib/koreanOrthography';
 import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 import { createSaver, checkpointEnabled, JournalState, journalStamp, openRun, runScopedId, type JournalRow } from '../lib/runCheckpoint';
@@ -107,6 +107,8 @@ export interface NeuronState {
   empathySuppressed?: boolean;
   /** 공감(에코) 모드 선호 off (t_95ac521b, 대표님 9/29) — true면 empathy 행·확인음·리드 지연 없이 answer 직진. */
   echoModeOff?: boolean;
+  /** 고유명사 보호 사전 (t_f5a9b570) — users.preferences.protectedTerms + 페르소나명. 어문 게이트 스킵 + 프롬프트 고지. */
+  orthoProtectedTerms?: string[];
   /** 동일 발화 재전송 (t_c31e3f45, 김비서 case: 같은 소리 반복) — true면 empathy skip + no-repeat 강제. */
   repeatUtterance?: boolean;
   /** 공감 재질문 (t_44f8896c) — 직전 empathy 행의 template_id. 회전 시드(연속 재사용 금지). */
@@ -493,7 +495,8 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
     // 어문 규칙(t_45256c7a)은 appendLanguageInstruction *이전* 본문에 붙인다 —
     // 'Respond in ….' 꼬리 계약(run-e) 보존. ko일 때만 주입(en 답변에 한국어 맞춤법 무의미).
-    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + orthographyRules(state.locale) + groundingBlock + replyInstruction(state), state.locale);
+    // t_f5a9b570: 보호 사전(사용자 prefs+페르소나명)을 규칙에 고지 — '김비서'를 스스로 쪼기지 않게.
+    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + orthographyRules(state.locale, mergeProtectedTerms(state.orthoProtectedTerms || [])) + groundingBlock + replyInstruction(state), state.locale);
     try {
       const result = await chatCompletion({
         messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
@@ -563,17 +566,20 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   // early-return이라 자동 면제(원문 재작성 금지), 디스클레이머 suffix는 이 뒤(processTurn)에
   // 붙으므로 오프셋 오염 없음. 미구성/실패/취소는 원문 그대로(턴 사망 금지).
   let orthoApplied: SpellerSuggestion[] | null = null;
+  let orthoSkipped = 0;
   if (state.locale === 'ko' && answerResponse && !ctx.signal?.aborted) {
-    const spell = await applyNaraSpeller(answerResponse, { signal: ctx.signal });
+    const spell = await applyNaraSpeller(answerResponse, { signal: ctx.signal, protectedTerms: state.orthoProtectedTerms || [] });
     if (spell) {
       answerResponse = spell.text;
       orthoApplied = spell.suggestions;
+      orthoSkipped = spell.skippedProtected;
     }
   }
   let structured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
   if (orthoApplied) {
     // 교정 근거를 페이로드에 남긴다 — 감사/회고 가능(무언 교정 금지).
-    structured = { ...structured, structured_payload: { ...structured.structured_payload, orthography: { corrected: true, count: orthoApplied.length, items: orthoApplied.map(s => ({ from: s.text, to: s.candidates[0] })) } } };
+    // t_f5a9b570: items는 채택분만, skipped_protected는 고유명사 보호로 차단된 건수(오디트).
+    structured = { ...structured, structured_payload: { ...structured.structured_payload, orthography: { corrected: true, count: orthoApplied.length, skipped_protected: orthoSkipped, items: orthoApplied.map(s => ({ from: s.text, to: s.candidates[0] })) } } };
   }
   if (grounding) {
     structured = structured.dialogue_type === 'text' && grounding.status === 'grounded'
@@ -807,6 +813,7 @@ async function langGraphPipeline(
     photoEditPending: Annotation,
     empathySuppressed: Annotation,
     echoModeOff: Annotation,
+    orthoProtectedTerms: Annotation,
     repeatUtterance: Annotation,
     empathyLastTemplateId: Annotation,
     empathyEcho: Annotation,
@@ -903,7 +910,14 @@ export async function processTurn(
       // 값은 'on'(현행 1:1 계약), 조회 오류도 'on' 강등 — 선호 하나로 턴을 죽이지 않는다.
       // 턴당 SELECT 1회(PATCH /me·auth/me 딥 머지 경로 재사용, 마이그레이션 불필요 JSONB 키).
       const { data: echoPrefRow } = await db.from('users').select('preferences').eq('id', userId).maybeSingle();
-      const echoModeOff = (echoPrefRow as { preferences?: { echoMode?: unknown } } | null)?.preferences?.echoMode === 'off';
+      const userPrefs = (echoPrefRow as { preferences?: { echoMode?: unknown; protectedTerms?: unknown } } | null)?.preferences || {};
+      const echoModeOff = userPrefs.echoMode === 'off';
+      // 고유명사 보호 사전 (t_f5a9b570, 김비서 #454 실측): preferences.protectedTerms(문자열 배열)
+      // + 페르소나명. 배열이 아니거나 모양이 엉성하면 무시(턴 사망 금지 관례 동일).
+      const orthoProtectedTerms = normalizeProtectedTerms([
+        ...(Array.isArray(userPrefs.protectedTerms) ? userPrefs.protectedTerms.map(String) : []),
+        persona?.name || '',
+      ]);
       const ctx: NodeContext = { signal: opts.signal, emit: e => {
         emit(e);
         opts.onTurnStatus?.('processing', { stage: e.stage });
@@ -1012,6 +1026,7 @@ export async function processTurn(
         photoEditPending,
         empathySuppressed,
         echoModeOff,
+        orthoProtectedTerms,
         repeatUtterance,
         empathyLastTemplateId: lastEmpathyTemplateId(history || []),
         empathyEcho: null,
