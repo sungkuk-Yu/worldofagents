@@ -104,6 +104,8 @@ export interface NeuronState {
   photoEditPending?: boolean;
   /** 예/아니오 확인 발화 에코 억제 (t_135a19b5, 대표님 9/28 정정) — true면 empathy 뉴런 skip. */
   empathySuppressed?: boolean;
+  /** 공감(에코) 모드 선호 off (t_95ac521b, 대표님 9/29) — true면 empathy 행·확인음·리드 지연 없이 answer 직진. */
+  echoModeOff?: boolean;
   /** 동일 발화 재전송 (t_c31e3f45, 김비서 case: 같은 소리 반복) — true면 empathy skip + no-repeat 강제. */
   repeatUtterance?: boolean;
   /** 공감 재질문 (t_44f8896c) — 직전 empathy 행의 template_id. 회전 시드(연속 재사용 금지). */
@@ -208,7 +210,9 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
   // 복창을 생성하지 않는다 — 중복 에코 루프 방지, 답변으로 직결.
   // 동일 발화 재전송 (t_c31e3f45, 김비서 라이브 진단): 직전 user 행과 같은 텍스트면 재질문
   // 회전을_stop — "뭘 말해도 같은 소리" 에코 루프의 직접 원인. 답변은 계속 직결(answer_always).
-  if (state.empathySuppressed || state.repeatUtterance) return {};
+  // 공감 off 선호 (t_95ac521b, 대표님 9/29): preferences.echoMode==='off'면 텍스트 턴에서도
+  // empathy 미생성 — 공감 행·예/아니오 칩·확인음 리드 지연이 통째로 빠지고 answer 직진.
+  if (state.empathySuppressed || state.repeatUtterance || state.echoModeOff) return {};
   const persona = state.persona;
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
   // 복창 원문(에코 문장)은 empathy_full로 보존 (t_135a19b5), 화면 노출은 재질문으로 교체
@@ -781,6 +785,7 @@ async function langGraphPipeline(
     grounding: Annotation,
     photoEditPending: Annotation,
     empathySuppressed: Annotation,
+    echoModeOff: Annotation,
     repeatUtterance: Annotation,
     empathyLastTemplateId: Annotation,
     empathyEcho: Annotation,
@@ -872,6 +877,12 @@ export async function processTurn(
       }
 
       let deltaIndex = 0;
+      // 공감(에코) 모드 선호 (t_95ac521b, 대표님 9/29): users.preferences.echoMode==='off' →
+      // empathy 미생성 — 공감 행·예/아니오 칩·확인음 리드 지연 없이 answer 직진. 미설정/그 외
+      // 값은 'on'(현행 1:1 계약), 조회 오류도 'on' 강등 — 선호 하나로 턴을 죽이지 않는다.
+      // 턴당 SELECT 1회(PATCH /me·auth/me 딥 머지 경로 재사용, 마이그레이션 불필요 JSONB 키).
+      const { data: echoPrefRow } = await db.from('users').select('preferences').eq('id', userId).maybeSingle();
+      const echoModeOff = (echoPrefRow as { preferences?: { echoMode?: unknown } } | null)?.preferences?.echoMode === 'off';
       const ctx: NodeContext = { signal: opts.signal, emit: e => {
         emit(e);
         opts.onTurnStatus?.('processing', { stage: e.stage });
@@ -879,7 +890,8 @@ export async function processTurn(
       // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
       // 음성 턴은 지연 0 (t_5cba9ebb 9/29 #325 보강 2항): 공감 스테이지가 없어 지연할
       // 확인음이 존재하지 않는다 — answer.delta가 전사 직후 시작되는 것이 목표(≤3.5s).
-      leadMs: opts.sttMetadata ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
+      // 공감 off 선호도 동일 — 지연할 확인음(empathy)이 없다 (t_95ac521b, 같은 선례).
+      leadMs: (opts.sttMetadata || echoModeOff) ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
       // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
       db };
       const dialogueType = classifyDialogueType(userMessage);
@@ -978,6 +990,7 @@ export async function processTurn(
         grounding: null,
         photoEditPending,
         empathySuppressed,
+        echoModeOff,
         repeatUtterance,
         empathyLastTemplateId: lastEmpathyTemplateId(history || []),
         empathyEcho: null,
