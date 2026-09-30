@@ -855,6 +855,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           keyLabel={pc ? pttKeyLabel(getPttKey() ?? 'KeyV') : undefined}
           mode={getPttMode() ?? 'hold'}
           error={voiceMode ? null : ptt.error}
+          pending={ptt.pending}
         />
       )}
       {/* 다중 선택 액션 바 — t_a0e998cc(대표님 9/26): 보관(즐겨찾기 중복)·볼트로(기본 저장) 제거, 이어가기만 남김 */}
@@ -894,6 +895,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         recording={ptt.active || talking}
         level={ptt.level}
         pttError={ptt.error}
+        pttPending={ptt.pending}
         viewportHeight={viewportHeight}
         onPressHoldStart={ptt.startHold}
         onHoldEnd={ptt.endHold}

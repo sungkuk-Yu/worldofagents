@@ -7,6 +7,7 @@ import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import ResumeBanner from '../components/ResumeBanner';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
+import { newChatTapAction, newChatQueuedAction } from '../lib/newChatTap';
 import { formatDayLabel } from '../i18n/format';
 import { BoardIcon, FeedIcon, GearIcon, MicIcon, StarIcon, VaultIcon } from '../components/Icon';
 
@@ -23,6 +24,10 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const [connected, setConnected] = useState(false);
   const [starting, setStarting] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  // 탭 큐잉 (t_5058e15f ①/9/30 실패로그 #1): 라이브 첫 refresh(DNS+TLS 수 초) 동안의 '새 대화'
+  // 탭이 disabled에 조용히 흡수됨(재탭 2~5회 실측) — 흡수 대신 큐잉하고 로딩 해지 시점의
+  // 데이터로 그 순간 실행(재탭과 동일 결과). 실행은 loading→!loading 전환 useEffect에서.
+  const queuedTap = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const agentTitle = (agent?: AgentSummary) => agent?.preset?.titleKey && i18n.exists(agent.preset.titleKey)
     ? t(agent.preset.titleKey) : agent?.name || t('common.agent');
@@ -56,26 +61,34 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       if (!env.ok || !env.data?.id) throw new Error('errors.session');
       setChoosing(false);
       navigation.navigate('Chat', { sessionId: env.data.id, agentId: agent.id, agentName: agent.name, presetCategory: agent.preset?.category, presetTitleKey: agent.preset?.titleKey });
-      queuedTapRef.current = false; // 진입 성공 — 큐잉된 재탭은 소용없다(복귀 시 실행 금지)
       void refresh();
     } catch (e) { setError(errorKey(e)); }
     finally { setStarting(false); }
   };
+  // '새 대화' 탭 (t_5058e15f ①): 상태 판정은 lib/newChatTap 순수 로직.
+  // 로딩 중 탭 = 조용한 흡수 대신 큐잉 — 로딩 해지 시점의 데이터로 실행(재탭과 동일 결과).
+  const onNewChatTap = () => {
+    const action = newChatTapAction({ starting, loading, offline, hasAgents: agents.length > 0, choosing });
+    if (action === 'queue') { queuedTap.current = true; return; }
+    if (action === 'chooserOpen') { setChoosing(true); return; }
+    if (action === 'chooserClose') { setChoosing(false); return; }
+    if (action === 'start') void startChat();
+  };
+  // 큐잉 해지: loading이 끝난 순간의 agents/연결 상태 기준으로 그 자리에서 실행.
+  // 오프라인 해지(서버 실패)면 폐기 — 원래 버튼이 비활성인 상태와 동일(오프라인 패널이 안내).
+  // error 확정 시 폐기(t_cb8 드레인 계약): 실패한 starting의 재자동 실행 루프 금지 — 오류 배너 확인 후 사용자 판단.
+  useEffect(() => {
+    if (loading || !queuedTap.current) return;
+    queuedTap.current = false;
+    if (error) return;
+    const signedOutNow = error === 'errors.auth' && !loading;
+    if (!connected && !signedOutNow) return;
+    if (newChatQueuedAction(agents.length > 0) === 'chooserOpen') setChoosing(true);
+    else void startChat();
+  }, [loading, connected, error, agents.length]);
   // 미로그인(error=auth)은 온보딩, 오프라인은 네트워크/서버 실제 실패에만 (t_c0fb3b22 P0)
   const signedOut = error === 'errors.auth' && !loading;
   const offline = !connected && !loading && !signedOut;
-  // t_cb8e978a ②: signup 직후 '새 대화' 첫 탭이 지연 refresh/setStarting 타이밍에 조용히 흡수됨
-  // (라이브 실측 2~5회 재탭 레이시). busy 탭은 버리지 않고 큐잉 — 목록 확정 후 1회 자동 실행.
-  // 실패(error)로 끝난 starting은 재실행하지 않는다(오류 배너 확인 후 사용자가 판단).
-  const queuedTapRef = useRef(false);
-  const runNewChatIntent = () => {
-    queuedTapRef.current = false;
-    if (agents.length) setChoosing((c) => !c); else void startChat();
-  };
-  useEffect(() => {
-    if (queuedTapRef.current && !loading && !starting && !error) runNewChatIntent();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 상태 확정 시점 드레인만 (의도: 최신 렌더 closure)
-  }, [loading, starting, error]);
   return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
     {!isSidebar && <View style={styles.header}>
       {/* t_64af90b0 #11 — 검은 굵은 '마이에이전트톡' 텍스트 로고 → 초록 MAT 워드마크 (Round 7 확정 전까지 sans 통일) */}
@@ -105,12 +118,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     {error && <TouchableOpacity style={styles.errorBar} onPress={() => error === 'errors.auth' ? navigation.navigate('Login') : void refresh()} testID="login-hint">
       <Text style={styles.errorText}>{error === 'errors.auth' ? t('dialogueList.loginHint', { error: t(error) }) : t(error)}</Text>
     </TouchableOpacity>}
-    <TouchableOpacity style={styles.newChatButton} onPress={() => {
-      // t_cb8e978a ②: busy(로딩·생성 중) 탭을 disabled로 삼키지 않고 큐잉 — 라이브 실측
-      // '새 대화' 첫 탭 흡수(2~5회 재탭) 레이시의 사용자 체감 제거.
-      if (starting || loading) { queuedTapRef.current = true; return; }
-      agents.length ? setChoosing(!choosing) : void startChat();
-    }} disabled={offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
+    {/* t_5058e15f ①: 로딩 중에는 disabled 대신 탭 큐잉(onPress가 queue로 흡수) — 첫 탭 무반응 결함 제거.
+        starting(스피너 노출 중)/offline(패널 안내)만 비활성. (t_cb8e978a 인라인 큐잉은 lib/newChatTap 단일 구현으로 흡수) */}
+    <TouchableOpacity style={styles.newChatButton} onPress={onNewChatTap} disabled={starting || offline} accessibilityLabel={t('dialogueList.new')} testID="new-chat-button">
       {starting && <ActivityIndicator size="small" color={colors.onPrimary} />}
       <Text style={styles.newChatText}>{t(starting ? 'dialogueList.preparing' : 'dialogueList.new')}</Text>
     </TouchableOpacity>

@@ -13,12 +13,17 @@ interface Props {
   keyLabel?: string;
   mode: 'hold' | 'toggle';
   error?: string | null;
+  /** t_5058e15f ②: talk.ready 대기 중 홀드(캡처 지연 시작) — '연결 중' 신호 (무반응 금지) */
+  pending?: boolean;
 }
 
-export default function PttBanner({ active, keyLabel, mode, error }: Props) {
+export default function PttBanner({ active, keyLabel, mode, error, pending }: Props) {
   const { t } = useTranslation();
   if (error) {
     return <View style={[styles.bar, styles.errorBar]} testID="ptt-error"><Text style={styles.errorText}>{t(error)}</Text></View>;
+  }
+  if (pending && !active) {
+    return <View style={[styles.bar, styles.errorBar]} testID="ptt-connecting"><Text style={styles.errorText}>{t('chat.connecting')}</Text></View>;
   }
   if (!active) return null;
   return (

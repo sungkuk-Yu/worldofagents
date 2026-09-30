@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { getDirection } from '../lib/gesture';
 import { ackPhraseForDirection } from '../lib/ackHold';
 import { stageReleaseOutcome } from '../lib/voiceStage';
+import { pendingReleaseAction } from '../lib/holdStart';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
 import { MicIcon } from './Icon';
@@ -55,11 +56,13 @@ interface Props {
   level: number;
   /** errors.* 키 — 폴백 안내 한 줄 (부모가 병행 개방하는 경우에도 노출 유지) */
   error?: string | null;
+  /** t_5058e15f ②: 그랜트 쥠 + talk.ready 대기 — '연결 중' 안내(캡처 지연 시작, 조용한 스킵 금지) */
+  pending?: boolean;
 }
 
 type Phase = 'idle' | 'holding' | 'done';
 
-export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error }: Props) {
+export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error, pending }: Props) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
   const [ackHint, setAckHint] = useState<'yes' | 'no' | null>(null);
@@ -88,12 +91,12 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const levelRef = useRef(level);
   const recordingRef = useRef(recording);
   const phaseRef = useRef<Phase>('idle');
-  const cbRef = useRef({ onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t });
+  const cbRef = useRef({ onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t, pending });
   useEffect(() => {
     levelRef.current = level;
     recordingRef.current = recording;
     phaseRef.current = phase;
-    cbRef.current = { onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t };
+    cbRef.current = { onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t, pending };
   });
 
   useEffect(() => () => {
@@ -257,7 +260,11 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
       const ack = g ? ackPhraseForDirection(g) : null;
       setAckHint(null);
       setUpTarget(false);
-      const outcome = stageReleaseOutcome({ escaped: escapedRef.current, ackActive: cbRef.current.ackActive, gesture: g });
+      // t_5058e15f ②: 미시작(pending) 홀드의 릴리스 = holdStart 계약 — send는 cancel로 강등(전송 위장 금지).
+      const notCapturedYet = cbRef.current.pending && !recordingRef.current;
+      const outcome = notCapturedYet
+        ? pendingReleaseAction({ escaped: escapedRef.current, ackActive: cbRef.current.ackActive, gesture: g })
+        : stageReleaseOutcome({ escaped: escapedRef.current, ackActive: cbRef.current.ackActive, gesture: g });
       if (outcome === 'ack' && ack) {
         cbRef.current.onHoldAbort(); // 음성 폐기 + 텍스트 발화
         cbRef.current.onSendAck(cbRef.current.t(ack === 'yes' ? 'chat.ackYes' : 'chat.ackNo'));
@@ -332,7 +339,13 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
           )}
         </View>
       )}
-      {holding && <Text testID="voice-stage-recording" style={styles.recordingText}>{t('chat.pttRecording')}</Text>}
+      {pending && !recording && (
+        // t_5058e15f ②: 연결 대기 중 홀드 = 캡처 지연 시작 — '연결 중' 안내로 조용한 스킵 폐지(토스트 아닌 상태 신호).
+        // r1 병합(t_cb8 계약 흡수): holding 게이트 없음 — 키보드(V) 경로의 pending도 A계층에서 보여야
+        // '무반응 금지'가 성립한다(pending은 pressIn/keydown 시에만 arm되고 릴리스/타임아웃에 해제됨).
+        <Text testID="voice-stage-connecting" style={styles.recordingText}>{t('chat.connecting')}</Text>
+      )}
+      {holding && (recording || !pending) && <Text testID="voice-stage-recording" style={styles.recordingText}>{t('chat.pttRecording')}</Text>}
     </View>
   );
 }
