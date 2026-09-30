@@ -9,8 +9,9 @@ import CardFrame from '../../cards/CardFrame';
 import AckChipRow from '../AckChipRow';
 import { QueueMessageMark } from '../QueueStrip';
 import { ReplyQuoteLine } from '../ReplyQuoteBar';
-import { TickFailedIcon, TickPendingIcon, TickSentIcon } from '../Icon';
+import { TickFailedIcon, TickPendingIcon, TickSentIcon, MicIcon } from '../Icon';
 import { renderFlags } from '../../lib/renderFlags';
+import { formatRecordingDuration } from '../../lib/voiceStage';
 import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { ChatMessage, QueueItem, SenderGroupFlag, TurnGroup } from '../../lib/chatLogic';
@@ -102,6 +103,16 @@ export default function ChatTurnRow({
           : <Text style={styles.pendingMark}>{t(message.status === 'failed' ? 'chat.failed' : message.pending ? 'chat.sending' : 'chat.sent')}</Text>}
         {/* 질문 큐 체크포인트 (t_1797f432 ②): 매칭 큐 항목의 상태 마커 — 서버 이벤트 없으면 렌더 없음 */}
         <QueueMessageMark queue={queue} message={message} />
+        {/* 음성 발화 길이 병기 (t_2eea055a, 대표님 9/30 텔레그램식): message_type='voice' user 카드에
+            🎤 + 'M:SS'. stt_metadata.duration_ms 결측(구 행/DECISION 등)이면 길이 없이 아이콘만. */}
+        {message.messageType === 'voice' && (
+          <View style={styles.voiceMetaBadge} testID={`voice-duration-${message.id}`}>
+            <MicIcon size={iconSize.tileSm} color={colors.text3} />
+            {typeof message.voiceDurationMs === 'number' && (
+              <Text style={styles.voiceMetaText}>{formatRecordingDuration(message.voiceDurationMs)}</Text>
+            )}
+          </View>
+        )}
       </View>}
       {/* t_c62a2eb7: 공감 재질문 카드 하단 예/아니요 텔레그램식 50/50 대형 버튼 — 재질문 카드가
           보이는 동안 유지(발화 진행 시에만 소멸, 화면 useAckChip)·메인 피드행만 ·

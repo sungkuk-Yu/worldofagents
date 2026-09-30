@@ -1,7 +1,7 @@
 // t_4758f25d — 음성 스테이지 순수 로직 단위 테스트 (lib/voiceStage)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { voiceStageHeight, stageReleaseOutcome, chatListPaddingOverride, CHAT_LIST_ANCHOR } from '../../src/lib/voiceStage';
+import { voiceStageHeight, stageReleaseOutcome, chatListPaddingOverride, CHAT_LIST_ANCHOR, formatRecordingDuration } from '../../src/lib/voiceStage';
 
 test('voiceStageHeight — 세로 뷰포트 30%, 180~300px 클램프 (#311 strip 높이=패딩)', () => {
   assert.equal(voiceStageHeight(844), 253); // iPhone 14 — 844*0.3
@@ -50,4 +50,19 @@ test('chatListPaddingOverride — A계층=strip 높이 패딩 / B계층·비활�
   assert.deepEqual(chatListPaddingOverride(true, 844), { paddingBottom: 253 }); // = voiceStageHeight
   assert.deepEqual(chatListPaddingOverride(true, 600), { paddingBottom: 180 });
   assert.equal(chatListPaddingOverride(false, 844), false); // B계층(키보드)/PC/데모: 인라인 오버라이드 없음
+});
+
+// t_2eea055a (대표님 9/30 "녹음할때 텔레그램처럼 녹음 시간"): 'M:SS' 표기 — 분 zero-pad 없음, 초 pad.
+test('formatRecordingDuration — 텔레그램식 M:SS (절삭, 비정상값 0:00)', () => {
+  assert.equal(formatRecordingDuration(0), '0:00');
+  assert.equal(formatRecordingDuration(4_999), '0:04');       // 절삭 — 반올림 금지(릴리스값 역주행 방지)
+  assert.equal(formatRecordingDuration(5_000), '0:05');
+  assert.equal(formatRecordingDuration(59_999), '0:59');
+  assert.equal(formatRecordingDuration(60_000), '1:00');
+  assert.equal(formatRecordingDuration(65_400), '1:05');
+  assert.equal(formatRecordingDuration(600_000), '10:00');    // 10분 (cap 아님 — 표시만)
+  assert.equal(formatRecordingDuration(-1000), '0:00');
+  assert.equal(formatRecordingDuration(Number.NaN), '0:00');
+  assert.equal(formatRecordingDuration(undefined), '0:00');
+  assert.equal(formatRecordingDuration('5000' as unknown), '0:00'); // 문자열 강등
 });

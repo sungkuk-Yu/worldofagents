@@ -175,6 +175,10 @@ export interface ChatMessage {
   clientReqId?: string;
   /** 첨부 요약 (messages.attachments JSONB — {id,url,mime,size,name}[], 백엔드 t_401c5bd1) */
   attachments?: unknown;
+  /** messages.message_type — 'voice' = 음성 발화 (백엔드 chatTurn.ts:124, t_2eea055a 카드 배지 판정) */
+  messageType?: string;
+  /** 음성 발화 길이 ms (messages.stt_metadata.duration_ms) — 없으면 undefined(배지는 아이콘만) */
+  voiceDurationMs?: number;
   /** 전송 실패 시 재시도용 업로드 완료 ID (previews와 한 쌍) */
   pendingAttachmentIds?: string[];
   /** 전송 대기 중인 로컬 첨부 프리뷰 (useAttachments.AttachmentDraft 호환 형태) */

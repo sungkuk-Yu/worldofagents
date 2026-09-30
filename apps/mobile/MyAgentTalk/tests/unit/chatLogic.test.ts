@@ -567,3 +567,31 @@ test('① 그룹핑 — 확정 answer 행과 스트림 카드는 같은 run이�
   const cleaned = syncStreamCards(withSettled, []);
   assert.deepEqual(groupByTurn(cleaned).map((g) => g.items.map((m) => m.id)), [['u1'], ['e1', 'a1']]);
 });
+
+// ── t_2eea055a (대표님 9/30 텔레그램식 녹음 시간) — 음성 발화 식별·길이 정규화 ──
+import { normalizeVoiceDurationMs } from '../../src/lib/chatLogic';
+
+test('normalizeVoiceDurationMs — stt_metadata.duration_ms 유한 양수만 통과, 그 외 undefined', () => {
+  assert.equal(normalizeVoiceDurationMs({ duration_ms: 5400, service: 'openai' }), 5400);
+  assert.equal(normalizeVoiceDurationMs({ duration_ms: 0 }), undefined);   // 0 = 무발화/결측 강등
+  assert.equal(normalizeVoiceDurationMs({ duration_ms: -3 }), undefined);
+  assert.equal(normalizeVoiceDurationMs({ duration_ms: Number.NaN }), undefined);
+  assert.equal(normalizeVoiceDurationMs({ duration_ms: '5400' }), undefined);
+  assert.equal(normalizeVoiceDurationMs(null), undefined);
+  assert.equal(normalizeVoiceDurationMs(undefined), undefined);
+  assert.equal(normalizeVoiceDurationMs([1, 2]), undefined);
+});
+
+test('normalizeServerMessages — message_type/stt_metadata 매핑 (voice 행), 텍스트 행은 undefined', () => {
+  const rows: ServerMessageRow[] = [
+    { id: 'u1', turn_index: 1, role: 'user', content: '음성 전사문', message_type: 'voice', stt_metadata: { duration_ms: 7300, confidence: 0.9 } },
+    { id: 'u2', turn_index: 2, role: 'user', content: '텍스트', message_type: 'text', stt_metadata: null },
+  ] as ServerMessageRow[];
+  const out = normalizeServerMessages(rows);
+  const v = out.find((m) => m.id === 'u1')!;
+  assert.equal(v.messageType, 'voice');
+  assert.equal(v.voiceDurationMs, 7300);
+  const t2 = out.find((m) => m.id === 'u2')!;
+  assert.equal(t2.messageType, 'text');
+  assert.equal(t2.voiceDurationMs, undefined);
+});

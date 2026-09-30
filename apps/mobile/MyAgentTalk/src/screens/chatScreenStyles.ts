@@ -166,6 +166,10 @@ export const styles = StyleSheet.create({
   },
   // 질문 큐 체크포인트 (t_1797f432 ②) — user 카드 하단 상태 행: 전송 표시 + 큐 마커 한 줄
   userMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2, minWidth: 0 },
+  // 음성 발화 길이 병기 (t_2eea055a 텔레그램식) — userMetaRow 안 🎤+M:SS 알약.
+  // pendingMark가 marginLeft:auto로 우측 정렬된 뒤라 이 배지는 좌측 그룹에 붙는다.
+  voiceMetaBadge: { flexDirection: 'row', alignItems: 'center', gap: 2, minWidth: 0 },
+  voiceMetaText: { ...typography.micro, color: colors.text3, fontVariant: ['tabular-nums'] as never },
   // ── 날짜 구분선 (t_34f3e92c 백로그②, 텔레그램 컨벤션) ──
   // 인-플로우 행: 전폭 중앙 정렬. 고정 오버레이: 리스트 위 absolute(스크롤 박스 밖에서 붙음),
   // 배경 없는 floating 라벨 — 카드가 아래로 지나가면 자연히 가려짐(스택 가림 방지).

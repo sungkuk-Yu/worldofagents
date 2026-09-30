@@ -28,6 +28,10 @@ export interface ServerMessageRow {
   thread_reply_count?: unknown;
   run_id?: string;
   attachments?: unknown;
+  /** messages.message_type ('voice' = 음성 발화; t_2eea055a) — serializeMessage spread로 도착 */
+  message_type?: unknown;
+  /** messages.stt_metadata — {duration_ms, confidence, language, service} (백엔드 chatTurn.ts:128) */
+  stt_metadata?: unknown;
   /** 답글 인용 원문 ID (t_62897e88 / 백엔드 012) */
   reply_to_id?: unknown;
 }
@@ -35,6 +39,13 @@ export interface ServerMessageRow {
 /** 서버 행 → UI 메시지 정규화 */
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** 음성 발화 길이 추출 (t_2eea055a) — stt_metadata.duration_ms 유한 양수만, 그 외 undefined(강등). */
+export function normalizeVoiceDurationMs(raw: unknown): number | undefined {
+  if (!isRecord(raw)) return undefined;
+  const d = raw.duration_ms;
+  return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : undefined;
+}
 
 /** 답글 인용 요약 정규화 (t_62897e88 / 백엔드 t_02f58030 structured_payload.reply_to) —
  *  {message_id, by, text} 형태 아니면 undefined(강등). 서버 캡 120자는 백엔드 소관, 프론트는 재단하지 않는다. */
@@ -85,6 +96,10 @@ export function normalizeServerMessages(rows: unknown): ChatMessage[] {
     sourceNeuron: typeof r.source_neuron === 'string' ? r.source_neuron : null,
     createdAt: typeof r.created_at === 'string' ? r.created_at : undefined,
     dialogueType: typeof r.dialogue_type === 'string' ? r.dialogue_type : null,
+    // 음성 발화 식별 + 길이 (t_2eea055a, 대표님 9/30 텔레그램식): message_type='voice' 행에
+    // stt_metadata.duration_ms를 매핑. GET messages·message.new(serializeMessage spread) 모두 도달.
+    messageType: typeof r.message_type === 'string' ? r.message_type : undefined,
+    voiceDurationMs: normalizeVoiceDurationMs(r.stt_metadata),
     payload: isRecord(r.structured_payload) ? r.structured_payload : undefined,
     parentMessageId: typeof r.parent_message_id === 'string' ? r.parent_message_id : undefined,
     rootMessageId: typeof r.root_message_id === 'string' ? r.root_message_id : undefined,

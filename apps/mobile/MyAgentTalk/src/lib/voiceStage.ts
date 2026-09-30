@@ -31,6 +31,19 @@ export const CHAT_LIST_ANCHOR = {
   justifyContent: 'flex-end',
 } as const;
 
+/**
+ * t_2eea055a (대표님 9/30 "녹음할때 텔레그램처럼 녹음 시간 보여줘야되"):
+ * 경과/길이 ms → 'M:SS' (텔레그램 표기 규범: 분은 zero-pad 하지 않는다 — '0:05', '1:05', '10:00').
+ * NaN/음수/미숫 = '0:00'. 초 단위로 반올림하지 않고 절삭(카운터가 릴리스 표시값과 역주행하지 않게).
+ */
+export function formatRecordingDuration(ms: unknown): string {
+  const v = typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 0;
+  const totalSec = Math.floor(v / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export type StageOutcome = 'keyboard' | 'ack' | 'send' | 'cancel';
 
 /**

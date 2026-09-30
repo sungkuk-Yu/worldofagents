@@ -22,7 +22,7 @@ import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { getDirection } from '../lib/gesture';
 import { ackPhraseForDirection } from '../lib/ackHold';
-import { stageReleaseOutcome } from '../lib/voiceStage';
+import { stageReleaseOutcome, formatRecordingDuration } from '../lib/voiceStage';
 import { pendingReleaseAction } from '../lib/holdStart';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
@@ -73,6 +73,10 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const [hintOpacity] = useState(() => new Animated.Value(1));
   const [pulse] = useState(() => new Animated.Value(0));
   const [doneOpacity] = useState(() => new Animated.Value(1));
+  // t_2eea055a (대표님 9/30 "녹음할때 텔레그램처럼 녹음 시간"): 홀드 시작 시각 기준 경과 ms —
+  // 250ms tick(초 표시라 그보다 빠른 갱선은 불필요, 렌더 부하 최소). Date.now 기준:
+  // rAF과 달리 탭 비활성(background)에도 실경과가 유지된다(interval은 throttle되지만 재계산은 정확).
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   // 제스처 상태 refs — PanResponder는 1회 생성 (JoystickMic/MagicPad 패턴)
   const startedRef = useRef(false);
@@ -81,6 +85,7 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const gestureRef = useRef<JoystickGesture | null>(null);
   const escapedRef = useRef(false);
   const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdStartRef = useRef(0);
 
   // 리본 캔버스 — RNW에서 <canvas> JSX 미지원 → 실제 DOM canvas를 effect로 부착(#318 rAF 요구)
   const ribbonHostRef = useRef<View | null>(null);
@@ -127,6 +132,15 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
     loop.start();
     return () => loop.stop();
   }, [phase, pulse]);
+
+  // t_2eea055a: 홀드 경과 라이브 카운터 — holding 동안만 250ms tick, 이탈 시 즉시 리셋(잔상 금지)
+  useEffect(() => {
+    if (phase !== 'holding') { setElapsedMs(0); return; }
+    const tick = () => setElapsedMs(Date.now() - holdStartRef.current);
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [phase]);
 
   // sine 리본 — rAF, 지수 감쇠(상승이 하강보다 빠름), 3겹(100/60/35%), 초록 단색, bg 투명(#318)
   useEffect(() => {
@@ -224,6 +238,7 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: () => {
       startedRef.current = true;
+      holdStartRef.current = Date.now(); // t_2eea055a 카운터 기준 시각 (그랜트 = 녹음 시작)
       gestureRef.current = null;
       escapedRef.current = false;
       setUpTarget(false);
@@ -346,6 +361,10 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         <Text testID="voice-stage-connecting" style={styles.recordingText}>{t('chat.connecting')}</Text>
       )}
       {holding && (recording || !pending) && <Text testID="voice-stage-recording" style={styles.recordingText}>{t('chat.pttRecording')}</Text>}
+      {/* t_2eea055a (대표님 9/30 "녹음할때 텔레그램처럼 녹음 시간"): 홀드 중 경과 라이브 카운터 '0:05'.
+          recording 라벨과 같은 축(좌상단) 아래 줄. 기준=그랜트 시각(Date.now) — pending 파킹 구간도
+          실경과에 포함(홀드한 시간은 녹음 시간이다). tabularNums: 초 틱마다 글자폭 흔들림 방지. */}
+      {holding && (recording || !pending) && <Text testID="voice-stage-timer" style={styles.recordingTimer}>{formatRecordingDuration(elapsedMs)}</Text>}
     </View>
   );
 }
@@ -391,4 +410,7 @@ const styles = StyleSheet.create({
   },
   doneCheck: { color: colors.onPrimary, fontSize: 18, fontWeight: '700', lineHeight: 22 }, // ④: 26→18 — 34px 디스크에 맞춤
   recordingText: { ...typography.caption, color: colors.accent, fontWeight: '600', position: 'absolute', bottom: spacing.sp2 },
+  // t_2eea055a: 'M:SS' 라이브 카운터 — 좌상단(텔레그램 위치). 백 디스크(우)/마이크(중)/라벨(하단)과
+  // 무충돌. fontVariant tabular-nums: 초가 갈 때마다 숫자 폭이 흔들리지 않게 (RNW 지원).
+  recordingTimer: { ...typography.bodyBold, color: colors.accent, position: 'absolute', left: spacing.sp3, top: spacing.sp1, fontVariant: ['tabular-nums'] },
 });

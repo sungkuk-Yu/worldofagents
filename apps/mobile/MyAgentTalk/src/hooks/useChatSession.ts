@@ -464,6 +464,11 @@ export function useChatSession(
                   id: uid, role: 'user', content: (raw.text as string).trim(),
                   turnIndex: typeof raw.turn_index === 'number' ? raw.turn_index : nextTurnIndex(prev),
                   createdAt: new Date().toISOString(), status: 'sent',
+                  // t_2eea055a: 음성 발화 확정 즉시 길이 병기 — message.new(user)가 먼저 도착하면
+                  // (id 중복 no-op) 그 행의 stt_metadata 매핑이 우선하므로 어느 순서든 정확.
+                  messageType: 'voice',
+                  ...(typeof raw.duration_ms === 'number' && Number.isFinite(raw.duration_ms) && raw.duration_ms > 0
+                    ? { voiceDurationMs: raw.duration_ms as number } : {}),
                   ...(rootMessageId ? { parentMessageId: rootMessageId } : {}),
                 } as ChatMessage]));
               }
