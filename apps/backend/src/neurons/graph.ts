@@ -27,6 +27,7 @@ import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwa
 import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
 import { ReplyToSummary, resolveReplyContext, replyToColumn, classifyReplyInsertError, markReplyToColumnMissing } from '../lib/replyTo';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
+import { orthographyRules, applyNaraSpeller, SpellerSuggestion } from '../lib/koreanOrthography';
 import { isBridgeConfigured, isKimSecretaryAgent, sendTurnToSecretary, bridgeFallbackText, BridgeError } from '../lib/secretaryBridge';
 import { activateNeuronInstance, getNeuronBySlug } from './registry';
 import { createSaver, checkpointEnabled, JournalState, journalStamp, openRun, runScopedId, type JournalRow } from '../lib/runCheckpoint';
@@ -490,7 +491,9 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       .filter(m => m.role === 'user' || (m.role === 'agent' && m.source_neuron !== 'empathy' && !(m.structured_payload && (m.structured_payload.empathy_question || m.structured_payload.empathy_full))))
       .slice(-(Math.max(0, config.chatLlm.historyTurns) || Infinity))
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
-    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + groundingBlock + replyInstruction(state), state.locale);
+    // 어문 규칙(t_45256c7a)은 appendLanguageInstruction *이전* 본문에 붙인다 —
+    // 'Respond in ….' 꼬리 계약(run-e) 보존. ko일 때만 주입(en 답변에 한국어 맞춤법 무의미).
+    const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + orthographyRules(state.locale) + groundingBlock + replyInstruction(state), state.locale);
     try {
       const result = await chatCompletion({
         messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
@@ -553,7 +556,25 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   if (isDirectiveUtterance(state.userMessage) && !grounding && answerResponse && looksLikeEmptyPromise(answerResponse, state.locale)) {
     answerResponse = `${answerResponse.trimEnd()}\n\n${buildAnswerTemplate(state.userMessage, state.dialogueType, prompt, state.locale)}`;
   }
+  // ── PNU 맞춤법 후처리 게이트 (t_45256c7a, 대표님 9/30 "이해오" 재발 방지) ──
+  // 프롬프트 어문규칙에도 LLM이 조사를 깨서 쓴다(9/30 실측) — 최종 답변 텍스트를 나라
+  // 맞춤법 검사기로 확정 교정한다. 스트림 델타는 이미 나갔지만 프론트 reduceStreams는
+  // answer.done/확정 행 text로 카드 본문을 교체하므로 화면 불일치가 없다. 브리지는
+  // early-return이라 자동 면제(원문 재작성 금지), 디스클레이머 suffix는 이 뒤(processTurn)에
+  // 붙으므로 오프셋 오염 없음. 미구성/실패/취소는 원문 그대로(턴 사망 금지).
+  let orthoApplied: SpellerSuggestion[] | null = null;
+  if (state.locale === 'ko' && answerResponse && !ctx.signal?.aborted) {
+    const spell = await applyNaraSpeller(answerResponse, { signal: ctx.signal });
+    if (spell) {
+      answerResponse = spell.text;
+      orthoApplied = spell.suggestions;
+    }
+  }
   let structured = await classifyStructured(state.userMessage, state.dialogueType, answerResponse, ctx.signal);
+  if (orthoApplied) {
+    // 교정 근거를 페이로드에 남긴다 — 감사/회고 가능(무언 교정 금지).
+    structured = { ...structured, structured_payload: { ...structured.structured_payload, orthography: { corrected: true, count: orthoApplied.length, items: orthoApplied.map(s => ({ from: s.text, to: s.candidates[0] })) } } };
+  }
   if (grounding) {
     structured = structured.dialogue_type === 'text' && grounding.status === 'grounded'
       ? { ...structured, dialogue_type: 'info_card', structured_payload: { title: state.userMessage.slice(0, 50), summary: answerResponse.slice(0, 200), facts: [], grounding: groundingCardPayload(grounding) } }

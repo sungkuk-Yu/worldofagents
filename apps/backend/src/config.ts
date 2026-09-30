@@ -137,6 +137,23 @@ export const config = {
     maxSources: parseInt(process.env.PERPLEXITY_MAX_SOURCES || '3', 10),
   },
 
+  /**
+   * 나라맞춤법(PNU) 후처리 게이트 (t_45256c7a) — ko 답변 최종 텍스트 교정.
+   * 기본 OFF: speller-api는 LICENSE 파일 없음(9/30 GitHub API 확인) — 나라 인포테크 위탁 서비스의 상업 이용 조건 확인 후 deploy.env에서 켠다.
+   * URL은 나라 스펠러 신엔드(/api/check, 9/30 실측) 또는 jhaemin/speller-api 이식
+   * 서버 어느 쪽이라도 — 파서가 {suggestions:[{start,end,text,candidates[]}}(speller-api)와
+   * {errInfo:[{start,end,orgStr,candWord|구분}]}(nara 직접) 두 규격을 모두 흡수한다.
+   * 실패 정책: 타임아웃/비200/파싱오류 = 원문 유지(턴 사망 금지, perplexity 컨벤션 동일).
+   */
+  naraSpeller: {
+    enabled: process.env.NARA_SPELLER_ENABLED === 'true',
+    url: process.env.NARA_SPELLER_URL || 'https://nara-speller.co.kr/api/check',
+    timeoutMs: parseInt(process.env.NARA_SPELLER_TIMEOUT_MS || '2500', 10),
+    strict: process.env.NARA_SPELLER_STRICT === 'true',
+    /** 봇월 시 http2 폴백 (9/30 실측: nara는 h2만 통과). 단위 테스트는 'false' 봉인. */
+    h2: process.env.NARA_SPELLER_H2 !== 'false',
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || 'agenttalk-dev-secret-change-in-production',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
