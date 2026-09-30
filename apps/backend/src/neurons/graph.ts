@@ -62,6 +62,9 @@ export interface NodeContext {
   leadMs?: number;
   /** ③ 후속 질문 보강 컨텍스트(볼트 노트·선호) 조회용 — processTurn이 주입. */
   db?: DbClient;
+  /** 공감 선(先)영속 경로가 이미 empathy thinking 이벤트를 발행했다면 true (t_f46d1d7a) —
+   *  empathyNode은 동일 thinking 이벤트 재발행을 억제한다 (neuron.status 중복 0). */
+  empathyPreEmitted?: boolean;
 }
 
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null; structured_payload?: Record<string, unknown> | null };
@@ -161,6 +164,11 @@ export interface ProcessTurnOptions {
    *  행. processTurn은 insert를 건너뛰고 이 id를 재사용(중복 영속 금지), history에서 자기 행을
    *  배제(재전송 오탐·LLM 컨텍스트 복제 방지), 에이전트 번호는 최신 turn_index 뒤에서 받는다. */
   persistedUser?: MessagesRow;
+  /** 공감 재질문 선(先)영속 발행 (t_f46d1d7a): user 카드·run.started 직후, 파이프라인(LLM)
+   *  실행 **이전에** empathy 행이 저장되면 콜백 — chatTurn이 message.new(empathy)를 즉시
+   *  브로드캐스트해 프론트 예/아니오 칩 창(발화 후 2.5s)이 답변 지연과 무관하게 열린다.
+   *  미호출(off/스킵/resume)이면 기존 런 종료 후 발행 경로 그대로. */
+  onEmpathyEarly?(empathyRow: MessagesRow): void;
 }
 
 export interface TurnResult {
@@ -220,7 +228,9 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
   // (t_44f8896c, 대표님 9/28: "단순 복창이 아니고, 좀 다채롭게 이거 맞냐는 식으로 재 질문").
   const echo = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
   const { text, templateId } = buildEmpathyRequestion(state.userMessage, state.empathyLastTemplateId, state.locale);
-  ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') });
+  // 선영속 경로(t_f46d1d7a)는 같은 thinking 이벤트를 이미 발행 — 중복 neuron.status 억제.
+  // events push는 state 기록용으로 유지 (simplePipeline의 (neuron,status) dedupe 존재).
+  if (!ctx.empathyPreEmitted) ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') });
   return {
     empathyResponse: text,
     empathyEcho: echo,
@@ -1182,6 +1192,78 @@ export async function processTurn(
       };
       checkCancelled();
       processing = true;
+
+      // ── 공감 재질문 선(先)영속·선노출 (t_f46d1d7a, 김비서 9/29 flake 판정) ──
+      // empathy 생성은 이미 규칙 기반 결정적(buildEmpathyRequestion, LLM 0회)이지만,
+      // 행 저장·message.new 발행이 런 종료 후 answer와 같은 초에 일어나는 것이 flake의
+      // 실질 원인이다 (라이브 DB read-back: 발화→empathy 행 착지 15s~186s = 답변 LLM/
+      // 브리지 지연 전량). 프론트 예/아니오 칩 창(발화 직후 2.5s)이 그 지연에 좌우돼
+      // B/C/F 구간이 갈린다. → user 카드·run.started 발행 직후, 파이프라인(LLM) 실행
+      // **이전에** empathy 판정(기존 suppression 게이트 전부 동일 적용)·저장·선발행.
+      // 결정적 규칙만 사전 실행 — 답변 내용은 어떤 경로로도 앞당겨지지 않는다.
+      // off(EMPATHY_EARLY=false)/resume/선영속 재전송 경로는 아래 late 저장 경로로 복귀.
+      let empathyEarly: MessagesRow | null = null;
+      const empathyEarlyEnabled = config.protocol.empathyEarly && !resuming && Boolean(opts.onEmpathyEarly);
+      if (empathyEarlyEnabled && !initial.empathySuppressed && !initial.repeatUtterance && !initial.echoModeOff) {
+        const { text: earlyText, templateId: earlyTemplateId } = buildEmpathyRequestion(
+          userMessage, initial.empathyLastTemplateId, locale);
+        const earlyEcho = buildEmpathyTemplate(userMessage, dialogueType, persona ? buildPersonaPrompt(persona, 'empathy') : '', locale);
+        const empathyAck = pickQuip('ack', locale, persona?.tone);
+        // 체크포인터 ON이면 결정적 id/upsert (t_7182aa8f② 계약) — resume 시 재로드 대상.
+        const earlyForcedId = ckptActive ? runScopedId(turnId, 'empathy') : undefined;
+        const earlyRow = {
+          ...(earlyForcedId ? { id: earlyForcedId } : {}),
+          session_id: sessionId,
+          parent_message_id: opts.thread ? (msgUser as MessagesRow).id : null,
+          root_message_id: opts.thread?.rootMessageId ?? null,
+          turn_index: nextTurn + 1,
+          role: 'agent',
+          locale,
+          ai_generated: true,
+          message_type: 'text',
+          content: earlyText,
+          dialogue_type: null,
+          structured_payload: {
+            empathy_ack: empathyAck,
+            empathy_full: earlyEcho,
+            empathy_question: earlyText,
+            template_id: earlyTemplateId,
+          },
+          stt_metadata: null,
+          source_neuron: 'empathy',
+          attachments: [],
+          persona_guard: {},
+          user_feedback: null,
+        };
+        const { data: em, error: emErr } = await (earlyForcedId
+          ? db.from('messages').upsert(earlyRow, { onConflict: 'id' })
+          : db.from('messages').insert(earlyRow))
+          .select().single();
+        if (emErr) {
+          // UNIQUE(session_id,turn_index) 레이스(락 밖 동시 턴)는 번호 재읽기 1회 (saveUser 관례).
+          if (/duplicate|unique/i.test(String(emErr.message || ''))) {
+            const { data: retry, error: retryErr } = await db.from('messages')
+              .insert({ ...earlyRow, turn_index: (await getNextTurn()) + 1 }).select().single();
+            if (retryErr || !retry) throw new ApiError('INTERNAL_ERROR', retryErr?.message || '공감 선영속 실패');
+            empathyEarly = retry as MessagesRow;
+          } else {
+            throw new ApiError('INTERNAL_ERROR', emErr.message || '공감 선영속 실패');
+          }
+        } else if (em) {
+          empathyEarly = em as MessagesRow;
+        }
+        if (empathyEarly) {
+          await journal.stampEmpathy(empathyEarly.id);
+          // empathy 노드의 thinking 이벤트와 동일 payload — 프론트 quip/릴레이 dedupe 유지.
+          ctx.empathyPreEmitted = true;
+          ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: empathyAck });
+          // 선(先) 발행 (t_f46d1d7a): user 카드·run.started 발행 직후 empathy 카드를 내보낸다 —
+          // 프론트 예/아니오 칩 창(발화 후 2.5s)이 답변 LLM/브리지 지연(15~186s 실측)과 무관하게
+          // 열린다. chatTurn이 message.new(empathy) 브로드캐스트 후 post-loop 재발행을 생략한다.
+          opts.onEmpathyEarly?.(empathyEarly);
+        }
+      }
+
       opts.onTurnStatus?.('processing', { stage: 'thinking' });
       // 체크포인터 실행 (t_7182aa8f): saver는 run 전용 인스턴스, thread_id=run_id.
       // resume 실행은 thread에 히스토리가 있으면 invoke(null)로 크래시 직전부터,
@@ -1221,6 +1303,13 @@ export async function processTurn(
 
       checkCancelled();
       if (final.empathyResponse) {
+        // 선영속 재사용 (t_f46d1d7a): user 카드 직후 미리 저장·발행한 행이 있으면 재생성하지
+        // 않고 그 id/ 내용을 그대로 쓴다 — 메시지 1행 1message.new 계약(t_2133e4fc user 선영속과 동일 관례).
+        if (empathyEarly) {
+          empathyMessage = empathyEarly;
+          empathyMessageId = empathyEarly.id;
+          empathyVisible = empathyEarly.content;
+        } else {
         // resume 가드 (t_7182aa8f②): empathy 행이 이미 스탬프됐거나 결정적 forcedId 행이
         // DB에 있으면(스탬프 공백) 재생성하지 않고 로드한다.
         const empathyForcedId = ckptActive ? runScopedId(turnId, 'empathy') : undefined;
@@ -1278,6 +1367,7 @@ export async function processTurn(
         await journal.stampEmpathy(m.id);
         // 계약 필드 = 화면 노출 텍스트 = 재질문 문장 (t_44f8896c; 복창 원문은 empathy_full에 보존).
         empathyVisible = final.empathyResponse;
+        }
         }
       }
 

@@ -102,7 +102,10 @@ describe('공유 턴 실행', () => {
       const messages = JSON.parse(options.body).messages;
       expect(messages.map((m: any) => m.content)).toContain('이전 답변');
       expect(messages.map((m: any) => m.content)).not.toContain('이전 공감');
-      expect(store.tables.messages.at(-1)?.role).toBe('user');
+      // 공감 선(先)영속 (t_f46d1d7a): 답변 LLM fetch 시점에 empathy 행은 이미 저장돼 있다
+      // (flake 원인 교정 — 칩 창이 답변 지연과 무관하게 열림). 마지막 행은 empathy.
+      expect(store.tables.messages.at(-1)?.role).toBe('agent');
+      expect(store.tables.messages.at(-1)?.source_neuron).toBe('empathy');
       return new Response('data: {"model":"test-model","choices":[{"delta":{"content":"금지어 답변"}}]}\n\ndata: [DONE]\n');
     }));
     const result = await run(events);

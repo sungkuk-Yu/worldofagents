@@ -127,7 +127,11 @@ it.each(['simple', 'langgraph'])('%s 스트림 취소는 부분 텍스트만 종
   expect(client.socket.events.at(-1)).toMatchObject({ type: 'run.cancelled', run_id: runId, partial_text: '부분 답변', seq: expect.any(Number) });
   expect(client.socket.events.some(e => ['run.failed', 'run.completed', 'session.error', 'answer.done'].includes(e.type))).toBe(false);
   const messages = await app.inject({ method: 'GET', url: `/api/sessions/${target.id}/messages`, headers: bearer(token) });
-  expect(messages.json().data.map((m: any) => m.role)).toEqual(['user']);
+  // 공감 선(先)영속 (t_f46d1d7a): empathy 행은 파이프라인(LLM) 실행 전에 저장·선발행돼 있다 —
+  // 취소로 날아가는 것은 답변뿐. 이미 화면에 나간 재질문 카드는 이력에 보존(프론트 칩과 이력 일치).
+  const roles = messages.json().data.map((m: any) => m.role);
+  expect(roles).toEqual(['user', 'agent']);
+  expect(messages.json().data.at(-1)).toMatchObject({ source_neuron: 'empathy' });
   await client.send({ type: 'run.cancel', session_id: target.id, run_id: runId });
   expect(client.socket.events.at(-1)).toMatchObject({ type: 'error', code: 'NOT_FOUND' });
 });

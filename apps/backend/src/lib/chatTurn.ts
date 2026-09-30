@@ -262,6 +262,8 @@ export async function runTextTurn(
     // 베이스의 이벤트 순서·개수와 1:1 복귀한다.
     const cardFirst = config.protocol.userCardFirst;
     let userMessageId: string | null = null;
+    // 공감 선(先)발행 id (t_f46d1d7a): onEmpathyEarly 콜백이 capture — post-loop 재발행 억제 키.
+    let empathyEarlyId: string | null = null;
     if (!cardFirst) {
       // 롤백 경로: ⑤ 이전 형상 — processTurn 호출 전 run.started+ack 버스.
       opts.emit({ type: 'run.started', ...base, quip: quip('started') });
@@ -297,6 +299,12 @@ export async function runTextTurn(
         opts.emit({ type: 'message.new', ...base, message: serializeMessage(userRow), user_message_id: userRow.id });
       }) : undefined,
       // ⑤ run.started emit — user 카드 직후 (cardFirst일 때만).
+      // 공감 선(先)발행 (t_f46d1d7a): cardFirst ON에서만 등록 — off(롤백)면 user 카드가 아직
+      // 배치 발행 중이라 empathy 선행 발행은 순서 계약(user<empathy)을 깨므로 구동작 유지.
+      onEmpathyEarly: cardFirst ? (empathyRow => {
+        empathyEarlyId = empathyRow.id;
+        opts.emit({ type: 'message.new', ...base, message: serializeMessage(empathyRow), source_message_id: userMessageId });
+      }) : undefined,
       onRunReady: cardFirst ? () => {
         opts.emit({ type: 'run.started', ...base, quip: quip('started') });
         // 페르소나 첫 발화 (≤2s SLA — 볼트 리서치 2항): 접수 ack을 한 줄로 낸다.
@@ -367,6 +375,9 @@ export async function runTextTurn(
       : [opts.persistedUser ? null : result.messages.user, result.messages.empathy, result.messages.answer]) {
       // serializeMessage: devstore 기본값 미충족·011 이전 행의 awaiting_reply를 false로 정규화
       // (WS message.new = REST 히스토리 동일 형상 계약).
+      // 선(先)발행 재발행 금지 (t_f46d1d7a): empathy 카드는 onEmpathyEarly가 이미 message.new로
+      // 내보냈다 — 같은 id 2회 발행은 프론트 카드 중복(t_2133e4fc user 선영속과 동일 관례).
+      if (message && message.id === empathyEarlyId) continue;
       if (message) opts.emit({ type: 'message.new', ...base, message: serializeMessage(message), ...(cardFirst ? { source_message_id: userMessageId } : {}) });
     }
     // 비서실 마무리·종료 비트 — 커튼이 단조 증가만 허용하므로 visual이 먼저 'wrapping'을 받은
