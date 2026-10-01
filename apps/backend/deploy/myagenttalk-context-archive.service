@@ -14,8 +14,8 @@ Description=MyAgentTalk context_patches cold archive job (move 90d+ patches to S
 Type=oneshot
 WorkingDirectory=/home/holysky87/worldofagents/apps/backend
 ExecStart=/usr/bin/env ./node_modules/.bin/tsx scripts/contextArchiveJob.ts
-# deploy.env(메인 레포, git outside)에 CONTEXT_ARCHIVE_ENABLED 외 게이트 값 관리.
+# deploy.env(운영 전용, git 외부 — backend.service와 동일 경로 관례)에 CONTEXT_ARCHIVE_ENABLED 외 게이트 값 관리.
 # 파일 부재 시 systemd는 유닛을 실패시킨다 — 조용히 env 없이 켜지는 일을 막는다.
-EnvironmentFile=/home/holysky87/worldofagents/apps/backend/deploy.env
+EnvironmentFile=/home/holysky87/.config/myagenttalk/deploy.env
 Nice=10
 TimeoutStartSec=1800
