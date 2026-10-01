@@ -1,5 +1,5 @@
 // t_3116c5bc 스모크 — 펼침 기본화 + '더 보기' + 리더 모달 + 카드 내보내기 메뉴 (웹 실측)
-// 실행: 정적서버(python3 -m http.server 8141 @ dist-reader) → node tests/e2e/smoke_reader.cjs
+// 실행: expo export → fr-serve.cjs <dist> <port> → APP_URL=http://localhost:<port> node tests/e2e/smoke_reader.cjs
 // 완료 기준 매핑: 장문/표/단문 3카드 before/after + 리더 모달 캡처 ko/en + export 메뉴/요청 wire 검증.
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -10,6 +10,25 @@ const APP = process.env.APP_URL || 'http://localhost:8141';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'reader-export');
 fs.mkdirSync(OUT, { recursive: true });
 const shot = (n) => path.join(OUT, `${n}.png`);
+// 원인(t_99abc1bb): tail-follow r4 branch3가 scrollIntoViewIfNeeded의 '의도 없는 상방 딥'을
+// 수축 클램프 딥으로 오판해 즉시 하단 재추종 → 상단 카드가 뷰포트 진입 불가(⑥ FAIL). 실사용
+// wheel은 이탈로 인정되므로 mouse.wheel로 진입한 뒤 클릭한다 (smoke_mic_zone ②·date_separator
+// r9 채택 패턴; 제품 코드 무개입 — wheel 진입 후에는 branch3 재추종 조건이 꺼져 안전).
+const wheelIntoView = async (page, loc, timeout = 10000) => {
+  const vp = page.viewportSize();
+  const deadline = Date.now() + timeout;
+  await page.mouse.move(Math.round(vp.width / 2), Math.round(vp.height / 2));
+  for (;;) {
+    const box = await loc.boundingBox().catch(() => null);
+    if (box && box.y < vp.height - 40 && box.y + box.height > 40) { // 부분 노출 = 이탈 성립, 이후 클릭 auto-scroll 안전
+      await page.waitForTimeout(400); // 의도 창 체인 유지 + 재활성 repaint
+      return;
+    }
+    if (Date.now() > deadline) throw new Error(`wheelIntoView timeout box=${JSON.stringify(box)}`);
+    await page.mouse.wheel(0, box && box.y >= vp.height - 40 ? 400 : -400);
+    await page.waitForTimeout(400);
+  }
+};
 (async () => {
   const browser = await chromium.launch({ executablePath: '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell' });
   const run = async (locale, tags) => {
@@ -34,7 +53,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
 
     // ② 장문 리치텍스트 — 1화면 초과 → '더 보기'로 접힌 채 시작, 인라인 펼침
     const longCard = page.getByTestId('message-agent').filter({ hasText: '제14조' }).first();
-    await longCard.scrollIntoViewIfNeeded();
+    await wheelIntoView(page, longCard);
     const longExpand = longCard.getByTestId('card-expand');
     await longExpand.waitFor();
     assert.ok(await longExpand.getByText(moreLabel).count(), '장문 카드 = 더 보기 핸들');
@@ -47,7 +66,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
 
     // ③ 표 40행 — 접힘 시작(추정) → 펼침 후 마지막 행까지 노출 ('항목 1'은 프리뷰/전체 렌더 양쪽 공통 앵커)
     const tableCard = page.getByTestId('message-agent').filter({ hasText: '항목 1' }).first();
-    await tableCard.scrollIntoViewIfNeeded();
+    await wheelIntoView(page, tableCard);
     await tableCard.getByTestId('card-expand').click();
     await tableCard.getByText('항목 40', { exact: true }).waitFor({ timeout: 5000 });
     assert.ok((await tableCard.getByText('완료', { exact: true }).count()) > 1, '펼치면 40행 전체 렌더');
@@ -70,7 +89,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     // ⑤ 내보내기 — 다운로드 아이콘 → 메뉴 4종, 표 카드만 xlsx 활성, 클릭 wire + hwp 폴백 안내
     // (성공 시 메뉴가 닫히므로 포맷마다 재오픈 — 노트는 패널 밖으로 잔존)
     const tableExport = tableCard.getByTestId('card-export-table');
-    await tableExport.scrollIntoViewIfNeeded();
+    await wheelIntoView(page, tableExport);
     // virtualized list + 가로 ScrollView 재활용으로 액션너블 검사 오탐 — 아이콘 press는 force로 직접 전달
     await tableExport.click({ force: true });
     let menu = page.getByTestId('export-menu');
@@ -91,7 +110,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     // ⑥ 단문 카드 내보내기 메뉴에서 xlsx 비활성(회색) — 클릭해도 요청 나가지 않음
     // (virtualized FlatList: 스크롤 후 재클램까지 1프레임 — force 클릭 전 뷰포트 진입 확인)
     const shortExport = page.getByTestId('card-export-short');
-    await shortExport.scrollIntoViewIfNeeded();
+    await wheelIntoView(page, shortExport);
     await shortExport.waitFor({ state: 'visible', timeout: 5000 });
     await page.waitForTimeout(250);
     await shortExport.click({ force: true });
