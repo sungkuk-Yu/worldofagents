@@ -14,6 +14,9 @@ Description=MyAgentTalk context_patches cold archive job (move 90d+ patches to S
 Type=oneshot
 WorkingDirectory=/home/holysky87/worldofagents/apps/backend
 ExecStart=/usr/bin/env ./node_modules/.bin/tsx scripts/contextArchiveJob.ts
+# tsx shebang이 env node — systemd 기본 PATH에 ~/.local/bin(실제 node)이 없어 명시 주입 (backend.service 관례 동일).
+Environment=PATH=/home/holysky87/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DEV_MODE=false
 # deploy.env(운영 전용, git 외부 — backend.service와 동일 경로 관례)에 CONTEXT_ARCHIVE_ENABLED 외 게이트 값 관리.
 # 파일 부재 시 systemd는 유닛을 실패시킨다 — 조용히 env 없이 켜지는 일을 막는다.
 EnvironmentFile=/home/holysky87/.config/myagenttalk/deploy.env
