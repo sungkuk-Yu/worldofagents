@@ -1,0 +1,30 @@
+-- ============================================================
+-- 015_down — D1 시드 baseline 역방향 (롤백 게이트, 9/29 전보드 지시 관례)
+--
+-- 사용: 실DB 적용 후 결함 발견 시 수동 실행 (supabase db push는 forward 전용).
+-- semantics 주의: 015는 수렴 실DB에서 0행을 INSERT했다(2026-10-01 read-only 감사 실측 —
+--   neurons 5종/skills 공식 4종/sessions.title+백필이 전부 006→010 경로로 이미 존재).
+--   실DB 관점의 "015 롤백"은 되돌릴 변경 자체가 없다 → 아래 ①은 신규 DEV DB(015가 최초
+--   시드자인 환경) 전용 파괴 작업이다. 실DB에서 카탈로그 행을 지우면 006/010 재적용으로도
+--   복구되지만(agenttalk-official 재시드), 그 사이에 마켓/라우터가 빈 카탈로그로 동작한다 —
+--   실DB 실행은 김비서→대표님 별도 결재 필요.
+-- ① 시드 행 제거(해당 slug·author 조합만 — 사용자 행 무건드림):
+--    DELETE FROM neurons WHERE slug IN ('empathy','answer','queue','visual','translation')
+--      AND author = 'agenttalk' AND category IN ('core','custom');
+--    DELETE FROM skills  WHERE slug IN ('calendar-sync','email-assistant',
+--                                       'translation-neuron','data-analysis')
+--      AND author_name = 'agenttalk-official';
+--    ⚠ 위 DELETE는 "015가 만든 행만"이 아니라 해당 공식 카탈로그 행 전부를 지운다
+--      (015가 0-row라 해도 신규 DB에선 015가 최초 작성자라 의미 있음). 실DB에서는
+--      기본 미실행 — 실행 전 FK 참조(neuron_links/skill_installations 등, 001)로 인한
+--      고아/CASCADE 영향 확인 후 수행.
+-- ② 세션 제목 백필(015 §3a/3b) 롤백: 백필은 010과 동일 규칙이며 사용자 목록 UX 자산 —
+--    되돌리면 title이 다시 NULL로 좁혀지지만 015가 채운 행과 010이 채운 행을 컬럼 값으로
+--    구분할 수 없다. 때문에 백필 롤백은 지원하지 않는다(no-op). 필요 시 개별 세션 수동 NULL.
+-- ③ 트리거/함수: sessions_title_blank_to_null은 006 정의와 동일 — 삭제 시 006 재적용으로도
+--    복구되므로 두지 않는다(leave as-is; 006 소유).
+--
+-- 검증 read-back (① 실행 후):
+--   SELECT count(*) FROM neurons WHERE author='agenttalk';  -- 0 기대
+--   SELECT count(*) FROM skills WHERE author_name='agenttalk-official';  -- 0 기대
+-- ============================================================
