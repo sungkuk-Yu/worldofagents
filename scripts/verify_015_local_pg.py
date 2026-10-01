@@ -18,7 +18,9 @@ import sys
 import shutil
 
 PGDATA = os.environ.get("VERIFY015_PGDATA", "/tmp/pgdata_015_verify")
-WORKROOT = "/home/holysky87/worldofagents/.worktrees/t_58d08ab7"
+# t_848d0c3b 하네스 수정: script 위치 기준 자기 워크트리(하드코딩 t_58d08ab7 이식성 결함 —
+# 그 worktree가 정리되면 하네스가 죽는다). 환경변수로 덮어쓰기 가능.
+WORKROOT = os.environ.get("VERIFY015_WORKROOT", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MIG_DIR = os.path.join(WORKROOT, "apps/backend/supabase/migrations")
 PGINSTALL = "/home/holysky87/.hermes/profiles/backdev/cache/scratch/pgenv/lib/python3.11/site-packages/pgserver/pginstall"
 
@@ -73,7 +75,8 @@ def main():
             cur.execute(f"DO $$ BEGIN CREATE ROLE {role} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$")
 
         # ---- 1) 001→015 순차 적용 ----
-        files = sorted(f for f in os.listdir(MIG_DIR) if f.endswith(".sql"))
+        # t_848d0c3b 갱신: 번호 필터 — 016 이후 파일이 추가돼도 본 하네스 범위는 001~015 고정.
+        files = sorted(f for f in os.listdir(MIG_DIR) if f.endswith(".sql") and f[:3] <= "015")
         assert files[-1] == "015_seed_baseline.sql", f"unexpected migration list tail: {files[-1]}"
         for fname in files:
             try:
