@@ -137,3 +137,83 @@ export async function deleteFromAttachmentsBucket(objectPaths: string[]): Promis
     }
   }
 }
+
+// ============================================================
+// context_patches 콜드 아카이브 버킷 (t_848d0c3b — 설계 볼트 10-01 §1)
+//
+// attachments와 반대 급부: **private** 버킷(delta에 대화 파생 콘텐츠 — 공개 URL경로
+// 절대 불가), 읽기는 storage-js download 빌더(서명 경로), 쓰기는 service_role 전용.
+// DEV_MODE 분기는 lib/contextArchive.ts의 putArchiveObject/getArchiveObject가
+// devstore.blobs(격리 프리픽스)로 처리 — 이 함수들은 프로덕션 전용.
+// ============================================================
+
+const ARCHIVE_PREFIX = '__context-archive__/';
+
+/** archiveStore 인터페이스가 버킷 루트 경로를 dev blobs 키와 충돌시키지 않는 프리픽스. */
+export function archiveBlobKey(objectPath: string): string {
+  return ARCHIVE_PREFIX + objectPath;
+}
+
+/**
+ * private 버킷 `context-archive` 보장. attachments와 같은 listBuckets 성공 프루브
+ * 패턴(카드 P3-java 경계 — ApiError 없이 { error } 페이로드라 '이미 존재' 구분 불가)
+ * + public:false 명시(설계 §1 — 공개 버킷 생성은 아키텍처 위반).
+ */
+async function ensureArchiveBucket(): Promise<void> {
+  const bucketName = config.contextArchive.bucket;
+  const storage = adminRaw().storage as unknown as {
+    listBuckets: () => Promise<CallResult<BucketRow[]>>;
+    createBucket: (id: string, opts: Record<string, unknown>) => Promise<CallResult<unknown>>;
+  };
+  const has = (d: BucketRow[] | null) => Array.isArray(d) && d.some(b => b?.name === bucketName);
+  const listed = await storage.listBuckets();
+  if (listed.error) throw new Error(`context-archive 버킷 조회 실패: ${listed.error.message}`);
+  if (has(listed.data)) return;
+  const created = await storage.createBucket(bucketName, { public: false });
+  if (created.error && !/exist/i.test(created.error.message || '')) {
+    throw new Error(`context-archive 버킷 생성 실패: ${created.error.message}`);
+  }
+  const recheck = await storage.listBuckets();
+  if (!has(recheck.data)) throw new Error('context-archive 버킷 생성/확인 실패 — Storage 관리 권한 확인 필요');
+  logger.info(`🧊 context-archive private 버킷 보장 완료 (service_role 전용)`);
+}
+
+/** NDJSON.gz 객체 업로드 (upsert:true — 재시도 배치의 동일 경로 덮어쓰기 허용, sha가 내용 진실). */
+export async function uploadToArchiveBucket(objectPath: string, bytes: Buffer): Promise<void> {
+  await ensureArchiveBucket();
+  const put = () => (adminRaw().storage as unknown as {
+    from: (b: string) => {
+      upload: (p: string, f: Buffer, o: Record<string, unknown>) => Promise<CallResult<unknown>>;
+    };
+  }).from(config.contextArchive.bucket).upload(objectPath, bytes, {
+    contentType: 'application/gzip', upsert: true, cacheControl: '3600',
+  });
+  let res = await put();
+  if (res.error) {
+    logger.warn(`context-archive 업로드 실패(버킷 보장 재확인 후 1회 재시도): ${res.error.message}`);
+    await ensureArchiveBucket();
+    res = await put();
+  }
+  if (res.error) throw new Error(res.error.message || 'context-archive upload failed');
+}
+
+/**
+ * read-back/복원 다운로드. private 버킷이라 퍼블릭 URL 경로가 없다 — storage-js
+ * download 빌더(Blob)를 쓰고 Blob→Buffer 변환. 미 존재/권한 실패는 null (호출부가
+ * '검증 실패 = 삭제 금지'로 해석).
+ */
+export async function downloadFromArchiveBucket(objectPath: string): Promise<Buffer | null> {
+  try {
+    const builder = (adminRaw().storage as unknown as {
+      from: (b: string) => {
+        download: (p: string, o?: Record<string, unknown>) => PromiseLike<{ data?: Blob; error?: { message?: string } | null }>;
+      };
+    }).from(config.contextArchive.bucket).download(objectPath, {});
+    const res = await builder;
+    if (!res || res.error || !res.data) return null;
+    return Buffer.from(await res.data.arrayBuffer());
+  } catch (err) {
+    logger.warn(`context-archive 다운로드 예외(=null 취급): ${objectPath} — ${(err as Error).message}`);
+    return null;
+  }
+}

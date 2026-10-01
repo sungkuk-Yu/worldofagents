@@ -176,6 +176,24 @@ export const config = {
   },
 
   /**
+   * context_patches 콜드 아카이브 잡 (t_848d0c3b, 설계: 볼트 10-01 §3).
+   * - enabled: 실DB 쓰기 게이트 — **기본 false**. systemd timer 설치 + env 켬 + 김비서
+   *   배치 승인(카드 ④: 첫 배치 DELETE 예외 결재)이 모두 있어야 원본에 손댄다.
+   *   꺼져 있으면 잡은 아무것도 하지 않고 종료한다(감사 로그만).
+   * - hotWindowDays: 이 창을 지난 패치가 cold 후보 (CONTEXT_PATCH_HOT_DAYS, 설계 기본 90).
+   * - safetyLagHours: 어제의 경계도 흔들리지 않게 최신 24h은 무조건 hot (설계 SAFETY_LAG).
+   * - bucket: private Storage 버킷명. anon/authenticated 정책 없음 — service_role 전용.
+   */
+  contextArchive: {
+    enabled: process.env.CONTEXT_ARCHIVE_ENABLED === 'true',
+    hotWindowDays: parseInt(process.env.CONTEXT_PATCH_HOT_DAYS || '90', 10),
+    safetyLagHours: parseInt(process.env.CONTEXT_ARCHIVE_SAFETY_LAG_HOURS || '24', 10),
+    bucket: process.env.CONTEXT_ARCHIVE_BUCKET || 'context-archive',
+    /** 1회 실행에서 처리할 (session×월) 배치 상한 — 첫 실행 폭주 방지. */
+    maxBatchesPerRun: parseInt(process.env.CONTEXT_ARCHIVE_MAX_BATCHES || '50', 10),
+  },
+
+  /**
    * 앱 속 실 김비서 브리지 (t_620d5549, 대표님 9/28 "텔레그램 대신 저거로 김비서를 쓸 수 있게")
    * - endpoint: Hermes kimsecretary 게이트웨이의 A2A 수신 URL. 미설정(기본) 시 브리지 OFF —
    *   김비서 room도 기존 로컬 파이프라인과 1:1 동일 동작. skyserver 내부 루프(127.0.0.1)만 허용.

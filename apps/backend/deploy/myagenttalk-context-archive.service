@@ -1,0 +1,21 @@
+# context_patches 콜드 아카이브 잡 (t_848d0c3b — 설계 볼트 10-01 §3 스케줄링)
+# 일 1회 05:xx (myagenttalk-vault-update.timer 04:17과 시각 분리 — 같은 스토리지 IO 경합 회피).
+# 설치:
+#   cp apps/backend/deploy/myagenttalk-context-archive.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now myagenttalk-context-archive.timer
+# 게이트(카드 ④): 실 execution은 EnvironmentFile의 CONTEXT_ARCHIVE_ENABLED=true +
+#   김비서 첫 배치 결재 이후에만. 그 전에는 아래 명령으로 수동 dry-run만 수행:
+#   systemd-run --user -p EnvironmentFile=<deploy.env> \
+#     ./node_modules/.bin/tsx scripts/contextArchiveJob.ts --dry-run
+[Unit]
+Description=MyAgentTalk context_patches cold archive job (move 90d+ patches to Storage)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/holysky87/worldofagents/apps/backend
+ExecStart=/usr/bin/env ./node_modules/.bin/tsx scripts/contextArchiveJob.ts
+# deploy.env(메인 레포, git outside)에 CONTEXT_ARCHIVE_ENABLED 외 게이트 값 관리.
+# 파일 부재 시 systemd는 유닛을 실패시킨다 — 조용히 env 없이 켜지는 일을 막는다.
+EnvironmentFile=/home/holysky87/worldofagents/apps/backend/deploy.env
+Nice=10
+TimeoutStartSec=1800

@@ -37,6 +37,13 @@ export default defineConfig({
       // 필요한 테스트가 config.naraSpeller.enabled/url을 스파이로 켜고 fetch를 모킹한다.
       NARA_SPELLER_ENABLED: '',
       NARA_SPELLER_H2: 'false', // fetch 모킹 실패 경로가 실네트워크 http2 폴백을 타지 않게
+      // t_848d0c3b: 콜드 아카이브 잡 — 실 .env에 CONTEXT_ARCHIVE_ENABLED가 켜져 있어도
+      // 단위 테스트는 절대 원본 DELETE를 타지 않게 봉인(필요 테스트가 spyOn으로 켠다).
+      // 창 값도 고정 — .env 드리프트가 cutoff 결정론 테스트를 흔들지 못하게.
+      CONTEXT_ARCHIVE_ENABLED: '',
+      CONTEXT_PATCH_HOT_DAYS: '90',
+      CONTEXT_ARCHIVE_SAFETY_LAG_HOURS: '24',
+      CONTEXT_ARCHIVE_MAX_BATCHES: '50',
     },
     testTimeout: 20000,
     hookTimeout: 20000,

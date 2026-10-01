@@ -5,6 +5,8 @@
  * - 컨텍스트 키 체계: conversation.*, task.*, visual.*, persona.state, user.preferences 등
  */
 import { DbClient } from './supabase';
+import { fetchVerifiedPatches } from './contextArchive';
+import { logger } from '../utils/logger';
 
 export type ContextOperation = 'set' | 'append' | 'replace' | 'delete';
 
@@ -64,6 +66,34 @@ function applyOps(current: unknown, ops: { operation: ContextOperation; value: u
   return acc;
 }
 
+/** 컨텍스트 패치 행 로더 — hot 전량 + (존재 시) 검증된 cold 객체 병합.
+ *  t_848d0c3b 콜드 아카이브 폴백: cold는 **verified_at 있는 배치만** 사용(설계 §3),
+ *  hot 행과 id가 겹치면 hot 우선(이관 후 복원/부분 실패 창에서 원본 진실 = hot).
+ *  순서는 readContextValue/readFullContext 계약대로 (created_at, id) 오름차순. */
+async function loadPatchesWithCold(db: DbClient, sessionId: string): Promise<any[]> {
+  const { data, error } = await db
+    .from('context_patches')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw error;
+  const hot = (data as any[]) || [];
+  let cold: any[];
+  try {
+    cold = await fetchVerifiedPatches(db, sessionId);
+  } catch (err) {
+    // cold 폴백 실패는 hot 답변을 막지 않는다 — 설계 §(d) '조용히 hot만 계속'.
+    logger.warn(`context cold 폴백 실패(hot만 사용): session=${sessionId} — ${(err as Error).message}`);
+    cold = [];
+  }
+  if (!cold.length) return hot;
+  const hotIds = new Set(hot.map((p) => String(p.id)));
+  const merged = [...hot, ...cold.filter((p) => !hotIds.has(String(p.id)))];
+  merged.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id));
+  return merged;
+}
+
 /** 특정 키의 현재 컨텍스트 값 재구성 (캐시 대신 DB에서 항상 재구성) */
 export async function readContextValue(
   db: DbClient,
@@ -71,15 +101,13 @@ export async function readContextValue(
   key: string
 ): Promise<unknown> {
   assertValidKey(key);
-  const { data, error } = await db
-    .from('context_patches')
-    .select('*')
-    .eq('session_id', sessionId)
-    .eq('key', key)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true });
-  if (error) return null;
-  const ops = ((data as any[]) || []).map((p) => ({
+  let rows: any[];
+  try {
+    rows = await loadPatchesWithCold(db, sessionId);
+  } catch {
+    return null;
+  }
+  const ops = rows.filter((p) => p.key === key).map((p) => ({
     operation: p.operation as ContextOperation,
     value: (p.delta as { value?: unknown })?.value,
   }));
@@ -88,13 +116,12 @@ export async function readContextValue(
 
 /** 세션 전체 컨텍스트 스냅샷 (키별 최신 값) */
 export async function readFullContext(db: DbClient, sessionId: string): Promise<Record<string, unknown>> {
-  const { data, error } = await db
-    .from('context_patches')
-    .select('*')
-    .eq('session_id', sessionId)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true });
-  if (error) return {};
+  let data: any[];
+  try {
+    data = await loadPatchesWithCold(db, sessionId);
+  } catch {
+    return {};
+  }
 
   const byKey = new Map<string, { operation: ContextOperation; value: unknown; created_at: string }>();
   for (const p of (data as any[]) || []) {

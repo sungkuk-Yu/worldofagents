@@ -18,6 +18,7 @@ import { resolvePendingReplies, replyPendingSnapshot } from '../lib/awaitingRepl
 import { classifyDialogueType } from '../neurons/router';
 import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances } from '../neurons/registry';
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
+import { listArchives, restoreArchive, objectPathOf } from '../lib/contextArchive';
 import { listTasksBySession, createTaskInSession } from './tasks';
 import { sessionTitleOf } from '../lib/sessionTitle';
 
@@ -543,6 +544,50 @@ export async function sessionRoutes(app: FastifyInstance) {
       throw badRequest((err as Error).message);
     }
     return ok({ success: true });
+  });
+
+  // ── 콜드 아카이브 회수 (t_848d0c3b — 설계 §d: UI '이전 기억 열람'은 이 API 경유만,
+  //    Storage 직접 노출 0. verified_at 없는 배치는 목록에서조차 숨긴다) ──
+
+  // GET /api/sessions/:id/context/archives — 검증된 cold 배치 목록
+  // (static route 우선 — Fastify는 /context/archives를 /context/:key보다 먼저 매치)
+  app.get('/:id/context/archives', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const archives = await listArchives(request.db, session.id);
+    // 버킷 내부 구조(object_path)는 노출하지 않는다 — 사용자 계약은 period, 경로는 서버가 재구성.
+    return ok({
+      archives: archives.map((a) => ({
+        period: a.period,
+        patch_count: a.patch_count,
+        min_created_at: a.min_created_at,
+        max_created_at: a.max_created_at,
+        bytes_compressed: a.bytes_compressed,
+        archived_at: a.archived_at,
+        verified_at: a.verified_at,
+      })),
+    });
+  });
+
+  // POST /api/sessions/:id/context/archives/restore — cold 객체를 hot으로 복원 (멱등)
+  app.post('/:id/context/archives/restore', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const { period } = request.body as { period?: string };
+    if (typeof period !== 'string' || !/^\d{4}-\d{2}$/.test(period)) {
+      throw badRequest("period는 'YYYY-MM' 형식이어야 합니다.");
+    }
+    // 소유권: 조회가 session_id AND object_path 동시 조건 — path는 서버가 세션에서 유도하므로
+    // 남의 세션 경로 위조가 구조적으로 불가능하다.
+    try {
+      const result = await restoreArchive(request.db, session.id, objectPathOf(session.id, period));
+      // object_path 등 버킷 내부 구조는 응답에 싣지 않는다 (period만 사용자 계약).
+      return ok({ period, restored: result.restored, skipped_existing: result.skipped_existing, patch_count: result.patch_count });
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg === 'NOT_FOUND') throw new ApiError('NOT_FOUND', '이 세션의 검증된 아카이브 배치가 아닙니다.');
+      if (msg === 'UNVERIFIED') throw badRequest('검증 미완료 배치입니다 — 복원할 수 없습니다.');
+      if (msg === 'INTEGRITY') throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '아카이브 무결성 검증 실패 — 복원을 중단했습니다.');
+      throw new ApiError(ERROR_CODES.INTERNAL_ERROR, msg);
+    }
   });
 
   // GET /api/sessions/:id/transcripts — 원본 트랜스크립트 (압축 후에도 유지)

@@ -49,6 +49,8 @@ export const emptyStore = (): DevStore => ({
     graph_runs: [],
     graph_checkpoints: [],
     graph_checkpoint_writes: [],
+    // context_patches 콜드 아카이브 인덱스 (t_848d0c3b, 마이그레이션 016).
+    context_patch_archives: [],
   },
   usersByEmail: new Map(),
   sequences: {},
