@@ -92,10 +92,42 @@ export async function getOwnedSession(db: DbClient, userId: string, sessionId: s
   return data as SessionsRow;
 }
 
+/**
+ * turn_index 오염 가드 (t_e1334cee P1-1, 볼트 numbers-boundary-감사 §1):
+ * max+1 시퀀스 계산의 외부 소스(DB JSONB 타입 드리프트) 수치 경계.
+ * - null/undefined(빈 세션) → 0 (기존 `-1 + 1` 의미 그대로)
+ * - 문자열 숫자("5") → Number() 복원 (6) — additive, 정상 동작 불변
+ * - 그 외 가비지("banana"/NaN/객체) → ApiError로 insert 차단 (침투 시 정렬/커서 연쇄 파괴)
+ */
+export function nextTurnFromLast(raw: unknown): number {
+  if (raw === null || raw === undefined) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, `turn_index 오염 감지: ${String(raw)}`);
+  return n + 1;
+}
+
 /** 다음 turn_index 계산 */
 export async function nextTurnIndex(db: DbClient, sessionId: string): Promise<number> {
   const { data } = await db.from('messages').select('turn_index').eq('session_id', sessionId).order('turn_index', { ascending: false }).limit(1).maybeSingle();
-  return ((data as { turn_index?: number } | null)?.turn_index ?? -1) + 1;
+  return nextTurnFromLast((data as { turn_index?: number } | null)?.turn_index);
+}
+
+/**
+ * stt_metadata 수치 필드 정화 (t_e1334cee P1-4, 볼트 numbers-boundary-감사 §4):
+ * REST body·resume 저널 등 외부 소스의 JSONB를 영속하기 직전에 스캔 —
+ * confidence/duration_ms는 Number 복원(불가 시 기본값), language는 문자열만 허용.
+ * 정상(서버 계산) 값은 그대로 통과 — 동작 불변. 비객체 입력('banana' 문자열 등)은 null.
+ * 멱등: 재스캔해도 같은 결과 (WS early-persist → runTextTurn 이중 호출 안전).
+ */
+export function sanitizeSttMetadata(m: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!m || typeof m !== 'object') return null;
+  const num = (v: unknown, dflt: number) => { const n = Number(v); return Number.isFinite(n) ? n : dflt; };
+  return {
+    ...m,
+    confidence: num(m.confidence, 0.95),
+    duration_ms: Math.max(0, num(m.duration_ms, 0)),
+    language: typeof m.language === 'string' ? m.language : undefined,
+  };
 }
 
 /** ID 커서로 전체 행을 읽어 PostgREST의 응답 행 제한을 피한다. */

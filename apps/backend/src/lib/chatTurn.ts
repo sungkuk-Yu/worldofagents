@@ -11,7 +11,7 @@ import { MessagesRow, SessionsRow } from '../types/db';
 import { processTurn, TurnResult, NeuronStage, ProcessTurnOptions } from '../neurons/graph';
 import { rowToPersonaConfig } from './persona';
 import { ApiError } from './errors';
-import { serializeMessage } from './helpers';
+import { serializeMessage, nextTurnFromLast, sanitizeSttMetadata } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
 import { clientReqColumns, findExistingByClientReqId, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing, normalizeClientReqId } from './idempotency';
@@ -93,6 +93,8 @@ export async function persistUserUtteranceEarly(
 ): Promise<EarlyUserResult> {
   if (session.user_id !== userId) throw new ApiError('FORBIDDEN', '세션 소유자만 메시지를 보낼 수 있습니다.');
   if (session.status === 'archived') throw new ApiError('SESSION_ARCHIVED', '아카이브된 세션입니다.');
+  // stt_metadata 저장 전 정화 (t_e1334cee P1-4): REST body 등 외부 소스의 무검증 영속 차단.
+  const sttMeta = sanitizeSttMetadata(opts.sttMetadata);
   const locale = opts.locale ?? config.defaultLocale;
   // 정규화는 runTextTurn과 같은 단일 함수 — 사전 조회 키와 stamp 키가 반드시 일치한다.
   const clientReqId = normalizeClientReqId(opts.clientReqId ?? null);
@@ -109,7 +111,7 @@ export async function persistUserUtteranceEarly(
     const { data: lastMsg, error } = await db.from('messages').select('turn_index')
       .eq('session_id', session.id).order('turn_index', { ascending: false }).limit(1).maybeSingle();
     if (error) throw new ApiError('INTERNAL_ERROR', error.message);
-    return ((lastMsg as { turn_index?: number } | null)?.turn_index ?? -1) + 1;
+    return nextTurnFromLast((lastMsg as { turn_index?: number } | null)?.turn_index);
   };
   // processTurn saveUser 관례: clientReqColumns는 insert 시점에 재계산 — 래치 on 후
   // 재시도에서 컬럼이 실제 제외된다. 진입 시점 포착(userCols)은 래치 판정 가드용.
@@ -121,11 +123,11 @@ export async function persistUserUtteranceEarly(
     role: 'user',
     locale,
     ai_generated: false,
-    message_type: opts.sttMetadata ? 'voice' : 'text',
+    message_type: sttMeta ? 'voice' : 'text',
     content,
     dialogue_type: null,
     structured_payload: {},
-    stt_metadata: opts.sttMetadata ?? null,
+    stt_metadata: sttMeta,
     source_neuron: null,
     attachments: [],
     persona_guard: {},
@@ -161,6 +163,9 @@ export async function runTextTurn(
     /** 내구성 실행 resume 시드 (t_7182aa8f③): 부팅 스캐너가 넘긴 graph_runs 행. */
     resume?: JournalRow }
 ): Promise<TurnResult | IdempotentTurnResult> {
+  // stt_metadata 게이트 (t_e1334cee P1-4): REST body 등 외부 소스 정화 — processTurn의
+  // user 저장(graph saveUser)과 체크포인터 저널(openRun)이 모두 이 정규화값을 상속한다.
+  opts.sttMetadata = sanitizeSttMetadata(opts.sttMetadata);
   const locale = opts.locale ?? config.defaultLocale;
   // resume 실행은 크래시 전 run_id를 thread로 재사용해야 체크포인터/결정적 메시지 id가
   // 이어진다 (t_7182aa8f③). 선방송 run_id(t_2133e4fc)가 그다음, 일반 실행은 새 UUID.

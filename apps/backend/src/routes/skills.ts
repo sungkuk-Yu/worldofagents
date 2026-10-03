@@ -27,6 +27,22 @@ async function installedSkill(db: DbClient, userId: string, skillId: string): Pr
   return (data as SkillInstallationsRow) || null;
 }
 
+/**
+ * install_count 증감 (t_e1334cee P1-3, 볼트 numbers-boundary-감사 §3).
+ * 1차: RPC bump_skill_install_count — read-modify-write 레이스와 "3"+1="31" 문자 폭발을
+ *   SQL 한 문장으로 봉인 (007 bump_upload_quota 관례). 017 미적용 환경(PGRST202/Unknown RPC)은
+ *   조용히 폴백으로 내려간다.
+ * 2차(폴백): 직전 select 값 기반 RMW — Number() 가드로 문자열/NaN 침투 차단,
+ *   하한 0. 가드만으로도 원 클래스("banana"→0+delta)는 막는다.
+ */
+async function bumpInstallCount(db: DbClient, skill: SkillsRow, delta: 1 | -1): Promise<void> {
+  const { error: rpcErr } = await db.rpc('bump_skill_install_count', { p_skill_id: skill.id, p_delta: delta });
+  if (!rpcErr) return;
+  const guarded = Number(skill.install_count);
+  const base = Number.isFinite(guarded) ? guarded : 0;
+  await db.from('skills').update({ install_count: Math.max(0, base + delta) }).eq('id', skill.id);
+}
+
 function rankingRows(rows: SkillsRow[], sort: string): SkillsRow[] {
   const list = [...rows];
   if (sort === 'rating') {
@@ -163,7 +179,7 @@ export async function skillRoutes(app: FastifyInstance) {
       .single();
     if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
 
-    await request.db.from('skills').update({ install_count: skill.install_count + 1 }).eq('id', skill.id);
+    await bumpInstallCount(request.db, skill, 1);
     return reply.status(201).send(ok(data));
   });
 
@@ -174,7 +190,7 @@ export async function skillRoutes(app: FastifyInstance) {
     const inst = await installedSkill(request.db, request.userId, skill.id);
     if (!inst) throw new ApiError(ERROR_CODES.SKILL_NOT_FOUND, '설치된 스킬이 아닙니다.');
     await request.db.from('skill_installations').delete().eq('id', inst.id);
-    await request.db.from('skills').update({ install_count: Math.max(0, skill.install_count - 1) }).eq('id', skill.id);
+    await bumpInstallCount(request.db, skill, -1);
     return ok({ success: true });
   });
 

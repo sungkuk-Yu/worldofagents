@@ -464,6 +464,16 @@ export function createDevClient(store: DevStore): DevClient {
         }
         return { data: null, error: null };
       }
+      // install_count 원자 증감 (t_e1334cee P1-3, 마이그레이션 017) — 실DB semantics:
+      // DB 저장값 기준 + delta, GREATEST 하한 0. Number() 가드로 문자열/NaN 주입도 봉인.
+      if (fn === 'bump_skill_install_count') {
+        const skill = store.tables.skills.find((s) => s.id === args.p_skill_id);
+        if (!skill) return { data: null, error: { message: 'skill not found' } };
+        const cur = Number(skill.install_count);
+        const delta = Number(args.p_delta);
+        skill.install_count = Math.max(0, (Number.isFinite(cur) ? cur : 0) + (Number.isFinite(delta) ? delta : 0));
+        return { data: skill.install_count, error: null };
+      }
       // 첨부 쿼터 (t_401c5bd1) — 실DB bump_upload_quota(007)의 원자적 증가/-1 센티넬 시맨틱 재현.
       if (fn === 'bump_upload_quota') {
         const userId = args.p_user as string;

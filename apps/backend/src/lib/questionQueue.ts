@@ -83,7 +83,9 @@ export async function enqueueQuestion(
   return withSessionLock(`queue:${args.sessionId}`, async () => {
     if (await pendingCount(db, args.sessionId) >= config.questionQueue.maxPending) return null;
     const rows = await listQueue(db, args.sessionId);
-    const position = rows.reduce((m, r) => Math.max(m, r.position), -1) + 1;
+    // position 수치 가드 (t_e1334cee P1-5, 볼트 numbers-boundary-감사 §5): boards.ts:39와 동일 패턴 —
+    // r.position이 문자열 가비지/undefined여도 NaN 침투 없이 0 폴백.
+    const position = rows.reduce((m, r) => Math.max(m, Number(r.position) || 0), -1) + 1;
     const { data, error } = await db.from('message_queue').insert({
       session_id: args.sessionId,
       user_id: args.userId,

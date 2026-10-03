@@ -134,7 +134,12 @@ export async function agentRoutes(app: FastifyInstance) {
     const body = request.body as { name?: string; voice_config?: Record<string, unknown>; tone_config?: Record<string, unknown>; style_guide?: Record<string, unknown>; neuron_overrides?: Record<string, unknown>; relationship_type?: string; version?: number };
 
     const { data: maxVersion } = await request.db.from('personas').select('version').eq('agent_id', agent.id).order('version', { ascending: false }).limit(1).maybeSingle();
-    const version = body.version ?? ((maxVersion as { version?: number } | null)?.version ?? 0) + 1;
+    // 수치 경계 가드 (t_e1334cee P1-2, 볼트 numbers-boundary-감사 §2): prev 오염 시 0 폴백,
+    // body.version은 클라이언트 임의 값 — 정수>0만 채택(문자열 "2"/NaN/banana/0/음수 거부 → 자동 채번).
+    const prev = Number((maxVersion as { version?: number } | null)?.version ?? 0);
+    const base = Number.isFinite(prev) ? prev : 0;
+    const reqVer = body.version !== undefined ? Number(body.version) : NaN;
+    const version = (body.version !== undefined && Number.isInteger(reqVer) && reqVer > 0) ? reqVer : base + 1;
 
     // 동일 버전 충돌 검사
     const { data: conflict } = await request.db.from('personas').select('id').eq('agent_id', agent.id).eq('version', version).maybeSingle();
@@ -169,8 +174,16 @@ export async function agentRoutes(app: FastifyInstance) {
     if (!current) throw new ApiError(ERROR_CODES.NOT_FOUND, '페르소나를 찾을 수 없습니다.');
 
     const body = request.body as Partial<Record<string, unknown>>;
+    // body.version이 아래 spread로 계산값을 덮어쓰는 경로 — POST과 동일 계약:
+    // 정수>0만 채택, 그 외(문자열/NaN/banana/0/음수)는 삭제해 자동 채번으로 회수 (t_e1334cee P1-2).
+    if ('version' in body) {
+      const reqVer = Number(body.version);
+      if (!(Number.isInteger(reqVer) && reqVer > 0)) delete body.version;
+    }
     const { data: maxVersion } = await request.db.from('personas').select('version').eq('agent_id', agent.id).order('version', { ascending: false }).limit(1).maybeSingle();
-    const version = ((maxVersion as { version?: number } | null)?.version ?? 0) + 1;
+    // prev 수치 가드 (t_e1334cee P1-2): 오염된 version은 0 폴백 — "5"+1="51" 문자 연결 차단.
+    const prev = Number((maxVersion as { version?: number } | null)?.version ?? 0);
+    const version = (Number.isFinite(prev) ? prev : 0) + 1;
 
     await request.db.from('personas').update({ is_active: false }).eq('agent_id', agent.id);
     const { data, error } = await request.db

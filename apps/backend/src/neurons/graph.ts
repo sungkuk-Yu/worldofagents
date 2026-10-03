@@ -25,6 +25,7 @@ import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
 import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
+import { nextTurnFromLast } from '../lib/helpers';
 import { ReplyToSummary, resolveReplyContext, replyToColumn, classifyReplyInsertError, markReplyToColumnMissing } from '../lib/replyTo';
 import { buildPersonaPrompt, PersonaGuard, classifyExpertise, DISCLAIMERS } from '../lib/persona';
 import { orthographyRules, applyNaraSpeller, SpellerSuggestion, mergeProtectedTerms, normalizeProtectedTerms } from '../lib/koreanOrthography';
@@ -1067,7 +1068,7 @@ export async function processTurn(
           .limit(1)
           .maybeSingle();
         if (error) throw new ApiError('INTERNAL_ERROR', error.message);
-        return ((lastMsg as { turn_index?: number } | null)?.turn_index ?? -1) + 1;
+        return nextTurnFromLast((lastMsg as { turn_index?: number } | null)?.turn_index);
       };
       let nextTurn = await getNextTurn();
 
