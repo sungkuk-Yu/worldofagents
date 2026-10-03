@@ -472,7 +472,9 @@ export function useChatSession(
               if (!runtime.messages.some((m) => m.id === uid)) {
                 updateMessages((prev) => mergeIncoming(prev, [{
                   id: uid, role: 'user', content: (raw.text as string).trim(),
-                  turnIndex: typeof raw.turn_index === 'number' ? raw.turn_index : nextTurnIndex(prev),
+                  // t_eb2a016c 수치경계: typeof 단독은 NaN 통과 — 유한값만 인정, 아니면 낙관 추정치로 강등 (duration_ms 인접 게이트와 동일 관례)
+                  turnIndex: typeof raw.turn_index === 'number' && Number.isFinite(raw.turn_index)
+                    ? raw.turn_index : nextTurnIndex(prev),
                   createdAt: new Date().toISOString(), status: 'sent',
                   // t_2eea055a: 음성 발화 확정 즉시 길이 병기 — message.new(user)가 먼저 도착하면
                   // (id 중복 no-op) 그 행의 stt_metadata 매핑이 우선하므로 어느 순서든 정확.

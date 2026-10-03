@@ -60,6 +60,27 @@ test('buildQueueStrip — 서버에만 있는 행(아직 messages 밖)은 원문
   assert.deepEqual(strip.map((s) => [s.id, s.text]), [['u1', '화면의 질문'], ['q1', '첫 끼어들기'], ['q2', '두 번째 끼어들기']]);
 });
 
+test('normalizeQueueItems — 수치경계(t_f70bc767): NaN position은 배열 순서로 강등, 정렬 왜곡 없음', () => {
+  // typeof 단독 게이트는 NaN을 통과시켜 sort 비교자(a.position - b.position)를 NaN화 → 순서 침묵 왜곡.
+  // 유한값만 인정: NaN 행은 배열 인덱스로 강등되어도 나머지 유한 position 순서와 일관되게 정렬된다.
+  const queue = normalizeQueueItems([
+    { id: 'qNaN', content: '고장 행', status: 'pending', position: NaN },
+    { id: 'q1', content: '첫 끼어들기', status: 'pending', position: 1 },
+    { id: 'q3', content: '세 번째 끼어들기', status: 'pending', position: 3 },
+  ]);
+  assert.ok(queue.every((q) => Number.isFinite(q.position)), 'position은 전부 유한값');
+  assert.deepEqual(queue.map((q) => q.id), ['qNaN', 'q1', 'q3'], 'NaN→인덱스 0 강등 후 안정 정렬(유한값 순서 보존)');
+  // Infinity/문자열/누락도 유한값이 아니면 모두 배열 순서로 강등
+  const rough = normalizeQueueItems([
+    { id: 'r1', content: 'a', status: 'pending', position: Infinity },
+    { id: 'r2', content: 'b', status: 'pending', position: '2' },
+    { id: 'r3', content: 'c', status: 'pending' },
+    { id: 'r4', content: 'd', status: 'pending', position: 0 },
+  ]);
+  assert.ok(rough.every((q) => Number.isFinite(q.position)));
+  assert.deepEqual(rough.map((q) => q.position), [0, 0, 1, 2], 'r4(유한 0) 최우선, 나머지는 배열 순서 강등');
+});
+
 test('buildQueueStrip — 첨부 전용 질문(본문 빈)도 라인에 선다', () => {
   const strip = buildQueueStrip([
     user({ id: 'u1', content: '', turnIndex: 0, pendingAttachments: [{ localId: 'p1', name: 'photo.png', uri: 'file:///p', type: 'image/png', status: 'done' }] }),

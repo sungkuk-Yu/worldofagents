@@ -776,7 +776,8 @@ export function normalizeQueueItems(raw: unknown): QueueItem[] {
       id: r.id,
       content: typeof r.content === 'string' ? r.content : '',
       status,
-      position: typeof r.position === 'number' ? r.position : out.length,
+      // t_eb2a016c 수치경계: NaN position이 sort 비교자를 NaN화해 순서 침묵 왜곡 — 유한값만 인정, 그 외 배열 순서로 강등
+      position: typeof r.position === 'number' && Number.isFinite(r.position) ? r.position : out.length,
       messageId: typeof r.message_id === 'string' ? r.message_id : undefined,
     });
   }

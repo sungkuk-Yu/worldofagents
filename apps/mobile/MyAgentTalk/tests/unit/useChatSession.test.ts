@@ -664,3 +664,25 @@ test('diff sync — 404(구 서버/EVENT_SYNC_DISABLED)는 기존 gap 페이지 
   assert.ok((apiModule.api.getMessages as unknown as { mock: { callCount(): number } }).mock.callCount() > readsBefore, 'gap refresh 폴백 실행');
   assert.equal(h.render().lastError, null);
 });
+
+// t_f70bc767 수치경계 회귀: transcript.final의 turn_index는 typeof 단독 게이트라 NaN 통과 —
+// 유한값만 인정하고 아니면 nextTurnIndex 낙관 추정치로 강등하는지 스모크.
+test('transcript.final — 수치경계: NaN turn_index는 낙관 추정치로 강등, 유한값은 그대로 채택', async (t) => {
+  const h = harness(t);
+  h.render(); await flush();
+  h.sockets[0].onStatusChange?.('connected');
+  // 기준 행: turn_index 5 (서버 확정 이력 1행)
+  h.sockets[0].onRaw?.({ type: 'message.new', session_id: 'session', message: { id: 'a', role: 'agent', content: '기준', turn_index: 5 } });
+  // NaN 전사문 → nextTurnIndex(prev)=6 강등 (NaN 그대로면 정렬·커서 침묵 오염)
+  h.sockets[0].onRaw?.({ type: 'transcript.final', session_id: 'session', text: '음성 발화', message_id: 'u1', turn_index: NaN });
+  const msgs = h.render().messages;
+  const u1 = msgs.find((m) => m.id === 'u1');
+  assert.ok(u1, 'transcript.final user 행 머지');
+  assert.ok(Number.isFinite(u1!.turnIndex), 'turnIndex는 유한값');
+  assert.equal(u1!.turnIndex, 6, 'NaN → nextTurnIndex(최대5)+1 = 6 낙관 강등');
+  assert.deepEqual(msgs.map((m) => m.id), ['a', 'u1'], 'turnIndex 오름차순 정렬 유지(NaN 오염 없음 — a=5, u1=6)');
+  // 유한값은 통과 채택 (회귀 방지: 게이트가 정상 경로를 막지 않음)
+  h.sockets[0].onRaw?.({ type: 'transcript.final', session_id: 'session', text: '두 번째 발화', message_id: 'u2', turn_index: 7 });
+  const u2 = h.render().messages.find((m) => m.id === 'u2');
+  assert.equal(u2!.turnIndex, 7, '유한 turn_index는 서버값 그대로');
+});
