@@ -70,7 +70,7 @@ import MessageActionSheet from '../components/MessageActionSheet';
 import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
-import { ackResultCardIds } from '../lib/ackChips';
+import { ackResultCardIds, buildConfirmView } from '../lib/ackChips';
 // QUIET_PROGRESS는 스트립 폐기(t_3c882443)로 ChatScreen 내 잔사용처 소멸 — 타이핑/스트리밍 억제
 // 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
 import { SENDER_GROUPING } from '../lib/featureFlags';
@@ -443,15 +443,19 @@ export default function ChatScreen({ navigation, route }: Props) {
   const sheetSelect = useCallback(() => { if (actionTarget) beginSelection(actionTarget.id); }, [actionTarget, beginSelection]);
   // 예/아니오 빠른 회신 (t_043539ff 조이스틱 대응 — 발화 '예'/'아니오' 동일): suggested 칩(sendSuggested)과
   // 동일 전송 경로. 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
-  const sendPendingReply = useCallback((utterance: string) => {
+  // t_0e03e405 FINAL SCOPE 1 — 회신 대상 행 ID에 reply_to를 attaches (구조 묶음; 대상이 히스토리 밖이면
+  // 서버가 null 강등 후 발화 통과 — invalid-무시 계약, 무해).
+  const sendPendingReply = useCallback((messageId: string, utterance: string) => {
     if (isDemo) return;
-    void send(utterance).then((res) => {
+    const target = messages.find((m) => m.id === messageId);
+    const quote = target && canReplyTo(target) ? localReplyQuote(target, agentName) : undefined;
+    void send(utterance, undefined, quote).then((res) => {
       if (!res.ok) {
         setInput((current) => restoreFailedDraft(current, utterance));
         setSendFailed(true);
       }
     });
-  }, [isDemo, send, setInput, setSendFailed]);
+  }, [isDemo, send, setInput, setSendFailed, messages, agentName]);
   const jumpComposePending = useCallback((messageId: string) => {
     setPendingOpen(false); // 시트를 닫아야 점프한 카드와 입력창이 보인다
     requestJump(messageId);
@@ -732,10 +736,18 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 예/아니요가 붙어 자동진행과 충돌하는 것을 막는다. done 카드(saving 구간)는 해제.
   const ackChip = useAckChip(messages, streams.some((s) => !s.done));
   const hiddenAckIds = useMemo(() => ackResultCardIds(messages, [t('chat.ackYes'), t('chat.ackNo')]), [messages, t]);
+  // t_0e03e405 FINAL SCOPE — 확인응답 스레드화 프레임 (판정 로직 lib/ackChips, 화면은 배선만):
+  // empathy 카드 → '확인 스레드' 컨테이너, 병합 ack user 행 → 프레임 내부 reply 라인(顶级 버블 제외).
+  const confirmView = useMemo(() => buildConfirmView(messages), [messages]);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
-    void send(text);
-  }, [isDemo, send]);
+    // t_0e03e405 FINAL SCOPE 1 — 확인응답 발화에 대상 재질문(empathy) 행의 reply_to를 attaches:
+    // DB 레벨 구조 묶음 → 히스토리 재현·서버 스냅샷에서도 확인응답이 문장이 아니라 구조로 판정된다.
+    // ('예'를 리플라이 칩으로 단다 = 대표님 오탐-금지 조항과 정합: 맨 발화 일반 질문은 이 경로 없음.)
+    const target = ackChip?.id ? messages.find((m) => m.id === ackChip.id) : undefined;
+    const quote = target && canReplyTo(target) ? localReplyQuote(target, agentName) : undefined;
+    void send(text, undefined, quote);
+  }, [isDemo, send, ackChip, messages, agentName]);
 
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
@@ -784,7 +796,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         visible={pendingOpen}
         items={pendingReplies}
         onClose={() => setPendingOpen(false)}
-        onQuickReply={(_messageId, utterance) => sendPendingReply(utterance)}
+        onQuickReply={sendPendingReply}
         onJumpCompose={jumpComposePending}
       />
       {/* 카드 롱프레스 액션 시트 (t_62897e88) — 답글/즐겨찾기/갈라내기/선택. transparent Modal:
@@ -835,6 +847,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           highlightId={highlightId}
           ackChipId={ackChip?.id ?? null}
           hiddenAckIds={hiddenAckIds}
+          confirmView={confirmView}
+          onJump={requestJump}
           onSendAck={sendAck}
           decorate={decorate}
           handlers={handlers}
