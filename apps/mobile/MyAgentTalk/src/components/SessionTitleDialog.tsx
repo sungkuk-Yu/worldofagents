@@ -11,6 +11,12 @@ import { api } from '../lib/api';
 import { errorKey } from '../lib/errorKeys';
 import { colors, radii, spacing } from '../theme';
 
+// 백엔드 상한과 정합 (t_0da93d18): SESSION_TITLE_EDIT_MAX=120 — 백엔드는 코드포인트
+// 단위([...'제목'].length)로 자른다. maxLength(RN/HTML)는 UTF-16 코드유닛 기준이라
+// 이모지 등 비BMP는 더 보수적으로 잘리므로 120유닛 ≤ 120코드포인트 → 서버 400 불가.
+const TITLE_EDIT_MAX = 120;
+const COUNTER_VISIBLE_FROM = 90; // 상한 75% 근접부터 카운트 노출
+
 export default function SessionTitleDialog({ sessionId, title, onClose, onRenamed }: {
   sessionId: string; title: string; onClose: () => void; onRenamed: (newTitle: string) => void;
 }) {
@@ -20,8 +26,10 @@ export default function SessionTitleDialog({ sessionId, title, onClose, onRename
   const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const trimmed = value.trim();
+  const count = [...trimmed].length; // 백엔드와 동일 코드포인트 산정
+  const overLimit = count > TITLE_EDIT_MAX; // maxLength 우회(paste 등) 대비 로컬 가드
   const submit = async () => {
-    if (submitting.current || !trimmed) return;
+    if (submitting.current || !trimmed || overLimit) return;
     submitting.current = true; setBusy(true); setError(null);
     try {
       const env = await api.renameSession(sessionId, trimmed);
@@ -35,10 +43,15 @@ export default function SessionTitleDialog({ sessionId, title, onClose, onRename
     <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.dialog} testID="rename-dialog">
         <Text>{t('rename.prompt')}</Text>
-        <TextInput testID="rename-title" label={t('rename.title')} value={value} onChangeText={setValue} disabled={busy} maxLength={200} />
+        <TextInput testID="rename-title" label={t('rename.title')} value={value} onChangeText={setValue} disabled={busy} maxLength={TITLE_EDIT_MAX} />
+        {count >= COUNTER_VISIBLE_FROM && (
+          <Text testID="rename-counter" accessibilityLiveRegion="polite" style={overLimit ? styles.error : styles.counter}>
+            {t('rename.charCount', { count, max: TITLE_EDIT_MAX })}
+          </Text>
+        )}
         {error && <Text accessibilityRole="alert" style={styles.error}>{t(error)}</Text>}
         <Button disabled={busy} onPress={onClose}>{t('common.cancel')}</Button>
-        <Button testID="rename-save" loading={busy} disabled={busy || !trimmed} onPress={() => void submit()}>{t('rename.save')}</Button>
+        <Button testID="rename-save" loading={busy} disabled={busy || !trimmed || overLimit} onPress={() => void submit()}>{t('rename.save')}</Button>
       </View>
     </KeyboardAvoidingView>
   </Modal>;
@@ -47,4 +60,5 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: spacing.sp4 },
   dialog: { backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.sp4, gap: spacing.sp3, minWidth: 0 },
   error: { color: colors.statusErr },
+  counter: { opacity: 0.6, alignSelf: 'flex-end' },
 });

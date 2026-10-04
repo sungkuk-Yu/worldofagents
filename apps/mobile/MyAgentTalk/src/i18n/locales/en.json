@@ -302,7 +302,8 @@
   "rename": {
     "prompt": "Rename this conversation.",
     "title": "Chat title",
-    "save": "Save"
+    "save": "Save",
+    "charCount": "{{count}}/{{max}}"
   },
   "favorites": {
     "title": "Favorites",

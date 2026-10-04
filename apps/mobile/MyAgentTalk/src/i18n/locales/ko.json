@@ -302,7 +302,8 @@
   "rename": {
     "prompt": "이 대화의 제목을 변경합니다.",
     "title": "대화 제목",
-    "save": "저장"
+    "save": "저장",
+    "charCount": "{{count}}/{{max}}"
   },
   "favorites": {
     "title": "즐겨찾기",

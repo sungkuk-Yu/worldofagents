@@ -128,6 +128,13 @@ const appbarTitle = (page) => page.getByTestId('chat-appbar-title').innerText();
   await hold(page, page.getByTestId('session-card').first(), { scrollList: false });
   await page.getByTestId('rename-dialog').waitFor({ timeout: 5000 });
   check('③b 목록 롱프레스 → 다이얼로그 (현재 제목 prefill)', (await page.getByTestId('rename-title').inputValue()).length > 0);
+  // 상한 경계 (t_0da93d18): 백엔드 SESSION_TITLE_EDIT_MAX=120 정합 — maxLength가 클라이언트에서 절단.
+  await page.getByTestId('rename-title').fill('가'.repeat(130));
+  const clipped = await page.getByTestId('rename-title').inputValue();
+  check('③c 130자 입력 = 120자 절단 (maxLength 정합)', clipped.length === 120, `len=${clipped.length}`);
+  check('③c 근접 카운터 노출 120/120', (await page.getByTestId('rename-counter').innerText()).includes('120'));
+  check('③c 120자 = 저장 활성 (서버 400 회피)', !(await page.getByTestId('rename-save').isDisabled()));
+  await page.screenshot({ path: shot('06-title-limit-counter') });
   await page.getByTestId('rename-title').fill('   ');
   check('③b 공백 제목 = 저장 비활성', await page.getByTestId('rename-save').isDisabled());
   await page.getByTestId('rename-title').fill('원본 이름');
