@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'r
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
+import { formatRelative } from '../i18n/format';
 import { api, type SessionSummary } from '../lib/api';
 import { buildProjectRows, type ProjectRow } from '../lib/chainLogic';
 import { railStore } from '../lib/railStore';
@@ -16,7 +17,7 @@ import ForkDialog from './ForkDialog';
 import { colors, radii, spacing, typography } from '../theme';
 
 export default function ProjectRail({ navigation }: { navigation: any }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // ChatScreen이 railStore에 발행하는 현재 세션 메타 구독 (ThreadRail과 동일 버스, 이중 원천 금지)
   const state = useSyncExternalStore(railStore.subscribe, railStore.get, railStore.get);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -61,7 +62,11 @@ export default function ProjectRail({ navigation }: { navigation: any }) {
           <Pressable key={row.id} onPress={() => enter(row)} testID={`project-row-${row.id}`}
             accessibilityRole="button"
             style={({ pressed }) => [styles.row, row.isCurrent && styles.rowCurrent, pressed && { backgroundColor: colors.surfaceHover }]}>
-            <Text numberOfLines={1} style={row.isCurrent ? styles.rowTitleCurrent : styles.rowTitle}>{row.title || t('chain.unnamed')}</Text>
+            <View style={styles.rowTitleLine}>
+              <Text numberOfLines={1} style={[styles.rowTitle, styles.rowTitleFlex, row.isCurrent && styles.rowTitleCurrent]}>{row.title || t('chain.unnamed')}</Text>
+              {/* 최근 시각 — 대표님 좌측 스펙 '제목+최근 시각' (정렬 기준과 동일 원료: last_activity_at) */}
+              <Text style={styles.rowTime} testID={`project-time-${row.id}`}>{row.lastActivity ? formatRelative(new Date(row.lastActivity), i18n.language) : ''}</Text>
+            </View>
             {/* 계보 2단계: 갈라낸 체인만 — '원질문 #높이 · 부모 ← 조부모' (하드포크 나무 시각화) */}
             {row.parentTitle && (
               <Text numberOfLines={1} style={styles.lineage} testID={`project-lineage-${row.id}`}>
@@ -88,7 +93,8 @@ export default function ProjectRail({ navigation }: { navigation: any }) {
   );
 }
 
-// 행 렌더 단위는 제목+계보만 노출(대표님 스펙 '제목+최근 시각' 중 계보가 우선 — 시각은 상세에서 승계).
+// 행 렌더 = '제목+최근 시각'(대표님 좌측 스펙 원문) + 갈라낸 체인은 계보 2단계 하단. 시각·정렬 모두
+// last_activity_at 동일 원료 — 표시값과 리스트 순서가 어긋나지 않는다.
 const styles = StyleSheet.create({
   rail: { flex: 1, backgroundColor: colors.surface, borderRightWidth: 1, borderRightColor: colors.border, paddingHorizontal: spacing.sp3, paddingTop: spacing.sp4, gap: spacing.sp2 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sp2, paddingHorizontal: spacing.sp1 },
@@ -99,6 +105,9 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingBottom: spacing.sp3, gap: 2 },
   row: { paddingVertical: spacing.sp2, paddingHorizontal: spacing.sp2, borderRadius: radii.md, gap: 2 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp2 },
+  rowTitleFlex: { flex: 1 },
+  rowTime: { ...typography.micro, color: colors.text3 },
   rowCurrent: { backgroundColor: colors.surfaceRaise },
   rowTitle: { ...typography.body, color: colors.text1 },
   rowTitleCurrent: { ...typography.bodyBold, color: colors.accent },

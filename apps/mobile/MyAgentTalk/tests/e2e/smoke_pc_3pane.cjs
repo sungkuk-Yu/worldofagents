@@ -127,6 +127,8 @@ const enterChat = async (page) => {
       // 시드 계보: f1 = source의 #4에서 갈라짐 — 좌측 행에 표시
       const lineage = await page.getByTestId('project-lineage-f1').innerText();
       check('④ 좌측 하드포크 계보 행(#높이 · 원 체인)', lineage.includes('#4') && lineage.includes('Original project'), lineage);
+      const timeShown = await page.getByTestId('project-time-source').innerText();
+      check('④ 좌측 행 \'제목+최근 시각\' 표시', /\S/.test(timeShown), `time=${timeShown}`);
       await page.getByTestId('project-row-f1').click();
       await page.getByTestId('chat-appbar').waitFor({ timeout: 8000 });
       await page.getByTestId('sidechain-card-q1').waitFor({ timeout: 8000 });

@@ -97,6 +97,8 @@ export interface ProjectRow {
   id: string;
   title: string;
   isCurrent: boolean;
+  /** 최근 활동(행 우측 '제목+최근 시각' 스펙) */
+  lastActivity?: string;
   /** 포크 지점 높이(turn_index) — 원본 체인의 블록 번호. 현 체인이 갈라진 지점. */
   height?: number;
   forkedAt?: string;
@@ -134,6 +136,7 @@ export function buildProjectRows(sessions: SessionLite[], currentSessionId: stri
         id: s.id,
         title: s.title || '',
         isCurrent: s.id === currentSessionId,
+        lastActivity: strOr(s.last_activity_at),
         height: typeof link?.turn_index === 'number' ? link.turn_index : undefined,
         forkedAt: strOr(link?.forked_at),
         parentTitle: parent?.title || parent?.id,
