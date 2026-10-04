@@ -22,7 +22,7 @@ function check(name, cond, extra = '') {
   if (cond) { passed++; console.log(`  PASS  ${name}${extra ? ' — ' + extra : ''}`); }
   else { failed++; console.log(`  FAIL  ${name}${extra ? ' — ' + extra : ''}`); }
 }
-const QUIP = '살펴보고 있어요';
+const QUIP = '답변 준비 중'; // ko quip.default — t_140ecc15 ① 단계명 라벨화 후 문구
 
 (async () => {
   const browser = await chromium.launch({ executablePath: '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell' });

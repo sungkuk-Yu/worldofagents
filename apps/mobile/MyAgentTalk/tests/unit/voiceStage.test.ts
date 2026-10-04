@@ -3,13 +3,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { voiceStageHeight, stageReleaseOutcome, chatListPaddingOverride, CHAT_LIST_ANCHOR, formatRecordingDuration } from '../../src/lib/voiceStage';
 
-test('voiceStageHeight — 세로 뷰포트 30%, 180~300px 클램프 (#311 strip 높이=패딩)', () => {
-  assert.equal(voiceStageHeight(844), 253); // iPhone 14 — 844*0.3
-  assert.equal(voiceStageHeight(600), 180); //下限 clamp
-  assert.equal(voiceStageHeight(1200), 300); //上限 clamp
-  assert.equal(voiceStageHeight(768), 230);
-  assert.equal(voiceStageHeight(0), 253); // 비정상 값 → 844 폴백 (PC 중앙 본문과 동일 상수 — t_4b1bd4c2)
-  assert.equal(voiceStageHeight(Number.NaN), 253);
+test('voiceStageHeight — 세로 뷰포트 45%, 240~400px 클램프 (t_08d671a8 인체공학: #311 30%→45%, 패드 중심 뷰포트 ~60%)', () => {
+  assert.equal(voiceStageHeight(844), 380); // iPhone 14 — 844*0.45
+  assert.equal(voiceStageHeight(533), 240); // 하한 clamp (533*0.45≈240)
+  assert.equal(voiceStageHeight(1200), 400); // 상한 clamp
+  assert.equal(voiceStageHeight(768), 346);
+  assert.equal(voiceStageHeight(0), 380); // 비정상 값 → 844 폴백 (PC 중앙 본문과 동일 상수 — t_4b1bd4c2)
+  assert.equal(voiceStageHeight(Number.NaN), 380);
 });
 
 test('stageReleaseOutcome — 제스처 계약 우선순위 (ack > keyboard > cancel > send)', () => {
@@ -47,8 +47,8 @@ test('CHAT_LIST_ANCHOR — 짧은 히스토리 하단 앵커(정렬 상수) — 
 });
 
 test('chatListPaddingOverride — A계층=strip 높이 패딩 / B계층·비활성=false(통지) — #311 계약', () => {
-  assert.deepEqual(chatListPaddingOverride(true, 844), { paddingBottom: 253 }); // = voiceStageHeight
-  assert.deepEqual(chatListPaddingOverride(true, 600), { paddingBottom: 180 });
+  assert.deepEqual(chatListPaddingOverride(true, 844), { paddingBottom: 380 }); // = voiceStageHeight (t_08d671a8 45%)
+  assert.deepEqual(chatListPaddingOverride(true, 533), { paddingBottom: 240 }); // 하한 clamp
   assert.equal(chatListPaddingOverride(false, 844), false); // B계층(키보드)/PC/데모: 인라인 오버라이드 없음
 });
 

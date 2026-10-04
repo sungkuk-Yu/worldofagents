@@ -84,7 +84,7 @@ const STAGES = [
       await page.waitForTimeout(350);
     }
     text = await page.getByTestId('relay-caption').innerText();
-    check('② wrapping까지 전환 — 현재 stage만 1줄', text.includes('정리하고 있어요') && !text.includes('접수했어요'), text);
+    check('② wrapping까지 전환 — 현재 stage만 1줄', text.includes('답변 마무리 중') && !text.includes('접수했어요'), text);
     check('② 히스토리 아님 — caption 노드 1개', (await page.getByTestId('relay-caption').count()) === 1);
     // 1줄 실측 — 캡슐 높이가 한 줄 분량(<=40px)이고 텍스트가 자막 1문장만 담는다
     const capHeight = await page.getByTestId('relay-caption').evaluate((el) => el.getBoundingClientRect().height);
@@ -95,10 +95,10 @@ const STAGES = [
     relay('briefing', STAGES[0][1]);
     await page.waitForTimeout(300);
     text = await page.getByTestId('relay-caption').innerText();
-    check('③ 역주행 이벤트 무시 (wrapping 유지)', text.includes('정리하고 있어요'), text);
+    check('③ 역주행 이벤트 무시 (wrapping 유지)', text.includes('답변 마무리 중'), text);
     relay('wrapping', STAGES[3][1]);
     await page.waitForTimeout(200);
-    check('③ 중복 이벤트 무시 — 같은 문구 유지', (await page.getByTestId('relay-caption').innerText()).includes('정리하고 있어요'));
+    check('③ 중복 이벤트 무시 — 같은 문구 유지', (await page.getByTestId('relay-caption').innerText()).includes('답변 마무리 중'));
 
     // ⑥ hideQuip — 같은 런의 타이핑 카드 quip과 자막 스트립이 중복 라인으로 공존하지 않는다
     socket().send(JSON.stringify({ type: 'run.started', session_id: 'source', run_id: RUN, seq: 3 }));
@@ -110,7 +110,7 @@ const STAGES = [
     relay('done', STAGES[4][1]);
     await page.waitForTimeout(350);
     text = await page.getByTestId('relay-caption').innerText();
-    check('② done 자막 표시', text.includes('정리 끝났어요'), text);
+    check('② done 자막 표시', text.includes('마무리됐어요'), text);
     await page.screenshot({ path: shot('04-done') });
     socket().send(JSON.stringify({ type: 'run.completed', session_id: 'source', run_id: RUN, message_ids: { user: 'u', empathy: null, answer: 'a' }, llm: { used: false } }));
     // done 홀드: 즉시 소실 아님(0프레임 방지) → 홀드 후 정리 확인

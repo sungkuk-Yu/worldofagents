@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, threads = false, threadsLite = false, anchorMs = null } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, threads = false, threadsLite = false, queueVis = false, anchorMs = null } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -86,6 +86,25 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'q-new', role: 'user', content: '트래커 새 질문', turn_index: 5, created_at: ago(0.2), agent_id: 'agent', agent_name: agent.name },
       { id: 'q-ask', role: 'user', content: '트래커 확인 질문', turn_index: 6, created_at: ago(0.1), agent_id: 'agent', agent_name: agent.name },
       { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 트래커 확인', turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 트래커 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
+  if (queueVis) {
+    // t_140ecc15 진행 중 질문 전역 입구 시드 — 서버 큐 4행(답변됨1/대기2/멈춤1) + messages 미러.
+    // 앵커 런타임-상대(실행일 독립 규율): 멈춤 행은 4h 전 도착(> QUEUE_STOPPED_MS=180s)로 정체 판정.
+    const NOW = anchorMs ?? Date.now();
+    const ago = (sec) => new Date(NOW - sec * 1000).toISOString();
+    state.queue = [
+      { id: 'qi0', content: '답변 완료 질문', status: 'answered', position: 0 },
+      { id: 'qi1', content: '첫 밀림 질문', status: 'pending', position: 1 },
+      { id: 'qi2', content: '두 번째 밀림 질문', status: 'pending', position: 2 },
+      { id: 'qi3', content: '멈춤 질문', status: 'pending', position: 3 },
+    ];
+    state.messages.source = [
+      { id: 'qm0', role: 'user', content: '답변 완료 질문', turn_index: 0, created_at: ago(7200), agent_id: 'agent', agent_name: agent.name },
+      { id: 'qa0', role: 'agent', content: '완료 답변', turn_index: 1, created_at: ago(7100), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'qm1', role: 'user', content: '첫 밀림 질문', turn_index: 2, created_at: ago(60), agent_id: 'agent', agent_name: agent.name },
+      { id: 'qm2', role: 'user', content: '두 번째 밀림 질문', turn_index: 4, created_at: ago(45), agent_id: 'agent', agent_name: agent.name },
+      { id: 'qm3', role: 'user', content: '멈춤 질문', turn_index: 6, created_at: ago(14400), agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (threads) {

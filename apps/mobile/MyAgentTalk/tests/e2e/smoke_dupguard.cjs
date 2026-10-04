@@ -24,7 +24,7 @@ function check(name, cond, extra = '') {
   if (cond) { passed++; console.log(`  PASS  ${name}${extra ? ' — ' + extra : ''}`); }
   else { failed++; console.log(`  FAIL  ${name}${extra ? ' — ' + extra : ''}`); }
 }
-const QUIP = '살펴보고 있어요'; // ko quip.default = '잠깐만요, 살펴보고 있어요…'
+const QUIP = '답변 준비 중'; // ko quip.default = '답변 준비 중…' (t_140ecc15 ① — 의인화 대사 제거, 단계명 라벨화)
 
 async function openChat(browser, fixtures) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR', reducedMotion: 'reduce' });
@@ -68,7 +68,9 @@ const postCalls = (state) => state.calls.filter((c) => c.method === 'POST' && /\
       // 사용자 행이 피드에 정확히 1개 — DOM text 노드 단위 세기(getByText exact는 접근성 라벨 복제와 경합) 대신
       // 마커로 카드 존재+중복 여부를 판정하고, 전송중… 라벨 개수로 실행 잔류 유령 행을 잡는다.
       check('A1 user 낙관 행 존재', (await page.getByText(TEXT, { exact: true }).count()) >= 1);
-      check('A1 user 낙관 행 1개 (라벨 복제 제외 전송중 마커 기준)', (await page.getByText('전송중…', { exact: true }).count()) === 1);
+      // sendTicks(f40bc3a5) 이후 전송중 마커는 svg 버튼(aria-label) — 텍스트 라벨 갯수 대신
+      // message-tick testID 개수로 유령/중복 낙관 행을 판정한다 (t_140ecc15 정합: 9/30 이후 stale 결함 수리).
+      check('A1 user 낙관 행 1개 (전송 tick 마커 기준)', (await page.locator('[data-testid^="message-tick-"]').count()) === 1);
       await page.getByTestId('typing-indicator').waitFor({ timeout: 5000 });
 
       // ② 실행 중 answer.delta → 스트리밍 카드와 타이핑 카드 공존 구간에서 quip 1회만
@@ -101,7 +103,7 @@ const postCalls = (state) => state.calls.filter((c) => c.method === 'POST' && /\
       await page.getByTestId('send-button').click();
       await page.waitForTimeout(600);
       check('B deduped 응답 수신', postCalls(state).length === 1);
-      check('B 유령 user 행 없음 (deduped 분기)', (await page.getByText('전송중…', { exact: true }).count()) === 0 && (await page.getByText(TEXT).count()) === 0);
+      check('B 유령 user 행 없음 (deduped 분기)', (await page.locator('[data-testid^="message-tick-"]').count()) === 0 && (await page.getByText(TEXT).count()) === 0);
       check('B error-bar(실패 배너) 없음', (await page.getByTestId('error-bar').count()) === 0);
       const typingStuck = await page.getByTestId('typing-indicator').isVisible().catch(() => false);
       check('B typing 잔류 없음', !typingStuck);
