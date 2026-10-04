@@ -75,7 +75,7 @@ async function longPress(page, locator) {
       await btn.waitFor({ timeout: 6000 });
       let btnText = '';
       for (let i = 0; i < 20; i += 1) { btnText = await btn.innerText(); if (btnText.includes('1')) break; await page.waitForTimeout(200); }
-      check('① 확장3: 앱바 답글 배지 = 활성 스레드 수 1 (tq2 종료 미포함 — t_4654d727 실패 지점)', btnText.includes('답글') && btnText.includes('1'), btnText);
+      check('① 확장3: 앱바 쓰레드 배지 = 활성 스레드 수 1 (tq2 종료 미포함 — t_4654d727 실패 지점)', btnText.includes('쓰레드') && btnText.includes('1'), btnText);
       const dead = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-strip"], [data-testid^="queue-chip-"], [data-testid="queue-counter"], [data-testid^="queue-label-"], [data-testid^="queue-actions-"], [data-testid^="queue-reply-"], [data-testid^="queue-fork-"]').length);
       check('④ 승계: 폐기 스트립 testID 7종 DOM 0 (트래커/마커 이관 확인)', dead === 0, String(dead));
       await btn.click();
@@ -83,7 +83,7 @@ async function longPress(page, locator) {
       await page.getByTestId('thread-row-tq1').waitFor({ timeout: 5000 });
       const row1 = page.getByTestId('thread-row-tq1');
       const rowText = await row1.innerText();
-      check('② 확장3: 활성 행 = 원문 발췌 + 답글 수', rowText.includes('스레드 활성 질문') && rowText.includes('답글 1개'), rowText);
+      check('② 확장3: 활성 행 = 원문 발췌 + 쓰레드 수', rowText.includes('스레드 활성 질문') && rowText.includes('쓰레드 1개'), rowText);
       check('⑤ 실행일 독립: 마지막 활동 = 앵커-상대 1시간 전 (절대 날짜 무비교)', rowText.includes('1시간 전'), (rowText.match(/마지막 활동[^\n]*/) || [''])[0]);
       // 필터 (구 page6 계약)
       await page.getByTestId('threads-filter-all').click();
@@ -178,10 +178,10 @@ async function longPress(page, locator) {
       await page.goto(APP, { waitUntil: 'networkidle' });
       await openChat(page);
       const txt = await page.getByTestId('threads-open').innerText();
-      check('① 확장3: 활성 스레드 0 = 배지 숫자 미노출', txt.trim() === '답글', txt);
+      check('① 확장3: 활성 스레드 0 = 배지 숫자 미노출', txt.trim() === '쓰레드', txt);
       await page.getByTestId('threads-open').click();
       await page.getByTestId('threads-modal').waitFor({ timeout: 5000 });
-      check('② 빈 목록 = 안내 문구', await page.getByTestId('threads-modal').innerText().then((x) => x.includes('아직 답글이 달린 질문이 없어요')));
+      check('② 빈 목록 = 안내 문구', await page.getByTestId('threads-modal').innerText().then((x) => x.includes('아직 쓰레드가 열린 질문이 없어요')));
       check('⑥ 런타임 오류 없음(배지0)', errors.length === 0, errors.slice(0, 2).join('|'));
       await page.close();
     }
@@ -200,12 +200,12 @@ async function longPress(page, locator) {
       let railHead = '';
       await page.getByTestId('thread-rail-count').waitFor({ timeout: 8000 });
       railHead = await page.getByTestId('thread-rail').innerText();
-      check('⑤ 900: 레일 헤더 = 답글 + 활성 카운트 1', railHead.includes('답글')
+      check('⑤ 900: 레일 헤더 = 쓰레드 + 활성 카운트 1', railHead.includes('쓰레드')
         && (await page.getByTestId('thread-rail-count').innerText()) === '1', railHead.slice(0, 40));
       check('⑤ 900: 2-팬 = 우측 사이드체인 미렌더', (await page.getByTestId('sidechain-panel').count()) === 0);
       const railBox = await page.getByTestId('thread-rail').boundingBox();
       const btnBox = await page.getByTestId('threads-open').boundingBox();
-      check('⑤ 900: 답글 버튼 = 앱바 상단·레일 우측', !!btnBox && !!railBox && btnBox.y < 90 && btnBox.x > railBox.x + railBox.width, btnBox ? `${Math.round(btnBox.x)},${Math.round(btnBox.y)}` : 'no box');
+      check('⑤ 900: 쓰레드 버튼 = 앱바 상단·레일 우측', !!btnBox && !!railBox && btnBox.y < 90 && btnBox.x > railBox.x + railBox.width, btnBox ? `${Math.round(btnBox.x)},${Math.round(btnBox.y)}` : 'no box');
       await page.screenshot({ path: shot('04-pc1440-chat') });
       await page.getByTestId('threads-open').click();
       await page.getByTestId('threads-modal').waitFor({ timeout: 5000 });

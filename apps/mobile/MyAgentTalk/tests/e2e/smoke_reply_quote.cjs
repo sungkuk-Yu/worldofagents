@@ -78,7 +78,7 @@ async function longPress(page, locator) {
     await page.getByTestId('action-reply').click();
     await page.getByTestId('reply-draft-bar').waitFor({ state: 'visible', timeout: 3000 });
     const draftText = await page.getByTestId('reply-draft-bar').innerText();
-    check('② 입력바 위 인용 바 = 원문 발췌', draftText.includes('Test content text') && draftText.includes('답글'), draftText.slice(0, 40));
+    check('② 입력바 위 인용 바 = 원문 발췌', draftText.includes('Test content text') && draftText.includes('쓰레드'), draftText.slice(0, 40));
     check('② 시트 종료', await page.getByTestId('msg-action-sheet').waitFor({ state: 'hidden', timeout: 3000 }).then(() => true).catch(() => false));
 
     // ③ ✕ 취소 → 바 소멸 + 발화 없음

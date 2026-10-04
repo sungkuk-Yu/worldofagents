@@ -75,16 +75,16 @@ test('라벨 확정 — 답글/갈라내기 외 구(舊) 표기가 사전에 잔
     Object.entries(obj).flatMap(([k, v]) => typeof v === 'string' ? [`${prefix}${k}=${v}`] : flat(v as Record<string, unknown>, `${prefix}${k}.`));
   const ko = flat(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8')));
   const joined = ko.join('\n');
-  for (const stale of ['스레드', '분기', '여기서 새 프로젝트', '이 글에서', '갈라내기', '갈라냄', '쓰레드 생성']) {
+  for (const stale of ['스레드', '분기', '여기서 새 프로젝트', '이 글에서', '갈라내기', '갈라냄', '쓰레드 생성', '답글']) {
     assert.ok(!joined.includes(stale), `ko.json에 잔존 구 표기: ${stale}`);
   }
   assert.match(joined, /cards\.threadFrom=쓰레드/);
   assert.match(joined, /fork\.action=새프로젝트/);
   assert.match(joined, /joystick\.actions\.open_thread=쓰레드 열기/);
-  // 대표님 10/4 규약: 버튼/키 라벨은 '쓰레드'·'새프로젝트', 답글 '개수' 문구(목록·배지)는 '답글' 유지.
-  assert.match(joined, /cards\.replies=답글 \{\{countText\}}개/);
-  assert.match(joined, /queue\.replyCount=답글 \{\{countText\}}개/);
-  assert.match(joined, /queue\.threadsTitle=답글 목록/);
+  // 대표님 10/4 후속(t_b6c83281): 개수·목록·인용 문구도 '쓰레드' 체계로 통일 — ko.json '답글' 0건.
+  assert.match(joined, /cards\.replies=쓰레드 \{\{countText\}}개/);
+  assert.match(joined, /queue\.replyCount=쓰레드 \{\{countText\}}개/);
+  assert.match(joined, /queue\.threadsTitle=쓰레드 목록/);
 });
 test('포크 응답은 새 세션 ID를 요구하며 계보는 선택적으로 방어한다', () => {
   assert.throws(() => parseForkSession({ id: 'old' }, 'old'), /errors.fork/);
