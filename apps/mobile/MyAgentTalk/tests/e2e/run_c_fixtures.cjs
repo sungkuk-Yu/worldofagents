@@ -91,7 +91,8 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
   if (threads) {
     // t_41c4c6f6 답글 목록(스레드 인덱스) 모달 시드 — t_2f45ccb1 확장3·4 재커버 (스트립/칩 폐기 후 회귀면).
     // 실행일 독립(재발방지 규율): 앵커는 런타임-상대. anchorMs 주입 시 노드 시드와 브라우저 Date(=
-    // smoke의 page.clock.setFixedTime)가 같은 인공 실행시를 가리켜 2026-10-04/12-30/2027-01-05 어느
+    // smoke의 page.clock.setSystemTime; Date만 인공 실행시로 동결, setTimeout 등 타이머는 현실 유지라
+    // WS/렌더 경로 무영향)가 같은 실행시를 가리켜 2026-10-04/12-30/2027-01-05 어느
     // 실행일에도 활성/종료 판정과 'N시간 전/N일 전' 라벨이 불변.
     //  tq1(+답글 tr1): 1시간 전 활동 → 활성 (앱바 배지 +1, 활성 필터 1행)
     //  tq2(+답글 tr2): 9일 전 활동 → WEEK_MS 초과 종료 (종료 배지, 종료 필터 1행, 활성에서 숨음)
