@@ -18,7 +18,11 @@ const { openKeyboardIfVoice, voiceStagePadBox } = require('./voice_helper.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8265';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'layout-ergo-t08d');
 fs.mkdirSync(OUT, { recursive: true });
-const EXE = '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
+const EXE = require('fs').existsSync('/home/holysky87/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome')
+  ? '/home/holysky87/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'
+  : '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
+// t_08d671a8 김비서 리뷰 정합: headless-shell은 initial paint 레이시(m320 mouse.down 크래시)로
+// 홀드 제스처 케이스에 불안정 — 실chrome 우선 사용(실패로그 10/4 headless-shell-visible-timeout).
 let passed = 0, failed = 0;
 function check(name, cond, extra = '') {
   if (cond) { passed++; console.log(`  PASS  ${name}${extra ? ' — ' + extra : ''}`); }
@@ -56,11 +60,12 @@ async function runCase(browser, label, viewport, expectStage) {
   await installFixtures(page, { reader: true });
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.getByTestId('session-card').click();
-  // 채팅 진입 대기
-  await Promise.race([
-    page.getByTestId('voice-stage').waitFor({ timeout: 15000 }),
-    page.getByTestId('chat-input').waitFor({ timeout: 15000 }),
-  ]).catch(() => {});
+  // 채팅 진입 대기 — mobile는 voice-stage, PC는 chat-input-bar/chat-input. 세 앵커 모두 독립
+  // 대기(한쪽 timeout이 다른 쪽을 abort하는 Promise.race 함정 회피 — 김비서 pc1440 결정적
+  // null 진단: 안 뜯긴 race 쪽이 abort되면 0ms null 반환 → 즉시 검사로 새어음).
+  await page.getByTestId('voice-stage').waitFor({ timeout: 15000 }).catch(() => {});
+  await page.getByTestId('chat-input-bar').waitFor({ timeout: 15000 }).catch(() => {});
+  await page.getByTestId('chat-input').waitFor({ timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(600);
   const W = viewport.width, H = viewport.height;
 
@@ -117,13 +122,15 @@ async function runCase(browser, label, viewport, expectStage) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+  // 케이스별 브라우저 격리 (김비서 pc1440 오진 수정): headless-shell 홀드 중 GPU 크래시가
+  // 같은 인스턴스의 후속 케이스를 'page closed'로 물들이면 실패 원인 판별이 불가능해진다.
+  const launch = () => chromium.launch({ executablePath: EXE, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
   try {
-    await runCase(browser, 'm390', { width: 390, height: 844 }, true);
-    await runCase(browser, 'm320', { width: 320, height: 568 }, true);
-    await runCase(browser, 'pc1440', { width: 1440, height: 900 }, false);
+    { const b = await launch(); await runCase(b, 'm390', { width: 390, height: 844 }, true); await b.close(); }
+    { const b = await launch(); await runCase(b, 'm320', { width: 320, height: 568 }, true); await b.close(); }
+    { const b = await launch(); await runCase(b, 'pc1440', { width: 1440, height: 900 }, false); await b.close(); }
   } finally {
-    await browser.close();
+    // 케이스별 격리 launch — 공유 브라우저 없음
   }
   console.log(`\n== layout-ergonomics t_08d671a8: ${passed} PASS / ${failed} FAIL ==`);
   process.exit(failed > 0 ? 1 : 0);
