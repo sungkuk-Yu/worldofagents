@@ -98,6 +98,7 @@ async function readState(page) {
     await page.waitForSelector('[data-testid="oauth-section"]', { timeout: 10000 });
     const ids = await page.$$eval('[data-testid="oauth-kakao"],[data-testid="oauth-naver"],[data-testid="oauth-google"],[data-testid="oauth-github"]', (els) => els.map((e) => e.getAttribute('data-testid').replace('oauth-', '')));
     check('① 버튼 4종·카카오→네이버→구글→깃허브 순서', JSON.stringify(ids) === JSON.stringify(['kakao', 'naver', 'google', 'github']), ids.join(','));
+    await page.waitForTimeout(900); // 슬라이드 애니메이션 정화(RNW 페인트 ~600ms) 후 촬영
     await shot(page, '01-oauth-buttons');
     await page.tap('[data-testid="oauth-kakao"]');
     await page.waitForSelector('[data-testid="new-chat-button"]', { timeout: 30000 });
