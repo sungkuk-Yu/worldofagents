@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -62,6 +62,26 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 's6', role: 'agent', content: 'OTHER-CONT', turn_index: 6, created_at: ago(80), agent_id: 'other', agent_name: '전문가' },
       { id: 'u1', role: 'user', content: '다시 질문', turn_index: 7, created_at: ago(60) },
       { id: 's7', role: 'agent', content: 'AFTER-USER', turn_index: 8, created_at: ago(30), agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
+  if (tracker) {
+    // t_fd869e5b 내 질문 트래커 시드 — 수명 단계별 질문 4종 + 답글 1건. 시각은 런타임 기준(결정적 재현):
+    //  q-old: 30h 전 질문+답변 → 24h 경과 완료 = 자동 축약(collapsible)
+    //  q-done: 2h 전 질문+답변+답글 1 → 완료(3) 행 + replyCount 1 (슬랙식 답글 카운트)
+    //  q-new:  답변 없는 질문 → 접수됨(0) — WS 큐 스냅샷 answered 승격 검증 대상
+    //  q-ask:  마지막 empathy 재질문(뒤 user 발화 없음) → 이해 확인 중(1)/'확인 필요' 배지
+    const NOW = Date.now();
+    const ago = (h) => new Date(NOW - h * 3600 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'q-old', role: 'user', content: '지난주 견적 문의', turn_index: 0, created_at: ago(30), agent_id: 'agent', agent_name: agent.name },
+      { id: 'a-old', role: 'agent', content: '견적 답변(오래됨)', turn_index: 1, created_at: ago(30), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      // thread_reply_count = 서버 배지 (메인 피드는 답글 행 제외 — useChatSession filter 실측 기준)
+      { id: 'q-done', role: 'user', content: '트래커 완료 질문', turn_index: 2, created_at: ago(2), thread_reply_count: 1, agent_id: 'agent', agent_name: agent.name },
+      { id: 'a-done', role: 'agent', content: '트래커 완료 답변', turn_index: 3, created_at: ago(2), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'r-done', role: 'user', content: '트래커 답글', turn_index: 4, created_at: ago(1.5), parent_message_id: 'q-done', root_message_id: 'q-done', agent_id: 'agent', agent_name: agent.name },
+      { id: 'q-new', role: 'user', content: '트래커 새 질문', turn_index: 5, created_at: ago(0.2), agent_id: 'agent', agent_name: agent.name },
+      { id: 'q-ask', role: 'user', content: '트래커 확인 질문', turn_index: 6, created_at: ago(0.1), agent_id: 'agent', agent_name: agent.name },
+      { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 트래커 확인', turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 트래커 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (feedPhoto) {

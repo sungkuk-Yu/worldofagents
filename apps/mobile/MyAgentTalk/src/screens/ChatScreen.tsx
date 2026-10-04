@@ -14,12 +14,15 @@ import { useLayout } from '../hooks/useLayout';
 import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
+import { QuestionTrackerModal } from '../components/QuestionTracker';
+import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
 import { voiceStageHeight, chatListPaddingOverride } from '../lib/voiceStage';
 import { getPttKey, getPttMode, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT, subscribePrefs } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
+import { railStore } from '../lib/railStore';
 import { parseForkOrigin, canForkAgent } from '../lib/cardLogic';
 import { api } from '../lib/api';
 import { useAttachments } from '../hooks/useAttachments';
@@ -362,6 +365,28 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 답글 스레드 목록 모달 (t_2f45ccb1 확장 3) — 앱바 우측 버튼, 배지 = 활성(미종료) 스레드 수.
   const [threadsOpen, setThreadsOpen] = useState(false);
   const activeThreadCount = threads.filter((th) => !th.ended).length;
+  // 좌측 레일 발행 (t_fd869e5b 요구1): 채팅 화면이 스레드 인덱스/메타 단일 발행자 — ThreadRail이 구독.
+  // 데모 세션은 스레드 원천이 없다 → sessionId null과 함께 reset (이전 세션 스레드가 레일에 남으면 안 됨).
+  useEffect(() => {
+    if (isDemo || !sessionId) { railStore.reset(); return; }
+    railStore.publish({
+      sessionId,
+      threads,
+      meta: { agentName, sessionTitle, presetCategory, canFork },
+    });
+  }, [isDemo, sessionId, threads, agentName, sessionTitle, presetCategory, canFork]);
+  useEffect(() => () => railStore.reset(), []);
+  // 내 질문 트래커 모바일 경로 (t_fd869e5b) — wide 미만(우측 패널 미렌더) 앱바 '현황' 버튼 → 하단 시트.
+  const [trackerOpen, setTrackerOpen] = useState(false);
+  // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
+  // 트래커 행 재발화 — 실패 user 카드 재전송 (ChatTurnRow onResend와 동일 경로: restoreFailedDraft 폴백 불요,
+  // 재발화 버튼은 실패 행 전용이며 실패 시 입력창 복구는 화면 상단 error-bar가 담당).
+  const retryFromTracker = useCallback((messageId: string) => {
+    const m = messages.find((x) => x.id === messageId);
+    if (!m || isDemo || !sessionId) { setUnavailableError('errors.unavailableAction'); return; }
+    void retryMessage(m.id);
+  }, [messages, isDemo, sessionId, retryMessage]);
   // 칩/모달 액션: 메시지 id → 카드(답글/갈라내기 대상) — 히스토리 밖이면 조용히 무시.
   const openThreadOf = useCallback((messageId: string) => {
     setThreadsOpen(false);
@@ -733,9 +758,11 @@ export default function ChatScreen({ navigation, route }: Props) {
         connection={connection}
         activeThreadCount={activeThreadCount}
         pendingReplyCount={pendingReplies.length}
+        showTrackerButton={!wide || Platform.OS !== 'web'}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
+        onOpenTracker={() => setTrackerOpen(true)}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
@@ -932,16 +959,37 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
+      {/* 내 질문 트래커 모바일 대체 경로 (t_fd869e5b 요구3 확장) — wide 미만(패널 미렌더)에서
+          앱바 '현황' 버튼 → 하단 시트. 행 탭=카드 점프, 답글 칩=스레드 열기, 실패=재발화. */}
+      <QuestionTrackerModal
+        visible={trackerOpen}
+        onClose={() => setTrackerOpen(false)}
+        messages={messages}
+        pendingReplies={pendingReplies}
+        streams={streams}
+        queue={queue}
+        onJump={(id) => { setTrackerOpen(false); requestJump(id); }}
+        onOpenThread={(id) => { setTrackerOpen(false); openThreadOf(id); }}
+        onRetry={retryFromTracker}
+      />
+      {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점 */}
+      <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
       <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
-    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지) */}
+    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지,
+        트래커는 앱바 '현황' 버튼 → 하단 시트로 대체: QuestionTrackerModal) */}
     {wide && Platform.OS === 'web' && (
       <ContextPanel
         sessionId={sessionId ?? null}
         messages={messages}
-        onOpenVault={() => navigation.navigate('Vault')}
-        onOpenFavorites={() => navigation.navigate('Favorites')}
+        onOpenFavorites={() => setFavoritesOpen(true)}
+        pendingReplies={pendingReplies}
+        streams={streams}
+        queue={queue}
+        onJump={requestJump}
+        onOpenThread={openThreadOf}
+        onRetry={retryFromTracker}
       />
     )}
     </View>
