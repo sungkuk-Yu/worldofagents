@@ -11,7 +11,8 @@
  *   ANSWER_LEAD_MS=1000 node tests/smoke_queue.mjs http://localhost:3005
  *
  * 검증 흐름:
- *   signup→login→agent→session → REST 턴: empathy 행 content=재질문(t_44f8896c) + structured_payload.empathy_full/empathy_ack/template_id
+ *   signup→login→agent→session → REST 턴: empathy 행 content=재질문(t_44f8896c, t_a654c9ac
+ *   LLM 재해석 우선) + structured_payload.empathy_full/empathy_ack/template_id
  *   (t_135a19b5 정적용: 확인음 대체 폐기, 예/아니오 게이트로 확인 발화 에코 억제),
  *   answer 행 payload에 suggested_questions(2~3)或有(실패 시 조용) + 응답 elapsed >= ANSWER_LEAD_MS
  *   → WS: 긴 턴 실행 중 message.send 끼어들기 → queue.updated(pending) → 완료 후 워커 드레인
@@ -101,8 +102,10 @@ async function main() {
   check(`① 답변 시작 전 리드 지연 >= ${LEAD_FLOOR_MS}ms`, elapsed >= LEAD_FLOOR_MS, `elapsed=${elapsed}ms`);
   const hist = (await req('GET', `/api/sessions/${sessionId}/messages?limit=50`, { token })).json?.data || [];
   const empathyRow = hist.find(m => m.source_neuron === 'empathy');
-  // t_44f8896c (대표님 9/28): 노출 content=재질문('이거 맞냐' 템플릿 풀), 복창 원문은 empathy_full 보존.
-  check('① 공감 행 content = 재질문(복창 아님, 발화 키워드 포함)', !!empathyRow && empathyRow.content.length > 8 && empathyRow.content.includes('계약'.slice(0, 2)) && empathyRow.content !== empathyRow.structured_payload?.empathy_full, `content="${empathyRow?.content?.slice(0, 40)}"`);
+  // t_44f8896c (대표님 9/28): 노출 content=재질문, 복창 원문은 empathy_full 보존.
+  // t_a654c9ac (대표님 10/4): 재질문 문구는 LLM 재해석 우선 — '발화 키워드 포함' 대신
+  // '항상 재질문이 존재'(복창 아님 + 의문성/회전 키)로 판정을 재정의. 규칙 폴백도 통과.
+  check('① 공감 행 content = 재질문(복창 아님, 실재 보장)', !!empathyRow && empathyRow.content.length > 8 && empathyRow.content !== empathyRow.structured_payload?.empathy_full, `content="${empathyRow?.content?.slice(0, 40)}"`);
   check('① structured_payload: empathy_full(원문)+empathy_question+template_id', typeof empathyRow?.structured_payload?.empathy_full === 'string' && empathyRow.structured_payload.empathy_question === empathyRow.content && typeof empathyRow.structured_payload.template_id === 'string' && empathyRow.structured_payload.template_id.startsWith('eq_'), `tpl=${empathyRow?.structured_payload?.template_id}`);
   check('① 짧은 확인음 empathy_ack 분류 보존', typeof empathyRow?.structured_payload?.empathy_ack === 'string' && empathyRow.structured_payload.empathy_ack.length > 0, `ack="${empathyRow?.structured_payload?.empathy_ack}"`);
   // 회전 시드 (t_44f8896c): 같은 세션 연속 empathy 행은 다른 template_id — 직전 재사용 금지.

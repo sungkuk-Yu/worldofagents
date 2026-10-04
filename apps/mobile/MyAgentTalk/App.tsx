@@ -30,13 +30,13 @@ import {
   CardThreadScreen,
   FavoritesScreen,
   FeedScreen,
-  VaultScreen,
   BoardScreen,
   NeuronDashboardScreen,
   SettingsScreen,
   JoystickSettingsScreen,
   LegalDocScreen,
 } from './src/screens';
+import ThreadRail from './src/components/ThreadRail';
 
 // 네비게이션 타입
 export type RootStackParamList = {
@@ -48,7 +48,6 @@ export type RootStackParamList = {
   CardThread: { sessionId: string; rootMessageId: string; agentName?: string; sessionTitle?: string };
   Favorites: undefined;
   Feed: undefined;
-  Vault: { noteId?: string; createTitle?: string } | undefined;
   Board: { boardId?: string } | undefined;
   NeuronDashboard: undefined;
   Settings: undefined;
@@ -58,14 +57,17 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// PC 사이드바 레일 — DialogueListScreen을 'sidebar' 변형으로 재사용(목록 코드 단일화).
+// PC 사이드바 레일 (t_fd869e5b 요구1, 대표님 10/4: "왼쪽편의 공간은 슬랙처럼 쓰레드가 발생하는 공간으로
+// 내비되어야") — 채팅 라우트에서는 세션목록 대신 스레드 레일(ThreadRail). 세션 목록은 목록 라우트의
+// home 변형(전폭)으로 계속 도달 가능하고, 채팅에서는 앱바 ← 가 복귀 경로(슬랙: 채널 목록으로 백).
+// 이전 DialogueListScreen 'sidebar' 재사용은 모바일 미노출이라 레일 외 사용처 없음 (코드는 보존).
 // 내비게이션 패사드: 레일의 navigate는 중앙 Stack에 그대로 전달(모바일과 동일 라우트 계약).
 const RAIL_ROUTES = new Set(['Chat']); // 목록 화면은 home 변형(전폭)이 이미 목록을 렌더 — 레일 중복 제거
 function SidebarRail() {
   const navigation = useNavigation<any>();
   return (
     <View style={styles.sidebarRail}>
-      <DialogueListScreen navigation={navigation} variant="sidebar" />
+      <ThreadRail navigation={navigation} />
     </View>
   );
 }
@@ -204,7 +206,12 @@ export default function App() {
       {/* #52: 카드 스레드 바텀시트(디텐트) — BottomSheetModalProvider는 GestureHandlerRootView 하위에 */}
       <BottomSheetModalProvider>
       <PaperProvider theme={PaperTheme}>
-        <NavigationContainer ref={navRef} theme={AppTheme} onReady={syncRail} onStateChange={syncRail}>
+        {/* 탭 제목 브랜딩 (t_3c882443 요구1, 대표님 10/4 "브라우저 탭에 그냥 '채팅'이라고 나와"):
+            기본값 = '마이에이전트톡', 채팅 화면 진입 시에만 '대화방명 — 마이에이전트톡'.
+            ChatScreen이 navigation.setOptions({ title: sessionTitle })로 방명을 발행하면 formatter가 조립한다.
+            (documentTitle은 웹 전용 — 네이티브는 useDocumentTitle.native no-op, headerShown:false라 헤더 영향 없음.) */}
+        <NavigationContainer ref={navRef} theme={AppTheme} onReady={syncRail} onStateChange={syncRail}
+          documentTitle={{ formatter: (options, route) => (route?.name === 'Chat' && options?.title ? `${options.title} — ${t('common.app')}` : t('common.app')) }}>
           {/* 반응형 2트랙 (t_eded715c): PC 웹(≥768) = 사이드바(세션목록) + 중앙 Stack 본문.
               모바일/네이티브는 레일 없이 Stack 단독 — 기존 단일 컬럼과 동일 경로. */}
           <View style={styles.shellRow}>
@@ -260,11 +267,6 @@ export default function App() {
               name="Feed"
               component={FeedScreen}
               options={{ title: t('feed.title') }}
-            />
-            <Stack.Screen
-              name="Vault"
-              component={VaultScreen}
-              options={{ title: t('vault.title') }}
             />
             <Stack.Screen
               name="Board"

@@ -20,7 +20,7 @@ import { activateNeuronInstance, deactivateNeuronInstance, listActiveInstances }
 import { readFullContext, readContextValue, clearContextKey } from '../lib/contextSync';
 import { listArchives, restoreArchive, objectPathOf } from '../lib/contextArchive';
 import { listTasksBySession, createTaskInSession } from './tasks';
-import { sessionTitleOf } from '../lib/sessionTitle';
+import { sessionTitleOf, SESSION_TITLE_EDIT_MAX } from '../lib/sessionTitle';
 
 /** INT4RANGE 문자열과 기존 개발 저장소 객체를 함께 읽는다. */
 export function parseRangeUpper(v: unknown): number | null {
@@ -272,6 +272,33 @@ export async function sessionRoutes(app: FastifyInstance) {
       throw badRequest(`status는 ${SESSION_STATUSES.join('/')} 중 하나여야 합니다.`);
     }
     const { data, error } = await request.db.from('sessions').update({ status }).eq('id', session.id).select().single();
+    if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
+    return ok(data);
+  });
+
+  // PATCH /api/sessions/:id/title — 세션 제목 수동 수정 (t_95c5498e, 대표님 10/4 "대화 제목 수정" 지시)
+  // 프론트 계약: api.renameSession → PATCH {title} → ok(updated session) (SessionTitleDialog t_8917ca0d).
+  // 검증: trim 후 1~120자(코드포인트) — 80자 초안은 김비서 경주 지시로 120자 상향(프론트 maxLength 200 →
+  //       프론트 후속에서 120 정합, 이번 머지엔 폴백 안내 문구로 400 견딜 때까지가 원칙).
+  // last_activity_at 무변경: 제목 수정은 '활동'이 아니다 — 고치자마자 세션 목록 상단으로 점프하면
+  //       최근 대화 순서 의미가 무너진다(목록은 last_activity_at 정렬). updated_at만 스탬프(006 스키마 triggers).
+  // metadata.title 미갱신: 캐논은 title 컬럼 우선(sessionTitleOf) — 폴백 키에 구제목을 남겨두면
+  //       이후 폴백 경로가 옛 제목으로 되돌아오는 역전 버그. 컬럼만 갱신하고 metadata는 불변 유지.
+  app.patch('/:id/title', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const { title } = request.body as { title?: unknown };
+    if (typeof title !== 'string') throw badRequest('title은 문자열이어야 합니다.');
+    const trimmed = title.trim();
+    if (!trimmed) throw badRequest('제목은 비워둘 수 없습니다.');
+    if ([...trimmed].length > SESSION_TITLE_EDIT_MAX) {
+      throw badRequest(`제목은 ${SESSION_TITLE_EDIT_MAX}자 이하여야 합니다.`);
+    }
+    const { data, error } = await request.db
+      .from('sessions')
+      .update({ title: trimmed })
+      .eq('id', session.id)
+      .select()
+      .single();
     if (error) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error.message);
     return ok(data);
   });

@@ -14,12 +14,15 @@ import { useLayout } from '../hooks/useLayout';
 import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
+import { QuestionTrackerModal } from '../components/QuestionTracker';
+import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
 import { voiceStageHeight, chatListPaddingOverride } from '../lib/voiceStage';
 import { getPttKey, getPttMode, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT, subscribePrefs } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
+import { railStore } from '../lib/railStore';
 import { parseForkOrigin, canForkAgent } from '../lib/cardLogic';
 import { api } from '../lib/api';
 import { useAttachments } from '../hooks/useAttachments';
@@ -59,7 +62,6 @@ import { ChatMessage, TurnGroup, FeedItem, groupByTurn, insertDateSeparators, is
 import DateSeparatorRow from '../components/chat/DateSeparatorRow';
 import DatePinnedHeader, { DatePinnedHandle, SepMetric } from '../components/chat/DatePinnedHeader';
 import { formatDateSeparator } from '../i18n/format';
-import QueueStrip from '../components/QueueStrip';
 import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import MessageActionSheet from '../components/MessageActionSheet';
@@ -67,7 +69,9 @@ import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
 import { ackResultCardIds } from '../lib/ackChips';
-import { QUIET_PROGRESS, SENDER_GROUPING } from '../lib/featureFlags';
+// QUIET_PROGRESS는 스트립 폐기(t_3c882443)로 ChatScreen 내 잔사용처 소멸 — 타이핑/스트리밍 억제
+// 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
+import { SENDER_GROUPING } from '../lib/featureFlags';
 import { renderFlags } from '../lib/renderFlags';
 import { createDraftSaver, readDraft } from '../lib/draftStore';
 
@@ -88,7 +92,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   const initialSessionId: string | undefined = route?.params?.sessionId;
   // 즐겨찾기 딥링크 (Wave1): focusMessageId로 진입 → 해당 메시지까지 스크롤 + 하이라이트 1회
   const focusMessageId: string | undefined = route?.params?.focusMessageId;
-  // 상단 큐 스트립 칩 탭 점프 (t_2f45ccb1) — 점프 요청/폴링은 useQueueStrip이 소유 (t_91cb659c 응집).
+  // 큐 점프/폴링 컨트롤러 — 스트립 폐기(t_3c882443) 후에도 requestJump(인용 라인·답변 대기·트래커 행 탭)와
+  // GET /queue 보조 폴링(마커 상태 원료)은 useQueueStrip이 소유한다 (t_91cb659c 응집 계승).
 
   const {
     messages, sessionId, enterDemo,
@@ -128,6 +133,12 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const sessionTitle = titleOverride ?? (route?.params?.sessionTitle || agentName);
+  // 탭 제목 발행 (t_3c882443 요구1): App.tsx의 documentTitle formatter가 Chat 라우트에서
+  // 이 options.title(방명)을 받아 '방명 — 마이에이전트톡'으로 조립한다. 세션 전환/방명 확정·
+  // 낙관 개명(titleOverride) 시 갱신 — t_8917ca0d sessionTitle 캐논과 단일 소스.
+  useEffect(() => {
+    navigation.setOptions?.({ title: sessionTitle });
+  }, [navigation, sessionTitle]);
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
   // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
   const threadSheet = useRef<ThreadSheetHandle>(null);
@@ -354,6 +365,28 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 답글 스레드 목록 모달 (t_2f45ccb1 확장 3) — 앱바 우측 버튼, 배지 = 활성(미종료) 스레드 수.
   const [threadsOpen, setThreadsOpen] = useState(false);
   const activeThreadCount = threads.filter((th) => !th.ended).length;
+  // 좌측 레일 발행 (t_fd869e5b 요구1): 채팅 화면이 스레드 인덱스/메타 단일 발행자 — ThreadRail이 구독.
+  // 데모 세션은 스레드 원천이 없다 → sessionId null과 함께 reset (이전 세션 스레드가 레일에 남으면 안 됨).
+  useEffect(() => {
+    if (isDemo || !sessionId) { railStore.reset(); return; }
+    railStore.publish({
+      sessionId,
+      threads,
+      meta: { agentName, sessionTitle, presetCategory, canFork },
+    });
+  }, [isDemo, sessionId, threads, agentName, sessionTitle, presetCategory, canFork]);
+  useEffect(() => () => railStore.reset(), []);
+  // 내 질문 트래커 모바일 경로 (t_fd869e5b) — wide 미만(우측 패널 미렌더) 앱바 '현황' 버튼 → 하단 시트.
+  const [trackerOpen, setTrackerOpen] = useState(false);
+  // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
+  // 트래커 행 재발화 — 실패 user 카드 재전송 (ChatTurnRow onResend와 동일 경로: restoreFailedDraft 폴백 불요,
+  // 재발화 버튼은 실패 행 전용이며 실패 시 입력창 복구는 화면 상단 error-bar가 담당).
+  const retryFromTracker = useCallback((messageId: string) => {
+    const m = messages.find((x) => x.id === messageId);
+    if (!m || isDemo || !sessionId) { setUnavailableError('errors.unavailableAction'); return; }
+    void retryMessage(m.id);
+  }, [messages, isDemo, sessionId, retryMessage]);
   // 칩/모달 액션: 메시지 id → 카드(답글/갈라내기 대상) — 히스토리 밖이면 조용히 무시.
   const openThreadOf = useCallback((messageId: string) => {
     setThreadsOpen(false);
@@ -369,7 +402,8 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
     setForkMessage(m);
   }, [messages, isDemo, sessionId, setForkMessage, setUnavailableError]);
-  // 상단 큐 스트립 (t_2f45ccb1 → t_91cb659c 응집): 칩 행 빌드 · GET /queue 보조 폴링 · 칩 탭 점프 요청은 useQueueStrip 소유.
+  // 점프+큐 폴링 컨트롤러 (t_2f45ccb1 → t_91cb659c 응집 → t_3c882443 스트립 폐기): 칩 행 빌드는 제거,
+  // requestJump와 GET /queue 보조 폴링만 useQueueStrip이 소유 (트래커·마커·인용 점프가 소비자).
   const strip = useQueueStrip({ sessionId, live: !isDemo, messages, queue, applyQueueSnapshot });
   // 답변 대기 (t_363c0faa): GET /pending 보조 폴링(부트스트랩 1회 + 미해소 중 15초 + 런 종료 직후 1회)은
   // usePendingReplies가 소유 — WS reply.pending.updated가 단일 상태원천 (queue 계층 원칙 동일).
@@ -724,17 +758,18 @@ export default function ChatScreen({ navigation, route }: Props) {
         connection={connection}
         activeThreadCount={activeThreadCount}
         pendingReplyCount={pendingReplies.length}
+        showTrackerButton={!wide || Platform.OS !== 'web'}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
+        onOpenTracker={() => setTrackerOpen(true)}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
 
-      {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기.
-          t_64e3edd6 ③ (#324/#325 QUIET_PROGRESS): 스트리밍/타이핑 중에는 칩 행 숨김 — 병렬 위젯 창 축소,
-          카드 스트림+입력 위 한 줄만 남긴다. 런 종료 후 복원(도중 칩 갱신도 잠시 숨김 — 의도된 단순화). */}
-      <QueueStrip items={QUIET_PROGRESS && (typing || streams.length > 0) ? [] : strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
+      {/* 상단 질문 큐 스트립 폐기 (t_3c882443 요구3, 대표님 10/4 "위젯 중복 제거") — 진행 상황은
+          내 질문 트래커(t_fd869e5b)로 이관. 칩의 카드 점프는 트래커 행 탭이 strip.requestJump를
+          그대로 재사용하고, queue 폴링/WS 단일 상태원천은 QueueMessageMark(카드 행 마커)가 유지. */}
       <ThreadListModal visible={threadsOpen} threads={threads} onClose={() => setThreadsOpen(false)} onOpenThread={openThreadOf} />
       {/* 답변 대기 모달 (t_363c0faa) — 발췌 목록 + 예/아니오 빠른 회신 + freeform 점프. 해소 스냅샷(count 0) 시 자동 닫힘. */}
       <PendingReplyModal
@@ -865,13 +900,17 @@ export default function ChatScreen({ navigation, route }: Props) {
 
       {unseen > 0 && <Button testID="unseen-badge" onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
       {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.
-          t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지. */}
-      {Platform.OS === 'web' && !isDemo && !voiceMode && (
+          t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지.
+          t_2f296081 ③ (대표님 10/4): 웹 모바일 B 계층(키보드 개방 = 스테이지 언마운트)에서는
+          V 키 녹음 시각화가 사라진다 — 스테이지 미활성 구간 한정으로 배너 복원(PC와 동일 테스트ID). */}
+      {Platform.OS === 'web' && !isDemo && (!voiceMode || !stageActive) && (
         <PttBannerComponent
           active={ptt.active || talking}
           keyLabel={pc ? pttKeyLabel(getPttKey() ?? 'KeyV') : undefined}
           mode={getPttMode() ?? 'hold'}
-          error={voiceMode ? null : ptt.error}
+          // t_2f296081 ③: 배너 게이트가 스테이지 미활성 구간(!stageActive)까지 확대 — A 계층에서는
+          // 여전히 미렌더이므로 chat-voice-fallback과 중복 없음. voiceMode에서도 error 노출(스왈로 방지).
+          error={ptt.error}
           pending={ptt.pending}
         />
       )}
@@ -915,6 +954,12 @@ export default function ChatScreen({ navigation, route }: Props) {
         pttPending={ptt.pending}
         viewportHeight={viewportHeight}
         onPressHoldStart={ptt.startHold}
+        // t_2f296081 ③ (대표님 10/4): 웹 모바일 B 계층 입력창 포커스 중 pttKey(V·userPrefs 단일 소스)
+        // = 즉시 A 진입 + 음성 홀드 시작. 전역 키보드 경로와 동일 ptt.press(모드 인지: hold=캡처
+        // 시작/keyup 릴리스 전송, toggle=재타격 종료) — 충돌 시 pttKey 우선 병합('v' 타이핑 차단).
+        // PC(voiceMode=false, A 계층 없음)·데모(PTT 미장착)는 미주입 → 'v'는 그냥 타이핑(편집 기본기 ②).
+        onVoicePress={voiceMode && !isDemo ? ptt.press : undefined}
+        pttCapturing={ptt.active}
         onHoldEnd={ptt.endHold}
         onHoldAbort={ptt.abortHold}
         onSendAck={sendAck}
@@ -924,16 +969,37 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
+      {/* 내 질문 트래커 모바일 대체 경로 (t_fd869e5b 요구3 확장) — wide 미만(패널 미렌더)에서
+          앱바 '현황' 버튼 → 하단 시트. 행 탭=카드 점프, 답글 칩=스레드 열기, 실패=재발화. */}
+      <QuestionTrackerModal
+        visible={trackerOpen}
+        onClose={() => setTrackerOpen(false)}
+        messages={messages}
+        pendingReplies={pendingReplies}
+        streams={streams}
+        queue={queue}
+        onJump={(id) => { setTrackerOpen(false); requestJump(id); }}
+        onOpenThread={(id) => { setTrackerOpen(false); openThreadOf(id); }}
+        onRetry={retryFromTracker}
+      />
+      {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점 */}
+      <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
       <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
-    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지) */}
+    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지,
+        트래커는 앱바 '현황' 버튼 → 하단 시트로 대체: QuestionTrackerModal) */}
     {wide && Platform.OS === 'web' && (
       <ContextPanel
         sessionId={sessionId ?? null}
         messages={messages}
-        onOpenVault={() => navigation.navigate('Vault')}
-        onOpenFavorites={() => navigation.navigate('Favorites')}
+        onOpenFavorites={() => setFavoritesOpen(true)}
+        pendingReplies={pendingReplies}
+        streams={streams}
+        queue={queue}
+        onJump={requestJump}
+        onOpenThread={openThreadOf}
+        onRetry={retryFromTracker}
       />
     )}
     </View>

@@ -1,10 +1,14 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
-  const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: '2026-09-26T12:00:00Z', agent_id: 'agent', agent_name: agent.name });
+  // t_4654d727 — 실행일 독립화(하네스 부패 수리): created_at 고정('2026-09-26T12:00')이 10/3부터 7일 무활동
+  // 창(t_2f45ccb1 종료 배지, WEEK_MS)을 초과 → rich 스레드가 오탐 종료 → 확장3·4 4검사항 FAIL+FATAL로
+  // 전향. '최신'을 의미하는 앵커는 반드시 런타임-상대로(실행시각 10분 전), '낡음'을 의미하는 앵커
+  // (ack 히스토리 stale 9/26, favorites 9/27)는 고정 유지 — 시간이 갈수록 더 낡으므로 방향이 안전.
+  const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), agent_id: 'agent', agent_name: agent.name });
   const LONG_PARA = '계약서 검토 결과, 제14조 위약금 조항에서 연 5퍼센트의 지연 이자를 상한으로 두되 기한이익 상실 요건을 채무자의 명시적-payment 거절로 한정하는 것이 안전하다. 제22조의 해지 통보 기한은 30일로 충분하며 중재지는 서울로, 준거법은 대한민국 법률로 정한다. 부속 합의서의 비밀유지 조항은 존속기간을 계약 종료 후 5년으로 연장하고 예외 사유를 법령상 의무, 이미 공개된 정보, 독립적으로 개발된 정보로 한정한다. 각 조항의 충돌 시 부속 합의서가 우선하며 분할 가능성이 인정되지 않는 조항은 무효로 두되 나머지 조항의 효력에는 영향이 없다. 통지는 서면으로 하되 전자서명된 메일을 유효한 서면으로 본다.'.repeat(6);
   const TABLE_ROWS = Array.from({ length: 40 }, (_, i) => [`항목 ${i + 1}`, (i + 1) * 120, i % 3 === 0 ? '완료' : '대기']);
   state.messages.source = reader ? [
@@ -62,6 +66,26 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 's6', role: 'agent', content: 'OTHER-CONT', turn_index: 6, created_at: ago(80), agent_id: 'other', agent_name: '전문가' },
       { id: 'u1', role: 'user', content: '다시 질문', turn_index: 7, created_at: ago(60) },
       { id: 's7', role: 'agent', content: 'AFTER-USER', turn_index: 8, created_at: ago(30), agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
+  if (tracker) {
+    // t_fd869e5b 내 질문 트래커 시드 — 수명 단계별 질문 4종 + 답글 1건. 시각은 런타임 기준(결정적 재현):
+    //  q-old: 30h 전 질문+답변 → 24h 경과 완료 = 자동 축약(collapsible)
+    //  q-done: 2h 전 질문+답변+답글 1 → 완료(3) 행 + replyCount 1 (슬랙식 답글 카운트)
+    //  q-new:  답변 없는 질문 → 접수됨(0) — WS 큐 스냅샷 answered 승격 검증 대상
+    //  q-ask:  마지막 empathy 재질문(뒤 user 발화 없음) → 이해 확인 중(1)/'확인 필요' 배지
+    const NOW = Date.now();
+    const ago = (h) => new Date(NOW - h * 3600 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'q-old', role: 'user', content: '지난주 견적 문의', turn_index: 0, created_at: ago(30), agent_id: 'agent', agent_name: agent.name },
+      { id: 'a-old', role: 'agent', content: '견적 답변(오래됨)', turn_index: 1, created_at: ago(30), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      // thread_reply_count = 서버 배지 (메인 피드는 답글 행 제외 — useChatSession filter 실측 기준)
+      { id: 'q-done', role: 'user', content: '트래커 완료 질문', turn_index: 2, created_at: ago(2), thread_reply_count: 1, agent_id: 'agent', agent_name: agent.name },
+      { id: 'a-done', role: 'agent', content: '트래커 완료 답변', turn_index: 3, created_at: ago(2), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'r-done', role: 'user', content: '트래커 답글', turn_index: 4, created_at: ago(1.5), parent_message_id: 'q-done', root_message_id: 'q-done', agent_id: 'agent', agent_name: agent.name },
+      { id: 'q-new', role: 'user', content: '트래커 새 질문', turn_index: 5, created_at: ago(0.2), agent_id: 'agent', agent_name: agent.name },
+      { id: 'q-ask', role: 'user', content: '트래커 확인 질문', turn_index: 6, created_at: ago(0.1), agent_id: 'agent', agent_name: agent.name },
+      { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 트래커 확인', turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 트래커 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (feedPhoto) {
@@ -161,6 +185,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       const target = state.sessions.find((s) => s.id === rename[1]);
       if (!target) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'NOT_FOUND', message: 'no session' } } });
       if (typeof body.title !== 'string' || !body.title.trim()) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'VALIDATION_ERROR', message: 'bad title' } } });
+      // 백엔드 세션 제목 상한 미러 (t_95c5498e SESSION_TITLE_EDIT_MAX=120, 코드포인트 단위) —
+      // 프론트 maxLength 200→120 정합(t_0da93d18) 후에도 서버 400 경로가 살아있음을 보장.
+      if ([...body.title.trim()].length > 120) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'VALIDATION_ERROR', message: '제목은 120자 이하여야 합니다.' } } });
       target.title = body.title.trim();
       return ok(target);
     }

@@ -23,6 +23,12 @@ import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
 import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
+import { generateEmpathyRequest } from '../lib/empathyRequest';
+import { chipProceedMs, typingLeadMs } from '../lib/typingPacer';
+// t_a654c9ac: 규칙 풀은 lib/empathyRule.ts로 분리(단일 소스). 재질문은 LLM 재해석 우선,
+// 규칙은 최후 폴백. 테스트 하위호환: graph.ts가 아래 export-from로 같은 경로를 유지한다.
+import { buildEmpathyRequestion } from '../lib/empathyRule';
+export { EMPATHY_REQUESTION_TEMPLATES, empathyKeywordSummary, buildEmpathyRequestion } from '../lib/empathyRule';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
 import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
 import { nextTurnFromLast } from '../lib/helpers';
@@ -66,6 +72,10 @@ export interface NodeContext {
   /** 공감 선(先)영속 경로가 이미 empathy thinking 이벤트를 발행했다면 true (t_f46d1d7a) —
    *  empathyNode은 동일 thinking 이벤트 재발행을 억제한다 (neuron.status 중복 0). */
   empathyPreEmitted?: boolean;
+  /** t_a654c9ac: 음성/echoMode off 턴 (리드 지연 0 계약 소유 — 타이핑 리드로 덮어쓰지 않는다). */
+  voiceOrEchoOff?: boolean;
+  /** t_a654c9ac: 재질문 카드 message.new 노출 시각(Date.now) — 자동 예 진행 ≤2.6s 측정 앵커. */
+  empathyExposureMs?: number;
 }
 
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null; structured_payload?: Record<string, unknown> | null };
@@ -117,6 +127,9 @@ export interface NeuronState {
   repeatUtterance?: boolean;
   /** 공감 재질문 (t_44f8896c) — 직전 empathy 행의 template_id. 회전 시드(연속 재사용 금지). */
   empathyLastTemplateId?: string | null;
+  /** 공감 재질문 (t_a654c9ac) — processTurn이 early 경로에서 확정해 주입한 LLM 재해석 문구.
+   *  있으면 empathyNode는 재생성하지 않고 그대로 쓴다 (1턴 1재질문 — 발화점 단일화). */
+  empathyPreText?: string | null;
   /** 공감 재질문 (t_44f8896c) — 행 content는 재질문 문장, 복창 원문(에코)은 empathy_full로 보존. */
   empathyEcho?: string | null;
   empathyTemplateId?: string | null;
@@ -217,7 +230,7 @@ function waitOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState> {
+async function empathyNode(state: NeuronState, ctx: NodeContext): Promise<Partial<NeuronState>> {
   // 예/아니오 게이트 (t_135a19b5, 대표님 9/28 정정): 직전 empathy 행 뒤의 짧은 확인 발화에는
   // 복창을 생성하지 않는다 — 중복 에코 루프 방지, 답변으로 직결.
   // 동일 발화 재전송 (t_c31e3f45, 김비서 라이브 진단): 직전 user 행과 같은 텍스트면 재질문
@@ -229,8 +242,19 @@ function empathyNode(state: NeuronState, ctx: NodeContext): Partial<NeuronState>
   const prompt = persona ? buildPersonaPrompt(persona, 'empathy') : '';
   // 복창 원문(에코 문장)은 empathy_full로 보존 (t_135a19b5), 화면 노출은 재질문으로 교체
   // (t_44f8896c, 대표님 9/28: "단순 복창이 아니고, 좀 다채롭게 이거 맞냐는 식으로 재 질문").
+  // t_a654c9ac (대표님 10/4 추가 판정): 재질문 문구는 LLM 재해석 우선 — early 경로가 확정해
+  // 주입한 empathyPreText를 그대로 쓴다 (1턴 1재질문, LLM 재호출 금지). 비-early 경로
+  // (EMPATHY_EARLY=false 롤백)에서만 여기서 자체 호출하고, 실패/타임아웃은 규칙 폴백 —
+  // 결정성 계약은 '문구 고정'이 아니라 '항상 재질문이 존재'.
   const echo = buildEmpathyTemplate(state.userMessage, state.dialogueType, prompt, state.locale);
-  const { text, templateId } = buildEmpathyRequestion(state.userMessage, state.empathyLastTemplateId, state.locale);
+  const rule = buildEmpathyRequestion(state.userMessage, state.empathyLastTemplateId, state.locale);
+  let text = state.empathyPreText || rule.text;
+  if (!state.empathyPreText && !ctx.empathyPreEmitted && config.empathyRequestLlm.enabled) {
+    const llmText = await generateEmpathyRequest(state.userMessage, rule.templateId, state.locale, { signal: ctx.signal });
+    if (ctx.signal?.aborted && !ctx.classificationCancelled) throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
+    text = llmText || rule.text;
+  }
+  const templateId = rule.templateId; // 회전·연속금지 계약은 template_id가 소유 (t_44f8896c 불변)
   // 선영속 경로(t_f46d1d7a)는 같은 thinking 이벤트를 이미 발행 — 중복 neuron.status 억제.
   // events push는 state 기록용으로 유지 (simplePipeline의 (neuron,status) dedupe 존재).
   if (!ctx.empathyPreEmitted) ctx.emit({ neuron: 'empathy', status: 'idle', stage: 'thinking', quip: quipText(state, 'ack') });
@@ -434,7 +458,24 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   if (!state.activationPlan.includes('answer')) return {};
   // ① 짧은 확인음(ack) 후 답변 스트리밍 전 체감 공백 (t_344e047a, 대표님 9/28 ①) —
   // config.answerLeadMs(기본 3000, 0=즉시). 이 3초는 quip이 도는 구간이다. 취소 전파됨.
-  if (ctx.leadMs) await waitOrAbort(ctx.leadMs, ctx.signal);
+  // t_a654c9ac (대표님 10/4) 사람 타이핑 감각 — HUMAN_TYPING ON이면 리드 계약을 교체한다:
+  //  · 재질문 카드가 뜬 턴: 칩 창 소진 후 자동 예 진행 — [2.5s, 2.6s] (게이트 ≤2.6s).
+  //    선(先)노출된 순간부터의 경과를 차감해 라우터 LLM 지연이 칩 창을 먹지 않게 한다.
+  //  · 재질문 없는 텍스트 턴(확인 발화 직결 등): 발화 길이 비례 사람 리드타임 0.8~2.0s.
+  //  · 음성/echoMode off 턴: leadMs=0 계약 불변 (t_5cba9ebb ≤3.5s SLA가 우선).
+  // OFF(HUMAN_TYPING=false)면 아래 분기가 전부 스킵 — 기존 리드 지연과 1:1.
+  let leadMs = ctx.leadMs;
+  if (config.humanTyping.enabled && !ctx.voiceOrEchoOff) {
+    if (state.empathyResponse) {
+      const target = chipProceedMs();
+      leadMs = ctx.empathyExposureMs
+        ? Math.max(0, target - (Date.now() - ctx.empathyExposureMs))
+        : target;
+    } else {
+      leadMs = typingLeadMs(state.userMessage.length);
+    }
+  }
+  if (leadMs) await waitOrAbort(leadMs, ctx.signal);
   const prompt = state.persona ? buildPersonaPrompt(state.persona, 'answer') : '';
   const start: NeuronStatusEvent = { neuron: 'answer', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') };
   ctx.emit(start);
@@ -686,55 +727,9 @@ function buildEmpathyTemplate(message: string, dialogueType: DialogueType, _prom
 // ── 공감 재질문 템플릿 풀 (t_44f8896c, 대표님 9/28) ──
 // "단순 복창이 아니고, 좀 다채롭게 이거 맞냐는 식으로 재 질문" — 복창 원문은
 // structured_payload.empathy_full로 보존되고, 화면 노출(content)과 empathy_response는
-// 아래 재질문 문장이 된다. 규칙 기반(LLL 0회), {요약}에 발화 키워드 압축을 주입한다.
-
-type EmpathyTemplate = { id: string; ko: string; en: string };
-
-/** pool 인덱스 = 회전 순서. template_id는 프론트 버튼 문구 결정 키로도 쓰인다. */
-export const EMPATHY_REQUESTION_TEMPLATES: EmpathyTemplate[] = [
-  { id: 'eq_confirm', ko: '이거 맞죠? {요약}', en: 'Quick check — "{요약}", right?' },
-  { id: 'eq_proceed', ko: '{요약} — 맞으면 계속 진행할게요', en: '"{요약}" — if that\'s right, I\'ll keep going' },
-  { id: 'eq_understand', ko: '제 이해가 맞다면 {요약}', en: 'If I read you right, it\'s about "{요약}"' },
-  { id: 'eq_align', ko: '맞나요? {요약} 쪽으로 받아들이면 돼요', en: 'Sound good? I\'ll take it as "{요약}"' },
-];
-
-/** 발화 → {요약} 키워드 압축 (규칙 기반, LLM 0회): 문두 불요 소거 + 구두점 제거 + 24자 절단. */
-export function empathyKeywordSummary(message: string): string {
-  const cleaned = message
-    .replace(/^(안녕하세요|반갑습니다|그럼|그래서|근데|그런데|있잖아|있죠|저희|우리)\s*[,!?]?\s*/i, '')
-    .replace(/[。．.，,、!！?？~〜'"\n]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const head = cleaned || message.trim();
-  return head.length > 24 ? head.slice(0, 24).trimEnd() + '…' : head;
-}
-
-/**
- * 재질문 생성 — 시드(lastTemplateId)로 회전: 같은 세션에서 직전 template_id 연속 재사용 금지.
- * 시드 미지원(pool 밖 id/동일 id)은 pool 인덱스 해시로 폴백(결정적, 세션 일관).
- */
-export function buildEmpathyRequestion(
-  message: string,
-  lastTemplateId: string | null | undefined,
-  locale: Locale,
-): { text: string; templateId: string } {
-  const pool = EMPATHY_REQUESTION_TEMPLATES;
-  const summary = empathyKeywordSummary(message);
-  const prev = lastTemplateId ? pool.findIndex(t => t.id === lastTemplateId) : -1;
-  let idx: number;
-  if (prev >= 0) {
-    idx = (prev + 1) % pool.length; // 연속 재사용 금지 확정 회전
-  } else {
-    // 시드 없음: 발화 해시로 골랐더라도 prev와 겹치면 다음으로 민다.
-    let h = 0;
-    for (const ch of message) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
-    idx = h % pool.length;
-    if (idx === prev) idx = (idx + 1) % pool.length;
-  }
-  const t = pool[idx];
-  const raw = locale === 'en' ? t.en : t.ko;
-  return { text: raw.split('{요약}').join(summary), templateId: t.id };
-}
+// 아래 재질문 문장이 된다. t_a654c9ac(대표님 10/4): 규칙 풀은 lib/empathyRule.ts로
+// 분리되고 기본은 LLM 재해석(lib/empathyRequest.ts), 실패 시에만 이 규칙 폴백.
+// (재수출은 파일 상단의 export-from 1곳 — 중복 export 금지)
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function buildAnswerTemplate(message: string, _dialogueType: DialogueType, prompt: string, locale: Locale): string {
@@ -827,6 +822,7 @@ async function langGraphPipeline(
     orthoProtectedTerms: Annotation,
     repeatUtterance: Annotation,
     empathyLastTemplateId: Annotation,
+    empathyPreText: Annotation,
     empathyEcho: Annotation,
     empathyTemplateId: Annotation,
     secretaryBridge: Annotation,
@@ -938,6 +934,8 @@ export async function processTurn(
       // 확인음이 존재하지 않는다 — answer.delta가 전사 직후 시작되는 것이 목표(≤3.5s).
       // 공감 off 선호도 동일 — 지연할 확인음(empathy)이 없다 (t_95ac521b, 같은 선례).
       leadMs: (opts.sttMetadata || echoModeOff) ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
+      // t_a654c9ac: 음성/off 턴 표시 — 타이핑 리드가 leadMs=0 SLA(t_5cba9ebb ≤3.5s)를 덮지 않게.
+      voiceOrEchoOff: Boolean(opts.sttMetadata || echoModeOff),
       // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
       db };
       const dialogueType = classifyDialogueType(userMessage);
@@ -1221,8 +1219,18 @@ export async function processTurn(
       let empathyEarly: MessagesRow | null = null;
       const empathyEarlyEnabled = config.protocol.empathyEarly && !resuming && Boolean(opts.onEmpathyEarly);
       if (empathyEarlyEnabled && !initial.empathySuppressed && !initial.repeatUtterance && !initial.echoModeOff) {
-        const { text: earlyText, templateId: earlyTemplateId } = buildEmpathyRequestion(
-          userMessage, initial.empathyLastTemplateId, locale);
+        // t_a654c9ac (대표님 10/4 추가 판정): 재질문 문구는 LLM 재해석 우선 — 회전·연속금지
+        // 계약은 template_id가 소유하므로 풀 선택은 규칙(buildEmpathyRequestion)이 확정하고,
+        // LLM에는 그 템플릿 말투 계열 힌트만 준다. 실패/타임아웃/형식 위반은 규칙 문장 폴백 —
+        // 결정성 계약은 '문구 고정'이 아니라 '항상 재질문이 존재'. 확정 문구는 initial.empathyPreText로
+        // 파이프라인에 주입해 early 행과 empathyNode가 같은 문장을 쓴다 (1턴 1재질문, 재호출 금지).
+        const ruleEarly = buildEmpathyRequestion(userMessage, initial.empathyLastTemplateId, locale);
+        // 취소는 폴백으로 삼키지 않고 기존 런 취소 경로(RUN_CANCELLED)로 전파한다.
+        const llmEarly = opts.signal?.aborted ? null : await generateEmpathyRequest(userMessage, ruleEarly.templateId, locale, { signal: opts.signal });
+        if (opts.signal?.aborted) throw new ApiError('RUN_CANCELLED', '실행이 취소되었습니다.');
+        const earlyText = llmEarly ?? ruleEarly.text;
+        initial.empathyPreText = earlyText;
+        const earlyTemplateId = ruleEarly.templateId;
         const earlyEcho = buildEmpathyTemplate(userMessage, dialogueType, persona ? buildPersonaPrompt(persona, 'empathy') : '', locale);
         const empathyAck = pickQuip('ack', locale, persona?.tone);
         // 체크포인터 ON이면 결정적 id/upsert (t_7182aa8f② 계약) — resume 시 재로드 대상.
@@ -1277,6 +1285,9 @@ export async function processTurn(
           // 프론트 예/아니오 칩 창(발화 후 2.5s)이 답변 LLM/브리지 지연(15~186s 실측)과 무관하게
           // 열린다. chatTurn이 message.new(empathy) 브로드캐스트 후 post-loop 재발행을 생략한다.
           opts.onEmpathyEarly?.(empathyEarly);
+          // t_a654c9ac: 칩 창 개시 시각(서버 노출 각인) — answerNode 자동 예 진행 리드는
+          // 이 순간부터 [2.5s,2.6s]로 측정된다 (라우터/재질문 LLM 지연이 칩 창을 못 먹게).
+          ctx.empathyExposureMs = Date.now();
         }
       }
 

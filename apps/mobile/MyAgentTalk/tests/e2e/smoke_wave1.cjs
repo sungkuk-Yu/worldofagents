@@ -97,20 +97,23 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     state.failFavorite = false;
     await page.screenshot({ path: shot('05-favorite') });
 
-    // ⑥ 즐겨찾기 컬렉션 — 채팅 뒤로(←) → ★ 탭 → 방금 즐겨찾은 카드 + seed favorite:true 행 노출
+    // ⑥ 즐겨찾기 컬렉션 (t_fd869e5b 요구3 개정) — 채팅 뒤로(←) → 헤더 ★ 탭 = 라우트 push 아님,
+    //     상단 모달 즉시 열람 → 행 탭 = 원본 세션 딥링크(focusMessageId 하이라이트) → ← 로 복귀.
     await page.getByTestId('chat-appbar').getByText('←', { exact: true }).click();
     await page.getByTestId('favorites-button').click();
+    await page.getByTestId('favorites-modal').waitFor({ timeout: 5000 });
     await page.getByText('견적 요청', { exact: true }).first().waitFor();
     await page.getByText('Fav card', { exact: true }).first().waitFor();
     await page.screenshot({ path: shot('06-favorites-feed') });
     await page.locator('[data-testid^="favorite-"]:not([data-testid^="favorite-unstar"])').first().click();
     await page.getByTestId('focus-highlight').first().waitFor({ timeout: 5000 });
+    await page.waitForTimeout(600); // fade-out 정착 후 카운트 (t_fd869e5b: 딥링크 시 onClose 선실행 — 잔상 허용 안 됨)
+    assert.ok((await page.getByTestId('favorites-modal').count()) === 0, '즐겨찾기 상단 모달 → 딥링크 시 모달 자동 닫힘');
     await page.screenshot({ path: shot('07-deeplink-highlight') });
 
     // ⑦ 다중 선택 — 앱바 '선택' 진입, 복수 선택, 이어가기=포크 진입 (t_a0e998cc: 보관·볼트로 버튼 제거 — 즐겨찾기는 카드 ⭐로 충분)
-    // 딥링크 채팅 → 즐겨찾기 → 대화목록으로 두 번 백 후 원본 채팅 재진입
+    // 딥링크 채팅(t_64af90b0 모달 유지: 즐겨찾기 화면 push 없음) → ← 대화목록 → 원본 채팅 재진입
     await page.getByTestId('chat-appbar').getByText('←', { exact: true }).click();
-    await page.getByTestId('favorites-back').click();
     await page.getByTestId('session-card').click(); // 원본 채팅 재진입 (선택 모드 검증용)
     await page.getByTestId('rich-link').first().waitFor();
     await page.getByTestId('selection-enter').click();

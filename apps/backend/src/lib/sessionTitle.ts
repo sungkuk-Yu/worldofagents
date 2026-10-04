@@ -16,6 +16,14 @@ import { DbClient } from './supabase';
 /** 제목 상한 — 마이그레이션 010 백필 SQL과 반드시 동일 값 유지 (50자 + 생략부호 포함). */
 export const SESSION_TITLE_MAX = 50;
 
+/**
+ * 수동 개명 상한 (t_95c5498e) — 자동 파생(SESSION_TITLE_MAX)과 별개.
+ * 김비서 10/4 경주 지시: 80자 초안 → 120자 상향(세션 목록 셀 절단 고려, 대표님 "짧고 직관적" 라벨 성향).
+ * 프론트 정합 완료 (t_0da93d18, 10/4): SessionTitleDialog maxLength 200→120 + 근접 카운터 —
+ * 클라이언트 절단으로 정상 경로에서 400 불가, 아래 검증은 direct-call 방어선으로 유지.
+ */
+export const SESSION_TITLE_EDIT_MAX = 120;
+
 /** 006/세션 목록과 동일한 캐논 규칙: title 컬럼 우선, metadata.title 폴백. */
 export function sessionTitleOf(session: { title?: string | null; metadata?: unknown } | null | undefined): string | null {
   if (!session) return null;

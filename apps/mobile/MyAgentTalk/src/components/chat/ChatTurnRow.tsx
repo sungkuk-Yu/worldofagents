@@ -7,7 +7,7 @@ import { Button, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import CardFrame from '../../cards/CardFrame';
 import AckChipRow from '../AckChipRow';
-import { QueueMessageMark } from '../QueueStrip';
+import { QueueMessageMark } from '../QueueMessageMark';
 import { ReplyQuoteLine } from '../ReplyQuoteBar';
 import { TickFailedIcon, TickPendingIcon, TickSentIcon, MicIcon } from '../Icon';
 import { renderFlags } from '../../lib/renderFlags';

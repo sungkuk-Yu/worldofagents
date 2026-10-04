@@ -101,7 +101,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const panel1440 = await B.getByTestId('context-panel').count();
     check('1440 — 우측 컨텍스트 패널 상시 노출', panel1440 > 0);
     const sidebar = await B.getByTestId('new-chat-button').count();
-    check('1440 — 좌측 세션목록 사이드바(재사용) 노출', sidebar >= 2); // 레일 + 홈 아님(레일 전용) — 카운트≥1이 원칙이나 세션 리스트 dual 확인용 relax
+    // t_fd869e5b 요구1 개정: 1440 채팅 좌측 레일 = 세션목록 대신 슬랙식 스레드 레일 —
+    // new-chat-button은 중앙 홈(전폭 목록)에만 1개, 레일은 thread-rail이 차지.
+    const threadRail = await B.getByTestId('thread-rail').count();
+    check('1440 — 좌측 레일 = 스레드 전용 공간(세션목록 대체)', sidebar === 1 && threadRail === 1, `new-chat=${sidebar} rail=${threadRail}`);
     await B.screenshot({ path: shot('03-pc-1440-3panel') });
     await B.setViewportSize({ width: 900, height: 1200 });
     await sleep(700);
