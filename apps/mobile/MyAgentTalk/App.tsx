@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { initializeApi, api } from './src/lib/api';
+import { bootstrapOAuthCallback, oauthEnabledProviders, peekOAuthNotice, subscribeNativeOAuthLink, wireOAuthSessionBridge } from './src/lib/oauth';
 import { setClassifyRequest } from './src/neurons/DialogTypeClassifier';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme, useNavigation, useNavigationContainerRef } from '@react-navigation/native';
@@ -126,6 +127,9 @@ export default function App() {
   const { width } = useWindowDimensions();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OAuth 실패 콜백 복귀 시 진입 화면을 Login으로 — '에러 시 한 줄 안내'가 스크롤 너머
+  // 온보딩 패널에 묻히는 것 방지(카드 §3). setReady 전에 결정돼 네비게이터 첫 렌더에 반영된다.
+  const [initialRoute, setInitialRoute] = useState<'Login' | 'DialogueList'>('DialogueList');
   // 폰트 번들 — 로드 완료 전에는 스플래시만 (폰트 없는 화면 노출 방지, 대표님 지시 2026-09-26)
   // 웹: Inter는 expo-font, PretendardVariable은 public/index.html CSS(@font-face, 로컬 woff2 + CDN 폴백)
   const [fontsLoaded] = useFonts({
@@ -152,7 +156,14 @@ export default function App() {
       }
     });
     void Promise.all([initializeApi(), initializeLanguage()])
-      .then(() => { if (!markStale()) setReady(true); })
+      // OAuth 세션 브리지 연결 (t_198b95cc): 401 리커버리 슬롯 + sb 핸들 슬롯 재충전.
+      // 플래그 OFF면 no-op(전제 조건인 client가 만들어지지 않는다).
+      .then(() => { wireOAuthSessionBridge(); return bootstrapOAuthCallback(); })
+      .then(() => {
+        if (markStale()) return;
+        if (peekOAuthNotice()) setInitialRoute('Login');
+        setReady(true);
+      })
       .catch(() => { if (!markStale()) setError('errors.bootstrap'); });
   };
   useEffect(() => {
@@ -160,12 +171,22 @@ export default function App() {
     runBootstrap(() => cancelled);
     return () => { cancelled = true; };
   }, []);
+  // 사이드바 레일 노출 범위 — 3패널 설계는 대화 경험(목록/채팅) 전용. 보드·볼트 등 전면 화면과 충돌 금지 (t_eded715c).
+  const navRef = useNavigationContainerRef();
+  // 네이티브 런타임 딥링크(백그라운드 복귀) 단일 리스너 — 웹은 no-op(이중 소비 금지, 카드 §4).
+  // 로그인 완료 시 목록으로 reset — NavigationContainer에 연결된 유일한 navRef를 재사용한다
+  // (두 번째 컨테이너 ref를 만들면 연결되지 않아 isReady가 영구 false — 버그).
+  useEffect(() => {
+    if (!ready || !oauthEnabledProviders().length) return;
+    const goHome = () => {
+      if (navRef.isReady()) navRef.reset({ index: 0, routes: [{ name: 'DialogueList' }] });
+    };
+    return subscribeNativeOAuthLink(goHome, () => { /* 안내는 LoginScreen이 takeOAuthNotice로 소비 */ });
+  }, [ready]);
   const retryBootstrap = () => {
     setError(null);
     runBootstrap(() => false);
   };
-  // 사이드바 레일 노출 범위 — 3패널 설계는 대화 경험(목록/채팅) 전용. 보드·볼트 등 전면 화면과 충돌 금지 (t_eded715c).
-  const navRef = useNavigationContainerRef();
   const [railVisible, setRailVisible] = useState(false);
   const syncRail = () => {
     const route = navRef.getCurrentRoute() as { name?: string } | undefined;
@@ -190,7 +211,7 @@ export default function App() {
           {Platform.OS === 'web' && layoutModeForWidth(width) !== 'mobile' && railVisible && <SidebarRail />}
           <View style={styles.mainColumn}>
           <Stack.Navigator
-            initialRouteName="DialogueList"
+            initialRouteName={initialRoute}
             screenOptions={{
               headerShown: false,
               // #52 애플 감성: native-stack 푸시(네이티브는 iOS 스와이프 백 포함 기본 유지),

@@ -74,6 +74,22 @@ export async function setToken(token: string | null): Promise<ApiConfig> {
   return next;
 }
 
+// ── OAuth 세션 리커버리 슬롯 (t_198b95cc) ─────────────
+// api.ts는 supabase를 모른다 — 부트스트랩(oauth.ts)이 플래그 ON일 때만 훅을 연결한다.
+// email/password 사용자는 훅 자체가 없거나 sb 세션 핸들이 비어 false → 현행 errors.auth 경로 1:1.
+// single-flight: 동시 401 다발은 1회 리커버리만 수행하고 결과를 공유한다(무한 루프·스톰 방지).
+let oauthRecovery: (() => Promise<boolean>) | null = null;
+let recoveryInFlight: Promise<boolean> | null = null;
+export function setOAuthRecovery(hook: (() => Promise<boolean>) | null): void {
+  oauthRecovery = hook;
+}
+async function tryOAuthRecovery(): Promise<boolean> {
+  if (!oauthRecovery) return false;
+  if (recoveryInFlight) return recoveryInFlight;
+  recoveryInFlight = Promise.resolve().then(() => oauthRecovery!()).finally(() => { recoveryInFlight = null; });
+  return recoveryInFlight;
+}
+
 export function getApiConfig(): ApiConfig {
   return config;
 }
@@ -95,8 +111,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}),
     ...(init?.headers as Record<string, string>),
   };
-  const res = await fetch(`${config.apiUrl}${path}`, { ...init, headers });
+  let res = await fetch(`${config.apiUrl}${path}`, { ...init, headers });
   if (!res.ok) {
+    // OAuth 세션 리커버리 폴백 (t_198b95cc 카드 §4): 401 + ours JWT 보유 + supabase 세션 핸들
+    // 존재(OAuth 로그인 사용자) → sb 리프레시로 재exchange 1회 후 원 요청 재시도.
+    // email/password 로그인은 sb 핸들이 없어 즉시 false → 현행 errors.auth 경로와 1:1.
+    // single-flight: 동시 401 다발은 1회 exchange만 수행하고 나머지 대기는 결과를 공유한다.
+    if (res.status === 401 && config.token) {
+      const recovered = await tryOAuthRecovery();
+      if (recovered) {
+        const retryHeaders: Record<string, string> = { ...headers, Authorization: `Bearer ${config.token}` };
+        const retry = await fetch(`${config.apiUrl}${path}`, { ...init, headers: retryHeaders });
+        if (retry.ok) return (await retry.json()) as T;
+        res = retry; // 재시도도 실패 → 아래 매핑으로 errors.auth
+      }
+    }
     if (res.status === 400) {
       const body = await res.json().catch(() => null);
       const code = body?.error?.code ?? body?.code;

@@ -6,7 +6,10 @@ import React, { useRef, useState } from 'react';
 import { Modal, ScrollView, View, StyleSheet } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
-import { api, setToken } from '../../lib/api';
+import { api } from '../../lib/api';
+// OAuth 로그인 사용자는 탈퇴 시 sb 세션(리프레시 핸들)도 함께 파기 — ours JWT 저장소만
+// 지우면 재exchange로 삭제된 계정에 다시 발 디딜 수 있다(개인정보 파기 원칙, t_198b95cc §2).
+import { signOutOAuth } from '../../lib/oauth';
 import { errorKey } from '../../lib/errorKeys';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -25,7 +28,8 @@ export default function WithdrawDialog({ navigation, onClose }: {
       const env = await api.deleteMe();
       if (!env.ok || env.data?.deleted !== true) throw new Error('errors.withdraw');
       // 서버가 계정을 파기했으므로 로컬 세션/토큰도 즉시 정리 → 로그인 화면으로.
-      await setToken(null);
+      // OAuth 세션(리프레시 핸들 포함)도 함께 파기(signOutOAuth) — 재exchange 재진입 차단.
+      await signOutOAuth();
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
       onClose();
     } catch (e) {
