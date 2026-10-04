@@ -435,15 +435,19 @@ export default function ChatScreen({ navigation, route }: Props) {
   const sheetSelect = useCallback(() => { if (actionTarget) beginSelection(actionTarget.id); }, [actionTarget, beginSelection]);
   // 예/아니오 빠른 회신 (t_043539ff 조이스틱 대응 — 발화 '예'/'아니오' 동일): suggested 칩(sendSuggested)과
   // 동일 전송 경로. 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
-  const sendPendingReply = useCallback((utterance: string) => {
+  // t_0e03e405 FINAL SCOPE 1 — 회신 대상 행 ID에 reply_to를 attaches (구조 묶음; 대상이 히스토리 밖이면
+  // 서버가 null 강등 후 발화 통과 — invalid-무시 계약, 무해).
+  const sendPendingReply = useCallback((messageId: string, utterance: string) => {
     if (isDemo) return;
-    void send(utterance).then((res) => {
+    const target = messages.find((m) => m.id === messageId);
+    const quote = target && canReplyTo(target) ? localReplyQuote(target, agentName) : undefined;
+    void send(utterance, undefined, quote).then((res) => {
       if (!res.ok) {
         setInput((current) => restoreFailedDraft(current, utterance));
         setSendFailed(true);
       }
     });
-  }, [isDemo, send, setInput, setSendFailed]);
+  }, [isDemo, send, setInput, setSendFailed, messages, agentName]);
   const jumpComposePending = useCallback((messageId: string) => {
     setPendingOpen(false); // 시트를 닫아야 점프한 카드와 입력창이 보인다
     requestJump(messageId);
@@ -729,8 +733,13 @@ export default function ChatScreen({ navigation, route }: Props) {
   const confirmView = useMemo(() => buildConfirmView(messages), [messages]);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
-    void send(text);
-  }, [isDemo, send]);
+    // t_0e03e405 FINAL SCOPE 1 — 확인응답 발화에 대상 재질문(empathy) 행의 reply_to를 attaches:
+    // DB 레벨 구조 묶음 → 히스토리 재현·서버 스냅샷에서도 확인응답이 문장이 아니라 구조로 판정된다.
+    // ('예'를 리플라이 칩으로 단다 = 대표님 오탐-금지 조항과 정합: 맨 발화 일반 질문은 이 경로 없음.)
+    const target = ackChip?.id ? messages.find((m) => m.id === ackChip.id) : undefined;
+    const quote = target && canReplyTo(target) ? localReplyQuote(target, agentName) : undefined;
+    void send(text, undefined, quote);
+  }, [isDemo, send, ackChip, messages, agentName]);
 
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
@@ -779,7 +788,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         visible={pendingOpen}
         items={pendingReplies}
         onClose={() => setPendingOpen(false)}
-        onQuickReply={(_messageId, utterance) => sendPendingReply(utterance)}
+        onQuickReply={sendPendingReply}
         onJumpCompose={jumpComposePending}
       />
       {/* 카드 롱프레스 액션 시트 (t_62897e88) — 답글/즐겨찾기/갈라내기/선택. transparent Modal:
