@@ -59,7 +59,6 @@ import { ChatMessage, TurnGroup, FeedItem, groupByTurn, insertDateSeparators, is
 import DateSeparatorRow from '../components/chat/DateSeparatorRow';
 import DatePinnedHeader, { DatePinnedHandle, SepMetric } from '../components/chat/DatePinnedHeader';
 import { formatDateSeparator } from '../i18n/format';
-import QueueStrip from '../components/QueueStrip';
 import RelayCaptionStrip from '../components/RelayCaptionStrip';
 import ThreadListModal from '../components/ThreadListModal';
 import MessageActionSheet from '../components/MessageActionSheet';
@@ -67,7 +66,9 @@ import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
 import { ackResultCardIds } from '../lib/ackChips';
-import { QUIET_PROGRESS, SENDER_GROUPING } from '../lib/featureFlags';
+// QUIET_PROGRESS는 스트립 폐기(t_3c882443)로 ChatScreen 내 잔사용처 소멸 — 타이핑/스트리밍 억제
+// 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
+import { SENDER_GROUPING } from '../lib/featureFlags';
 import { renderFlags } from '../lib/renderFlags';
 import { createDraftSaver, readDraft } from '../lib/draftStore';
 
@@ -88,7 +89,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   const initialSessionId: string | undefined = route?.params?.sessionId;
   // 즐겨찾기 딥링크 (Wave1): focusMessageId로 진입 → 해당 메시지까지 스크롤 + 하이라이트 1회
   const focusMessageId: string | undefined = route?.params?.focusMessageId;
-  // 상단 큐 스트립 칩 탭 점프 (t_2f45ccb1) — 점프 요청/폴링은 useQueueStrip이 소유 (t_91cb659c 응집).
+  // 큐 점프/폴링 컨트롤러 — 스트립 폐기(t_3c882443) 후에도 requestJump(인용 라인·답변 대기·트래커 행 탭)와
+  // GET /queue 보조 폴링(마커 상태 원료)은 useQueueStrip이 소유한다 (t_91cb659c 응집 계승).
 
   const {
     messages, sessionId, enterDemo,
@@ -128,6 +130,12 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const sessionTitle = titleOverride ?? (route?.params?.sessionTitle || agentName);
+  // 탭 제목 발행 (t_3c882443 요구1): App.tsx의 documentTitle formatter가 Chat 라우트에서
+  // 이 options.title(방명)을 받아 '방명 — 마이에이전트톡'으로 조립한다. 세션 전환/방명 확정·
+  // 낙관 개명(titleOverride) 시 갱신 — t_8917ca0d sessionTitle 캐논과 단일 소스.
+  useEffect(() => {
+    navigation.setOptions?.({ title: sessionTitle });
+  }, [navigation, sessionTitle]);
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
   // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
   const threadSheet = useRef<ThreadSheetHandle>(null);
@@ -369,7 +377,8 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
     setForkMessage(m);
   }, [messages, isDemo, sessionId, setForkMessage, setUnavailableError]);
-  // 상단 큐 스트립 (t_2f45ccb1 → t_91cb659c 응집): 칩 행 빌드 · GET /queue 보조 폴링 · 칩 탭 점프 요청은 useQueueStrip 소유.
+  // 점프+큐 폴링 컨트롤러 (t_2f45ccb1 → t_91cb659c 응집 → t_3c882443 스트립 폐기): 칩 행 빌드는 제거,
+  // requestJump와 GET /queue 보조 폴링만 useQueueStrip이 소유 (트래커·마커·인용 점프가 소비자).
   const strip = useQueueStrip({ sessionId, live: !isDemo, messages, queue, applyQueueSnapshot });
   // 답변 대기 (t_363c0faa): GET /pending 보조 폴링(부트스트랩 1회 + 미해소 중 15초 + 런 종료 직후 1회)은
   // usePendingReplies가 소유 — WS reply.pending.updated가 단일 상태원천 (queue 계층 원칙 동일).
@@ -731,10 +740,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
 
-      {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기.
-          t_64e3edd6 ③ (#324/#325 QUIET_PROGRESS): 스트리밍/타이핑 중에는 칩 행 숨김 — 병렬 위젯 창 축소,
-          카드 스트림+입력 위 한 줄만 남긴다. 런 종료 후 복원(도중 칩 갱신도 잠시 숨김 — 의도된 단순화). */}
-      <QueueStrip items={QUIET_PROGRESS && (typing || streams.length > 0) ? [] : strip.items} canFork={canFork && !isDemo} onJump={strip.requestJump} onReply={openThreadOf} onFork={forkOf} />
+      {/* 상단 질문 큐 스트립 폐기 (t_3c882443 요구3, 대표님 10/4 "위젯 중복 제거") — 진행 상황은
+          내 질문 트래커(t_fd869e5b)로 이관. 칩의 카드 점프는 트래커 행 탭이 strip.requestJump를
+          그대로 재사용하고, queue 폴링/WS 단일 상태원천은 QueueMessageMark(카드 행 마커)가 유지. */}
       <ThreadListModal visible={threadsOpen} threads={threads} onClose={() => setThreadsOpen(false)} onOpenThread={openThreadOf} />
       {/* 답변 대기 모달 (t_363c0faa) — 발췌 목록 + 예/아니오 빠른 회신 + freeform 점프. 해소 스냅샷(count 0) 시 자동 닫힘. */}
       <PendingReplyModal

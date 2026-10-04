@@ -44,8 +44,8 @@ function check(name, cond, extra = '') {
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
   await page.screenshot({ path: shot('01-initial') });
-  // t_64af90b0 #11 — 헤더 로고가 '마이에이전트톡' → 초록 MAT 워드마크로 교체됨
-  const headerVisible = await page.getByText('MAT').first().isVisible().catch(() => false);
+  // t_3c882443 요구2 — 헤더 로고가 'MAT' 텍스트 → g3 마크 이미지 락업(header-brand)으로 교체됨
+  const headerVisible = await page.getByTestId('header-brand').first().isVisible().catch(() => false);
   check('앱 로드 — 헤더 표시', headerVisible);
 
   // 2) 로그인 화면 → dev 회원가입/로그인

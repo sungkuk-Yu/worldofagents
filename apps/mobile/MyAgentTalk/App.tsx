@@ -183,7 +183,12 @@ export default function App() {
       {/* #52: 카드 스레드 바텀시트(디텐트) — BottomSheetModalProvider는 GestureHandlerRootView 하위에 */}
       <BottomSheetModalProvider>
       <PaperProvider theme={PaperTheme}>
-        <NavigationContainer ref={navRef} theme={AppTheme} onReady={syncRail} onStateChange={syncRail}>
+        {/* 탭 제목 브랜딩 (t_3c882443 요구1, 대표님 10/4 "브라우저 탭에 그냥 '채팅'이라고 나와"):
+            기본값 = '마이에이전트톡', 채팅 화면 진입 시에만 '대화방명 — 마이에이전트톡'.
+            ChatScreen이 navigation.setOptions({ title: sessionTitle })로 방명을 발행하면 formatter가 조립한다.
+            (documentTitle은 웹 전용 — 네이티브는 useDocumentTitle.native no-op, headerShown:false라 헤더 영향 없음.) */}
+        <NavigationContainer ref={navRef} theme={AppTheme} onReady={syncRail} onStateChange={syncRail}
+          documentTitle={{ formatter: (options, route) => (route?.name === 'Chat' && options?.title ? `${options.title} — ${t('common.app')}` : t('common.app')) }}>
           {/* 반응형 2트랙 (t_eded715c): PC 웹(≥768) = 사이드바(세션목록) + 중앙 Stack 본문.
               모바일/네이티브는 레일 없이 Stack 단독 — 기존 단일 컬럼과 동일 경로. */}
           <View style={styles.shellRow}>
