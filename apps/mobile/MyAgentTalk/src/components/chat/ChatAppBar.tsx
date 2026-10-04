@@ -25,9 +25,11 @@ interface Props {
   onOpenThreads: () => void;
   onOpenPending: () => void;
   onBeginSelection: () => void;
+  /** 제목 수정 진입 (t_8917ca0d ③ — 헤더 탭). 데모/세션 없음 화면에서는 미전달 = 비활성. */
+  onRequestRename?: () => void;
 }
 
-export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, onBack, onOpenThreads, onOpenPending, onBeginSelection }: Props) {
+export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, onBack, onOpenThreads, onOpenPending, onBeginSelection, onRequestRename }: Props) {
   const { t, i18n } = useTranslation();
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
@@ -50,7 +52,10 @@ export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, con
         </TouchableOpacity>
       )}
       <View style={styles.headerBody}>
-        <Text style={styles.appbarTitle} numberOfLines={1}>{selection.active ? t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) }) : sessionTitle}</Text>
+        {/* 제목 탭 = 대화 제목 수정 (t_8917ca0d ③). 데모/미전달 시 순수 텍스트로 무해. */}
+        <TouchableOpacity testID="rename-session-open" disabled={!onRequestRename} onPress={onRequestRename} accessibilityLabel={t('rename.title')}>
+          <Text style={styles.appbarTitle} numberOfLines={1} testID="chat-appbar-title">{selection.active ? t('selection.count', { countText: formatNumber(selection.ids.length, i18n.language) }) : sessionTitle}</Text>
+        </TouchableOpacity>
         {!selection.active && <View style={styles.subtitleRow}>
           <Text
             style={[styles.appbarSubtitle, { color: isDemo ? colors.statusWarn : connectionColor }]}

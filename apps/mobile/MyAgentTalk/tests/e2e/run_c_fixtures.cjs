@@ -152,7 +152,17 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       if (state.unsupportedFork) return route.fulfill({ status: 405, json: {} });
       const session = { id: 'forked', title: body.new_session_title, agent_id: 'agent', status: 'active', forked_from: { session_id: fork[1], message_id: body.from_message_id, title: 'Original project' } };
       state.sessions.push(session); state.messages.forked = [...state.messages.source];
-      return ok(session);
+      // 백엔드 실 계약 미러 (ebb43791~): data = { session, copied } 래퍼 (t_8917ca0d 루트cause 재발 방지)
+      return ok({ session, copied: { messages: (state.messages.source || []).length, memories: 0, transcripts: 0, context_patches: 0 } });
+    }
+    // 대화 제목 수정 (t_8917ca0d ③) — 백카드 t_8917ca0d-be 컨트랙트 미러: PATCH /api/sessions/:id/title
+    const rename = path.match(/^\/api\/sessions\/([^/]+)\/title$/);
+    if (rename && request.method() === 'PATCH') {
+      const target = state.sessions.find((s) => s.id === rename[1]);
+      if (!target) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'NOT_FOUND', message: 'no session' } } });
+      if (typeof body.title !== 'string' || !body.title.trim()) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'VALIDATION_ERROR', message: 'bad title' } } });
+      target.title = body.title.trim();
+      return ok(target);
     }
     const messages = path.match(/^\/api\/sessions\/([^/]+)\/messages$/);
     if (messages) {

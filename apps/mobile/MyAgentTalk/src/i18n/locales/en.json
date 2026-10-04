@@ -85,7 +85,7 @@
     "photoQuestion": "Photo question",
     "count": "{{countText}} questions",
     "replyAction": "Reply",
-    "forkAction": "Fork",
+    "forkAction": "Thread",
     "threadsTitle": "Reply threads",
     "threadsEmpty": "No questions have replies yet.",
     "filterActive": "Active",
@@ -249,6 +249,7 @@
     "unsupported": "This server does not support this feature yet.",
     "thread": "Could not load these replies. Please try again.",
     "fork": "Couldn't fork this chat. Please try again.",
+    "renameSession": "Couldn't rename this chat. Please try again.",
     "withdraw": "We couldn't complete the withdrawal. Check your connection and try again.",
     "file": "Could not open this file.",
     "favorite": "Couldn't update the favorite. Please try again.",
@@ -299,6 +300,11 @@
     "lineage": "Forked from ⟨{{origin}}⟩",
     "original": "Original conversation",
     "badge": "Forked"
+  },
+  "rename": {
+    "prompt": "Rename this conversation.",
+    "title": "Chat title",
+    "save": "Save"
   },
   "favorites": {
     "title": "Favorites",

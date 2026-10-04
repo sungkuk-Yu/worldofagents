@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import ResumeBanner from '../components/ResumeBanner';
+import SessionTitleDialog from '../components/SessionTitleDialog';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { newChatTapAction, newChatQueuedAction } from '../lib/newChatTap';
@@ -29,6 +30,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   // 데이터로 그 순간 실행(재탭과 동일 결과). 실행은 loading→!loading 전환 useEffect에서.
   const queuedTap = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // 제목 수정 (t_8917ca0d ③) — 목록 행 롱프레스 → SessionTitleDialog. 저장 성공 시 로컬 행 즉시 갱신
+  // (refocus 시 서버 재fetch가 캐논, 낙관 반영은 목록 잔상 제거용).
+  const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
   const agentTitle = (agent?: AgentSummary) => agent?.preset?.titleKey && i18n.exists(agent.preset.titleKey)
     ? t(agent.preset.titleKey) : agent?.name || t('common.agent');
   const refresh = useCallback(async () => {
@@ -147,6 +151,7 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
         const date = item.last_activity_at ? new Date(item.last_activity_at) : null;
         return <TouchableOpacity style={[styles.dialogueCard, { borderLeftColor: colors.accent }]} testID="session-card"
           onPress={() => navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetCategory: agent?.preset?.category, presetTitleKey: agent?.preset?.titleKey })}
+          onLongPress={() => setRenameTarget(item)} delayLongPress={450}
           accessibilityLabel={t('dialogueList.continue', { agentName })}>
           <View style={styles.dialogueBody}><Text style={[styles.dialogueType, { color: colors.accent }]} numberOfLines={1}>{agentName}</Text>
             {/* t_64af90b0 #6 — 제목 한 줄 ellipsis + word-break:keep-all(한글 어절 유지, 세로 줄바꿈 파손 방지),
@@ -159,6 +164,13 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
           </View>
         </TouchableOpacity>;
       }} ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyText}>{t('dialogueList.empty')}</Text><Text style={styles.emptySubtext}>{t('dialogueList.start')}</Text></View>} />}
+    {/* 제목 수정 다이얼로그 (t_8917ca0d ③) — 저장 성공 시 행 제목만 낙관 갱신(서버가 캐논) */}
+    {renameTarget && <SessionTitleDialog
+      sessionId={renameTarget.id}
+      title={renameTarget.title || ''}
+      onClose={() => setRenameTarget(null)}
+      onRenamed={(next) => setSessions((cur) => cur.map((s) => (s.id === renameTarget.id ? { ...s, title: next } : s)))}
+    />}
   </SafeAreaView>;
 }
 
