@@ -20,7 +20,9 @@ import { colors, radii, spacing, typography, iconSize } from '../theme';
 import { validateMessageInput } from '../lib/chatLogic';
 import { voiceStageHeight } from '../lib/voiceStage';
 import { formatNumber } from '../i18n/format';
-import { INPUT_MIN_HEIGHT, inputHeightFor, inputScrolls, shouldSendOnEnter } from '../lib/chatInputLogic';
+import { INPUT_MIN_HEIGHT, inputHeightFor, inputScrolls, composerAction } from '../lib/chatInputLogic';
+import { getPttKey } from '../lib/userPrefs';
+import { PTT_DEFAULT_KEY } from '../lib/pttLogic';
 
 interface Props {
   value: string;
@@ -54,6 +56,12 @@ interface Props {
   /** 답변 대기 freeform 점프 (t_363c0faa) — 값이 바뀌면 음성 모드에서도 키보드 입력바를 개방(focus).
    *  0 = 요청 없음. nonce 패턴: 같은 행 재탭에도 재발동 (queue strip jump nonce와 동일 관례). */
   forceOpenKeyboard?: number;
+  /** t_2f296081 ③: 입력창(B) 포커스 중 pttKey(V) 타격 = 음성 홀드/토글 시작. 화면 ptt.press 주입.
+   *  발동 시 B→A 즉시 전환(스테이지 링이 녹음 시각화) + preventDefault('v' 타이핑 억제). */
+  onVoicePress?: () => void;
+  /** t_2f296081 ③: 로컬 캡처 활성(ptt.active) — VoiceStage 합성 홀드(링+리본+타이머) 소스.
+   *  recording(=active||talking)과 달리 서버 전사 중에는 true가 아니라 릴리스 직전까지만 켜진다. */
+  pttCapturing?: boolean;
   /** 세로 뷰포트(px) — 스트립 높이 = 30% (voiceStageHeight) */
   viewportHeight: number;
   /** A 계층(스트립) 마운트 상태 통지 — 화면의 리스트 하단 패딩(=strip 실높이) 계약용 (#311).
@@ -66,6 +74,7 @@ export default function ChatInputConsole({
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
   voiceMode, initialKeyboardOpen, recording, level, pttError, pttPending,
   onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive, forceOpenKeyboard, viewportHeight,
+  onVoicePress, pttCapturing,
   onStageActiveChange,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -102,18 +111,42 @@ export default function ChatInputConsole({
   // 네이티브(0.86): submitBehavior='submit' 계약이 동일 분기를 수행하고 DOM nativeEvent가 없어 no-op.
   const submitRef = useRef(onSubmit);
   useLayoutEffect(() => { submitRef.current = onSubmit; }, [onSubmit]); // 전송 시점에 항상 최신 submit(첨부 게이트/드래프트 클로저) — 렌더 중 ref 기록 금지(lint)
-  const handleEnterKey = useCallback((e: { nativeEvent?: unknown }) => {
+  // t_2f296081 ③ (대표님 10/4): B 계층 입력창 포커스 중 pttKey(V, userPrefs 단일 소스) 타격 =
+  // 음성 홀드/토글 시작. 전역 window keydown은 isEditableFocus(입력 포커스)에서 스킵하므로
+  // 이중 발동 없음 — capture가 입력창 한정 예외로 press()를 직접 호출하고, 전역 keyup(동일 키,
+  // 포커스 예외 없음)이 기존대로 release/cancel을 담당한다(hold 모드 릴리스 전송·toggle 재타격
+  // 종료 모두 성립). preventDefault는 'v' 문자 삽입 차단 = pttKey 우선 병합(대표님 지시).
+  // 마이크 버튼(chat-voice-back)은 상시 병존 유지 — 키를 모르는 사용자도 클릭 가능(#304 계약).
+  const voicePressRef = useRef(onVoicePress);
+  useLayoutEffect(() => { voicePressRef.current = onVoicePress; }, [onVoicePress]);
+  // PTT 장착 게이트: onVoicePress는 화면이 PTT 활성 상태에서만 주입한다(t_2f296081 ③ 설계 —
+  // 데모/미연결은 화면이 콜백 없이 전달, 또는 undefined). 데모는 startHold가 no-op이라 무해.
+  const voiceActiveRef = useRef({ enabled: false });
+  useLayoutEffect(() => { voiceActiveRef.current = { enabled: Platform.OS === 'web' && !!onVoicePress }; }, [onVoicePress]);
+  const handleInputKeyDown = useCallback((e: { nativeEvent?: unknown }) => {
     if (Platform.OS !== 'web') return;
     const native = e.nativeEvent as KeyboardEvent | undefined;
     if (!native || native.defaultPrevented) return;
-    if (!shouldSendOnEnter(native)) return;
-    native.preventDefault();
-    submitRef.current();
+    const action = composerAction(native, { pttKey: getPttKey() ?? PTT_DEFAULT_KEY, voiceEnabled: voiceActiveRef.current.enabled });
+    if (action === 'send') {
+      native.preventDefault();
+      submitRef.current();
+    } else if (action === 'voice') {
+      native.preventDefault(); // 'v' 타이핑 차단 — 키 재매핑 시 새 키가 동일 역할(단일 소스)
+      // React 컨테이너는 document 루트 — 이 capture 단계에서 네이티브 전파를 끊어야 window
+      // keydown(PTT 전역 리스너, isEditableFocus 스킵 대상)에 도달하기 전에 소비된다.
+      // 안 끊으면: 포커스가 스테이지로 이동한 뒤 bubbles: true 재분합 상승 이벤트가 window
+      // 리스너를 관통 → toggle 모드 재호출(녹음 정지) 위험. keyup은 창 밖이라 무영향(릴리스 정상).
+      native.stopPropagation();
+      setKeyboardOpen(false); // 즉시 A 진입 — 스테이지 링이 녹음 시각화(owner: VoiceStage)
+      voicePressRef.current?.();
+    }
+    // 'newline'/'pass': 개입 없음 — textarea 개행·OS 편집 단축키(Ctrl+X/Z/C/V)·드래그 선택 그대로.
   }, []);
   // RN 0.86 .d.ts가 TextInputProps에 capture·rows를 선언 누락(flow/RNW에는 존재) → 웹 전용 props 스프레드.
   // rows=1 필수: textarea의 height:'auto' 계측은 rows가 box 높이를 정하므로, 기본 rows=2면 1줄 본문도
   // scrollHeight 2줄로 나온다(MUI TextareaAutosize 동일 처방). 네이티브는 rows 미지원 prop = 무시(no-op).
-  const WEB_INPUT_PROPS = { onKeyDownCapture: handleEnterKey, rows: 1 } as Record<string, unknown>;
+  const WEB_INPUT_PROPS = { onKeyDownCapture: handleInputKeyDown, rows: 1 } as Record<string, unknown>;
   // ── t_c690274e 요구 3: 높이 성장(1줄→최대 5줄, 초과 내부 스크롤)·발송(value 소거) 후 원복 ──
   // MUI TextareaAutosize와 동일한 명령형 계측: height auto→scrollHeight(패딩 포함 자연 높이)→[48,155.75] 클램프.
   // React 스타일에 height를 넣지 않는 이유: 고정 높이에서 scrollHeight는 clientHeight에 물려 축소 계측이
@@ -162,6 +195,7 @@ export default function ChatInputConsole({
             level={level}
             error={pttError}
             pending={pttPending}
+            externalHolding={pttCapturing}
           />
         </View>
       )}

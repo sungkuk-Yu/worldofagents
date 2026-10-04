@@ -26,14 +26,62 @@ export function shouldSendOnEnter(e: EnterKeyLike): boolean {
   return true;
 }
 
-// ── 높이 성장 (요구 3): 1줄 → 최대 5줄, 초과 시 내부 스크롤, 발송(=value 소거) 후 원복 ──
+/**
+ * 입력창 capture 키 → 동작 분해 (t_2f296081, 대표님 10/4 통합 메모).
+ * 표준 메신저 계약 + PTT 단일 소스:
+ *  - 'send'    : Enter 단독(non-composing) — capture에서 preventDefault+submit 승격.
+ *  - 'newline' : Shift+Enter — preventDefault 없이 기본 개행에 양보.
+ *  - 'voice'   : pttKey(userPrefs 재매핑 반영, 코드와 무관한 물리 code 키공간) 타격 —
+ *                전역 window 리스너의 isEditableFocus(입력 포커스) 예외 영역에서
+ *                입력창이 직접 승격한다(pttKey 우선 병합, 'v' 문자 삽입은 preventDefault 차단).
+ *                IME 조합 중(한글 2돌림 'v'=ㅌ 시작)·수정자 조합(Ctrl+V 등 편집 단축키
+ *                t_2f296081 ②)·auto-repeat(홀드 중 재호출 금지)은 전부 pass.
+ *                hold 모드면 keyup에서 release 승격(holdMode=true), toggle 모드는 keydown 토글만.
+ *  - 'pass'    : 나머지 전부 — OS 편집 기본기(잘라내기/붙여넣기/undo/드래그 선택) 불간섭.
+ * 네이티브(0.86)는 DOM 키 이벤트가 없어 이 함수를 참조하지 않는다(컴포넌트 Platform 게이트).
+ */
+export type ComposerAction = 'send' | 'newline' | 'voice' | 'pass';
+
+/** capture 스냅샷 — EnterKeyLike에 물리 code/수정자/자동반복을 더한 전 키 형상 */
+export interface ComposerKeyLike extends EnterKeyLike {
+  code?: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+  repeat?: boolean;
+}
+
+export interface ComposerKeyOptions {
+  /** userPrefs.getPttKey() 정규화값(기본 'KeyV') — 설정 화면 재매핑과 단일 소스 */
+  pttKey: string;
+  /** 입력창 포커스 중 pttKey 승격 활성 (웹 && PTT 장착 && 콜백 주입) */
+  voiceEnabled: boolean;
+}
+
+/** 입력창 capture 키 → 동작. shouldSendOnEnter(단독 Enter)와 상호 배타 분해. */
+export function composerAction(e: ComposerKeyLike, opts: ComposerKeyOptions): ComposerAction {
+  if (shouldSendOnEnter(e)) return 'send';
+  if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) return 'newline';
+  // voice: 수정자 조합(Ctrl+V 붙여넣기 등 편집 단축키 — t_2f296081 ②)·auto-repeat(홀드 중
+  // 재호출 금지)·IME 조합 중(한글 2돌림 'v'=ㅌ 시작, keyCode 229)은 전부 pass.
+  if (opts.voiceEnabled && e.code && e.code === opts.pttKey &&
+      !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat &&
+      !e.isComposing && e.keyCode !== 229) {
+    return 'voice';
+  }
+  return 'pass';
+}
+
+// ── 높이 성장 (요구 3): 1줄 → 최대 4줄, 초과 시 내부 스크롤, 발송(=value 소거) 후 원복 ──
 // 계측 기준: paper outlined multiline dense(라벨 없음)의 textarea 패딩 = contentAreaPadding
 // (dense?10:20) 상하합 20. scrollHeight는 content+padding이라 아래 상수와 자동 상쇄된다.
+// t_2f296081 (대표님 10/4 통합 메모 ①): '최대 4줄+스크롤' 명시 — t_c690274e 원지시 5줄 대비
+// 최신 발화 우선으로 상한 4줄. 스크롤·발송 후 원복 규칙 불변.
 export const INPUT_LINE_HEIGHT = 26.35;      // typography.body 17×1.55 (t_99322cc0)
-export const INPUT_MAX_LINES = 5;
-export const INPUT_PAD_V = 24;               // textarea 상하 패딩 실측(~22) + 여유 2 — 5줄이 MAX에 걸려 2px 잘림 나는 것 방지
+export const INPUT_MAX_LINES = 4;
+export const INPUT_PAD_V = 24;               // textarea 상하 패딩 실측(~22) + 여유 2 — MAX 경계 줄이 2px 잘리는 것 방지
 export const INPUT_MIN_HEIGHT = 48;          // dense outlined 1줄 시각 높이(MIN_DENSE_HEIGHT_OUTLINED) — 축소 금지
-export const INPUT_MAX_HEIGHT = INPUT_MAX_LINES * INPUT_LINE_HEIGHT + INPUT_PAD_V; // 155.75
+export const INPUT_MAX_HEIGHT = INPUT_MAX_LINES * INPUT_LINE_HEIGHT + INPUT_PAD_V; // 129.4
 
 /**
  * textarea 자연 높이(scrollHeight; height:'auto' 풀 상태에서 계측) → 입력창 높이 px.

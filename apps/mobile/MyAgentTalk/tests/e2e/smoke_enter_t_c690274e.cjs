@@ -100,12 +100,13 @@ async function openSession(browser, viewport) {
       await page.screenshot({ path: shot('P3-composing-enter-hold') });
 
       // P4 8줄 장문 → MAX 클램프 + 내부 스크롤
+      // t_2f296081 (대표님 10/4 통합 메모 ①): 상한 5줄→4줄 — 클램프 ≈129.4(4×26.35+24).
       await page.keyboard.press('Shift+Enter'); // 조합 종료 정리용 개행 하나
       const LONG = Array.from({ length: 8 }, (_, i) => `줄${i + 1}`).join('\n');
       await inp.fill(LONG);
       await page.waitForTimeout(150);
       box = await taBox(page);
-      check('P4 8줄 → 높이 클램프(≈156, 5줄+패딩)', box.h >= 140 && box.h <= 162, `h=${box.h.toFixed(1)}`);
+      check('P4 8줄 → 높이 클램프(≈129, 4줄+패딩 — 10/4 통합 메모 4줄 상한)', box.h >= 112 && box.h <= 136, `h=${box.h.toFixed(1)}`);
       check('P4 초과분 내부 스크롤(scrollHeight>clientHeight, overflowY auto)', box.sh > box.cy && box.oy === 'auto', `sh=${box.sh} cy=${box.cy} oy=${box.oy}`);
       await page.screenshot({ path: shot('P4-eight-lines-clamp') });
 
