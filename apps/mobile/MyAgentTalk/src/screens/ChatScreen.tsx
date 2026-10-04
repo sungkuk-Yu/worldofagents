@@ -13,6 +13,7 @@ import { useLayout } from '../hooks/useLayout';
 import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
+import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
 import { voiceStageHeight, chatListPaddingOverride } from '../lib/voiceStage';
@@ -350,6 +351,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 답글 스레드 목록 모달 (t_2f45ccb1 확장 3) — 앱바 우측 버튼, 배지 = 활성(미종료) 스레드 수.
   const [threadsOpen, setThreadsOpen] = useState(false);
   const activeThreadCount = threads.filter((th) => !th.ended).length;
+  // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
   // 칩/모달 액션: 메시지 id → 카드(답글/갈라내기 대상) — 히스토리 밖이면 조용히 무시.
   const openThreadOf = useCallback((messageId: string) => {
     setThreadsOpen(false);
@@ -916,6 +919,8 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
+      {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점. */}
+      <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
       <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
@@ -924,7 +929,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       <ContextPanel
         sessionId={sessionId ?? null}
         messages={messages}
-        onOpenFavorites={() => navigation.navigate('Favorites')}
+        onOpenFavorites={() => setFavoritesOpen(true)}
       />
     )}
     </View>

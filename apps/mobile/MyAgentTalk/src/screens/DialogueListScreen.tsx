@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import ResumeBanner from '../components/ResumeBanner';
+import FavoritesModal from '../components/FavoritesModal';
 import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { newChatTapAction, newChatQueuedAction } from '../lib/newChatTap';
@@ -29,6 +30,8 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   // 데이터로 그 순간 실행(재탭과 동일 결과). 실행은 loading→!loading 전환 useEffect에서.
   const queuedTap = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // 즐겨찾기 상단 모달 (t_fd869e5b 요구3, 대표님 10/4 "즐겨찾기는 모달로 상단부에 내비줘서 바로 찾아볼수 있도록")
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
   const agentTitle = (agent?: AgentSummary) => agent?.preset?.titleKey && i18n.exists(agent.preset.titleKey)
     ? t(agent.preset.titleKey) : agent?.name || t('common.agent');
   const refresh = useCallback(async () => {
@@ -96,11 +99,13 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       <View style={styles.headerRight}>
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
         {/* t_64af90b0 #2 — 이모지/문자 글리프 버튼 → SVG 아이콘 (접근성 라벨 유지) */}
-        <TouchableOpacity onPress={() => navigation.navigate('Favorites')} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><StarIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
+        {/* 즐겨찾기 (t_fd869e5b 요구3): 헤더 탭 = 상단 모달(라우트 push 아님) — ★ 탭 → 즉시 목록 열람.
+            Favorites 라우트는 조이스틱 매크로 등 타 진입점 호환 위해 보존. */}
+        <TouchableOpacity onPress={() => setFavoritesOpen(true)} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><StarIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
         {/* 피드 진입 (t_4497cfce P0-2): 즐겨찾기 소스 이미지/영상 그리드 */}
         <TouchableOpacity onPress={() => navigation.navigate('Feed')} testID="feed-button" style={styles.settingsButton} accessibilityLabel={t('feed.title')}><FeedIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
-        {/* 볼트/보드 진입 (Wave2 t_174b66d2) — t_fd869e5b 요구2 (대표님 10/4): 볼트 노트 UI 폐기,
-            사용자에게 보이지 않고 서버 내부 저장만 유지. 물리 파일·API 그대로, 진입 버튼만 제거. 보드는 유지. */}
+        {/* t_fd869e5b 요구2 (대표님 10/4): 볼트 노트 UI 폐기 — 사용자는 보지 않고 서버 내부 저장만 유지.
+            물리 파일·API(t_d469fac3 사이드카) 그대로, 진입 버튼만 제거. 보드는 유지. */}
         <TouchableOpacity onPress={() => navigation.navigate('Board')} testID="board-button" style={styles.settingsButton} accessibilityLabel={t('board.title')}><BoardIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
         {/* 음성 홈 진입 (t_5de18a91 — 3모드 입력 실사용/검증 경로. Phase 1부터 화면만 있고 진입점이 없었음) */}
         <TouchableOpacity onPress={() => navigation.navigate('VoiceHome')} testID="voice-button" style={styles.settingsButton} accessibilityLabel={t('common.voice')}><MicIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
@@ -159,6 +164,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
           </View>
         </TouchableOpacity>;
       }} ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyText}>{t('dialogueList.empty')}</Text><Text style={styles.emptySubtext}>{t('dialogueList.start')}</Text></View>} />}
+      {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — transparent Modal: FlatList 히트 압도 회고(t_3116c5bc)로
+          Modal 래퍼 유지. 딥링크 탭 = 세션 이동 + focusMessageId 하이라이트 (기존 화면과 동일 경로). */}
+      <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
   </SafeAreaView>;
 }
 
