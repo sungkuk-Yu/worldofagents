@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, anchorMs = null } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, longCard = false, anchorMs = null } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -25,6 +25,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     row('task', 'task_flow', { items: [{ title: 'Review draft', status: 'pending' }] }),
     row('multi', 'multi_agent', { agents: [{ name: 'Expert', content: 'Expert result' }] }),
     row('unknown', 'future_card'),
+    // t_7f86eefb 검증 케이스: '긴 답변' 카드 (10줄 ≈ 스크린 초과) — 답글/새프로젝트 키가 카드
+    // 상단 20px 이내(우측 상단 클러스터)에 수납되는지 rect로 증명하는 대상.
+    ...(longCard ? [{ ...row('long-answer', 'text'), thread_reply_count: 1, content: Array.from({ length: 10 }, (_, i) => `긴 답변 ${i + 1}번째 줄 — 계약서 검토 결과 요약입니다.`).join('\n') }] : []),
   ] : wave ? (() => {
     // Wave 1 — 인터랙티브 3종 + 리치텍스트 + 즐겨찾기 복원(favorite:true 행)
     const fav = { ...row('fav', 'info_card', { title: 'Fav card', fields: [{ label: 'k', value: 'v' }, { label: 'k2', value: 'v2' }] }), favorite: true };

@@ -68,7 +68,7 @@ export default function ThreadPanel({ target, navigation, onBack, onOpenNested }
     else setInput((current) => restoreFailedDraft(current, draft));
   };
   return <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <View style={cardStyles.row}><Button onPress={onBack} testID="thread-panel-back">{t('common.back')}</Button><Text style={cardStyles.title}>{t('common.thread')}</Text></View>
+    <View style={cardStyles.row}><Button onPress={onBack} testID="thread-panel-back">{t('common.back')}</Button><Text style={cardStyles.title}>{t('cards.threadFrom')}</Text></View>
     {root && <View style={[styles.refBar, { borderLeftColor: meta.color }]}>
       <Text style={[cardStyles.title, { color: meta.color }]}>{t('cards.referenceIcon')}</Text>
       <View style={styles.body}><Text style={cardStyles.micro}>{t(meta.key)}</Text><Text style={cardStyles.title} numberOfLines={2}>{displayValue(root.payload?.title) || root.content}</Text></View>

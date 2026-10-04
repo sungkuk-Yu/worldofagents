@@ -57,9 +57,9 @@ test('포크 제목 템플릿은 양 언어 번역 키와 입력 제목을 사�
   const ko = JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8'));
   const en = JSON.parse(readFileSync('src/i18n/locales/en.json', 'utf8'));
   void i18n.init({ lng: 'ko', initAsync: false, resources: { ko: { translation: ko }, en: { translation: en } } });
-  assert.equal(forkTitle(i18n.t, 'A'), 'A에서 갈라내기');
+  assert.equal(forkTitle(i18n.t, 'A'), 'A 새프로젝트');
   void i18n.changeLanguage('en');
-  assert.equal(forkTitle(i18n.t, 'A'), 'Fork of A');
+  assert.equal(forkTitle(i18n.t, 'A'), 'New project from A');
 });
 test('갈라내기 게이트 — 김비서(비서실장) room만 fork 노출 (t_55f9ed57)', () => {
   assert.equal(canForkAgent({ name: '김비서' }), true);
@@ -70,17 +70,21 @@ test('갈라내기 게이트 — 김비서(비서실장) room만 fork 노출 (t_
     assert.equal(canForkAgent(other), false, JSON.stringify(other));
   }
 });
-test('라벨 확정 — 답글/갈라내기 외 구(舊) 표기가 사전에 잔존하지 않는다 (t_55f9ed57)', () => {
+test('라벨 확정 — 답글/갈라내기 외 구(舊) 표기가 사전에 잔존하지 않는다 (t_55f9ed57 → t_7f86eefb 갱신)', () => {
   const flat = (obj: Record<string, unknown>, prefix = ''): string[] =>
     Object.entries(obj).flatMap(([k, v]) => typeof v === 'string' ? [`${prefix}${k}=${v}`] : flat(v as Record<string, unknown>, `${prefix}${k}.`));
   const ko = flat(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8')));
   const joined = ko.join('\n');
-  for (const stale of ['스레드', '분기', '여기서 새 프로젝트', '이 글에서']) {
+  for (const stale of ['스레드', '분기', '여기서 새 프로젝트', '이 글에서', '갈라내기', '갈라냄', '쓰레드 생성']) {
     assert.ok(!joined.includes(stale), `ko.json에 잔존 구 표기: ${stale}`);
   }
-  assert.match(joined, /cards\.threadFrom=답글/);
-  assert.match(joined, /fork\.action=갈라내기/);
-  assert.match(joined, /joystick\.actions\.open_thread=답글 보기/);
+  assert.match(joined, /cards\.threadFrom=쓰레드/);
+  assert.match(joined, /fork\.action=새프로젝트/);
+  assert.match(joined, /joystick\.actions\.open_thread=쓰레드 열기/);
+  // 대표님 10/4 규약: 버튼/키 라벨은 '쓰레드'·'새프로젝트', 답글 '개수' 문구(목록·배지)는 '답글' 유지.
+  assert.match(joined, /cards\.replies=답글 \{\{countText\}}개/);
+  assert.match(joined, /queue\.replyCount=답글 \{\{countText\}}개/);
+  assert.match(joined, /queue\.threadsTitle=답글 목록/);
 });
 test('포크 응답은 새 세션 ID를 요구하며 계보는 선택적으로 방어한다', () => {
   assert.throws(() => parseForkSession({ id: 'old' }, 'old'), /errors.fork/);
@@ -96,15 +100,17 @@ test('포크 응답은 새 세션 ID를 요구하며 계보는 선택적으로 �
   assert.equal(parseForkOrigin({ session_id: {} }), undefined);
   assert.deepEqual(parseForkOrigin({ session_id: 'old', session_title: 'Original' }), { session_id: 'old', title: 'Original', message_id: undefined });
 });
-test('라벨 확정 (t_8917ca0d ①) — queue.forkAction은 쓰레드 생성/Thread, 카드 fork.action은 갈라내기 유지', () => {
+test('라벨 확정 (t_7f86eefb, t_8917ca0d 승계) — 답글→쓰레드·갈라내기→새프로젝트 (queue/카드 통일)', () => {
   const flat = (obj: Record<string, unknown>, prefix = ''): string[] =>
     Object.entries(obj).flatMap(([k, v]) => typeof v === 'string' ? [`${prefix}${k}=${v}`] : flat(v as Record<string, unknown>, `${prefix}${k}.`));
   const ko = flat(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8'))).join('\n');
   const en = flat(JSON.parse(readFileSync('src/i18n/locales/en.json', 'utf8'))).join('\n');
-  assert.match(ko, /queue\.forkAction=쓰레드 생성/);
-  assert.match(en, /queue\.forkAction=Thread/);
-  assert.match(ko, /fork\.action=갈라내기/); // 카드 버튼 라벨은 현행 유지 (카드 범위: 행 라벨만)
-  assert.match(ko, /queue\.replyAction=답글/); // 답글 라벨 불변
+  assert.match(ko, /queue\.forkAction=새프로젝트/);
+  assert.match(en, /queue\.forkAction=New project/);
+  assert.match(ko, /queue\.replyAction=쓰레드/);
+  assert.match(en, /queue\.replyAction=Thread/);
+  assert.match(ko, /fork\.action=새프로젝트/);
+  assert.match(en, /fork\.action=New project/);
 });
 test('파일 링크는 웹 프로토콜만 허용한다', () => {
   for (const value of ['javascript:alert(1)', 'file:///secret', 'https://user:pass@example.test', {}, null]) assert.equal(safeFileUrl(value), undefined);
