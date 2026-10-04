@@ -11,7 +11,9 @@
  *   ④ 탭 후 해당 버튼 행 소멸(연속 질문 스팸 방지 — 발화 진행이 수명), 다음 턴은 신규 카드에만
  *   ⑤ 재질문 활성 중 ← 방향 이동 = 즉시 아밍 힌트 → 릴리스 = audio.cancel + '예' POST
  *      (t_64e3edd6 0.8s arm 타이머 폐지 — stageReleaseOutcome ackActive 게이트, 소진 창 내 수행)
- *   ⑥ 소진 후(버튼 행 비활성) 좌 스와이프 = 텍스트 발화 없음 — 기존 매핑 경로(전송) 보존
+ *   ⑥ 소진 후(버튼 행 비활성) 좌 스와이프 = 텍스트 발화 없음 — t_08d671a8 5방향 재매핑: ← = cancel(폐기).
+ *      (구 계약 '얕은 좌 스와이프 = audio.end 전송'은 무효 — 70px 드래그는 270° cancel 섹터)
+ *      히트 앵커 ⑤⑥/openKeyboard = voice-stage-pad (96px 원, 스트립 상단 30% — t_a827e5ef 하네스 갱신).
  *   ⑦ 히스토리 재현(stale empathy 행) = 버튼 없음
  *   ⑧ PC 1440 = 버튼 행 정상(카드 폭 동일 비율), 조이스틱/홀드 없음(음성 콘솔 미렌더)
  * 실행: node tests/e2e/fr-serve.cjs dist-tc62a2eb7 8114 &
@@ -62,8 +64,10 @@ async function openMobileChat(browser, opts = {}) {
   return { page, state, errors, ctx };
 }
 // t_4758f25d: A→B 전이는 스트립 홀드 후 ↑ 릴리스뿐 (키보드 버튼 폐기)
+// t_a827e5ef (t_08d671a8 패드 재설계): 히트 앵커 = voice-stage-pad (스트립 상단 PAD_TOP_PERCENT=30%
+// 인데ント, 96px 원). 구 voice-stage 스트립 중심은 패드 하단 밖 — 홀드 그랜트 자체가 안 잡힌다.
 async function openKeyboard(page) {
-  const box = await page.getByTestId('voice-stage').boundingBox();
+  const box = await page.getByTestId('voice-stage-pad').boundingBox();
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
@@ -157,8 +161,9 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     check('⑤ 재질문 활성 전제(버튼 행 노출)', row5);
     await page.getByTestId('chat-voice-back').click(); // B→A: 입력바 우측 마이크 탭 (#304)
     await page.getByTestId('voice-stage').waitFor({ timeout: 5000 });
-    const box = await page.getByTestId('voice-stage').boundingBox();
-    assert.ok(box, 'voice-stage 박스');
+    // t_a827e5ef: 홀드 히트 = voice-stage-pad (96px 원, 스트립 상단 30% 인덴트 — t_f8c40db0/t_08d671a8 계약).
+    const box = await page.getByTestId('voice-stage-pad').boundingBox();
+    assert.ok(box, 'voice-stage-pad 박스');
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
     const before4 = sends(state).length;
     await page.mouse.move(cx, cy);
@@ -176,7 +181,7 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     const bannerGone = (await page.getByTestId('joystick-ack-armed').count()) === 0;
     check('⑤ 릴리스 후 아밍 배너 소멸', bannerGone);
 
-    // ── ⑥ 소진 후(비활성) 좌 스와이프 = 텍스트 발화 없음 — 기존 audio 경로(send) 보존 ──
+    // ── ⑥ 소진 후(비활성) 좌 스와이프 = 텍스트 발화 없음 — t_08d671a8 5방향 재매핑: ← = cancel(폐기) ──
     // ⑤의 '예' 발화가 만든 신규 재질문 행도 2.5s에 소진 → ackActive=false 상태 확보.
     await page.waitForTimeout(3400);
     const preSwipeRow = (await page.getByTestId('ack-chips').count()) === 0;
@@ -191,7 +196,9 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     await page.waitForTimeout(400);
     check('⑥ 비활성 좌 스와이프 = 텍스트 발화 없음(ack 미발동)', sends(state).length === before5);
     const newFrames = state.frames.slice(typesBefore).filter((f) => f && typeof f.type === 'string').map((f) => f.type);
-    check('⑥ 얕은 스와이프 = 기존 audio 경로(end) 유지', newFrames.includes('audio.end') && !newFrames.includes('audio.cancel'), newFrames.join(','));
+    // t_a827e5ef: 선택 계약 갱신 — ack 소진 후 ←(270° 섹터, 70px ≥ 센터데드존 19.2)는 'cancel' 액션 =
+    // 음성 폐기(audio.cancel), 전송(audio.end)도 ack 발화도 아니다 (gesture.ts STAGE_SECTORS).
+    check('⑥ 소진 후 좌 스와이프 = cancel 경로(audio.cancel, 발화 없음)', newFrames.includes('audio.cancel') && !newFrames.includes('audio.end'), newFrames.join(','));
     check('런타임 오류 0건', errors.length === 0, errors.join('|').slice(0, 160));
     await page.close();
 
