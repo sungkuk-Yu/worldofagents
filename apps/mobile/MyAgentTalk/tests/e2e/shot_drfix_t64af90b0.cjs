@@ -106,14 +106,15 @@ async function openChat(browser, width) {
       await panel.waitFor();
       const panelText = await panel.innerText();
       assert.ok(!/채팅에서 카드를 열면/.test(panelText), '#10 카드 인스펙터 빈 안내문 제거 (미선택 시 섹션 숨김)');
-      // t_fd869e5b 요구2: 볼트 노트 섹션(listNotes·context-note-*) 완전 제거 — 문구/행 0, SVG는 즐겨찾기 빈 행 유지
-      assert.ok(!/노트가 아직 없어요/.test(panelText), '#10 노트 섹션 폐기 (t_fd869e5b)');
+      // t_fd869e5b 요구2 개정: 볼트 노트 섹션(listNotes·context-note-*) 완전 제거 — 그 자리는 내 질문 트래커.
+      assert.ok(!/노트가 아직 없어요/.test(panelText), '#10 노트 섹션 폐기 (트래커 대체 확인)');
       assert.equal(await panel.locator('[data-testid^="context-note-"]').count(), 0, 'context-note-* 잔존 0 (10/4 지시)');
+      assert.ok(/내 질문 현황/.test(panelText), '#10→t_fd869e5b: 우측 패널 = 내 질문 현황 트래커');
       // 빈 상태 행은 아이콘(SVG)+텍스트 — 회색 안내문 단독 행보다 구조화됨
       assert.ok((await panel.locator('svg').count()) > 0, '#10 빈 섹션 요약행에 SVG 아이콘');
-      // #11: 사이드바 로고 = MAT 초록
-      const logo = await page.getByTestId('sidebar-logo').count();
-      assert.equal(logo, 1, '#11 사이드바 MAT 워드마크');
+      // #11→t_fd869e5b 요구1 개정: 채팅 좌측 레일 = 세션목록(로고) 대신 슬랙식 스레드 레일
+      assert.equal(await page.getByTestId('sidebar-logo').count(), 0, '레일 세션목록 폐기(스레드 레일 대체)');
+      assert.equal(await page.getByTestId('thread-rail').count(), 1, 't_fd869e5b 좌측 = 스레드 전용 레일');
       await page.screenshot({ path: shot('d-04-chat-after') });
       assert.deepEqual(errors, [], 'PC 런타임 오류 0');
       await page.close();

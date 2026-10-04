@@ -116,6 +116,12 @@ export function PendingReplyIcon({ size = 18, color = colors.text2, testID }: Ic
     <Path fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" d="M9,17L3.5,11.5L9,6V9.5C14,9.5 17.5,11 19,16C16.5,13.5 13,12.8 9,12.8V17Z" />
   </Svg>;
 }
+// 내 질문 현황 (t_fd869e5b) — 체크리스트 3줄 = 진행 상황 한눈에. 앱바 '현황' 버튼 글리프.
+export function TrackerIcon({ size = 18, color = colors.text2, testID }: IconProps) {
+  return <Svg {...svgBase(size)} testID={testID}>
+    <Path fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" d="M4,6.5L6,8.5L9.5,5M4,12.5L6,14.5L9.5,11M4,18.5L6,20.5L9.5,17M12.5,7H20M12.5,13H20M12.5,19H20" />
+  </Svg>;
+}
 // 전송 ticks (t_5c559e85 ⑤, Telegram/Signal status ticks 규범) — 시계=전송중(pending) / 체크=전송됨(서버 ID 확정) / 느낌표원=실패(탭 재전송)
 export function TickPendingIcon({ size = 18, color = colors.text2, testID }: IconProps) {
   return <Svg {...svgBase(size)} testID={testID}>

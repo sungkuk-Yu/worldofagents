@@ -7,7 +7,7 @@ import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '../../i18n/format';
 import DevicePresenceBadge from '../DevicePresenceBadge';
-import { PendingReplyIcon } from '../Icon';
+import { PendingReplyIcon, TrackerIcon } from '../Icon';
 import { colors, iconSize } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import type { ChatSelection } from '../../hooks/useChatSelection';
@@ -21,13 +21,16 @@ interface Props {
   activeThreadCount: number;
   /** 답변 대기 건수 (t_363c0faa) — 답글 버튼 관례: 0이면 배지 없음(버튼은 유지), >0 amber 배지 */
   pendingReplyCount: number;
+  /** 내 질문 트래커 '현황' 버튼 노출 (t_fd869e5b) — wide 웹은 우측 패널이 담당하므로 숨김 */
+  showTrackerButton?: boolean;
   onBack: () => void;
   onOpenThreads: () => void;
   onOpenPending: () => void;
+  onOpenTracker?: () => void;
   onBeginSelection: () => void;
 }
 
-export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, onBack, onOpenThreads, onOpenPending, onBeginSelection }: Props) {
+export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, showTrackerButton = false, onBack, onOpenThreads, onOpenPending, onOpenTracker, onBeginSelection }: Props) {
   const { t, i18n } = useTranslation();
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
@@ -47,6 +50,13 @@ export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, con
             <PendingReplyIcon size={iconSize.tileSm} color={pendingReplyCount > 0 ? colors.statusWarn : colors.text2} />
             {pendingReplyCount > 0 && <Text style={styles.pendingBadge} testID="pending-count">{formatNumber(pendingReplyCount, i18n.language)}</Text>}
           </View>
+        </TouchableOpacity>
+      )}
+      {/* 내 질문 트래커 '현황' (t_fd869e5b) — 390px/네이티브: 우측 패널 미렌더 대체 진입점 (하단 시트 오픈).
+          wide 웹은 상시 패널이 담당 → 버튼 렌더 제외. 답글 버튼 관례: 아이콘+활성 건수 배지(0이면 아이콘만). */}
+      {!selection.active && showTrackerButton && (
+        <TouchableOpacity onPress={onOpenTracker} style={styles.backButton} accessibilityLabel={t('tracker.button')} testID="tracker-open">
+          <TrackerIcon size={iconSize.tileSm} color={colors.text2} />
         </TouchableOpacity>
       )}
       <View style={styles.headerBody}>

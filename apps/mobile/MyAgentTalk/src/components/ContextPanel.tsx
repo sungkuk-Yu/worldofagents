@@ -1,7 +1,8 @@
-// PC 3패널 레이아웃의 우측 컨텍스트 패널 (t_eded715c 요구 1).
-// t_fd869e5b 요구2 (대표님 10/4) — 볼트 노트 섹션 완전 제거(listNotes 호출·context-note-* 렌더 0):
-// 서버 내부 저장/사이드카(t_d469fac3)는 그대로 두고 사용자 화면에서만 폐기. 남은 섹션: 즐겨찾기 / 카드 인스펙터.
-// 알리바바 미로 금지: 탭 전환 아코디언 없음 — 섹션 동시 상시 표시, 각 섹션 최대 5건 + "전체" 링크.
+// PC 3패널 레이아웃의 우측 컨텍스트 패널 (t_eded715c 요구 1; t_fd869e5b 레이아웃 확정 10/4).
+// 대표님 10/4 최종 지시: "오른쪽엔 볼트 노트가 아니라, 내가 한 질문들이 어떻게 돌아가는지 질문의 큐를
+// 쓰레드 형식으로 보여주고, 큐가 어떻게 진행되는지 눈으로" — 볼트 노트 섹션(listNotes 호출 포함) 완전 제거,
+// 그 자리에 내 질문 트래커(4단계 스텝바) 상시 노출. 즐겨찾기/카드 인스펙터 섹션은 유지.
+// 알리바바 미로 금지: 탭 전환 아코디언 없음 — 섹션 동시 상시 표시, 즐겨찾기 최대 5건 + "전체" 링크.
 // 카드 인스펙터 = inspectStore가 가리키는 카드를 이 채팅 messages에서 찾아 비춘다 (채팅 탭 ↔ 패널 동기).
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -9,14 +10,23 @@ import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { api, FavoriteEntry } from '../lib/api';
 import { inspectStore } from '../lib/inspectStore';
-import type { ChatMessage } from '../lib/chatLogic';
+import type { ChatMessage, PendingReplyItem, QueueItem, StreamingAnswer } from '../lib/chatLogic';
 import { StarIcon } from './Icon';
+import { QuestionTrackerSection } from './QuestionTracker';
 import { colors, iconSize, radii, spacing, typography } from '../theme';
 
 interface Props {
   sessionId: string | null;
   messages: ChatMessage[];
+  /** 섹션 헤더 '전체' 링크 — Favorites 화면 push (네이티브는 이 패널을 쓰지 않지만 prop은 유지) */
   onOpenFavorites: () => void;
+  // ── 내 질문 트래커 데이터 (t_fd869e5b) — 화면(useChatSession)의 단일 원천 props, 파생은 lib/questionTracker
+  pendingReplies: PendingReplyItem[];
+  streams: StreamingAnswer[];
+  queue: QueueItem[];
+  onJump: (messageId: string) => void;
+  onOpenThread: (rootMessageId: string) => void;
+  onRetry: (messageId: string) => void;
 }
 
 const SECTION_LIMIT = 5;
@@ -34,7 +44,7 @@ function SectionHead({ title, onSeeAll, seeAllLabel }: { title: string; onSeeAll
   );
 }
 
-export default function ContextPanel({ sessionId, messages, onOpenFavorites }: Props) {
+export default function ContextPanel({ sessionId, messages, onOpenFavorites, pendingReplies, streams, queue, onJump, onOpenThread, onRetry }: Props) {
   const { t } = useTranslation();
   const [favorites, setFavorites] = useState<FavoriteEntry[]>([]);
   const [inspectedId, setInspectedId] = useState<string | null>(inspectStore.get());
@@ -60,8 +70,10 @@ export default function ContextPanel({ sessionId, messages, onOpenFavorites }: P
           <Text style={styles.itemBody} numberOfLines={4}>{inspected.content || t('context.cardPreviewEmpty')}</Text>
         </View>
       </View>}
-      {/* t_fd869e5b 요구2 — 볼트 노트 섹션 폐기(라우트/버튼 제거와 동일 커밋 단위):
-          서버 사이드카 저장은 유지, 사용자 화면에서만 제거. i18n context.notes* 키는 미사용 상태로 잔존(무해). */}
+      {/* 내 질문 트래커 (t_fd869e5b) — 볼트 노트 섹션 제거 후 그 자리. 목록 폭발 방지는 24h 축약(로직단). */}
+      <View style={styles.section}>
+        <QuestionTrackerSection messages={messages} pendingReplies={pendingReplies} streams={streams} queue={queue} onJump={onJump} onOpenThread={onOpenThread} onRetry={onRetry} />
+      </View>
       <View style={styles.section}>
         <SectionHead title={t('context.favorites')} onSeeAll={onOpenFavorites} seeAllLabel={t('context.seeAll')} />
         {favorites.length === 0

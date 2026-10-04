@@ -143,6 +143,11 @@ const QUEUE_ROWS = [
     page5.on('pageerror', (e) => errors.push(String(e)));
     // chief=김비서 room(fork 게이트 OPEN) + rich(text 카드에 thread_reply_count=1 → 스레드 인덱스 1행)
     const state5 = await installFixtures(page5, { rich: true, chief: true });
+    // 10/4 date-rot 교정 (t_fd869e5b): rich 픽스처 고정 created_at(9/26)이 WEEK_MS를 넘어
+    // buildThreadIndex가 전부 '종료'로 판정 → 활성 배지/필터 단언이 달력에 의존하게 됨.
+    // 스레드 루트 행만 런타임 기준 신선한 시각으로 밀어 결정화 (종료 행은 아래 staleRoot가 20일 전으로 담당).
+    const textRow = state5.messages.source.find((m) => m.id === 'text');
+    if (textRow) textRow.created_at = new Date(Date.now() - 3600 * 1000).toISOString();
     await page5.route('**/api/sessions/source/queue', (r) => r.fulfill({ status: 404, json: { ok: false } }));
     await page5.goto(APP, { waitUntil: 'networkidle' });
     await page5.getByTestId('session-card').click();
