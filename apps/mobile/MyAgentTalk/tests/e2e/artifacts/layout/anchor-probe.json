@@ -1,19 +1,19 @@
 {
   "m390B": {
     "list": {
-      "top": 128,
+      "top": 87,
       "bottom": 767,
-      "h": 639
+      "h": 680
     },
     "listScroll": {
-      "sh": 639,
-      "ch": 639,
+      "sh": 680,
+      "ch": 680,
       "st": 0
     },
     "cardCount": 2,
     "lastBottom": 739,
-    "firstTop": 518,
-    "minVisibleTop": 518,
+    "firstTop": 513,
+    "minVisibleTop": 513,
     "anchorGap": 28,
     "stripTop": null,
     "barTop": 775,
@@ -21,39 +21,39 @@
   },
   "m390A": {
     "list": {
-      "top": 128,
+      "top": 87,
       "bottom": 836,
-      "h": 708
+      "h": 749
     },
     "listScroll": {
-      "sh": 708,
-      "ch": 708,
+      "sh": 749,
+      "ch": 749,
       "st": 0
     },
     "cardCount": 2,
-    "lastBottom": 567,
-    "firstTop": 346,
-    "minVisibleTop": 346,
-    "anchorGap": 269,
-    "stripTop": 591,
+    "lastBottom": 440,
+    "firstTop": 214,
+    "minVisibleTop": 214,
+    "anchorGap": 396,
+    "stripTop": 464,
     "barTop": null,
     "vh": 844
   },
   "p1440": {
     "list": {
-      "top": 128,
+      "top": 87,
       "bottom": 823,
-      "h": 695
+      "h": 736
     },
     "listScroll": {
-      "sh": 695,
-      "ch": 695,
+      "sh": 736,
+      "ch": 736,
       "st": 0
     },
     "cardCount": 2,
     "lastBottom": 795,
-    "firstTop": 574,
-    "minVisibleTop": 574,
+    "firstTop": 569,
+    "minVisibleTop": 569,
     "anchorGap": 28,
     "stripTop": null,
     "barTop": 831,
@@ -61,19 +61,19 @@
   },
   "demo": {
     "list": {
-      "top": 142,
+      "top": 101,
       "bottom": 767,
-      "h": 625
+      "h": 666
     },
     "listScroll": {
-      "sh": 625,
-      "ch": 625,
+      "sh": 666,
+      "ch": 666,
       "st": 0
     },
     "cardCount": 2,
     "lastBottom": 739,
-    "firstTop": 494,
-    "minVisibleTop": 494,
+    "firstTop": 487,
+    "minVisibleTop": 487,
     "anchorGap": 28,
     "stripTop": null,
     "barTop": 775,
@@ -81,21 +81,21 @@
   },
   "longA": {
     "list": {
-      "top": 128,
+      "top": 87,
       "bottom": 836,
-      "h": 708
+      "h": 749
     },
     "listScroll": {
-      "sh": 1755,
-      "ch": 708,
-      "st": 1047
+      "sh": 1910,
+      "ch": 749,
+      "st": 1161
     },
     "cardCount": 12,
-    "lastBottom": 567,
-    "firstTop": -839,
-    "minVisibleTop": 109,
-    "anchorGap": 269,
-    "stripTop": 591,
+    "lastBottom": 440,
+    "firstTop": -994,
+    "minVisibleTop": 77,
+    "anchorGap": 396,
+    "stripTop": 464,
     "barTop": null,
     "vh": 844
   }

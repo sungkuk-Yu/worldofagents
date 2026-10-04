@@ -32,6 +32,14 @@ function normalizeEchoMode(v: unknown): EchoMode | null {
 // 프론트는 저장/복원만 한다 — 교정 판단은 서버 단일 진실(에코 게이트와 동일 원칙). 기본 [] = 저장된 사전 없음.
 export const PROTECTED_TERMS_MAX = 50; // 백엔드 normalizeProtectedTerms slice(0,50)과 동일 상한
 export const PROTECTED_TERMS_LEN = 50; // 항목당 최대 길이(백엔드 상한 미명시 — 폭주/스토크 방지 자한 상한)
+
+// 카드 t_08d671a8 요구 1 — 그립 손(마이크 패드 좌우 위치). 웹에서 자동감지 불가 → 사용자 선언식.
+// 'left': 패드 좌측 25%, 'center': 중앙 50%(기본), 'right': 우측 75%.
+export type GripHand = 'left' | 'center' | 'right';
+export const GRIP_HAND_DEFAULT: GripHand = 'center';
+function normalizeGripHand(v: unknown): GripHand | null {
+  return v === 'left' || v === 'center' || v === 'right' ? v : null;
+}
 /** 정규화: 문자열만, trim, 2~50자(백엔드 1자 마비 방지 규칙 준수), 중복 제거, 50 상한. */
 export function normalizeProtectedTerms(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -49,6 +57,7 @@ export function normalizeProtectedTerms(value: unknown): string[] {
 }
 let echoModeCache: EchoMode | null = null;
 let protectedTermsCache: string[] | null = null; // t_64914144 — null(미저장) vs [] 구분 보존 (딥머지 유실 방지)
+let gripHandCache: GripHand | null = null; // t_08d671a8 — 그립 손 위치
 let writeQueue: Promise<void> = Promise.resolve(); // 쓰기 직렬화 — hydrate/set 교차 경쟁 방지
 let hydrated = false;
 
@@ -72,6 +81,7 @@ function writeLocalState(): Promise<void> {
   if (pttModeCache) payload.pttMode = pttModeCache;
   if (echoModeCache !== null) payload.echoMode = echoModeCache;
   if (protectedTermsCache !== null) payload.protectedTerms = protectedTermsCache; // []도 정당한 값(전체 삭제) — null(미저장)만 키 생략
+  if (gripHandCache !== null) payload.gripHand = gripHandCache; // t_08d671a8
   const task = writeQueue.catch(() => {}).then(() =>
     secureStorage.set(PREFS_STORAGE_KEY, JSON.stringify(payload))
   ).catch(() => { /* 저장소 부재(웹 private mode 등) — 메모리 캐시로 세션은 지속 */ });
@@ -95,6 +105,7 @@ export async function hydratePrefs(): Promise<void> {
   let localPttMode: PttMode | null = null;
   let localEchoMode: EchoMode | null = null;
   let localProtected: string[] | null = null; // t_64914144 — 배열이었을 때만 정규화 결과(미저장 null 구분)
+  let localGripHand: GripHand | null = null; // t_08d671a8
   try {
     const raw = await secureStorage.get(PREFS_STORAGE_KEY);
     if (raw) {
@@ -105,14 +116,16 @@ export async function hydratePrefs(): Promise<void> {
       localPttMode = parsed?.pttMode === 'hold' || parsed?.pttMode === 'toggle' ? normalizePttMode(parsed.pttMode) : null;
       localEchoMode = normalizeEchoMode(parsed?.echoMode);
       if (Array.isArray(parsed?.protectedTerms)) localProtected = normalizeProtectedTerms(parsed.protectedTerms);
+      localGripHand = normalizeGripHand(parsed?.gripHand); // t_08d671a8
     }
-  } catch { local = null; localMode = null; localPttKey = null; localPttMode = null; localEchoMode = null; localProtected = null; }
+  } catch { local = null; localMode = null; localPttKey = null; localPttMode = null; localEchoMode = null; localProtected = null; localGripHand = null; }
   if (local) cache = local;
   if (localMode) modeCache = localMode;
   if (localPttKey) pttKeyCache = localPttKey;
   if (localPttMode) pttModeCache = localPttMode;
   if (localEchoMode !== null) echoModeCache = localEchoMode;
   if (localProtected !== null) protectedTermsCache = localProtected;
+  if (localGripHand !== null) gripHandCache = localGripHand; // t_08d671a8
   try {
     const env = await api.getMe();
     const remote = mapFromPreferences(env.data?.preferences);
@@ -122,14 +135,17 @@ export async function hydratePrefs(): Promise<void> {
         ? (env.data.preferences as { joystickMode?: unknown }).joystickMode : undefined);
     if (remoteMode) modeCache = remoteMode;
     const prefsObj = (typeof env.data?.preferences === 'object' && env.data?.preferences !== null)
-      ? env.data.preferences as { pttKey?: unknown; pttMode?: unknown; echoMode?: unknown; protectedTerms?: unknown } : null;
+      ? env.data.preferences as { pttKey?: unknown; pttMode?: unknown; echoMode?: unknown; protectedTerms?: unknown; gripHand?: unknown } : null;
     if (typeof prefsObj?.pttKey === 'string' && prefsObj.pttKey) pttKeyCache = normalizePttKey(prefsObj.pttKey);
     if (prefsObj?.pttMode === 'hold' || prefsObj?.pttMode === 'toggle') pttModeCache = normalizePttMode(prefsObj.pttMode);
     if (normalizeEchoMode(prefsObj?.echoMode)) echoModeCache = normalizeEchoMode(prefsObj?.echoMode);
     // t_64914144: 서버 배열 우선(계정 동기화). 빈 배열도 정당한 저장(전체 삭제) — null과 구분 위해 Array.isArray 게이트.
     if (Array.isArray(prefsObj?.protectedTerms)) protectedTermsCache = normalizeProtectedTerms(prefsObj.protectedTerms);
+    // t_08d671a8: gripHand 서버→로컬 동기화
+    const remoteGrip = normalizeGripHand(prefsObj?.gripHand);
+    if (remoteGrip) gripHandCache = remoteGrip;
   } catch { /* 미로그인/오프라인 — 로컬 폴백 유지 (요구 2) */ }
-  if (cache || modeCache || pttKeyCache || pttModeCache || echoModeCache !== null || protectedTermsCache !== null) await writeLocalState();
+  if (cache || modeCache || pttKeyCache || pttModeCache || echoModeCache !== null || protectedTermsCache !== null || gripHandCache !== null) await writeLocalState();
 }
 
 /** 동기 읽기 — 하이드레이션 전이면 null (호출자는 프리셋 폴백) */
@@ -244,6 +260,23 @@ export function __resetPrefsForTests(): void {
   pttModeCache = null;
   echoModeCache = null;
   protectedTermsCache = null;
+  gripHandCache = null; // t_08d671a8
   hydrated = false;
   writeQueue = Promise.resolve();
+}
+
+// ── 그립 손 위치 (t_08d671a8) — 패드 좌우 배치. 'left'|'center'|'right'.
+
+/** 그립 손 동기 읽기 — 미저장 시 GRIP_HAND_DEFAULT ('center') */
+export function getGripHand(): GripHand {
+  return gripHandCache ?? GRIP_HAND_DEFAULT;
+}
+
+/** 그립 손 갱신 — 낙관적 로컬 반영 → 서버 preferences.gripHand. */
+export async function setGripHand(hand: GripHand): Promise<void> {
+  gripHandCache = hand;
+  hydrated = true;
+  await writeLocalState();
+  emit();
+  await patchPreferences({ gripHand: hand });
 }
