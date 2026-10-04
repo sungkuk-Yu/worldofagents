@@ -16,6 +16,7 @@ import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
 import { clientReqColumns, findExistingByClientReqId, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing, normalizeClientReqId } from './idempotency';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
+import { createTypingPacer } from './typingPacer';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
 import type { JournalRow } from './runCheckpoint';
 
@@ -179,6 +180,17 @@ export async function runTextTurn(
   let processing = false;
   let lastStage: NeuronStage | undefined;
   let partialText = '';
+  // 사람 타이핑 감각 pacer (t_a654c9ac, 대표님 10/4): HUMAN_TYPING ON이면 answer.delta의
+  // 전송 속도 소유권을 배칭(④)에서 pacer로 옮긴다. OFF(env 봉인 포함)면 null = 기존 경로 1:1.
+  // sink는 answer.delta emit + 첫 청크에서 voice.kill() (보이스 줄 수명 종료 계약 동일).
+  let pacerDeltaIndex = 0;
+  let pacerKilledVoice = false;
+  const pacer = createTypingPacer({
+    sink: chunk => {
+      if (!pacerKilledVoice) { pacerKilledVoice = true; voice.kill(); }
+      opts.emit({ type: 'answer.delta', ...base, delta: chunk, index: pacerDeltaIndex++ });
+    },
+  });
   // 페르소나 말투(quip tone)가 로드되기 전 문구는 기본 warm으로 나간다.
   let personaTone: Record<string, unknown> | null = null;
   const quip = (key: QuipKey) => pickQuip(key, locale, personaTone);
@@ -346,7 +358,10 @@ export async function runTextTurn(
       },
       // ④ answer.delta 백프레셔 (t_3486b1d7) — 300ms 또는 150자 whichever-first 배칭.
       // deltaBatchMs=0이면 기존처럼 토큰마다 즉시 emit(테스트 기본).
-      onAnswerDelta: (() => {
+      // t_a654c9ac (대표님 10/4): HUMAN_TYPING ON이면 배칭을 거치지 않고 타이핑 pacer가
+      // 전송 속도를 소유한다 — raw delta는 즉시 partialText에 축적(취소 보존), 출력만
+      // 사람이 친 속도(초당 12~25자, 버스트 청크, 문장부호 후 pause)로 sink된다.
+      onAnswerDelta: pacer ? ((d: string, _i: number) => { partialText += d; pacer.feed(d); }) : (() => {
         const batchMs = config.protocol.deltaBatchMs;
         const batchChars = config.protocol.deltaBatchChars;
         const killVoice = () => voice.kill(); // 답변 스트리밍 시작 = 보이스 줄 수명 종료 (첫 답변 문장이 줄을 자연 흡수, 9/29 4항).
@@ -369,6 +384,10 @@ export async function runTextTurn(
         };
       })(),
     });
+    // 사람 타이핑 소진 (t_a654c9ac): 이벤트 순서 계약 answer.delta* < answer.done 유지 —
+    // pacer 백로그가 남아있으면 확정 카드/done 발행 전에 모두 흘려보낸다. maxTotalDelayMs가
+    // 상한 방패라 drain은 유한하다(백로그는 캐치업 배속으로 조여 지운다).
+    if (pacer) await pacer.drain();
     // ⑤ empathy/answer만 emit (user는 onUserCreated에서 사전 발행함; persistedUser 경로는
     // handleTr가 runTextTurn 이전에 이미 message.new(user)를 선방송 — 두 경우 모두 user 제외).
     // cardFirst off면 user 포함 484eec2f 베이스 순서(run.started→user→empathy→answer)로 복귀하되,
@@ -409,6 +428,9 @@ export async function runTextTurn(
   } catch (err: any) {
     if (err?.code === 'RUN_CANCELLED') {
       completed = true;
+      // 취소: pacer 타이머 정리·잔여 폐기 — 미노출 분문은 partial_text(누적 원문)가 보존한다
+      // (t_a654c9ac: delta 재스트림은 partial_text와 중복이라 하지 않는다).
+      if (pacer) pacer.cancel();
       opts.emit({ type: 'run.cancelled', ...base, partial_text: partialText });
     }
     failure = { code: err?.code || 'INTERNAL_ERROR', message: err?.message || failure.message };
@@ -416,6 +438,9 @@ export async function runTextTurn(
   } finally {
     clearInterval(patience);
     if (silenceFill) clearTimeout(silenceFill);
+    // t_a654c9ac: 어떤 종료 경로든 pacer 타이머를 정리한다 — run.failed 이후 지각된
+    // answer.delta 누수 방지 (cancel은 멱등, 정상 완주 후에도 무해).
+    if (pacer) pacer.cancel();
     unregister();
     // WS message.send를 포함한 모든 호출 경로에서 실패 종료를 보장한다.
     if (!completed) {
