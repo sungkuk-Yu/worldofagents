@@ -267,4 +267,17 @@ export const styles = StyleSheet.create({
     position: 'absolute', top: -2, right: -6, minWidth: 16, textAlign: 'center',
     fontSize: 10, fontWeight: '700', color: colors.statusWarn,
   },
+  // 진행 중 질문 앱바 버튼 (t_140ecc15 ②) — pending-*=testID 관례 계승: 주황=답변 중+대기, 빨강=멈춤
+  queueButtonFace: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  queueBadge: {
+    minWidth: 16, textAlign: 'center',
+    fontSize: 10, fontWeight: '700',
+  },
+  queueBadgeWarn: { color: colors.statusWarn },
+  queueBadgeStop: { color: colors.statusErr },
+  // 주황(답변 중+대기)·빨강(멈춤) 두 수 배지는 우상단 가로 팩 — 개별 testID는 텍스트 노드 유지
+  queueBadges: { position: 'absolute', top: -2, right: -6, flexDirection: 'row', gap: spacing.sp1 },
+  queueLabel: { ...typography.subhead, fontWeight: '700', color: colors.text2 },
+  queueLabelWarn: { color: colors.statusWarn },
+  queueLabelStop: { color: colors.statusErr },
 });

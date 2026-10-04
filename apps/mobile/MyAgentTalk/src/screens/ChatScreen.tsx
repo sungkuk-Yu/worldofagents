@@ -15,6 +15,7 @@ import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
 import { QuestionTrackerModal } from '../components/QuestionTracker';
+import { QueueBacklogModal } from '../components/QueueBacklog';
 import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
@@ -39,7 +40,7 @@ import { formatNumber } from '../i18n/format';
 //   - 결과 중심: 에이전트 응답은 유형별 기능과 공통 액션이 있는 구조화 카드로 렌더
 //   - 처리중 상태는 100% 신뢰 가능: typing=true인 동안 카드가 예외 없이 항상 표시됨
 //     (useChatSession의 소스 카운터 트래커가 REST/WS 중복 신호에도 상태 소실을 방지)
-//   - 지연은 자연어로: 스피너 대신 대화체 quip ("잠깐만요, 생각 중이에요…") + 잔잔한 점 애니메이션
+//   - 지연은 단계명 라벨로: 스피너 대신 처리 단계 표시("답변 준비 중…") + 잔잔한 점 애니메이션 (t_140ecc15 ①)
 // 디자인 시스템: popular-web-designs/mintlify 패턴 재활용 — 화이트 캔버스, 초박형 테두리 분리,
 //   그린 액센트(#00A86B)는 CTA/포커스/라벨에만, 그림자 최소화, 사각 카드(radii.md 8px).
 // 컴포넌트: react-native-paper 조립 (Appbar/TextInput/Button/Surface/Text)
@@ -109,6 +110,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
+    queueView,
     pendingReplies, applyPendingSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
@@ -378,6 +380,20 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => () => railStore.reset(), []);
   // 내 질문 트래커 모바일 경로 (t_fd869e5b) — wide 미만(우측 패널 미렌더) 앱바 '현황' 버튼 → 하단 시트.
   const [trackerOpen, setTrackerOpen] = useState(false);
+  // 진행 중 질문 전역 큐 입구 (t_140ecc15 ②) — 모바일/네이티브는 시트, PC wide는 우측 패널
+  // 백로그 섹션 스크롤 앵커(동일 데이터 상시 노출 — 시트 중복 금지).
+  const [queueOpen, setQueueOpen] = useState(false);
+  const openQueueEntry = useCallback(() => {
+    if (wide && Platform.OS === 'web') {
+      try {
+        const el = (globalThis as unknown as { document?: { querySelector?: (s: string) => HTMLElement | null } }).document
+          ?.querySelector?.('[data-testid="queue-backlog-panel"]');
+        el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      } catch { /* 비-web 환경 방어 — 앵커 실패는 무해 */ }
+      return;
+    }
+    setQueueOpen(true);
+  }, [wide]);
   // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   // 트래커 행 재발화 — 실패 user 카드 재전송 (ChatTurnRow onResend와 동일 경로: restoreFailedDraft 폴백 불요,
@@ -759,10 +775,13 @@ export default function ChatScreen({ navigation, route }: Props) {
         activeThreadCount={activeThreadCount}
         pendingReplyCount={pendingReplies.length}
         showTrackerButton={!wide || Platform.OS !== 'web'}
+        showQueueLabel={wide && Platform.OS === 'web'}
+        queueBadge={{ pendingCount: queueView.pendingCount, stoppedCount: queueView.stoppedCount, backlogCount: queueView.backlogCount }}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
         onOpenTracker={() => setTrackerOpen(true)}
+        onOpenQueue={openQueueEntry}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
@@ -982,6 +1001,15 @@ export default function ChatScreen({ navigation, route }: Props) {
         onOpenThread={(id) => { setTrackerOpen(false); openThreadOf(id); }}
         onRetry={retryFromTracker}
       />
+      {/* 진행 중 질문 전역 큐 입구 시트 (t_140ecc15 ②) — wide 미만(패널 미렌더)에서 앱바
+          '진행 중 질문' → 하단 시트(트래커와 동일 규격). 행 탭=카드 점프, 실패=재발화. */}
+      <QueueBacklogModal
+        visible={queueOpen}
+        onClose={() => setQueueOpen(false)}
+        view={queueView}
+        onJump={(id) => { setQueueOpen(false); requestJump(id); }}
+        onRetry={retryFromTracker}
+      />
       {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점 */}
       <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
@@ -997,6 +1025,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         pendingReplies={pendingReplies}
         streams={streams}
         queue={queue}
+        queueView={queueView}
         onJump={requestJump}
         onOpenThread={openThreadOf}
         onRetry={retryFromTracker}

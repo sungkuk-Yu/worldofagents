@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, connectVoiceSocket, VoiceSocket, PresenceDevice } from '../lib/api';
 import { detectDeviceLabel, peersOf } from '../lib/deviceLabel';
 import { readCursorFor, shouldSendCursor } from '../lib/resumeLogic';
+import { deriveQueueView, QueueView } from '../lib/queueVisibility';
+import { queueStore } from '../lib/queueStore';
 import {
   appendOptimistic, ChatMessage, confirmTurn, createTurnCoordinator, createTypingTracker,
   mergeIncoming, nextBackoffMs, nextTurnIndex, normalizeServerMessages, oldestCursor,
@@ -36,6 +38,9 @@ export interface UseChatSessionReturn {
   retryMessage: (id: string) => Promise<SendResult>;
   deleteMessage: (id: string) => void;
   quip: string | null;
+  /** 진행 중 질문 전역 큐 뷰 (t_140ecc15) — messages/streams/queue 파생, 백엔드 API 신규 없음.
+   *  스레드 세션(rootMessageId)에서도 자기 윈도우만으로 계산되지만, queueStore에는 메인 세션만 쓴다. */
+  queueView: QueueView;
   mode: 'live' | 'demo';
   connection: Connection;
   lastError: string | null;
@@ -173,6 +178,14 @@ export function useChatSession(
   // 이 훅은 WS queue.updated / GET messages 스냅샷의 단일 queue 상태 원천만 유지하고,
   // 폴링의 동일 상태 적용은 applyQueueSnapshot(안정 ref)을 통해 이루어진다 (이중 상태원천 금지).
   const applyQueueSnapshot = useCallback((items: QueueItem[]) => setQueue(items), []);
+
+  // ── 진행 중 질문 전역 큐 뷰 (t_140ecc15) ──
+  // messages/streams/queue 단일 상태원천의 순수 파생 — API 신규 없음(프론트 파생 원칙, t_fd869e5b 계승).
+  // 재계산 창: delta 배칭(rAF)·WS 스냅샷·15s 폴링마다 — 파생은 이진탐색 1패스(queueVisibility 주석).
+  const queueView = useMemo(() => deriveQueueView(messages, streams, queue), [messages, streams, queue]);
+  // queueStore(비-prop 소비자: StreamCard '대기 n건' 문구)는 메인 세션만 쓴다 —
+  // 스레드 세션이 덮어쓰면 메인 배지가 오염된다 (단일 소유자 원칙).
+  useEffect(() => { if (!rootMessageId) queueStore.set(queueView); }, [rootMessageId, queueView]);
   // 답변 대기 스냅샷 적용기 (t_363c0faa) — WS reply.pending.updated 우선, GET /pending은 부트스트랩/보조.
   const applyPendingSnapshot = useCallback((items: PendingReplyItem[]) => setPendingReplies(items), []);
 
@@ -867,6 +880,7 @@ export function useChatSession(
   return {
     sessionId, rootMessage, messages, typing, quip, mode, connection, lastError, hasOlder, loadingOlder,
     activeCount, streams, retryConnection, retryMessage, deleteMessage,
+    queueView,
     send, retryLastSend, loadOlder, enterDemo, clearError,
     peers, talking, talk,
     // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)

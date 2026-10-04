@@ -11,8 +11,11 @@ import { useTranslation } from 'react-i18next';
 import { api, FavoriteEntry } from '../lib/api';
 import { inspectStore } from '../lib/inspectStore';
 import type { ChatMessage, PendingReplyItem, QueueItem, StreamingAnswer } from '../lib/chatLogic';
+import type { QueueView } from '../lib/queueVisibility';
 import { StarIcon } from './Icon';
 import { QuestionTrackerSection } from './QuestionTracker';
+import { QueueBacklogSection } from './QueueBacklog';
+import { QUEUE_VIS } from '../lib/featureFlags';
 import { colors, iconSize, radii, spacing, typography } from '../theme';
 
 interface Props {
@@ -24,6 +27,8 @@ interface Props {
   pendingReplies: PendingReplyItem[];
   streams: StreamingAnswer[];
   queue: QueueItem[];
+  /** 진행 중 질문 전역 큐 뷰 (t_140ecc15 ②) — 앱바 '진행 중 질문' 버튼의 스크롤 앵커 섹션 */
+  queueView: QueueView;
   onJump: (messageId: string) => void;
   onOpenThread: (rootMessageId: string) => void;
   onRetry: (messageId: string) => void;
@@ -44,7 +49,7 @@ function SectionHead({ title, onSeeAll, seeAllLabel }: { title: string; onSeeAll
   );
 }
 
-export default function ContextPanel({ sessionId, messages, onOpenFavorites, pendingReplies, streams, queue, onJump, onOpenThread, onRetry }: Props) {
+export default function ContextPanel({ sessionId, messages, onOpenFavorites, pendingReplies, streams, queue, queueView, onJump, onOpenThread, onRetry }: Props) {
   const { t } = useTranslation();
   const [favorites, setFavorites] = useState<FavoriteEntry[]>([]);
   const [inspectedId, setInspectedId] = useState<string | null>(inspectStore.get());
@@ -70,7 +75,12 @@ export default function ContextPanel({ sessionId, messages, onOpenFavorites, pen
           <Text style={styles.itemBody} numberOfLines={4}>{inspected.content || t('context.cardPreviewEmpty')}</Text>
         </View>
       </View>}
-      {/* 내 질문 트래커 (t_fd869e5b) — 볼트 노트 섹션 제거 후 그 자리. 목록 폭발 방지는 24h 축약(로직단). */}
+      {/* 진행 중 질문 백로그 (t_140ecc15 ②) — 앱바 '진행 중 질문' 버튼의 스크롤 앵커 섹션.
+          밀린 질문 0건이면 카운트 줄 + '모두 해소' 빈 행 1줄만(운영 확인용, 리스트 폭발 없음). */}
+      {QUEUE_VIS && <View style={styles.section}>
+        <QueueBacklogSection view={queueView} onJump={onJump} onRetry={onRetry} />
+      </View>}
+      {/* 내 질문 트래커 (t_fd869e5b) — 볼트 노트 섹션 제거 후 그 자리. 목록 폭발 방지(로직단) */}
       <View style={styles.section}>
         <QuestionTrackerSection messages={messages} pendingReplies={pendingReplies} streams={streams} queue={queue} onJump={onJump} onOpenThread={onOpenThread} onRetry={onRetry} />
       </View>
