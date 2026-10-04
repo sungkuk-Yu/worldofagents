@@ -19,6 +19,8 @@ const path = require('path');
 const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttalk-figma/node_modules/playwright-core');
 const { installFixtures } = require('./run_c_fixtures.cjs');
 const APP = process.env.APP_URL || 'http://localhost:8158';
+// t_67d7d919: ⑤ 홀드 앵커도 voice-stage-pad 소유 — 공용 헬퍼의 히트테스트 안착 버전 사용
+const { voiceStagePadBox } = require('./voice_helper.cjs');
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'voice-console');
 fs.mkdirSync(OUT, { recursive: true });
 const shot = (n) => path.join(OUT, `${n}.png`);
@@ -66,7 +68,8 @@ async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = 
       const { page, state, errors } = await openMobileChat(browser);
       check('① voice-stage 렌더(1차 음성 계층)', await page.getByTestId('voice-stage').isVisible());
       const strip = await page.getByTestId('voice-stage').boundingBox();
-      check('① strip 높이 = 30% 뷰포트 클램프(180~300)', strip.height >= 180 && strip.height <= 300, `h=${strip.height}`);
+      // t_08d671a8 인체공학 개정: 스트립 30%→45% (voiceStageHeight clamp 240~400)
+      check('① strip 높이 = 45% 뷰포트 클램프(240~400)', strip.height >= 240 && strip.height <= 400, `h=${strip.height}`);
       check('① strip 상단 = 리스트 패딩 경계(히스토리 미점거)', Math.abs((844 - strip.height) - strip.y) <= 2, `y=${strip.y}`);
       const bg = await page.evaluate(() => {
         const el = document.querySelector('[data-testid="voice-stage"]');
@@ -76,9 +79,12 @@ async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = 
       // ── t_f8c40db0 (대표님 9/30): 지문형 서클 패드만 인식 · 원 밖은 전역 스크롤 통과 ──
       const pad = await page.getByTestId('voice-stage-pad').boundingBox();
       check('① 홀드 패드(서클) 렌더 — 직경 ~96px', !!pad && Math.abs(pad.width - 96) <= 2 && Math.abs(pad.height - 96) <= 2, pad ? `${pad.width}x${pad.height}` : '없음');
-      check('① 패드 중심 = 스트립 중심(지문형 중앙 배치)', !!pad
+      // t_08d671a8 PAD_TOP_PERCENT=30 개정: 패드 중심 = 스트립 상단 30% (지문형 스트립 중앙 아님 —
+      // 엄지 그립 상향, 뷰포트 기준 ~60%). 좌우 수평 중앙은 유지(grip default center).
+      check('① 패드 중심 = 스트립 상단 30%(패드 상향) · 수평 중앙', !!pad
         && Math.abs((pad.x + pad.width / 2) - (strip.x + strip.width / 2)) <= 2
-        && Math.abs((pad.y + pad.height / 2) - (strip.y + strip.height / 2)) <= 2);
+        && Math.abs((pad.y + pad.height / 2) - (strip.y + strip.height * 0.30)) <= 2,
+      pad ? `padCy=${Math.round(pad.y + pad.height / 2)} strip30%=${Math.round(strip.y + strip.height * 0.30)}` : '없음');
       const hitMap = await page.evaluate(([cx, cy, lx, rx, uy]) => {
         const at = (x, y) => {
           const el = document.elementFromPoint(x, y);
@@ -176,7 +182,9 @@ async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = 
         await page.goto(APP, { waitUntil: 'networkidle' });
         await page.getByTestId('session-card').click();
         await page.getByTestId('voice-stage').waitFor({ timeout: 15000 });
-        const box = await page.getByTestId('voice-stage').boundingBox();
+        // t_08d671a8/t_f8c40db0 개정: 홀드 히트 소유 = voice-stage-pad (스트립은 box-none 통과 박스 —
+        // 구 voice-stage 중심(뷰포트 ~78%) 홀드는 패드 밖이라 그랜트 미발생 → audio.start 0 위장 FAIL)
+        const box = await voiceStagePadBox(page);
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.down();
         await page.waitForTimeout(350);
