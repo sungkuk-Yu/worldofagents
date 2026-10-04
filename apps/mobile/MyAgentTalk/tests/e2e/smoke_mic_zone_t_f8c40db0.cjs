@@ -41,9 +41,9 @@ function check(name, cond, extra = '') {
     const strip = await page.getByTestId('voice-stage').boundingBox();
     const pad = await page.getByTestId('voice-stage-pad').boundingBox();
     check('① 패드 렌더 — 지문형 원 ~96px', !!pad && Math.abs(pad.width - 96) <= 2, pad ? `${pad.width}x${pad.height}` : '없음');
-    check('① 패드 = 스트립 중앙(30% 스트립 안)', !!pad
-      && Math.abs((pad.x + pad.width / 2) - (strip.x + strip.width / 2)) <= 2
-      && Math.abs((pad.y + pad.height / 2) - (strip.y + strip.height / 2)) <= 2);
+    // t_08d671a8 인체공학: 패드 중심 = 스트립 상단 30% → y/H ~60% — 구 "스트립 중앙" 검사 폐기, 수평 중앙만 검사
+    check('① 패드 = 스트립 수평 중앙', !!pad
+      && Math.abs((pad.x + pad.width / 2) - (strip.x + strip.width / 2)) <= 2);
     const hit = await page.evaluate(([x, y]) => {
       const el = document.elementFromPoint(x, y);
       return { pad: !!(el && el.closest('[data-testid="voice-stage-pad"]')), stage: !!(el && el.closest('[data-testid="voice-stage"]')) };
