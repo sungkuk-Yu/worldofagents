@@ -1,6 +1,6 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false } = {}) {
-  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, threads = false, threadsLite = false, anchorMs = null } = {}) {
+  const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
@@ -88,6 +88,34 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 트래커 확인', turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 트래커 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
     ];
   }
+  if (threads) {
+    // t_41c4c6f6 답글 목록(스레드 인덱스) 모달 시드 — t_2f45ccb1 확장3·4 재커버 (스트립/칩 폐기 후 회귀면).
+    // 실행일 독립(재발방지 규율): 앵커는 런타임-상대. anchorMs 주입 시 노드 시드와 브라우저 Date(=
+    // smoke의 page.clock.setFixedTime)가 같은 인공 실행시를 가리켜 2026-10-04/12-30/2027-01-05 어느
+    // 실행일에도 활성/종료 판정과 'N시간 전/N일 전' 라벨이 불변.
+    //  tq1(+답글 tr1): 1시간 전 활동 → 활성 (앱바 배지 +1, 활성 필터 1행)
+    //  tq2(+답글 tr2): 9일 전 활동 → WEEK_MS 초과 종료 (종료 배지, 종료 필터 1행, 활성에서 숨음)
+    // 루트는 role:user — 행 라벨은 root.content(t_4654f727… 원인이던 에이전트 카드 라벨 함정 회피, 대표님 관찰 3).
+    const TAnchor = anchorMs ?? Date.now();
+    const tAgo = (h) => new Date(TAnchor - h * 3600 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'tq1', role: 'user', content: '스레드 활성 질문', turn_index: 1, created_at: tAgo(3), agent_id: 'agent', agent_name: agent.name },
+      { id: 'ta1', role: 'agent', content: '활성 답변', turn_index: 1, created_at: tAgo(3), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'tr1', role: 'user', content: '스레드 활성 답글', turn_index: 2, created_at: tAgo(1), parent_message_id: 'tq1', root_message_id: 'tq1', agent_id: 'agent', agent_name: agent.name },
+      { id: 'tq2', role: 'user', content: '스레드 종료 질문', turn_index: 3, created_at: tAgo(24 * 9), agent_id: 'agent', agent_name: agent.name },
+      { id: 'ta2', role: 'agent', content: '종료 답변', turn_index: 3, created_at: tAgo(24 * 9), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'tr2', role: 'user', content: '스레드 종료 답글', turn_index: 4, created_at: tAgo(24 * 9 - 0.2), parent_message_id: 'tq2', root_message_id: 'tq2', agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
+  if (threadsLite) {
+    // t_41c4c6f6 앱바 '배지 0=미노출' 검사용 최소 세션 — 답글 없는 질문 1+답변 1 (스레드 인덱스 0행)
+    const LAnchor = anchorMs ?? Date.now();
+    const lAgo = (h) => new Date(LAnchor - h * 3600 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'lq', role: 'user', content: '답글 없는 질문', turn_index: 1, created_at: lAgo(1), agent_id: 'agent', agent_name: agent.name },
+      { id: 'la', role: 'agent', content: '답변', turn_index: 1, created_at: lAgo(1), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
   if (feedPhoto) {
     // 피드용 즐겨찾기 photo_edit 행 — source 세션에는 넣지 않는다(체팅 재현 카드 testID 중복 방지, favorites-only)
     state.favorites.push({ message: { id: 'photo', role: 'user', dialogue_type: 'photo_edit', content: '편집된 사진', favorite: true, created_at: '2026-09-27T00:00:00Z', structured_payload: { original_url: 'https://picsum.photos/seed/photo/640/480', crop: { x: 0.1, y: 0.1, w: 0.6, h: 0.6 }, annotations: [{ id: 'a1', kind: 'pin', from: { x: 0.5, y: 0.5 } }] } }, session: { id: 'source', title: 'Original project', agent_id: 'agent', agent_name: 'Test Agent', status: 'active' } });
@@ -139,6 +167,16 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     }
     if (path === '/api/agents') return ok(request.method() === 'POST' ? agent : (rich || wave) ? [agent] : []);
     if (path === '/api/sessions/ensure') return ok(state.sessions[0]);
+    // GET /queue (t_41c4c6f6 스파이 계약): useQueueStrip 부트스트랩 1회 + pending 15초 보조 폴링.
+    // 빈 스냅샷 = 마커 렌더 없음(조용히 버팀)이지만 호출 자체는 state.calls에 남아 '부트스트랩 1회,
+    // WS 즉시 반영 후 재pull 0'을 검증할 수 있다. pending이 있으면 15초 인터벌이 켜지므로
+    // 폴링 개수를 단언하려면 state.queue에 그 항목을 싣는다. state.queue 미설정 = 404(구 스모크
+    // page.route 재설정 경로 호환).
+    const queuePath = path.match(/^\/api\/sessions\/([^/]+)\/queue$/);
+    if (queuePath && request.method() === 'GET') {
+      if (!state.queue) return route.fulfill({ status: 404, json: { ok: false } });
+      return ok(state.queue);
+    }
     if (path === '/api/sessions') return ok(state.sessions);
     if (path === '/api/favorites' && request.method() === 'GET') {
       return route.fulfill({ json: { ok: true, data: state.favorites, meta: { limit: 50, offset: 0, has_more: false } } });
@@ -169,7 +207,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     const thread = path.match(/^\/api\/messages\/([^/]+)\/thread$/);
     if (thread) {
       if (state.unsupportedThread) return route.fulfill({ status: 404, json: {} });
-      return ok({ root: state.messages.source.find((m) => m.id === thread[1]), replies: [{ ...row('reply', 'text'), parent_message_id: thread[1], content: 'Thread reply' }] });
+      // 답글 행이 시드에 있으면 그대로 미러(t_41c4c6f6 모달→시트 실답글 검증), 없으면 정적 1행(구 계약)
+      const seeded = (state.messages.source || []).filter((m) => m.parent_message_id === thread[1] || m.root_message_id === thread[1]);
+      return ok({ root: state.messages.source.find((m) => m.id === thread[1]), replies: seeded.length ? seeded : [{ ...row('reply', 'text'), parent_message_id: thread[1], content: 'Thread reply' }] });
     }
     const fork = path.match(/^\/api\/sessions\/([^/]+)\/fork$/);
     if (fork) {
