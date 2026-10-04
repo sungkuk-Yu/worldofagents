@@ -1,5 +1,5 @@
 // 대화 목록과 에이전트 선택은 서버의 실제 데이터를 카드로 표시한다.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useTranslation } from 'react-i18next';
@@ -7,12 +7,20 @@ import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '.
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
 import ResumeBanner from '../components/ResumeBanner';
 import SessionTitleDialog from '../components/SessionTitleDialog';
-import FavoritesModal from '../components/FavoritesModal';
+// t_710b5d28 — FavoritesModal은 첫 열림 때 동적 로드: 정적 import가 chatLogic(→카드 스택)을
+// 부트 그래프에 끌여 __common(969KB)을 eager script 태그로 만든다(실측 10/4). visible=false일
+// 때 렌더 0이던 기존 동작과 DOM 동일 — 열리기 전에는 존재하지 않는다.
 import { errorKey } from '../lib/errorKeys';
-import { parseForkOrigin } from '../lib/cardLogic';
+import { parseForkOrigin } from '../lib/forkLogic'; // t_710b5d28 — 부트 그래프 경량(카드 스택 import 금지)
 import { newChatTapAction, newChatQueuedAction } from '../lib/newChatTap';
+import { readSessionCache, writeSessionCache } from '../lib/sessionCache';
+import { prefetchSessionMessages, consumeBootLists } from '../lib/sessionPrefetch';
 import { formatDayLabel } from '../i18n/format';
 import { BoardIcon, FeedIcon, GearIcon, MicIcon, StarIcon } from '../components/Icon';
+
+// t_710b5d28 — 즐겨찾기 모달은 App의 asyncScreens 단일 루트 멤버로 로드 (별도 import()는
+// 별도 청크 경계를 만들어 공유 코드를 다시 hoist시킨다 — 루트는 하나만)
+const LazyFavoritesModal = lazy(async () => ({ default: (await import('./asyncScreens')).FavoritesModal }));
 
 interface Props { navigation: any; route?: any; variant?: 'full' | 'sidebar' | 'home' }
 export default function DialogueListScreen({ navigation, variant = 'full' }: Props) {
@@ -21,8 +29,11 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const isHome = variant === 'home';
   // 헤더 워드마크 노출 임계 (t_3c882443 요구2) — 모바일 폭은 마크 단독, 넓은 화면만 마크+워드마크.
   const { width: headerWidth } = useWindowDimensions();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  // t_710b5d28 낙관 시드 — localStorage 스냅샷을 최초 state로(lazy initializer: effect 없이
+  // 렌더 전 판정, react-hooks/set-state-in-effect 규칙 준수). 서버 응답이 도착하면 조용히 대체
+  // 된다(캐논=서버). 사모드/파손/타 계정 = 미스 → 빈 배열(현행 스피너 경로와 동일).
+  const [sessions, setSessions] = useState<SessionSummary[]>(() => readSessionCache(getApiConfig().token)?.sessions ?? []);
+  const [agents, setAgents] = useState<AgentSummary[]>(() => readSessionCache(getApiConfig().token)?.agents ?? []);
   const [loading, setLoading] = useState(true);
   // 상태 분리 (t_c0fb3b22 P0): signedOut(error=auth) vs offline(connected=false) 구분.
   // 미로그인은 정상 온보딩 상태 — 서버 다운("unavailable")과 절대 혼용하지 않는다.
@@ -37,24 +48,40 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   // 제목 수정 (t_8917ca0d ③) — 목록 행 롱프레스 → SessionTitleDialog. 저장 성공 시 로컬 행 즉시 갱신
   // (refocus 시 서버 재fetch가 캐논, 낙관 반영은 목록 잔상 제거용).
   const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
-  // 즐겨찾기 상단 모달 (t_fd869e5b 요구3, 대표님 10/4 "즐겨찾기는 모달로 상단부에 내비줘서 바로 찾아볼수 있도록")
+  // t_710b5d28 — 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 첫 열림 때 동적 로드(위 주석), 미열림 = 렌더 0.
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const agentTitle = (agent?: AgentSummary) => agent?.preset?.titleKey && i18n.exists(agent.preset.titleKey)
     ? t(agent.preset.titleKey) : agent?.name || t('common.agent');
+  const refreshGen = useRef(0);      // t_710b5d28 health 병렬 응답의 최신 런 가드
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
-    if (!getApiConfig().token) {
+    const token = getApiConfig().token;
+    if (!token) {
       // 토큰 없음 = 온보딩. 네트워크 판정(connected)을 건드리지 않고 로그인 배너만 띄운다.
       setConnected(false); setError('errors.auth'); setLoading(false); return;
     }
+    // t_710b5d28 (10/4 속도 P0 실측) — 부트 워터폴: health 선행 직렬 왕복(0.7~1.1s)이 목록
+    // 데이터를 잡았다. health는 connected(오프라인 배지) 전용 용도이므로 agents/sessions과
+    // 병렬로 내리고, 목록 페인트는 데이터 응답만 기다린다. 판정 계약:
+    //  · errors.auth(401) — request 매핑 그대로 data 요청에서 던져진다(기존 경로 1:1).
+    //  · offline — 데이터 요청 자체가 실패한 경우만(아래 render). connected 지연은 배지/배너만
+    //    관할: 목록 성공 + health 지연 시 오프라인 패널이 목록을 덮는 플래시 회귀 차단.
+    const gen = ++refreshGen.current;
+    void api.health().then(() => { if (gen === refreshGen.current) setConnected(true); })
+      .catch(() => { if (gen === refreshGen.current) setConnected(false); });
     try {
-      await api.health();
-      const [agentEnv, sessionEnv] = await Promise.all([api.listAgents(), api.listSessions()]);
+      // t_710b5d28 — 부트 prefetch 소비(스플래시 병렬로 출발한 왕복): 1회만. focus 재refresh는
+      // 캐논 보장을 위해 반드시 서버를 새로 읽는다.
+      const prefetched = await consumeBootLists();
+      const [agentEnv, sessionEnv] = prefetched
+        ? [prefetched.agents, prefetched.sessions]
+        : await Promise.all([api.listAgents(), api.listSessions()]);
       if (!agentEnv.ok || !sessionEnv.ok) throw new Error('errors.request');
-      setAgents(agentEnv.data ?? []); setSessions(sessionEnv.data ?? []); setConnected(true);
+      setAgents(agentEnv.data ?? []); setSessions(sessionEnv.data ?? []);
+      // 낙관 캐시: 다음 부트(서버 응답 전)에 이 스냅샷으로 즉시 렌더 — 스피너 창 제거.
+      writeSessionCache(token, sessionEnv.data ?? [], agentEnv.data ?? []);
     } catch (e) {
       const key = errorKey(e);
-      setConnected(false);
       if (key === 'errors.auth') setError('errors.auth'); // 401/403 = 세션 만료, 서버 다운 아님
       else setError(key); // 네트워크/5xx = 진짜 오프라인
     } finally { setLoading(false); }
@@ -90,15 +117,17 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   useEffect(() => {
     if (loading || !queuedTap.current) return;
     queuedTap.current = false;
-    if (error) return;
-    const signedOutNow = error === 'errors.auth' && !loading;
-    if (!connected && !signedOutNow) return;
+    if (error) return; // 실패/온보딩 = 드레인 폐기 (t_cb8 계약, signedOut 포함)
+    // t_710b5d28: connected(health 병렬)가 목록 페인트보다 늦을 수 있으므로 드레인은
+    // error 단일 소스로 판정 — 구 `!connected` 게이트는 health 지연 시 큐잉 드랍 회귀를 만든다.
     if (newChatQueuedAction(agents.length > 0) === 'chooserOpen') setChoosing(true);
     else void startChat();
   }, [loading, connected, error, agents.length]);
   // 미로그인(error=auth)은 온보딩, 오프라인은 네트워크/서버 실제 실패에만 (t_c0fb3b22 P0)
+  // t_710b5d28: health가 병렬화되었으므로 connected는 목록 게이트에서 하차 — 패널 판정은
+  // 데이터 요청 실패(error) 단일 소스. 목록 성공+health 지연 구간의 오프라인 패널 플래시 차단.
   const signedOut = error === 'errors.auth' && !loading;
-  const offline = !connected && !loading && !signedOut;
+  const offline = !!error && !loading && !signedOut;
   return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
     {!isSidebar && <View style={styles.header}>
       {/* t_3c882443 요구2 (대표님 10/4 "왼쪽 상단도 MAT는 My Agent Talk라고 해주고, 우리 로고를 크게 넣어줘"):
@@ -146,7 +175,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       {starting && <ActivityIndicator size="small" color={colors.onPrimary} />}
       <Text style={styles.newChatText}>{t(starting ? 'dialogueList.preparing' : 'dialogueList.new')}</Text>
     </TouchableOpacity>
-    {loading ? <ActivityIndicator color={colors.accent} /> : signedOut ? <View style={styles.empty} testID="onboarding-panel">
+    {/* t_710b5d28 낙관 시드: 캐시 스냅샷이 있으면 로딩 중에도 목록을 먼저 렌더(행tap·스크롤 가능,
+        서버 응답 도착 시 조용히 대체). 행이 없을 때만 스피너 — 기존 첫 로그인 경로는 불변. */}
+    {loading && !sessions.length ? <ActivityIndicator color={colors.accent} /> : signedOut ? <View style={styles.empty} testID="onboarding-panel">
       <Text style={styles.emptyText}>{t('errors.auth')}</Text>
       <Text style={styles.emptySubtext}>{t('dialogueList.loginSub')}</Text>
       <TouchableOpacity style={styles.offlineAction} onPress={() => navigation.navigate('Login')} testID="signin-button"><Text style={styles.offlineActionText}>{t('dialogueList.signin')}</Text></TouchableOpacity>
@@ -168,7 +199,7 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
         const agentName = agentTitle(agent);
         const date = item.last_activity_at ? new Date(item.last_activity_at) : null;
         return <TouchableOpacity style={[styles.dialogueCard, { borderLeftColor: colors.accent }]} testID="session-card"
-          onPress={() => navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetCategory: agent?.preset?.category, presetTitleKey: agent?.preset?.titleKey })}
+          onPress={() => { prefetchSessionMessages(item.id); navigation.navigate('Chat', { sessionId: item.id, sessionTitle: item.title, forkedFrom: origin, agentId: item.agent_id, agentName: agent?.name, presetCategory: agent?.preset?.category, presetTitleKey: agent?.preset?.titleKey }); }}
           onLongPress={() => setRenameTarget(item)} delayLongPress={450}
           accessibilityLabel={t('dialogueList.continue', { agentName })}>
           <View style={styles.dialogueBody}><Text style={[styles.dialogueType, { color: colors.accent }]} numberOfLines={1}>{agentName}</Text>
@@ -191,7 +222,9 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
     />}
     {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — transparent Modal: FlatList 히트 압도 회고(t_3116c5bc)로
         Modal 래퍼 유지. 딥링크 탭 = 세션 이동 + focusMessageId 하이라이트 (기존 화면과 동일 경로). */}
-    <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
+    {favoritesOpen && <Suspense fallback={null}>
+      <LazyFavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
+    </Suspense>}
   </SafeAreaView>;
 }
 

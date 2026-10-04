@@ -8,14 +8,10 @@
 // 결정 로직(플래그 파서·배치·URL 파서·오류 매핑)은 oauthLogic.ts(순수) — 이 파일은 배선만.
 import { Platform } from 'react-native';
 import * as Linking from 'expo-linking';
-import {
-  getOAuthSupabaseClient,
-  exchangeSupabaseSession,
-  clearSupabaseSession,
-  peekSupabaseSession,
-  rehydrateSupabaseSlot,
-  ensureNativeCrypto,
-} from './oauthClient';
+// t_710b5d28 (10/4 속도 P0) — supabase/oauthClient를 async 청크로 하차. 실측: supabase-js+GoTrue
+// 125KB 원본이 정적 import 탓에 플래그 OFF 사용자(전체 트래픽)의 entry에도 들어 있었다. 모든 소비자
+// (signIn/exchange/recovery/wire)가 async 함수 안이므로 동적 로드 가능 — OAuth 미활성 부트는
+// 청크 fetch 자체가 없다(플래그 게이트: wireOAuthSessionBridge는 provider 목록이 비면 return).
 import { setToken, setOAuthRecovery } from './api';
 import {
   OAuthProvider,
@@ -26,6 +22,18 @@ import {
   parseDeepLink,
   oauthErrorKey,
 } from './oauthLogic';
+
+type OAuthClientModule = typeof import('./oauthClient');
+let oauthClientModule: Promise<OAuthClientModule> | null = null;
+function oauthClient(): Promise<OAuthClientModule> {
+  return oauthClientModule ??= import('./oauthClient');
+}
+const getOAuthSupabaseClient = async () => (await oauthClient()).getOAuthSupabaseClient();
+const exchangeSupabaseSession = async (code: string, flowId?: string) => (await oauthClient()).exchangeSupabaseSession(code, flowId);
+const clearSupabaseSession = async () => (await oauthClient()).clearSupabaseSession();
+const peekSupabaseSession = async () => (await oauthClient()).peekSupabaseSession();
+const rehydrateSupabaseSlot = async () => (await oauthClient()).rehydrateSupabaseSlot();
+const ensureNativeCrypto = async () => (await oauthClient()).ensureNativeCrypto();
 
 // Metro은 'process.env.EXPO_PUBLIC_X' 형태의 직접 정적 참조만 빌드 시점 베이크한다(간접
 // 객체 참조는 그대로 남아 프로덕션에서 플래그가 영구 OFF — 번들 grep read-back 실측 t_198b95cc).
@@ -74,7 +82,7 @@ function oauthRedirectTarget(): string {
 export async function startOAuthSignIn(provider: OAuthProvider): Promise<void> {
   if (!oauthEnabledProviders().includes(provider)) throw new Error('errors.oauthFailed');
   await ensureNativeCrypto(); // signIn 전 crypto/btoa 슬롯 보장(네이티브는 lazy import라 순서 중요)
-  const supabase = getOAuthSupabaseClient();
+  const supabase = await getOAuthSupabaseClient();
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: supabaseProviderArg(provider),
     options: {
@@ -189,7 +197,7 @@ export function subscribeNativeOAuthLink(onSignedIn: () => void, onError: (key: 
  *  withdrawal explicit destruction'). email/password 사용자는 sb 핸들이 없어 setToken(null)과 동일. */
 export async function signOutOAuth(): Promise<void> {
   await setToken(null);
-  if (peekSupabaseSession()) await clearSupabaseSession();
+  if (await peekSupabaseSession()) await clearSupabaseSession();
 }
 
 /** 세션 만료 리커버리 (카드 §4) — api.ts request()의 401에서 single-flight로 호출된다.
@@ -199,15 +207,15 @@ export async function signOutOAuth(): Promise<void> {
  *  경로는 1회로 고정(api.ts 참조). */
 async function trySessionRecovery(): Promise<boolean> {
   // 슬롯이 비어있으면(재기동 직후 레이스) storage에서 한 번 재충전 후 판정 — 유예 없이 dead path 방지.
-  if (!peekSupabaseSession()) await rehydrateSupabaseSlot();
-  const sb = peekSupabaseSession();
+  if (!(await peekSupabaseSession())) await rehydrateSupabaseSlot();
+  const sb = await peekSupabaseSession();
   if (!sb) return false;
   try {
     await ensureNativeCrypto();
     let token = sb.access_token;
     const expiringSoon = !sb.expires_at || sb.expires_at * 1000 < Date.now() + 60_000;
     if (expiringSoon) {
-      const { data } = await getOAuthSupabaseClient().auth.getSession(); // autoRefresh가 갱신한 토큰 회수
+      const { data } = await (await getOAuthSupabaseClient()).auth.getSession(); // autoRefresh가 갱신한 토큰 회수
       if (!data?.session?.access_token) return false;
       token = data.session.access_token;
     }
