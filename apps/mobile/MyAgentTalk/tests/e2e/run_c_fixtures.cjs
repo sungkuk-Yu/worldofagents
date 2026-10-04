@@ -4,7 +4,11 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
   state.sessions = [{ id: 'source', agent_id: 'agent', title: 'Original project', status: 'active' }];
-  const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: '2026-09-26T12:00:00Z', agent_id: 'agent', agent_name: agent.name });
+  // t_4654d727 — 실행일 독립화(하네스 부패 수리): created_at 고정('2026-09-26T12:00')이 10/3부터 7일 무활동
+  // 창(t_2f45ccb1 종료 배지, WEEK_MS)을 초과 → rich 스레드가 오탐 종료 → 확장3·4 4검사항 FAIL+FATAL로
+  // 전향. '최신'을 의미하는 앵커는 반드시 런타임-상대로(실행시각 10분 전), '낡음'을 의미하는 앵커
+  // (ack 히스토리 stale 9/26, favorites 9/27)는 고정 유지 — 시간이 갈수록 더 낡으므로 방향이 안전.
+  const row = (id, type, payload) => ({ id, session_id: 'source', role: 'agent', turn_index: 1, content: 'Test content ' + id, dialogue_type: type, structured_payload: payload, created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), agent_id: 'agent', agent_name: agent.name });
   const LONG_PARA = '계약서 검토 결과, 제14조 위약금 조항에서 연 5퍼센트의 지연 이자를 상한으로 두되 기한이익 상실 요건을 채무자의 명시적-payment 거절로 한정하는 것이 안전하다. 제22조의 해지 통보 기한은 30일로 충분하며 중재지는 서울로, 준거법은 대한민국 법률로 정한다. 부속 합의서의 비밀유지 조항은 존속기간을 계약 종료 후 5년으로 연장하고 예외 사유를 법령상 의무, 이미 공개된 정보, 독립적으로 개발된 정보로 한정한다. 각 조항의 충돌 시 부속 합의서가 우선하며 분할 가능성이 인정되지 않는 조항은 무효로 두되 나머지 조항의 효력에는 영향이 없다. 통지는 서면으로 하되 전자서명된 메일을 유효한 서면으로 본다.'.repeat(6);
   const TABLE_ROWS = Array.from({ length: 40 }, (_, i) => [`항목 ${i + 1}`, (i + 1) * 120, i % 3 === 0 ? '완료' : '대기']);
   state.messages.source = reader ? [
