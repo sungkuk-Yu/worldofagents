@@ -1,14 +1,23 @@
 // 음성 스테이지 순수 로직 (t_4758f25d — 대표님 9/28 밤 최종 재스펙 종합)
-// 고정 조이스틱 콘솔 폐기 → 수직 2분할: 상부 = 스크롤/탭 영역, 하부 ~30% = 투명 홀드 스트립.
+// → t_08d671a8 (대표님 10/4 인체공학): 스트립 30%→45%, 패드 중심을 뷰포트 ~60% 위치로 상향.
+//   "엄지 그립 지점(하단 15%)이 링 아래에 남고, 누르는 동안 파형/타이머/직전 대화가 손가락 위에 보임."
+// 고정 조이스틱 콘솔 폐기 → 수직 2분할: 상부 = 스크롤/탭 영역, 하부 ~45% = 투명 홀드 스트립.
 // 이 모듈은 판정만 소유(단위테스트 대상) — 렌더/타이머는 VoiceStage/ChatInputConsole.
 // 활성 게이트는 voiceFirstConsole(lib/layout, t_e735d936) 그대로 — 웹 모바일만.
 import { JoystickGesture } from '../types';
 
-/** 스트립 높이 = 세로 뷰포트의 30%, 180~300px 클램프. 리스트 하단 패딩과 동일 값(패딩=스트립 실측). */
+/** 스트립 높이 = 세로 뷰포트의 45%, 240~400px 클램프. 리스트 하단 패딩과 동일 값(패딩=스트립 실측). */
 export function voiceStageHeight(viewportH: number): number {
   const base = Number.isFinite(viewportH) && viewportH > 0 ? viewportH : 844;
-  return Math.round(Math.min(300, Math.max(180, base * 0.3)));
+  return Math.round(Math.min(400, Math.max(240, base * 0.45)));
 }
+
+/**
+ * t_08d671a8 인체공학: 스트립 안에서 패드 중심 위치(top % 오프셋) — 30% = 상단 1/3.
+ * 스트립 전체 높이의 30% 지점이 패드 중심 → 뷰포트 기준 ~60% 높이.
+ * VoiceStage.styles.pad에서 top: `${PAD_TOP_PERCENT}%` 사용.
+ */
+export const PAD_TOP_PERCENT = 30;
 
 /**
  * t_dee9e982: 채팅 리스트 contentContainer 하단 패딩 오버라이드 (앵커 로직의 padding 축).

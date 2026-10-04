@@ -26,7 +26,7 @@ import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { getDirection } from '../lib/gesture';
 import { ackPhraseForDirection } from '../lib/ackHold';
-import { stageReleaseOutcome, formatRecordingDuration } from '../lib/voiceStage';
+import { stageReleaseOutcome, formatRecordingDuration, PAD_TOP_PERCENT } from '../lib/voiceStage';
 import { pendingReleaseAction } from '../lib/holdStart';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
@@ -419,8 +419,9 @@ const styles = StyleSheet.create({
   },
   pad: {
     // 지문인식형 홀드 패드 (t_f8c40db0) — 링과 동일 중심·직경(96px), 대기 상태에서도 보이는 유일한 인식 원.
+    // t_08d671a8 인체공학: top: PAD_TOP_PERCENT% = 스트립 상단 1/3 → 뷰포트 ~60% 높이
     position: 'absolute', width: STAGE_RING, height: STAGE_RING,
-    left: '50%', top: '50%', marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
+    left: '50%', top: `${PAD_TOP_PERCENT}%`, marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
     borderRadius: radii.full,
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
     backgroundColor: colors.surfaceRaise + '14',
@@ -436,8 +437,8 @@ const styles = StyleSheet.create({
   fallbackText: { ...typography.caption, color: colors.statusWarn, textAlign: 'center', position: 'absolute', bottom: spacing.sp4 }, // 패드(중앙)와 겹치지 않게 하단 — t_f8c40db0
   ring: {
     position: 'absolute', width: STAGE_RING, height: STAGE_RING,
-    // 중심 = 스트립 중앙 고정 (#311) — 백분율+마진이라 실측 대기 없이도 정확
-    left: '50%', top: '50%', marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
+    // 중심 = 패드와 동일 (t_08d671a8): 스트립 상단 PAD_TOP_PERCENT%
+    left: '50%', top: `${PAD_TOP_PERCENT}%`, marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
     borderRadius: radii.full,
     borderWidth: 2, borderColor: colors.accent,
     backgroundColor: 'rgba(0,168,107,0.10)',
