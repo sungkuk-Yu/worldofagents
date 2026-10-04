@@ -62,11 +62,15 @@ interface Props {
   error?: string | null;
   /** t_5058e15f ②: 그랜트 쥠 + talk.ready 대기 — '연결 중' 안내(캡처 지연 시작, 조용한 스킵 금지) */
   pending?: boolean;
+  /** t_2f296081 ③ (대표님 10/4): 키보드 PTT 경로(pttKey 홀드/토글)의 활성 캡처 — ptt.active.
+   *  true인데 제스처 그랜트가 없으면 합성 홀드(링+리본+타이머)로 진입, false 전환 시 제자리
+   *  릴리스와 동일하게 done 체크로 마무리. 터치 홀드(이미 phase='holding')에는 무영(no-op). */
+  externalHolding?: boolean;
 }
 
 type Phase = 'idle' | 'holding' | 'done';
 
-export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error, pending }: Props) {
+export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error, pending, externalHolding }: Props) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
   const [ackHint, setAckHint] = useState<'yes' | 'no' | null>(null);
@@ -229,6 +233,24 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
     if (doneTimerRef.current) clearTimeout(doneTimerRef.current);
     doneTimerRef.current = setTimeout(() => { setPhase('idle'); doneTimerRef.current = null; }, DONE_MS);
   }, [doneOpacity]);
+
+  // ── t_2f296081 ③ (대표님 10/4): 키보드 PTT(pttKey) 합성 홀드 시각화 ──────────────
+  // B 계층 입력창 포커스 중 V 타격 = capture가 press() 승격 + B→A 즉시 전환 — 이 스테이지는
+  // 그랜트(touch) 없이 externalHolding(ptt.active)만으로 마운트된다. true→합성 holding(링+리본+
+  // 타이머), false→제자리 릴리스와 동일 finishDone(체크 후 idle). 터치 홀드 진행 중(startedRef)엔
+  // 무영 — 제스처 계약(#311/#316)과 발화 경로(onHoldEnd/onHoldAbort는 touch 전용) 불변, 이중 talk.end 없음.
+  const syntheticRef = useRef(false);
+  useEffect(() => {
+    if (externalHolding && !startedRef.current && !syntheticRef.current && phase === 'idle' && !doneTimerRef.current) {
+      syntheticRef.current = true;
+      holdStartRef.current = Date.now(); // 타이머 기준 = 합성 그랜트 시각(±수 ms, 표시용)
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem(HINT_KEY, '1'); } catch { /* private mode */ }
+      setPhase('holding');
+    } else if (!externalHolding && syntheticRef.current) {
+      syntheticRef.current = false;
+      if (phase === 'holding') finishDone();
+    }
+  }, [externalHolding, phase, finishDone]);
 
   // panHandlers를 state로 관리 (렌더 중 ref 접근 방지 — JoystickMic 패턴)
   const [panHandlers, setPanHandlers] = useState<GestureResponderHandlers>({});

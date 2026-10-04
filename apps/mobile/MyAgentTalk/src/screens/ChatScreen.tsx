@@ -900,13 +900,17 @@ export default function ChatScreen({ navigation, route }: Props) {
 
       {unseen > 0 && <Button testID="unseen-badge" onPress={jumpToEnd} textColor={colors.accent} style={[styles.msgCard, { position: 'relative', zIndex: 100 }]}>{t('chat.unseen', { countText: formatNumber(unseen, i18n.language) })}</Button>}
       {/* PTT 녹음 상태 배너 (확정 ④: 하단 웨이브폼 + 말하세요) — 웹에서만 활성.
-          t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지. */}
-      {Platform.OS === 'web' && !isDemo && !voiceMode && (
+          t_e735d936/t_4758f25d: 음성 계층(A)에서는 스테이지의 링+리본이 녹음 시각화 자체 — 배너 중복 금지.
+          t_2f296081 ③ (대표님 10/4): 웹 모바일 B 계층(키보드 개방 = 스테이지 언마운트)에서는
+          V 키 녹음 시각화가 사라진다 — 스테이지 미활성 구간 한정으로 배너 복원(PC와 동일 테스트ID). */}
+      {Platform.OS === 'web' && !isDemo && (!voiceMode || !stageActive) && (
         <PttBannerComponent
           active={ptt.active || talking}
           keyLabel={pc ? pttKeyLabel(getPttKey() ?? 'KeyV') : undefined}
           mode={getPttMode() ?? 'hold'}
-          error={voiceMode ? null : ptt.error}
+          // t_2f296081 ③: 배너 게이트가 스테이지 미활성 구간(!stageActive)까지 확대 — A 계층에서는
+          // 여전히 미렌더이므로 chat-voice-fallback과 중복 없음. voiceMode에서도 error 노출(스왈로 방지).
+          error={ptt.error}
           pending={ptt.pending}
         />
       )}
@@ -950,6 +954,12 @@ export default function ChatScreen({ navigation, route }: Props) {
         pttPending={ptt.pending}
         viewportHeight={viewportHeight}
         onPressHoldStart={ptt.startHold}
+        // t_2f296081 ③ (대표님 10/4): 웹 모바일 B 계층 입력창 포커스 중 pttKey(V·userPrefs 단일 소스)
+        // = 즉시 A 진입 + 음성 홀드 시작. 전역 키보드 경로와 동일 ptt.press(모드 인지: hold=캡처
+        // 시작/keyup 릴리스 전송, toggle=재타격 종료) — 충돌 시 pttKey 우선 병합('v' 타이핑 차단).
+        // PC(voiceMode=false, A 계층 없음)·데모(PTT 미장착)는 미주입 → 'v'는 그냥 타이핑(편집 기본기 ②).
+        onVoicePress={voiceMode && !isDemo ? ptt.press : undefined}
+        pttCapturing={ptt.active}
         onHoldEnd={ptt.endHold}
         onHoldAbort={ptt.abortHold}
         onSendAck={sendAck}

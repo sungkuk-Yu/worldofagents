@@ -8,7 +8,7 @@
 //     (0d351d4d #304의 좌전송/우마이크 반전은 폐기). 첨부 로직 불변.
 // PC/네이티브/데모(voiceMode=false): 기존 입력바 상시(좌첨부-우전송) — DOM 불변 (t_e735d936 스모크 ⑧).
 // 권한 최초 요구는 A의 첫 홀드 시점(usePushToTalk.startHold) — 로드 중 getUserMedia 없음.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +20,9 @@ import { colors, radii, spacing, typography, iconSize } from '../theme';
 import { validateMessageInput } from '../lib/chatLogic';
 import { voiceStageHeight } from '../lib/voiceStage';
 import { formatNumber } from '../i18n/format';
+import { INPUT_MIN_HEIGHT, inputHeightFor, inputScrolls, composerAction } from '../lib/chatInputLogic';
+import { getPttKey } from '../lib/userPrefs';
+import { PTT_DEFAULT_KEY } from '../lib/pttLogic';
 
 interface Props {
   value: string;
@@ -53,6 +56,12 @@ interface Props {
   /** 답변 대기 freeform 점프 (t_363c0faa) — 값이 바뀌면 음성 모드에서도 키보드 입력바를 개방(focus).
    *  0 = 요청 없음. nonce 패턴: 같은 행 재탭에도 재발동 (queue strip jump nonce와 동일 관례). */
   forceOpenKeyboard?: number;
+  /** t_2f296081 ③: 입력창(B) 포커스 중 pttKey(V) 타격 = 음성 홀드/토글 시작. 화면 ptt.press 주입.
+   *  발동 시 B→A 즉시 전환(스테이지 링이 녹음 시각화) + preventDefault('v' 타이핑 억제). */
+  onVoicePress?: () => void;
+  /** t_2f296081 ③: 로컬 캡처 활성(ptt.active) — VoiceStage 합성 홀드(링+리본+타이머) 소스.
+   *  recording(=active||talking)과 달리 서버 전사 중에는 true가 아니라 릴리스 직전까지만 켜진다. */
+  pttCapturing?: boolean;
   /** 세로 뷰포트(px) — 스트립 높이 = 30% (voiceStageHeight) */
   viewportHeight: number;
   /** A 계층(스트립) 마운트 상태 통지 — 화면의 리스트 하단 패딩(=strip 실높이) 계약용 (#311).
@@ -65,6 +74,7 @@ export default function ChatInputConsole({
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
   voiceMode, initialKeyboardOpen, recording, level, pttError, pttPending,
   onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive, forceOpenKeyboard, viewportHeight,
+  onVoicePress, pttCapturing,
   onStageActiveChange,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -91,6 +101,76 @@ export default function ChatInputConsole({
   // t_e735d936 parity: error가 나도 A는 유지(재홀드 재시도), 안내 줄이 뜨고 입력창이 병행 개방된다.
   const stageActive = voiceMode && !keyboardOpen;
   useEffect(() => { onStageActiveChange?.(stageActive); }, [stageActive, onStageActiveChange]);
+  // ── t_c690274e 요구 1/2: Enter 단독=전송, Shift+Enter=개행, IME 조합 중 Enter=미전송 ──
+  // RN-web TextInput의 supportedProps.onKeyDownCapture(paper가 rest로 투하)이 bubble handleKeyDown보다
+  // 선행 실행: Enter 단독 → preventDefault(textarea 개행 삽입 차단) + submit 직접 호출.
+  // preventDefault로 RN-web bubble의 submit 분기도 스킵(isDefaultPrevented) → 이중 전송 0.
+  // Shift+Enter: 여기선 return만 — multiline+blurOnSubmit=false에서 RN-web도 submit을 스킵하므로
+  // 개행이 기본 동작으로 삽입된다(버그 교대의 핵심 경로).
+  // IME(한글) 조합 중: isComposing/keyCode 229 → 스킵(전송·개행 모두 브라우저/IME에 양보).
+  // 네이티브(0.86): submitBehavior='submit' 계약이 동일 분기를 수행하고 DOM nativeEvent가 없어 no-op.
+  const submitRef = useRef(onSubmit);
+  useLayoutEffect(() => { submitRef.current = onSubmit; }, [onSubmit]); // 전송 시점에 항상 최신 submit(첨부 게이트/드래프트 클로저) — 렌더 중 ref 기록 금지(lint)
+  // t_2f296081 ③ (대표님 10/4): B 계층 입력창 포커스 중 pttKey(V, userPrefs 단일 소스) 타격 =
+  // 음성 홀드/토글 시작. 전역 window keydown은 isEditableFocus(입력 포커스)에서 스킵하므로
+  // 이중 발동 없음 — capture가 입력창 한정 예외로 press()를 직접 호출하고, 전역 keyup(동일 키,
+  // 포커스 예외 없음)이 기존대로 release/cancel을 담당한다(hold 모드 릴리스 전송·toggle 재타격
+  // 종료 모두 성립). preventDefault는 'v' 문자 삽입 차단 = pttKey 우선 병합(대표님 지시).
+  // 마이크 버튼(chat-voice-back)은 상시 병존 유지 — 키를 모르는 사용자도 클릭 가능(#304 계약).
+  const voicePressRef = useRef(onVoicePress);
+  useLayoutEffect(() => { voicePressRef.current = onVoicePress; }, [onVoicePress]);
+  // PTT 장착 게이트: onVoicePress는 화면이 PTT 활성 상태에서만 주입한다(t_2f296081 ③ 설계 —
+  // 데모/미연결은 화면이 콜백 없이 전달, 또는 undefined). 데모는 startHold가 no-op이라 무해.
+  const voiceActiveRef = useRef({ enabled: false });
+  useLayoutEffect(() => { voiceActiveRef.current = { enabled: Platform.OS === 'web' && !!onVoicePress }; }, [onVoicePress]);
+  const handleInputKeyDown = useCallback((e: { nativeEvent?: unknown }) => {
+    if (Platform.OS !== 'web') return;
+    const native = e.nativeEvent as KeyboardEvent | undefined;
+    if (!native || native.defaultPrevented) return;
+    const action = composerAction(native, { pttKey: getPttKey() ?? PTT_DEFAULT_KEY, voiceEnabled: voiceActiveRef.current.enabled });
+    if (action === 'send') {
+      native.preventDefault();
+      submitRef.current();
+    } else if (action === 'voice') {
+      native.preventDefault(); // 'v' 타이핑 차단 — 키 재매핑 시 새 키가 동일 역할(단일 소스)
+      // React 컨테이너는 document 루트 — 이 capture 단계에서 네이티브 전파를 끊어야 window
+      // keydown(PTT 전역 리스너, isEditableFocus 스킵 대상)에 도달하기 전에 소비된다.
+      // 안 끊으면: 포커스가 스테이지로 이동한 뒤 bubbles: true 재분합 상승 이벤트가 window
+      // 리스너를 관통 → toggle 모드 재호출(녹음 정지) 위험. keyup은 창 밖이라 무영향(릴리스 정상).
+      native.stopPropagation();
+      setKeyboardOpen(false); // 즉시 A 진입 — 스테이지 링이 녹음 시각화(owner: VoiceStage)
+      voicePressRef.current?.();
+    }
+    // 'newline'/'pass': 개입 없음 — textarea 개행·OS 편집 단축키(Ctrl+X/Z/C/V)·드래그 선택 그대로.
+  }, []);
+  // RN 0.86 .d.ts가 TextInputProps에 capture·rows를 선언 누락(flow/RNW에는 존재) → 웹 전용 props 스프레드.
+  // rows=1 필수: textarea의 height:'auto' 계측은 rows가 box 높이를 정하므로, 기본 rows=2면 1줄 본문도
+  // scrollHeight 2줄로 나온다(MUI TextareaAutosize 동일 처방). 네이티브는 rows 미지원 prop = 무시(no-op).
+  const WEB_INPUT_PROPS = { onKeyDownCapture: handleInputKeyDown, rows: 1 } as Record<string, unknown>;
+  // ── t_c690274e 요구 3: 높이 성장(1줄→최대 5줄, 초과 내부 스크롤)·발송(value 소거) 후 원복 ──
+  // MUI TextareaAutosize와 동일한 명령형 계측: height auto→scrollHeight(패딩 포함 자연 높이)→[48,155.75] 클램프.
+  // React 스타일에 height를 넣지 않는 이유: 고정 높이에서 scrollHeight는 clientHeight에 물려 축소 계측이
+  // 불가능(삭제 시 5줄에 고착). deps=[value,inputOpen] — 마운트/키보드 계층 개방·본문 변경·소거 시에만
+  // 재계측(스트리밍 재렌더 시 불필요 reflow 금지). paper가 rest로 투하한 testID가 textarea에 그대로 있어
+  // (RN-web data-testid) DOM 조회는 제품 코드 범위 내 결정적 셀렉터.
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web' || !inputOpen) return;
+    const ta = document.querySelector('[data-testid="chat-input"]') as HTMLTextAreaElement | null;
+    if (!ta || ta.tagName !== 'TEXTAREA') return;
+    // 빈 값은 계측하지 않는다 — placeholder가 좁은 폭(390px 모바일 B 계층, '에이전트에게 메시지 보내기'
+    // 2줄 절첩)에서 scrollHeight를 본문 없이 2줄(75px)로 부른다(Chrome placeholder 최소content known 동작).
+    // 본문 입력부터 계측 — IME 조합 text도 RN-web
+    // onChangeText가 value에 실어주므로 조합 중 성장이 정상 동작한다.
+    if (!value) {
+      ta.style.height = `${INPUT_MIN_HEIGHT}px`;
+      ta.style.overflowY = 'hidden';
+      return;
+    }
+    ta.style.height = 'auto';
+    const natural = ta.scrollHeight;
+    ta.style.height = `${inputHeightFor(natural)}px`;
+    ta.style.overflowY = inputScrolls(natural) ? 'auto' : 'hidden';
+  }, [value, inputOpen]);
   return (
     <>
       {value.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
@@ -115,6 +195,7 @@ export default function ChatInputConsole({
             level={level}
             error={pttError}
             pending={pttPending}
+            externalHolding={pttCapturing}
           />
         </View>
       )}
@@ -151,10 +232,23 @@ export default function ChatInputConsole({
               activeOutlineColor={colors.accent}
               textColor={colors.text1}
               dense
-              multiline={false}
+              // t_c690274e (대표님 10/3 'shift+엔터 줄바꿈 불가'): Shift+Enter=개행(\n 삽입)·Enter 단독=전송·
+              // 조합 중 Enter=미전송 복원 — 직전 HEAD(f7e0fcf9)는 multiline=false+returnKeyType='send'로
+              // Enter/Shift+Enter 모두 submit 경로만 태웠다(git show f7e0fcf9 …:ChatInputConsole.tsx:154 실측).
+              //   웹: multiline+blurOnSubmit=false → RN-web handleKeyDown이 Enter submit을 스킵하고
+              //        개행을 기본 동작에 남긴다 → Shift+Enter는 그대로 개행. Enter 단독은 아래
+              //        onKeyDownCapture에서 preventDefault(개행 차단)+submit 승격. IME 조합 중
+              //        (isComposing/keyCode 229)은 절대 승격 금지 — RN-web도 같은 가드로 submit을 막는다.
+              //   네이티브(0.86 new arch): submitBehavior='submit'가 multiline에서 Enter=submit
+              //        (Shift+Enter=개행), blurOnSubmit=false로 전송 후 포커스 유지.
+              multiline
+              blurOnSubmit={false}
+              submitBehavior="submit"
               testID="chat-input"
               onSubmitEditing={onSubmit}
-              returnKeyType="send"
+              // RN 0.86 .d.ts가 TextInputProps에 onKeyDownCapture/rows를 선언하지 않아(flow·RN-web에는 존재)
+              // 웹 전용 props로 스프레드 투하 — paper가 rest로 RN-web에 넘기고 pickProps가 DOM textarea에 전달.
+              {...WEB_INPUT_PROPS}
               accessibilityLabel={t('chat.input')}
             />
           </View>
@@ -204,7 +298,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flex: 1,
     backgroundColor: colors.surface,
-    maxHeight: spacing.sp6 * 2,
+    // t_c690274e 요구 3: 구 maxHeight 48(sp6*2)는 1줄 고정 시대의 상한 — 제거.
+    // 높이는 useLayoutEffect의 명령형 계측(inputHeightFor: 48→155.75 클램프)이 소유한다.
+    // 남은 상한(최대 5줄+내부 스크롤)은 그 클램프가 보장하므로 CSS 상한은 이중 제한이 된다.
     borderRadius: radii.md,
   },
   sendButton: {

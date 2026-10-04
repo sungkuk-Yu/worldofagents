@@ -23,6 +23,7 @@
     "src/lib/joystickMode.ts",
     "src/lib/userPrefs.ts",
     "src/lib/chatLogic.ts",
+    "src/lib/chatInputLogic.ts",
     "src/lib/chatMarkdown.ts",
     "src/lib/renderFlags.ts",
     "src/lib/draftStore.ts",
