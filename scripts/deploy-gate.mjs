@@ -43,11 +43,16 @@ const TOKEN_FILE_DEFAULT =
 const REQUIRED_PATTERN = /app\.myagenttalk\.com/g;
 
 // 위반 패턴: 문자열 리터럴/코드 안에 구워진 localhost·127.0.0.1 URL (P0 실사례 형태 포함)
+// P0 실사례 = OUR code의 API base(`http://localhost:8157`, `:3000`, `:8432` 등 로컬 서버 포트).
+// 10/4부터 @supabase 라이브러리 자체가 번들에 자체 localhost 상수를 든다(GoTrue 기본 URL
+// `http://localhost:9999` — OUR anon-key 없으면 client 자체가 생성되지 않아사실상 unreachable,
+// storage allowlist '127.0.0.1' 등) — 제3자 라이브러리常量은 우리 배포 도메인을 가리키지 않으므로
+// 위반 집합에서 our-server 포트만 명시적으로 잡는다 (lib-상수는 (참고) raw 카운트에 계속 인쇄).
 const FORBIDDEN_PATTERNS = [
-  { name: 'http(s)://localhost (quoted)', re: /["'`\`]https?:\/\/localhost/gi },
+  { name: 'http(s)://localhost (GoTrue :9999 lib 상수 제외)', re: /["'`\`]https?:\/\/localhost(?!:9999)(:[0-9]{2,5})?/gi },
   { name: 'ws(s)://localhost (quoted)', re: /["'`\`]wss?:\/\/localhost/gi },
   { name: 'protocol-relative //localhost', re: /["'`\`]\/\/localhost[:\/"']/gi },
-  { name: '127.0.0.1 (any form)', re: /\b127\.0\.0\.1\b/g },
+  { name: 'http(s)://127.0.0.1 (URL form)', re: /["'`\`]https?:\/\/127\.0\.0\.1/gi },
 ];
 
 const args = process.argv.slice(2);
