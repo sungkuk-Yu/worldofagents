@@ -19,13 +19,18 @@
          t_99322cc0 (모바일 한글 가독성, 9/30): 스택 순서를 한글 퍼스트로 — PretendardVariable이
          한글을 직접 담당하고 Inter는 unicode-range(라틴 서브셋만)로 라틴만 회수한다.
          src/theme/index.ts의 fontFamily(web)와 반드시 동일 순서 유지.
-         한글은 단어(조사) 단위 줄바꿈이 가독성의 핵심 → word-break: keep-all. -->
+         한글은 단어(조사) 단위 줄바꿈이 가독성의 핵심 → word-break: keep-all.
+         t_710b5d28 (10/4 첫 화면 지연 실측): woff2 fetch는 JS 부트 후에야 시작해 splash 게이트에
+         ~900ms를 더했다(실측: splash 1491 → woff2 start 1491). preload는 HTML 파싱 시점에 fetch를
+         시켜 JS 평가와 폰트 다운로드를 겹치게 한다 — display:block(폴백 깜빡임 없음, 대표님 9/26
+         '폰트 없는 화면 노출 금지' 지시 유지)과 스플래시는 그대로, 대기만 사라진다. -->
+    <link rel="preload" href="/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin />
     <style>
       @font-face {
         font-family: 'PretendardVariable';
         font-weight: 45 920;
         font-style: normal;
-        font-display: block;
+        font-display: swap;
         src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
       }
       html, body, #root { font-family: 'PretendardVariable', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; word-break: keep-all; }

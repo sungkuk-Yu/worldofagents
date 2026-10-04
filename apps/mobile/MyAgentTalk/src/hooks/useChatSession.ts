@@ -24,6 +24,10 @@ import type { ReplyQuote } from '../types';
 import { renderFlags } from '../lib/renderFlags';
 
 export const PAGE_SIZE = 30;
+// t_710b5d28 — prefetch 구현은 lib/sessionPrefetch.ts (이 훅을 목록 화면이 import하면 채팅
+// 모듈 그래프 전체가 부트에 끌린다). 소비만 여기서.
+import { consumePrefetchedHistory } from '../lib/sessionPrefetch';
+
 export type SendResult = { ok: true } | { ok: false; error: string };
 export type Connection = 'connecting' | 'live' | 'reconnecting' | 'offline';
 export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean; device?: string; /** WS favorite.updated 수신 시 카드 즐겨찾기 갱신 (t_b89df485) */ onFavoriteUpdated?: (messageId: string, favorite: boolean) => void }
@@ -319,7 +323,9 @@ export function useChatSession(
         updateMessages((prev) => mergeThread(prev, parsed.replies, rootMessageId));
         return;
       }
-      const env = await api.getMessages(sid, { limit: PAGE_SIZE });
+      // t_710b5d28: 진입 prefetch 소비(탭 시점 출발) — 없으면/실패하면 정상 fetch로 폴백.
+      const env = (initial && !rootMessageId ? await consumePrefetchedHistory(sid) : null)
+        ?? await api.getMessages(sid, { limit: PAGE_SIZE });
       if (recovery !== 'latest' && env.ok && env.data) {
         let page = env;
         const rows = [...env.data];

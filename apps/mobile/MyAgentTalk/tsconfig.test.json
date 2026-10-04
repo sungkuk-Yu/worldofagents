@@ -42,6 +42,7 @@
     "src/hooks/useChatSession.ts",
     "src/hooks/usePushToTalk.ts",
     "src/lib/secureStorage.ts",
+    "src/lib/sessionCache.ts",
     "src/lib/oauthLogic.ts",
     "src/lib/richtext.ts",
     "src/lib/vaultLogic.ts",
