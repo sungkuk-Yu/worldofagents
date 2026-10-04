@@ -90,7 +90,9 @@ export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, con
           주황 = 답변 중+대기 수, 멈춤 ≥1 = 빨강, 0건 = 숫자 없이 버튼만(답글 관례).
           PC wide = '진행 중 질문' 텍스트 라벨(우측 패널 스크롤 앵커), 좁은 화면 = 아이콘(시트 오픈). */}
       {!selection.active && QUEUE_VIS && onOpenQueue && (
-        <TouchableOpacity onPress={onOpenQueue} style={styles.backButton} testID="queue-open"
+        <TouchableOpacity onPress={onOpenQueue}
+          // wide는 content-width(queueButtonWide 단독 — 배열 병합은 누락 key를 못 덮어 backButton width:40 잔존)
+          style={showQueueLabel ? styles.queueButtonWide : styles.backButton} testID="queue-open"
           accessibilityLabel={t('queueView.buttonAria', { countText: formatNumber(queueBadge?.pendingCount ?? 0, i18n.language), stopText: formatNumber(queueBadge?.stoppedCount ?? 0, i18n.language) })}>
           <View style={styles.queueButtonFace}>
             {showQueueLabel

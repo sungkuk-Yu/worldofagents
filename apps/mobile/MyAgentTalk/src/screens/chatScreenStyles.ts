@@ -277,6 +277,15 @@ export const styles = StyleSheet.create({
   queueBadgeStop: { color: colors.statusErr },
   // 주황(답변 중+대기)·빨강(멈춤) 두 수 배지는 우상단 가로 팩 — 개별 testID는 텍스트 노드 유지
   queueBadges: { position: 'absolute', top: -2, right: -6, flexDirection: 'row', gap: spacing.sp1 },
+  // wide 라벨 분기 (리뷰 r1 — 기하학 결함): 고정 40px backButton에 ~90px 라벨+우상단 절대 배지 →
+  // 배지가 인접 '답글' 버튼 bbox와 교차. content-width + 우측 패딩(≥배지 오버플로 6px)로 라벨/배지가
+  // 버튼 박스 안에 수납되게 한다. 스모크 ②에 badge vs threads-open 비교차 단언으로 회귀 방지.
+  queueButtonWide: {
+    height: spacing.sp10,
+    paddingHorizontal: spacing.sp3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   queueLabel: { ...typography.subhead, fontWeight: '700', color: colors.text2 },
   queueLabelWarn: { color: colors.statusWarn },
   queueLabelStop: { color: colors.statusErr },

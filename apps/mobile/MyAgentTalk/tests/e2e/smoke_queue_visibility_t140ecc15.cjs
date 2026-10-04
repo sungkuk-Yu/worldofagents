@@ -62,6 +62,10 @@ async function openChat(browser, viewport) {
   const browser = await chromium.launch({
     executablePath: '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell',
   });
+  // 기하학 회귀 방지 (리뷰 r1): bbox 교차 여부 + label 버튼 내 수납 — innerText/color 단언은
+  // 배지→인접 버튼 겹침을 못 잡는다(과거 통과 사례). compare-and-fail로 실측.
+  const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  const bbox = async (locator) => (await locator.count()) ? await locator.first().boundingBox() : null;
   try {
     // ── ① 라벨 소스 grep — ko/en 값에 생각/정리하/think 0건 ──
     {
@@ -90,6 +94,23 @@ async function openChat(browser, viewport) {
       check('2 멈춤 배지 색 빨강(#DC2626)', stopColor.includes(STOP_RGB), stopColor);
       const body = await page.locator('body').innerText();
       check('2 렌더 문구에 생각/정리하 0', !body.includes(L.think) && !body.includes(L.organize));
+
+      // ②-기하학 (리뷰 r1 요구): 배지 bbox가 인접 '답글'(threads-open) 버튼과 교차하면 안 되고,
+      // warn/stop과 라벨 텍스트는 queue-open 버튼 박스 안에 수납돼야 한다.
+      {
+        const q = await bbox(page.getByTestId('queue-open'));
+        const w = await bbox(warn);
+        const s = await bbox(stop);
+        const th = await bbox(page.getByTestId('threads-open'));
+        const inside = (child, parentBox) => !!child && !!parentBox
+          && child.x >= parentBox.x - 0.5 && child.x + child.width <= parentBox.x + parentBox.width + 0.5
+          && child.y >= parentBox.y - 0.5 && child.y + child.height <= parentBox.y + parentBox.height + 0.5;
+        const fmt = (b) => (b ? `${Math.round(b.x)}-${Math.round(b.x + b.width)}` : 'null');
+        const geom = `queue-open ${fmt(q)} | warn ${fmt(w)} | stop ${fmt(s)} | threads ${fmt(th)}`;
+        check('2 배지↔답글 버튼 bbox 비교차(warn)', !overlap(w, th), geom);
+        check('2 배지↔답글 버튼 bbox 비교차(stop)', !overlap(s, th), geom);
+        check('2 wide 라벨+배지 버튼 박스 내 수납', inside(w, q) && inside(s, q) && q.width > 60, geom);
+      }
 
       await page.getByTestId('queue-open').click();
       await page.getByTestId('queue-backlog-panel').waitFor({ timeout: 5000 });
