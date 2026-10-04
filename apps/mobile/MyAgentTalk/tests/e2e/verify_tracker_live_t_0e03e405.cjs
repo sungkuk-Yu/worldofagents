@@ -8,7 +8,7 @@ const { chromium } = require('/home/holysky87/worldofagents/docs/design/agenttal
 const APP = process.env.APP_URL || 'http://localhost:8082';
 const OUT = process.env.OUT_DIR || path.join(__dirname, 'artifacts', 'tracker-live-readback-t0e03e405');
 fs.mkdirSync(OUT, { recursive: true });
-const EXE = '/home/holysky87/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell';
+const EXE = '/home/holysky87/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let passed = 0, failed = 0;
 function check(name, cond, extra = '') {
@@ -24,7 +24,7 @@ const trackerRows = (page) => page.evaluate(() => Array.from(document.querySelec
   const stamp = Date.now();
   const email = `trk-live-${stamp}@myagenttalk.dev`;
   const cred = `trk-live-${stamp}!A1`;
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR', reducedMotion: 'reduce' });
     const errors = [];
@@ -37,10 +37,22 @@ const trackerRows = (page) => page.evaluate(() => Array.from(document.querySelec
     await page.getByTestId('login-email').fill(email);
     await page.getByTestId('login-password').fill(cred);
     await page.getByTestId('consent-all-required').click();
+    // React state 반영 대기 없이 submit 클릭 시 stale consents → 서버 400 (CONSENT_REQUIRED) — 김비서 재현
+    await page.waitForTimeout(400);
     await page.getByTestId('signup-submit').click();
-    await page.waitForSelector('[data-testid="new-chat-button"]', { timeout: 20000 });
-    await page.getByTestId('new-chat-button').click();
+    // 가입 직후 온보딩 화면 처리 (smoke_tracker 동일 경로 — 이 스크립트 누락 시 목록 미도달)
+    await page.waitForSelector('[data-testid="onboarding-done"]', { timeout: 20000 }).catch(() => null);
+    await page.getByTestId('onboarding-done').click().catch(() => null);
+    // 3-팬 개정(t_00fe9b0f, 6fccbc51): PC 목록 화면 = ProjectRail.create-session-button —
+    //   구 new-chat-button(hidden) 대신 둘 다 대응 (김비서 라이브 검증 정합).
+    await page.waitForSelector('[data-testid="project-new"],[data-testid="new-chat-button"]', { timeout: 20000 });
+    const cs = await page.getByTestId('project-new').count();
+    if (cs > 0) await page.getByTestId('project-new').click();
+    else await page.getByTestId('new-chat-button').click();
     await page.getByTestId('chat-input').waitFor({ timeout: 20000 });
+    // PC 3-팬: 우측 트래커 패널은 기본 접힘 — tracker-row-* 렌더 위해 열기 (t_00fe9b0f interop)
+    await page.getByTestId('tracker-open').click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
 
     // 왕복 1: 질문 → (재질문 칩 노출 시) '예' 탭 → 답변
     await page.getByTestId('chat-input').fill('라이브 검증 질문입니다. 오늘 요일만 짧게 알려줘');
@@ -57,7 +69,14 @@ const trackerRows = (page) => page.evaluate(() => Array.from(document.querySelec
     }
     // 답변 완료 대기: '완료' 단계 행 등장
     let done = false;
-    for (let i = 0; i < 240 && !done; i++) { await sleep(1000); done = (await trackerRows(page)).some((r) => r.includes('완료')); }
+    page.on('crash', () => console.log('  BROWSER CRASH'));
+    for (let i = 0; i < 100 && !done; i++) {
+      await sleep(1000);
+      let rr;
+      try { rr = await trackerRows(page); }
+      catch (e) { console.log('  loop err', String(e).slice(0, 90)); process.exit(3); }
+      done = rr.some((r) => r.includes('완료'));
+    }
     assert.ok(done, '라이브 답변 도착 후 질문 현황 = 완료 전이');
     await sleep(1500); // 윈도우 정착
     let rows = await trackerRows(page), bubbles = await userBubbles(page);
