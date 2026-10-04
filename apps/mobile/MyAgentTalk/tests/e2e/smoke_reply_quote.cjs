@@ -38,7 +38,8 @@ async function longPress(page, locator) {
   await page.waitForTimeout(150);
   const box = await locator.boundingBox();
   assert.ok(box, 'longPress: no box');
-  await page.mouse.move(box.x + box.width / 2, box.y + Math.min(40, box.height / 2));
+  // t_7f86eefb: 홀드 지점 = 좌측 1/4·본문부 (우측 상단 액션 클러스터 + 본문 상단 '쓰레드' 회피)
+  await page.mouse.move(box.x + box.width * 0.25, box.y + Math.min(box.height * 0.55, box.height - 12));
   await page.mouse.down();
   await page.waitForTimeout(750);
   await page.mouse.up();
@@ -197,7 +198,7 @@ async function longPress(page, locator) {
     await longPress(p2, p2.getByTestId('message-row-table'));
     await p2.getByTestId('msg-action-sheet').waitFor({ state: 'visible', timeout: 3000 });
     const enReply = await p2.getByTestId('action-reply').innerText();
-    check('⑨ EN 시트 라벨', /Reply/i.test(enReply), enReply);
+    check('⑨ EN 시트 라벨', /Thread/i.test(enReply), enReply); // t_7f86eefb: 답글→Thread
     await p2.getByTestId('action-reply').click();
     await p2.getByTestId('reply-draft-bar').waitFor({ timeout: 3000 });
     const enBar = await p2.getByTestId('reply-draft-bar').innerText();

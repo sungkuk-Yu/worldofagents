@@ -30,6 +30,11 @@ export const cardStyles = StyleSheet.create({
   headerSpacer: { flex: 1, minWidth: 0 },
   // t_55b7e30c 연속 발화 그룹 내부 카드 — 좌 오프셋 인센트로 묶음 시각화 (텔레그램식; 헤더 생략과 짝)
   groupContinuation: { marginLeft: spacing.sp3 },
+  // t_7f86eefb (대표님 10/4): 답글/새프로젝트 액션 키 = 카드 우측 상단 클러스터 (슬랙/텔레그램 웹
+  // 메시지 툴바 패턴). 본문이 길어져도 헤더 라인은 카드 최상단에 고정 → 버튼이 화면 아래로 밀리지 않는다.
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sp1 },
+  headerAction: { minWidth: 32, minHeight: 32, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.sp1 },
+  headerActionText: { ...typography.micro, color: colors.accent },
   starTop: { padding: spacing.sp1 },
   starTopText: { fontSize: 16, lineHeight: 20 },
   starTopIdle: { color: colors.text3 },

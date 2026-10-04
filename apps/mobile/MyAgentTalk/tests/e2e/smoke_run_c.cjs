@@ -34,13 +34,13 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     await page.getByRole('button', { name: '즐겨찾기', exact: true }).first().click();
     assert.equal(await page.getByRole('button', { name: '즐겨찾기 해제', exact: true }).count(), 1);
     state.unsupportedThread = true;
-    await page.getByText('답글 1개', { exact: true }).click();
+    await page.getByTestId('card-thread-start').first().click();
     await page.getByTestId('thread-error').getByText('이 서버는 아직 이 기능을 지원하지 않아요', { exact: true }).waitFor();
     await page.getByText('뒤로 가기', { exact: true }).click();
     // #52: 답글 시트는 라우트가 아닌 바텀시트 — dismiss(언마운트) 대기 후 재진입
     await page.waitForSelector('[data-testid="thread-sheet"]', { state: 'detached' });
     state.unsupportedThread = false;
-    await page.getByText('답글 1개', { exact: true }).click();
+    await page.getByTestId('card-thread-start').first().click();
     await page.getByText('Thread reply', { exact: true }).waitFor();
     await page.screenshot({ path: shot('02-thread') });
     await page.getByPlaceholder('에이전트에게 메시지 보내기').fill('thread-only').catch(async () => {
@@ -61,7 +61,7 @@ const shot = (n) => path.join(OUT, `${n}.png`);
     state.unsupportedFork = false;
     await page.getByTestId('fork-submit').click();
     await page.getByText('Independent project', { exact: true }).waitFor();
-    await page.getByText('⟨Original project⟩에서 갈라냄', { exact: true }).waitFor();
+    await page.getByText('⟨Original project⟩에서 시작', { exact: true }).waitFor();
     await openKeyboardIfVoice(page); // t_e735d936: 웹 모바일 채팅 = 음성 우선, 입력창은 키보드 계층
     await page.getByTestId('chat-input').fill('new-room-only');
     await page.getByTestId('send-button').click();
