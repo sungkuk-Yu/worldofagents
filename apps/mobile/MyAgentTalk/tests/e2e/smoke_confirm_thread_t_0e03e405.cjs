@@ -77,7 +77,7 @@ async function trackerRows390(page) {
       const r1 = await page.getByTestId('tracker-row-cq1').innerText();
       const r2 = await page.getByTestId('tracker-row-cq2').innerText();
       check('H② 답변 전파: 확인 왕복 질문 = 완료', r1.includes('완료') && !r1.includes('확인 필요'), r1.replace(/\n/g, ' | ').slice(0, 80));
-      check('H② 답변 전파: 구조 신호 왕복 질문 = 완료 (reply_to_id 병합)', r2.includes('완료') && !r2.includes('답글'), r2.replace(/\n/g, ' | ').slice(0, 80));
+      check('H② 답변 전파: 구조 신호 왕복 질문 = 완료 (reply_to_id 병합)', r2.includes('완료') && !r2.includes('쓰레드'), r2.replace(/\n/g, ' | ').slice(0, 80));
       // 뱃지 탭 = empathy 카드로 점프+하이라이트
       await page.getByTestId('confirm-entry-cq1').click();
       await page.getByTestId('focus-highlight').first().waitFor({ timeout: 5000 });

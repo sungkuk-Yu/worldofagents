@@ -38,7 +38,7 @@ const L = {
   answering: '답변 중',
   arrived: '도착',
   trackerTitle: '내 질문 현황',
-  threadsLabel: '답글',
+  threadsLabel: '쓰레드',
 };
 assert.equal([L.think, L.organize, L.waitingHead, L.first, L.stuckRow, L.waitLabel].map((s) => s.length).join(','), '2,3,16,7,5,9', '리터럴 read-back 정합');
 const WARN_RGB = '217, 119, 6';  // #D97706
