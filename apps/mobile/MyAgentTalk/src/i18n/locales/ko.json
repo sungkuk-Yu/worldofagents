@@ -74,8 +74,8 @@
     "briefing": "접수했어요, 담당 팀에 바로 전달합니다",
     "research": "자료 팀이 지금 찾고 있어요",
     "drafting": "초안이 올라와서 다듬는 중이에요",
-    "wrapping": "팀 작업이 끝났어요, 정리하고 있어요",
-    "done": "정리 끝났어요, 제 이름으로 챙겼습니다"
+    "wrapping": "팀 작업이 끝났어요, 답변 마무리 중",
+    "done": "마무리됐어요, 제 이름으로 챙겼습니다"
   },
   "queue": {
     "pending": "답변 대기",
@@ -92,6 +92,25 @@
     "endedBadge": "종료",
     "replyCount": "답글 {{countText}}개",
     "lastActivity": "마지막 활동 {{when}}"
+  },
+  "queueView": {
+    "button": "진행 중인 질문",
+    "buttonAria": "진행 중인 질문 {{countText}}건, 멈춤 {{stopText}}건",
+    "title": "진행 중인 질문",
+    "counts": "답변 중+대기 {{countText}} · 멈춤 {{stopText}}",
+    "empty": "밀린 질문이 없어요 — 모두 해소됐습니다",
+    "waiting": "대기",
+    "answering": "답변 중",
+    "stopped": "멈춤",
+    "pos": "대기 {{countText}}번째",
+    "aheadAnswering": "대기 {{countText}}번째 · 앞 질문 답변 중",
+    "aheadWaiting": "대기 {{countText}}번째 · 앞 질문 대기 중",
+    "aheadStopped": "대기 {{countText}}번째 · 앞 질문 멈춤",
+    "nowAnswering": "답변 중 · 대기 {{countText}}건",
+    "waited": "도착 {{when}} · 대기 {{duration}}",
+    "unitSec": "{{countText}}초",
+    "unitMin": "{{countText}}분",
+    "unitHr": "{{countText}}시간"
   },
   "pending": {
     "button": "답변 대기",
@@ -224,11 +243,11 @@
     }
   },
   "quip": {
-    "default": "잠깐만요, 살펴보고 있어요…",
-    "thinking": "잠깐만요, 생각 중이에요…",
-    "organizing": "핵심 내용을 정리하고 있어요…",
-    "finalizing": "마지막으로 확인하고 있어요…",
-    "rendering": "보기 좋게 준비하고 있어요…"
+    "default": "답변 준비 중…",
+    "thinking": "이해 확인 중…",
+    "organizing": "답변 준비 중…",
+    "finalizing": "마지막 확인 중…",
+    "rendering": "답변 준비 중…"
   },
   "errors": {
     "empty": "메시지를 입력해주세요",
