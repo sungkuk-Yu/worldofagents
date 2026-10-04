@@ -71,14 +71,12 @@ function check(name, cond, extra = '') {
       await page.getByTestId('session-card').first().click();
       await page.getByTestId('chat-appbar').waitFor({ timeout: 8000 });
       await sleep(800);
-      // 사이드바 레일 로고 = img(testID 유지), 스트립 폐기, 카드 마커 유지
+      // (t_fd869e5b 정합) 왼쪽 세션목록 사이드바 = 슬랙식 스레드 레일 대체 — sidebar-logo는 폐기
+      // 대상(shot_drfix 'count 0' 단언과 동일 계약). 레일 자체의 존재로 브랜드 레일 승계 확인.
       const sbLogo = await page.getByTestId('sidebar-logo').count();
-      check('② 사이드바 logo testID 유지(이미지) — shot_drfix 회귀 방지', sbLogo === 1, `n=${sbLogo}`);
-      // expo-image 웹은 testID를 래퍼 div에 두고 img을 자식으로 렌더 — img 존재+src+문자없음이 계약.
-      const sbImg = await page.getByTestId('sidebar-logo').evaluate((el) => ({
-        hasImg: !!el.querySelector('img[src*="logo-mark-g3"]'), text: (el.textContent || '').trim(),
-      })).catch(() => ({ hasImg: false, text: 'ERR' }));
-      check('② 사이드바 로고는 img(래퍼 내 g3 src) — 텍스트 MAT 아님', sbImg.hasImg && sbImg.text === '', `hasImg=${sbImg.hasImg} text='${sbImg.text}'`);
+      check('② 사이드바(세션목록 레일) 폐기: sidebar-logo DOM 0', sbLogo === 0, `n=${sbLogo}`);
+      const rail = await page.getByTestId('thread-rail').count();
+      check('② 좌측 = 스레드 레일 존재 (t_fd869e5b 이관)', rail >= 1, `rail=${rail}`);
       const strip1440 = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-strip"], [data-testid^="queue-chip-"]').length);
       check('③ 1440 채팅도 스트립 DOM 0', strip1440 === 0, `found=${strip1440}`);
       // queue 폴링/WS 단일 상태원천 경로 건재 검증: 발화 후 queue.updated(내용 매칭) → 카드 행 체크포인트 마커.
