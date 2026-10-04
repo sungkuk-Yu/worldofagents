@@ -58,6 +58,15 @@ function check(name, cond, extra = '') {
       check('B: 확인 질문 = 이해 확인 중 + 확인 필요 배지', (await page.getByTestId('tracker-row-q-ask').innerText()).includes('이해 확인 중')
         && (await page.getByTestId('tracker-ask-q-ask').count()) === 1);
       check('B: 완료 질문 = 답글 1 (슬랙식)', (await page.getByTestId('tracker-row-q-done').innerText()).includes('답글'));
+      // t_0e03e405 ④ 불변식 — '질문 현황 항목 수(+축약 완료) == 顶级(사용자) 질문 버블 수':
+      // 시드 4질문 중 q-old는 24h 축약(행 3 + collapsed 1) ↔ message-user 4 (답글 r-done는 thread 전용,
+      // empathy e-ask·answer 행은 agent — 질문 카운트 비대상).
+      {
+        const rowN = await page.locator('[data-testid^="tracker-row-"]').count();
+        const bubN = await page.getByTestId('message-user').count();
+        const collapsedN = await page.getByTestId('tracker-collapsed').count();
+        check('B④ 질문 수(+축약) = 顶级 질문 수 불변식', rowN === 3 && bubN === 4 && collapsedN === 1, `rows=${rowN}+collapsed=${collapsedN} bubbles=${bubN}`);
+      }
       // 행 탭 = 카드 점프+하이라이트
       await page.getByTestId('tracker-jump-q-new').click();
       await page.getByTestId('focus-highlight').first().waitFor({ timeout: 5000 });

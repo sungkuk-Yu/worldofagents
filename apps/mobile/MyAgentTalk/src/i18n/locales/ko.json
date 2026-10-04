@@ -67,6 +67,8 @@
     "suggestTitle": "이어서 물어볼까요?",
     "ackYes": "예",
     "ackNo": "아니요",
+    "confirmThread": "확인 쓰레드",
+    "confirmThreadBadge": "확인 쓰레드 {{countText}}",
     "ackHoldArmedYes": "예 — 놓으면 전송",
     "ackHoldArmedNo": "아니요 — 놓으면 전송"
   },

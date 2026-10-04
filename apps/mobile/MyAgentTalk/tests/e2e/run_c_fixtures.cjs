@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, chains = false, threads = false, threadsLite = false, anchorMs = null } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, anchorMs = null } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -134,6 +134,23 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'tq2', role: 'user', content: '스레드 종료 질문', turn_index: 3, created_at: tAgo(24 * 9), agent_id: 'agent', agent_name: agent.name },
       { id: 'ta2', role: 'agent', content: '종료 답변', turn_index: 3, created_at: tAgo(24 * 9), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
       { id: 'tr2', role: 'user', content: '스레드 종료 답글', turn_index: 4, created_at: tAgo(24 * 9 - 0.2), parent_message_id: 'tq2', root_message_id: 'tq2', agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
+  if (confirm) {
+    // t_0e03e405 확인응답 스레드화 시드 (히스토리 재현 — 칩 미노출, 행 병합/프레임/트래커 판정만):
+    //  cq1: 질문→empathy→'예'(문장 매칭)→답변 = 병합+답변 전파(stage3) 케이스
+    //  cq2: 질문→empathy→'아니요'(reply_to_id 구조 신호)→답변 — 확인은 답글 아님(replyCount 0)
+    const CNow = Date.now();
+    const cAgo = (min) => new Date(CNow - min * 60 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'cq1', role: 'user', content: '확인 왕복 질문', turn_index: 0, created_at: cAgo(30), agent_id: 'agent', agent_name: agent.name },
+      { id: 'ce1', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 확인 왕복 질문', turn_index: 1, created_at: cAgo(29), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 확인 왕복 질문', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'ca1', role: 'user', content: '예', turn_index: 2, created_at: cAgo(28), agent_id: 'agent', agent_name: agent.name },
+      { id: 'cans1', role: 'agent', source_neuron: 'answer', content: '확인 왕복 답변', turn_index: 3, created_at: cAgo(27), agent_id: 'agent', agent_name: agent.name },
+      { id: 'cq2', role: 'user', content: '구조 신호 왕복 질문', turn_index: 4, created_at: cAgo(10), agent_id: 'agent', agent_name: agent.name },
+      { id: 'ce2', role: 'agent', source_neuron: 'empathy', content: '제 이해가 맞다면 구조 신호 왕복 질문', turn_index: 5, created_at: cAgo(9), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '제 이해가 맞다면 구조 신호 왕복 질문', template_id: 'eq_understand' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'ca2', role: 'user', content: '아니요', turn_index: 6, created_at: cAgo(8), reply_to_id: 'ce2', agent_id: 'agent', agent_name: agent.name },
+      { id: 'cans2', role: 'agent', source_neuron: 'answer', content: '구조 신호 왕복 답변', turn_index: 7, created_at: cAgo(7), agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (threadsLite) {
