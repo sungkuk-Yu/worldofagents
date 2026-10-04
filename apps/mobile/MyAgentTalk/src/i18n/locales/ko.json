@@ -70,7 +70,8 @@
     "confirmThread": "확인 쓰레드",
     "confirmThreadBadge": "확인 쓰레드 {{countText}}",
     "ackHoldArmedYes": "예 — 놓으면 전송",
-    "ackHoldArmedNo": "아니요 — 놓으면 전송"
+    "ackHoldArmedNo": "아니요 — 놓으면 전송",
+    "typingBubble": "입력 중…"
   },
   "relay": {
     "briefing": "접수했어요, 담당 팀에 바로 전달합니다",

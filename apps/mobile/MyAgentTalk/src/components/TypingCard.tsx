@@ -10,7 +10,7 @@ import { formatNumber } from '../i18n/format';
 import { colors, radii, spacing, typography } from '../theme';
 import { QUIET_PROGRESS } from '../lib/featureFlags';
 
-export default function TypingCard({ quip, agentName, count, hideQuip, showName = true }: { quip: string | null; agentName: string; count: number; /** 릴레이 자막 스트립(t_961ca593)이 같은 런의 자막을 소유할 때 중복 라인 억제 */ hideQuip?: boolean; /** t_55b7e30c 연속 발화 그룹이 이어지는 중이면 이름 재출력 생략 (본문 카드 규칙과 동일) */ showName?: boolean }) {
+export default function TypingCard({ quip, agentName, count, hideQuip, showName = true, bubble = false }: { quip: string | null; agentName: string; count: number; /** 릴레이 자막 스트립(t_961ca593)이 같은 런의 자막을 소유할 때 중복 라인 억제 */ hideQuip?: boolean; /** t_55b7e30c 연속 발화 그룹이 이어지는 중이면 이름 재출력 생략 (본문 카드 규칙과 동일) */ showName?: boolean; /** t_da4f8623 요구1: '입력 중…' 라벨이 붙은 텔레그램식 dots 버블 (main feed 첫 토큰 전 연출) */ bubble?: boolean }) {
   const { t, i18n } = useTranslation();
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -27,6 +27,7 @@ export default function TypingCard({ quip, agentName, count, hideQuip, showName 
 
   if (QUIET_PROGRESS) {
     // 점 3개 한 줄 — 카드 폭/여백 최소화(빈 시간 안내는 페르소나 라인이 맡는다: #325 침묵 금지)
+    // t_da4f8623 요구1: bubble=true면 '입력 중…' 라벨을 dots 옆에 병기 (main feed 첫 토큰 전).
     return (
       <View style={styles.dotsOnly} testID="typing-indicator"
         accessibilityLabel={t('chat.preparing', { agentName })}
@@ -36,6 +37,7 @@ export default function TypingCard({ quip, agentName, count, hideQuip, showName 
         {[0, 1, 2].map((i) => (
           <Animated.View key={i} style={[styles.dot, { opacity: dotOpacity, transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.1] }) }] }]} />
         ))}
+        {bubble && <Text testID="typing-bubble-label" style={styles.bubbleLabel}>{t('chat.typingBubble')}</Text>}
       </View>
     );
   }
@@ -71,6 +73,11 @@ const styles = StyleSheet.create({
     gap: spacing.sp1,
     paddingHorizontal: spacing.sp3,
     paddingVertical: spacing.sp2,
+  },
+  bubbleLabel: {
+    ...typography.micro,
+    color: colors.text3,
+    marginLeft: spacing.sp1,
   },
   card: {
     borderRadius: radii.md,

@@ -19,9 +19,13 @@ import {
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
   newClientReqId, reconcilePendingUserEcho, planEventSyncReplay,
+  streamCardId, isStreamCard,
 } from '../lib/chatLogic';
 import type { ReplyQuote } from '../types';
 import { renderFlags } from '../lib/renderFlags';
+// 사람 타이핑 리빌 ②-프론트 (t_da4f8623): 노출 진도 표시 계층. content(원문)는 불변 — delta 급식(feed)/
+// 확정 행 계승(move)/answer.done(markDone)/라이브 empathy·answer 행(begin)만 이 훅이 소유한다.
+import { revealStore } from '../lib/revealStore';
 
 export const PAGE_SIZE = 30;
 // t_710b5d28 — prefetch 구현은 lib/sessionPrefetch.ts (이 훅을 목록 화면이 import하면 채팅
@@ -90,6 +94,9 @@ export interface UseChatSessionReturn {
   hasMoreHistory: boolean;
   loadingHistory: boolean;
   ready: boolean;
+  /** t_da4f8623 요구1: 이번 실행의 첫 에이전트 출력(answer.delta 첫 청크 또는 empathy 행) 도달 —
+   *  '입력 중…' dots 버블 소멸 조건. 실행 전환(tracker active false→true) 시 자동 리셋. */
+  firstOutputArrived: boolean;
 }
 let executionCounter = 0;
 const errorText = errorKey;
@@ -142,6 +149,21 @@ export function useChatSession(
   const [ready, setReady] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [streams, setStreams] = useState<StreamingAnswer[]>([]);
+  // t_da4f8623 요구1: '입력 중…' dots 버블의 소멸각 — 이번 실행의 첫 에이전트 출력(answer.delta 첫
+  // 청크 또는 empathy 행)이 도착하면 true. 실행 전환(tracker 활성 전이) 시 자동 리셋.
+  // (리빌 자체는 revealStore 소유; reduced-motion 토글은 RN 의존 회피를 위해 화면(ChatScreen)에서 수행.)
+  const [firstOutputArrived, setFirstOutputArrived] = useState(false);
+  const firstOutputRef = useRef(false);
+  const markFirstOutput = useCallback(() => {
+    if (firstOutputRef.current) return;
+    firstOutputRef.current = true;
+    setFirstOutputArrived(true);
+  }, []);
+  const prevTypingActive = useRef(false);
+  const trackTypingTransition = useCallback((active: boolean) => {
+    if (active && !prevTypingActive.current) { firstOutputRef.current = false; setFirstOutputArrived(false); }
+    prevTypingActive.current = active;
+  }, []);
   // 연속성 상태 (t_eded715c): presence 피어 / PTT 녹음 중 표시
   const [peers, setPeers] = useState<string[]>([]);
   const [talking, setTalking] = useState(false);
@@ -161,7 +183,7 @@ export function useChatSession(
     typeof globalThis !== 'undefined' && typeof (globalThis as { window?: { innerWidth?: number } }).window?.innerWidth === 'number'
       ? (globalThis as unknown as { window: { innerWidth: number } }).window.innerWidth : 390));
   const runtimeRef = useRef(createRuntime((active, text, count) => {
-    setTyping(active); setQuip(text); setActiveCount(count);
+    setTyping(active); setQuip(text); setActiveCount(count); trackTypingTransition(active);
   }));
   // t_b2004d50 (김비서 9/30 판정): 칩 창 앵커는 서버 created_at(=턴 시작 스탬프, 발행이 런
   // 종료 시 +144s 실측 — 렌더 순간 창이 이미 만료)이 아니라 '클라이언트 최초 수신각'이다.
@@ -172,11 +194,39 @@ export function useChatSession(
   // 재구독 리플레이·지연 중복이 수신각을 리셋하지 못한다. 창 개시 각인 자체는 useAckChip의
   // '노출 가능 첫 관측' Map이 담당(요구3 스트리밍 억제 해제 후 2.5s 보장).
   // 동시 전송도 최신 목록을 읽도록 렌더를 기다리지 않고 원자적으로 반영한다.
+  // t_da4f8623 사람 타이핑 리빌: 갱신 직후 '이번 틱에 새로 들어온 라이브 도착 행'(arrivedAt 도장 =
+  // WS 에코·POST 확정만; 배치 GET/히스토리는 미도장이라 구조적으로 배제)을差分 탐지해 리빌을 시작한다.
+  // content(원문)는 그대로 — 노출 진도는 표시 계층(revealStore) 단독 소유. 답글/트래커/수출 무영향.
+  const revealRootSuppressed = !!rootMessageId; // 스레드 패널은 즉시 렌더 유지(커서/배칭 간섭 차단)
+  const beginRevealsForNewRows = (prev: ChatMessage[], next: ChatMessage[]): void => {
+    if (next.length === 0) return;
+    let prevIds: Set<string> | null = null;
+    const isNewRow = (id: string) => {
+      if (prevIds === null) prevIds = new Set(prev.map((p) => p.id));
+      return !prevIds.has(id);
+    };
+    for (const m of next) {
+      if (m.role !== 'agent' || isStreamCard(m)) continue;
+      if (m.arrivedAt == null) continue; // 라이브 도장 행만 — 히스토리 재현 배제 (t_b2004d50 단일도장 discipline 재활용)
+      if (!isNewRow(m.id)) continue;
+      // 요구1: empathy 행·확정 answer 행의 라이브 도착 = 첫 에이전트 출력 — 버블 소멸각 (리빌 플래그와 무관).
+      if (!revealRootSuppressed) markFirstOutput();
+      if (revealRootSuppressed || !renderFlags.typewriterReveal) continue;
+      // 답변 확정 행: 같은 run의 스트림 리빌이 살아있으면 진도 계승(확정 본문 통째 '되감기처럼 보이는
+      // 점프' 원천 차단), 스트림 없었던 확정 본문(단답·REST 인라인)은 그 자리에서 1자 리빌 시작.
+      if (m.sourceNeuron === 'answer' && m.runId) revealStore.move(streamCardId(m.runId), m.id, m.content);
+      // 통째 확정 행이 대형(>MAX)이면 begin이 false 반환 → 즉시 렌더 폴백(장문 통째 리빌 금지)과 자연 일치.
+      revealStore.begin(m.id, m.content);
+    }
+  };
   const updateMessages = useCallback((update: (prev: ChatMessage[]) => ChatMessage[]) => {
     const runtime = runtimeRef.current;
-    runtime.messages = update(runtime.messages);
+    const prev = runtime.messages;
+    runtime.messages = update(prev);
     setMessages(runtime.messages);
-  }, [runtimeRef]);
+    beginRevealsForNewRows(prev, runtime.messages);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeRef, revealRootSuppressed]);
 
   // 큐 스냅샷 보조 폴링은 useQueueStrip(스트립 도메인 훅)으로 응집 (t_91cb659c 리팩터링).
   // 이 훅은 WS queue.updated / GET messages 스냅샷의 단일 queue 상태 원천만 유지하고,
@@ -216,7 +266,7 @@ export function useChatSession(
     runtime.demo = mode === 'demo';
     runtime.initialized = false;
     runtime.sid = null;
-    runtime.tracker = createTypingTracker((active, text, count) => { setTyping(active); setQuip(text); setActiveCount(count); }, true);
+    runtime.tracker = createTypingTracker((active, text, count) => { setTyping(active); setQuip(text); setActiveCount(count); trackTypingTransition(active); }, true);
     runtime.coordinator = createTurnCoordinator(runtime.tracker);
     runtime.sequence = createSequenceTracker();
     runtime.runStages.clear();
@@ -254,6 +304,9 @@ export function useChatSession(
       streamFrame = null;
       if (!alive()) return;
       setStreams(runtime.streams);
+      // t_da4f8623: 런 종료가 reduceStreams drop 경로로 streams에서 빠진 stream-* 리빌 상태 회수
+      // (answer.done 없이 절단된 소켓 등 — 영구 caret/타머 잔류 금지). 확정 행 진도는 move로 이미 이관됨.
+      if (renderFlags.typewriterReveal) revealStore.reconcileStreamKeys(runtime.streams.map((s) => streamCardId(s.runId)));
       if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
     };
     const cancelStreamFrame = () => {
@@ -524,6 +577,8 @@ export function useChatSession(
             if (!runtime.sequence.accept(raw.seq)) return;
             const incoming = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
             const parent = incoming?.parent_message_id ?? raw.parent_message_id;
+            // 사람 타이핑 리빌 ② (t_da4f8623): 메인 피드에서만 (스레드 패널 rootMessageId는 즉시 렌더 유지).
+            const mainFeed = !rootMessageId;
             if (rootMessageId) {
               const matches = parent === rootMessageId;
               const owned = [raw.run_id, raw.client_exec_id, raw.execution_id].some((id) => typeof id === 'string' && runtime.scopedRuns.has(id));
@@ -541,7 +596,30 @@ export function useChatSession(
               runtime.streams = ensureStreamPlaceholder(runtime.streams, raw.run_id, quipKeyForStage(typeof raw.stage === 'string' ? raw.stage : (runtime.runStages.get(raw.run_id) ?? undefined)));
             }
             runtime.streams = reduceStreams(runtime.streams, streamEvent, runtime.messages);
+            // 사람 타이핑 리빌 ②-프론트 (t_da4f8623): delta 누적 원문을 노출 버퍼에 급식 — 1자씩 지터 리빌.
+            // content(원문)·rAF 배칭·drain 계약은 무변경(표시 계층만 추가). 인라인 카드(stream-*) 전용 —
+            // 레거시 footer 경로(streamIdPatch OFF)·스레드 패널은 즉시 렌더 유지(회귀 금지).
+            if (mainFeed && renderFlags.streamIdPatch && type === 'answer.delta' && typeof raw.run_id === 'string') {
+              const rid: string = raw.run_id;
+              const acc = runtime.streams.find((s) => s.runId === rid)?.text;
+              if (acc) { revealStore.feed(streamCardId(rid), acc); markFirstOutput(); }
+            }
+            // ID merge 선(先)계승: 확정 answer 행의 message.new는 commitStreams(reconcileStreamKeys)보다
+            // 먼저 진도를 행 키로 옮긴다 — 고아 회수가 리빌을 삼켜 확정 본문이 0부터 재타이핑되는 되감기 경합 차단.
+            if (mainFeed && (type === 'message.new' || type === 'message.created') && typeof raw.run_id === 'string') {
+              const merged = (raw.message ?? raw.data ?? raw) as ServerMessageRow;
+              if (merged?.id && merged.source_neuron === 'answer') {
+                revealStore.move(streamCardId(raw.run_id), merged.id, typeof merged.content === 'string' ? merged.content : undefined);
+              }
+            }
+            if ((type === 'run.failed' || type === 'run.cancelled') && typeof raw.run_id === 'string' && mainFeed) {
+              // 취소·오류 = 즉시 확정 렌더(요구4): 잔여 리빌 폐기 — 카드도 같은 틱에 사라지므로 drop.
+              revealStore.finishOrDrop(streamCardId(raw.run_id));
+            }
             if (type === 'answer.done' && typeof raw.message_id === 'string' && typeof raw.text === 'string') {
+              // 확정 힌트: 리빌 소진 즉시 커서 정지(되감기 없음 — 신장만 허용). 달린 키가 없으면 no-op.
+              if (typeof raw.run_id === 'string') revealStore.markDone(streamCardId(raw.run_id), raw.text);
+              revealStore.markDone(raw.message_id, raw.text);
               updateMessages((prev) => prev.map((message) => message.id === raw.message_id ? { ...message, content: raw.text as string, aiGenerated: typeof raw.ai_generated === 'boolean' ? raw.ai_generated : message.aiGenerated } : message));
             }
             // delta는 rAF 배칭(t_cc232982 80ms 창 승계), 그 외 전이(시작/완료/취소/placeholder)는 즉시 발행.
@@ -799,6 +877,8 @@ export function useChatSession(
       coordinator.finish(execId, sid, env.data);
       runtime.streams = runtime.streams.filter((stream) => stream.runId !== env.data?.run_id);
       setStreams(runtime.streams);
+      // t_da4f8623: REST 확정도 같은 run의 스트림 리빌 상태를 회수/계승 정리 (commitStreams와 대칭).
+      if (renderFlags.typewriterReveal) revealStore.reconcileStreamKeys(runtime.streams.map((s) => streamCardId(s.runId)));
       // ① REST 확정 경로에서도 인라인 스트림 카드를 정리한다 (잔류 stream-* 제거, 메인 피드만).
       if (renderFlags.streamIdPatch && !rootMessageId) updateMessages((prev) => syncStreamCards(purgeSettledStreamCards(prev), runtime.streams));
       if (runtime.lastFailedContent?.id === optimisticId) runtime.lastFailedContent = null;
@@ -889,6 +969,7 @@ export function useChatSession(
     queueView,
     send, retryLastSend, loadOlder, enterDemo, clearError,
     peers, talking, talk,
+    firstOutputArrived,
     // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
     queue, suggested,
     // 비서실 릴레이 자막 (t_961ca593 Phase B) — 이벤트 없으면 null (렌더 없음)

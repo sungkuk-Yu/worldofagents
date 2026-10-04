@@ -4,12 +4,15 @@
 // ③ placeholder — content가 빈 토큰 전 카드도 같은 자리에 quip만 보여 점프를 없앤다.
 // t_140ecc15 ①: 점령 텍스트는 의인화 대사가 아니라 실데이터 큐 상태 문구 — 밀린 질문이 있으면
 // '답변 중 · 대기 n건'(queueStore 파생), 없을 때만 단계명 라벨(가벼운 LLM 라우팅 단계 표시).
+// ②-프론트 (t_da4f8623) 사람 타이핑 리빌: content(서버 누적 원문)는 불변, 본문은 RevealBody가
+// stream-<runId> 노출 진도로 1자씩 그림. 리빌 미활성(플래그 OFF·reduced-motion)이면 폴백=content
+// 즉시 렌더로 기존과 1:1 (회귀 금지).
 import React from 'react';
 import { Platform, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import type { CardProps } from './types';
-import RichText from '../components/RichText';
+import RevealBody from '../components/RevealBody';
 import { cardStyles as s } from './styles';
 import { renderFlags } from '../lib/renderFlags';
 import { queueStore } from '../lib/queueStore';
@@ -33,10 +36,14 @@ export default function StreamCard({ message }: CardProps) {
     if (v.waitingCount > 0) return t('queueView.nowAnswering', { countText: formatNumber(v.waitingCount, i18n.language) });
     return t(quip);
   })();
+  const runId = message.runId ?? message.id.replace(/^stream-/, '');
   return <View style={[s.frame, CONTAIN_WEB]} testID={`stream-card-${message.runId ?? message.id}`}>
-    {message.content
-      ? <RichText content={message.content} />
-      : <Text style={[s.body, s.micro]} accessibilityLiveRegion="polite">{statusText}</Text>}
+    <RevealBody
+      revealKey={`stream-${runId}`}
+      content={message.content}
+      bodyStyle={[s.body, s.micro]}
+      emptyFallback={<Text style={[s.body, s.micro]} accessibilityLiveRegion="polite">{statusText}</Text>}
+    />
     {!done && <Text testID="stream-live-mark" style={s.micro}>{statusText}</Text>}
     <Text testID="ai-generated-badge" style={s.micro}>{t('common.aiGenerated')}</Text>
   </View>;

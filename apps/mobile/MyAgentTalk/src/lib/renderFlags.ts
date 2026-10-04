@@ -27,6 +27,9 @@ export const renderFlags = {
   inputDraftPersist: envFlags.inputDraftPersist ?? true,
   /** ⑤ 전송 ticks: 시계(pending)→체크(sent=서버 ID)→(!)+탭 재전송(failed), 조용한 삭제 금지 */
   sendTicks: envFlags.sendTicks ?? true,
+  /** ⑥ (t_da4f8623) 사람 타이핑 리빌: 재질문/답변을 1자씩 40~120ms 지터로 노출(서버 청크는 수신 버퍼).
+   *  OFF 시 기존 즉시 렌더 1:1 복귀 (prefers-reduced-motion과 동일 폴백 경로) */
+  typewriterReveal: envFlags.typewriterReveal ?? true,
 } as const;
 
 export type RenderFlagName = keyof typeof renderFlags;
