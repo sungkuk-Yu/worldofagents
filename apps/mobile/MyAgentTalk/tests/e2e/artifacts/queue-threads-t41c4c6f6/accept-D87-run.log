@@ -1,0 +1,46 @@
+  PASS  ① 확장3: 앱바 답글 배지 = 활성 스레드 수 1 (tq2 종료 미포함 — t_4654d727 실패 지점) — 답글 1
+  PASS  ④ 승계: 폐기 스트립 testID 7종 DOM 0 (트래커/마커 이관 확인) — 0
+  PASS  ② 확장3: 활성 행 = 원문 발췌 + 답글 수 — 1.
+스레드 활성 질문
+답글 1개 · 마지막 활동 1시간 전
+  PASS  ⑤ 실행일 독립: 마지막 활동 = 앵커-상대 1시간 전 (절대 날짜 무비교) — 마지막 활동 1시간 전
+  PASS  ③ 확장4: 전체 = 활성+종료 2행, 종료 배지(tq2)
+  PASS  ③ 확장4: 정렬 활성>종료 — thread-row-tq1,thread-row-tq2
+  PASS  ③ 확장4: 종료 필터 = tq2만
+  PASS  ⑤ 실행일 독립: 종료 행 라벨 = 앵커-상대 9일 전
+  PASS  ③ 확장4: 활성 필터 = 종료 행 숨음
+  PASS  ② 확장3: 행 탭 → 시트 = 원문 고정 + 답글 행 — 뒤로 가기
+답글
+▤
+대화
+스레드 활성 질문
+11:00
+전송됨
+스레드 활성 답글
+전송
+  PASS  ⑥ 런타임 오류 없음
+  PASS  ⑦ GET /queue 부트스트랩 = 세션당 1회 (보조) — 1
+  PASS  ⑦ WS queue.updated 즉시 반영 → 카드 행 체크포인트 마커(스트립 승계) — 답변 대기
+  PASS  ⑦ WS 반영 후 즉시 재pull 0 (WS 우선·폴링 보조 — 9/27 경합 교훈) — 1→1
+  PASS  ⑧ 시트 답글 POST = parent_message_id 루트(tq1) 고정 — {"parent_message_id":"tq1","client_req_id":"ef3cba9e-31c8-400e-a186-8756aa052dc6","content":"시트 경유 답글","client_exec_id":"exec-1798632003169-1","message_type":"text","attachments":[]}
+  PASS  ⑧ 카드 시트 답글 행 = 칩 답글의 승계 진입점
+  PASS  ⑧ 메인 답글 POST = reply_to_id(ta1) 인용, parent 없음 (인용배 계약) — {"reply_to_id":"ta1","client_req_id":"2573be05-5c38-49ca-8d07-a34c86e33e95","content":"메인 인용 답글","client_exec_id":"exec-1798632006816-2","message_type":"text","attachments":[]}
+  PASS  ⑥ 런타임 오류 없음(스파이)
+  PASS  ① 확장3: 활성 스레드 0 = 배지 숫자 미노출 — 답글
+  PASS  ② 빈 목록 = 안내 문구
+  PASS  ⑥ 런타임 오류 없음(배지0)
+  PASS  ⑤ 1440: 레일 헤더 = 답글 + 활성 카운트 1 — 답글 목록
+1
+1.
+스레드 활성 질문
+답글 1개 · 마지막 활동 1시간 
+  PASS  ⑤ 1440: 답글 버튼 = 앱바 상단·레일 우측 — 1012,14
+  PASS  ⑤ 1440: 모달 전체 필터 = 2행+종료 배지
+  PASS  ⑥ 런타임 오류 없음(1440)
+  PASS  ③ EN: 앱바 Reply + 배지 1 — Reply 1
+  PASS  ③ EN: 행 메타 = replies + 앵커-상대 1 hour ago — 1.
+스레드 활성 질문
+1 replies · Last activity 1 hour ago
+  PASS  ⑥ 런타임 오류 없음(EN)
+
+28 passed, 0 failed → tests/e2e/artifacts/queue-threads-t41c4c6f6/accept-D87
