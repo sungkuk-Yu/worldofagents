@@ -120,8 +120,8 @@ async function api(pathname, { token, body } = {}) {
       if (t.includes('담당 팀에 바로 전달')) return 'briefing';
       if (t.includes('자료 팀이 지금 찾고')) return 'research';
       if (t.includes('초안이 올라와서')) return 'drafting';
-      if (t.includes('정리하고 있어요')) return 'wrapping';
-      if (t.includes('정리 끝났어요')) return 'done';
+      if (t.includes('답변 마무리 중')) return 'wrapping';
+      if (t.includes('마무리됐어요')) return 'done';
       return '?';
     };
     const order = seen.map(stageOf);

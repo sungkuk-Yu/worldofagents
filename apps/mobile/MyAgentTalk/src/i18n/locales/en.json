@@ -76,7 +76,7 @@
     "briefing": "Got it — routing this to the right desk now",
     "research": "The research desk is on it right now",
     "drafting": "A draft came in, polishing it now",
-    "wrapping": "Team work is done, wrapping it up",
+    "wrapping": "Team work is done, finalizing your answer",
     "done": "All wrapped up — I signed off as one voice"
   },
   "queue": {
@@ -94,6 +94,25 @@
     "endedBadge": "Ended",
     "replyCount": "{{countText}} replies",
     "lastActivity": "Last activity {{when}}"
+  },
+  "queueView": {
+    "button": "Questions in progress",
+    "buttonAria": "{{countText}} questions in progress, {{stopText}} stopped",
+    "title": "Questions in progress",
+    "counts": "Answering+waiting {{countText}} · stopped {{stopText}}",
+    "empty": "No backed-up questions — all cleared",
+    "waiting": "Waiting",
+    "answering": "Answering",
+    "stopped": "Stopped",
+    "pos": "Queue #{{countText}}",
+    "aheadAnswering": "Queue #{{countText}} · earlier question is being answered",
+    "aheadWaiting": "Queue #{{countText}} · earlier questions are waiting",
+    "aheadStopped": "Queue #{{countText}} · earlier question is stopped",
+    "nowAnswering": "Answering · {{countText}} waiting",
+    "waited": "Arrived {{when}} · waiting {{duration}}",
+    "unitSec": "{{countText}}s",
+    "unitMin": "{{countText}}m",
+    "unitHr": "{{countText}}h"
   },
   "pending": {
     "button": "Awaiting reply",
@@ -226,11 +245,11 @@
     }
   },
   "quip": {
-    "default": "One moment, I’m on it…",
-    "thinking": "One sec, let me think…",
-    "organizing": "Let me pull this together…",
-    "finalizing": "Just checking the final details…",
-    "rendering": "Getting your answer ready…"
+    "default": "Preparing your answer…",
+    "thinking": "Checking what you need…",
+    "organizing": "Preparing your answer…",
+    "finalizing": "Final check…",
+    "rendering": "Preparing your answer…"
   },
   "errors": {
     "empty": "Write a message first.",
