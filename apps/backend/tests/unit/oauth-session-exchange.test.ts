@@ -165,6 +165,10 @@ describe('(4) session/exchange — 양쪽 세션 모두 자체 JWT로 전환, �
     expect(res.statusCode).toBe(200);
     const fresh = res.json().data.token;
     expect(fresh).toBeTruthy();
+    // email 클레임 무손상 — 전환 토큰에도 동일 이메일이 담긴다(세션 전환 = 신원 보존).
+    const claims = JSON.parse(Buffer.from(fresh.split('.')[1], 'base64url').toString('utf8'));
+    expect(claims.sub).toBe(userId);
+    expect(claims.email).toBe('exchange-own@test.io');
     const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: bearer(fresh) });
     expect(me.statusCode).toBe(200);
     expect(me.json().data.id).toBe(userId);

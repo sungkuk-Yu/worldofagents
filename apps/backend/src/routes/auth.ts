@@ -151,6 +151,11 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/session/exchange', { preHandler: requireAuth }, async (request, reply) => {
     const userId = request.userId;
     const sb = request.supabaseAuth;
+    // 자체 JWT로 온 요청은 기존 email 클레임을 보존하고, Supabase 폴백으로 온 요청은
+    // getUser의 email을 클레임에 태운다(프론트가 이후 JWT만 쓰기 때문에 무손상이면 된다).
+    const ownEmail = typeof (request.user as { email?: unknown } | undefined)?.email === 'string'
+      ? ((request.user as { email: string }).email)
+      : '';
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('users')
       .select('id,display_name')
@@ -185,7 +190,7 @@ export async function authRoutes(app: FastifyInstance) {
         request.log.warn(`oauth_identities 매핑 예외: ${(err as Error).message}`);
       }
     }
-    const token = app.jwt.sign({ sub: userId, email: sb?.email || '' }, { expiresIn: config.jwt.expiresIn });
+    const token = app.jwt.sign({ sub: userId, email: sb?.email || ownEmail }, { expiresIn: config.jwt.expiresIn });
     return reply.send(ok({ token, user: { id: userId } }));
   });
 
