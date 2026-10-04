@@ -260,10 +260,10 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     const run = () => { void loadAsyncRoot().catch(() => {}); };
-    if (typeof (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback === 'function')
-      (globalThis as unknown as { requestIdleCallback: (cb: () => void, opt?: { timeout: number }) => number }).requestIdleCallback(run, { timeout: 3000 });
-    const timer = setTimeout(run, 1500); // idle 미지원/지연 대비 1회 폴백 (멱등 — 캐시 공유)
-    return () => clearTimeout(timer);
+    // t_710b5d28 r2 — 즉시 기동(raf 2틱): 목록 페인트와 나란히 다운로드·eval. 1500ms 폴백이
+    // Tap→chat 1470ms(탭 시점에 청크 eval 폭탄)로 실측됨 — 스플래시 해제 시점이 최저 대기 창.
+    const raf = requestAnimationFrame(() => requestAnimationFrame(run));
+    return () => cancelAnimationFrame(raf);
   }, [ready]);
   const syncRail = () => {
     const route = navRef.getCurrentRoute() as { name?: string } | undefined;
