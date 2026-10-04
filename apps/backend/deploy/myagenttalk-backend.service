@@ -1,0 +1,34 @@
+# myagenttalk-backend — 프로덕션 백엔드 (사용자 systemd, skyserver holysky87)
+# t_74587408 (2026-10-05): .env 유실 크래시루프(401회, 502) 재발 차단 게이트 추가.
+#   ExecStartPre ① env-snapshot.sh — 기동 직전 .env를 ~/.config/myagenttalk/backend.env.bak(0600)에
+#     백업(정합 통과본만, 깨진 파일로Healthy 백업 덮어쓰지 않음, 실패해도 exit 0로 기동 방해를 안 함)
+#   ExecStartPre ② env-integrity-check.sh — SUPABASE_URL/SERVICE_ROLE_KEY/JWT_SECRET 부재 시
+#     exit 1로 기동을 차단한다. Restart=always라도 PreStart 실패는 재시작 루프에 들어가지 않고
+#     unit이 failed로 남는다 → 무한 크래시루프 대신 journal 한 줄로 원인을 지목.
+# 설치/갱신 (라이브 재시작을 수반하므로 배포 창에만):
+#   cp apps/backend/deploy/myagenttalk-backend.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user restart myagenttalk-backend
+#   systemctl --user status myagenttalk-backend   # active + journal에 [env-check] OK 확인
+# .env 유실 복원 절차: 볼트 2026-10-05-백개발-env유실-크래시루프-재발방지.md 참조
+#   cp ~/.config/myagenttalk/backend.env.bak apps/backend/.env && chmod 600 apps/backend/.env
+[Unit]
+Description=MyAgentTalk preview backend (DEV_MODE=false)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/holysky87/worldofagents/apps/backend
+Environment=PORT=3000
+Environment=DEV_MODE=false
+# t_d18a3495 공개 배포: 배포용 신규 JWT_SECRET + Netlify 앱 오리진 CORS (파일 600권한, git/코드 미노출)
+EnvironmentFile=/home/holysky87/.config/myagenttalk/deploy.env
+# 빈 값 강제 — dotenv가 .env의 placeholder OPENAI 키로 실제 Whisper를 타는 사고(run북 #4) 재발 방지. 미설정=mock STT.
+Environment=OPENAI_API_KEY=***
+# t_74587408 기동 전 env 백업 + 정합 게이트 (실패 시 unit=failed, 크래시루프 미진입)
+ExecStartPre=%h/worldofagents/apps/backend/scripts/env-snapshot.sh
+ExecStartPre=%h/worldofagents/apps/backend/scripts/env-integrity-check.sh
+ExecStart=/home/holysky87/worldofagents/apps/backend/node_modules/.bin/tsx src/index.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

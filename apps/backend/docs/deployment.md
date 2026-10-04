@@ -121,6 +121,41 @@ WantedBy=multi-user.target
 sudo systemctl enable --now myagenttalk-backend
 ```
 
+### 실 배포 unit (skyserver, t_74587408)
+
+실서는 **사용자 systemd** unit(`~/.config/systemd/user/myagenttalk-backend.service`)로 돌고,
+배포 템플릿은 `apps/backend/deploy/myagenttalk-backend.service`에 추적된다. 핵심은 env 계층:
+`deploy.env`(EnvironmentFile, ~/.config/myagenttalk)가 먼저 주입되고, `apps/backend/.env`(git 비추적)의
+실값이 dotenv로 그 뒤를 채운다. **`.env` 유실 = SUPABASE_URL 누락 크래시루프**(10/4 궤멸 사고, restart 401회).
+
+템플릿의 기동 전 게이트 2종 (systemd는 ExecStartPre 실패 시 Restart=always여도 재시도 루프에
+들어가지 않고 unit이 failed로 남는다 — 무음 크래시루프 대신 journal 한 줄로 원인 지목):
+
+```ini
+# ① 기동 직전 .env 정본을 ~/.config/myagenttalk/backend.env.bak(0600)에 스냅샷 (항상 exit 0)
+ExecStartPre=%h/worldofagents/apps/backend/scripts/env-snapshot.sh
+# ② SUPABASE_URL/SERVICE_ROLE_KEY/JWT_SECRET 부재·mock·dev placeholder 시 exit 1로 기동 차단
+#    (DEV_MODE != false일 때만; 우선순위는 실 runtime과 동일 — shell/deploy.env에 키가 이미
+#     존재하면(빈 값 포함) .env가 덮지 않는다. 이 마스킹 함정이 10/4 사고의 부차 원인)
+ExecStartPre=%h/worldofagents/apps/backend/scripts/env-integrity-check.sh
+```
+
+### .env 유실 복구 절차 (백업 → 복원 → read-back)
+
+```bash
+# 1) 백업 지점이 있다면 (매 기동 ExecStartPre가 정합 통과본만 갱신해 온다):
+cp ~/.config/myagenttalk/backend.env.bak apps/backend/.env && chmod 600 apps/backend/.env
+#    없다면 백엔드진이 실값 재구성 후 반드시 수동 스냅샷:
+apps/backend/scripts/env-snapshot.sh
+# 2) 게이트 사전 통과 확인 (기동 없이 검증만):
+DEV_MODE=false apps/backend/scripts/env-integrity-check.sh; echo $?   # 0이어야 재시동 자격
+# 3) 재기동 + read-back:
+systemctl --user restart myagenttalk-backend
+systemctl --user is-active myagenttalk-backend          # active
+curl -s http://127.0.0.1:3000/health                     # {"status":"ok","mode":"prod"}
+journalctl --user -u myagenttalk-backend -n 30 | grep env-check   # [env-check] OK 확인
+```
+
 ## 6. 헬스 체크
 
 | 엔드포인트 | 역할 |
