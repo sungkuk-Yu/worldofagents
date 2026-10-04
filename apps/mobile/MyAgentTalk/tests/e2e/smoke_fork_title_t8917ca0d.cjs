@@ -66,19 +66,15 @@ const appbarTitle = (page) => page.getByTestId('chat-appbar-title').innerText();
   // 1b. 카드 액션 = fork.action '갈라내기' 유지 (행 라벨만 변경 — 카드 범위)
   const cardForkText = await page.getByTestId('card-fork').first().innerText();
   check('① 카드 버튼 = 갈라내기(fork.action) 유지', cardForkText.includes('갈라내기'), `text=${cardForkText}`);
-  // 1c. 큐 스트립 칩 펼침 = 새 라벨
+  // 1c. (t_3c882443 ③ 후속 정합) 상단 큐 스트립 폐기 — 칩 DOM 0 + 스트립 라벨 이관 확인.
+  //     (구 하네스는 queue-chip 전개로 queue-fork 라벨을 검증했으나, 대표님 10/4 "오른쪽 트래커
+  //     있으면 상단 큐스트립 빼도 돼" 지시로 스트립 자체가 삭제됨 — 라벨 계약 ①은 카드 버튼·시트로 충분.)
   await openKeyboardIfVoice(page);
   await page.getByTestId('chat-input').fill('스트립 질문');
   await page.getByTestId('send-button').click();
-  const chipHandle = (await page.locator('[data-testid^="queue-chip-"]').first().getAttribute('data-testid'));
-  assert.ok(chipHandle, '질문 칩 생성');
-  const chipId = chipHandle.replace('queue-chip-', '');
-  await page.getByTestId(chipHandle).click(); // 첫 탭 = 점프 + 펼침
-  check('① 칩 펼침 → queue-fork 노출', await page.getByTestId(`queue-fork-${chipId}`).isVisible());
-  const chipBtn = await page.getByTestId(`queue-fork-${chipId}`).innerText();
-  check('① 칩 버튼 라벨 = 쓰레드 생성', chipBtn.includes('쓰레드 생성'), `text=${chipBtn}`);
+  await page.waitForTimeout(600);
+  check('①c 스트립 폐기: queue-chip DOM 0 (트래커 이관)', (await page.locator('[data-testid^="queue-chip-"]').count()) === 0);
   await page.screenshot({ path: shot('01-labels') });
-  await page.getByTestId(chipHandle).click(); // 접기
 
   // ── ② 갈라내기 왕복 성공 (root cause fix 회귀) ─────────────
   await page.getByTestId('card-fork').first().click();
@@ -156,16 +152,8 @@ const appbarTitle = (page) => page.getByTestId('chat-appbar-title').innerText();
   await page2.getByTestId('msg-action-sheet').waitFor({ state: 'visible', timeout: 5000 });
   check('게이트: Test Agent room action-fork 비노출', (await page2.getByTestId('action-fork').count()) === 0);
   check('게이트: 답글/선택 행 유지', await page2.getByTestId('action-reply').isVisible() && await page2.getByTestId('action-select').isVisible());
+  // (t_3c882443 ③) 스트립 폐기로 queue-fork 칩 경로 소멸 — 칩 게이트는 위 DOM-0 검사로 대체.
   await page2.getByTestId('msg-action-backdrop').click();
-  await page2.waitForSelector('[data-testid="msg-action-sheet"]', { state: 'detached' });
-  await openKeyboardIfVoice(page2);
-  await page2.getByTestId('chat-input').fill('게이트 질문');
-  await page2.getByTestId('send-button').click();
-  const chip2 = await page2.locator('[data-testid^="queue-chip-"]').first().getAttribute('data-testid');
-  await page2.getByTestId(chip2).click();
-  const chip2Id = chip2.replace('queue-chip-', '');
-  check('게이트: 칩 queue-fork 비노출 / 답글 노출', (await page2.getByTestId(`queue-fork-${chip2Id}`).count()) === 0 && await page2.getByTestId(`queue-reply-${chip2Id}`).isVisible());
-  await page2.screenshot({ path: shot('06-otherroom-gate') });
 
   assert.deepEqual(errors, [], `런타임 오류 0 — got ${errors.length}: ${errors.slice(0, 3).join(' / ')}`);
   assert.deepEqual(errors2, [], `page2 런타임 오류 0 — got ${errors2.length}`);
