@@ -9,7 +9,42 @@ export const config = {
   // 처리 지연이 이 시간을 넘으면 단계 진행도 quip을 이어 붙인다 (t_b2b86cd6).
   quipPatienceMs: parseInt(process.env.QUIP_PATIENCE_MS || '15000', 10),
   // 공감 확인음 노출 후 답변 스트리밍 시작 전 체감 공백 (t_344e047a, 대표님 9/28). 0이면 즉시 시작.
+  // t_a654c9ac (대표님 10/4): empathy 재질문 카드가 뜬 턴에서는 사람이 '예/아니오'를 읽을
+  // 최소 창(2.5s)을 보장한다 — 재질문 노출부터 자동예 진행까지 ≥2.5s ( 카드 게이트).
   answerLeadMs: parseInt(process.env.ANSWER_LEAD_MS || '3000', 10),
+  /**
+   * 사람 타이핑 감각 딜레이 (t_a654c9ac, 대표님 10/4 "바로 대답하면 너무 빠라. 사람이 직접
+   * 타이핑 하든거처럼"): 답변 첫 토큰 전 리드는 발화 길이 비율로 0.8~2.0s 랜덤,
+   * 스트리밍 출력을 모스부호식 즉시-flush가 아니라 타이핑 속도(초당 12~25자, 구간 랜덤,
+   * 문장부호 후 미세 pause)로 의류 보낸다. 기본 ON, HUMAN_TYPING=false로 OFF(기존 즉시 동작).
+   * 단위 테스트는 HUMAN_TYPING=false로 봉인 — 리듬 검증은 전용 단위 + 실WS 스모크가 담당.
+   */
+  humanTyping: {
+    enabled: process.env.HUMAN_TYPING !== 'false',
+    /** 답변 첫 토큰 전 사람 리드타임 범위(ms) — 발화 길이 ×50ms 곡선으로 보간, ±15% 지터. */
+    leadMinMs: parseInt(process.env.TYPING_LEAD_MIN_MS || '800', 10),
+    leadMaxMs: parseInt(process.env.TYPING_LEAD_MAX_MS || '2000', 10),
+    /** 타이핑 속도 범위(자/초). */
+    cpsMin: parseInt(process.env.TYPING_CPS_MIN || '12', 10),
+    cpsMax: parseInt(process.env.TYPING_CPS_MAX || '25', 10),
+    /** 문장부호(.!?。newline) 뒤 미세 pause(ms 상한, 균등 랜덤). */
+    sentencePauseMs: parseInt(process.env.TYPING_SENTENCE_PAUSE_MS || '350', 10),
+    /** 취소·타임아웃 방패: 이 pacing으로 스트리밍이 늘어질 때 답변 전체 추가 지연 상한(ms). */
+    maxTotalDelayMs: parseInt(process.env.TYPING_MAX_TOTAL_DELAY_MS || '8000', 10),
+    /** 재질문 카드가 뜬 턴의 자동예 진행 플로어(ms) — 프론트 예/아니오 칩 창(2.5s) 소진 보장. */
+    chipFloorMs: parseInt(process.env.TYPING_CHIP_FLOOR_MS || '2500', 10),
+    /** 플로어 위에 얹는 랜덤 지터 상한(ms) — 게이트 계약 '자동예 진행 ≤2.6s' = floor+jitter. */
+    chipJitterMs: parseInt(process.env.TYPING_CHIP_JITTER_MS || '100', 10),
+  },
+  /**
+   * 공감 재질문 LLM 재해석 (t_a654c9ac, 대표님 10/4 추가 판정): 재질문 문구는 LLM으로
+   * 자연스러운 한국어 의문문('궁금하신거죠?' 계열)을 생성하되, 결정성 계약은 '문구 고정'이
+   * 아니라 '항상 재질문이 존재' — 실패/타임아웃/비결정 시에만 기존 4템플릿 규칙 폴백.
+   */
+  empathyRequestLlm: {
+    enabled: process.env.EMPATHY_REQUEST_LLM !== 'false',
+    timeoutMs: parseInt(process.env.EMPATHY_REQUEST_LLM_TIMEOUT_MS || '1500', 10),
+  },
   /** 후속 예상 질문 2~3개 생성 (t_344e047a ③) — answer 완료 후 비동 보강. 실패 시 조용히 생략. */
   suggestedQuestions: {
     enabled: process.env.SUGGEST_QUESTIONS_DISABLED !== 'true',
