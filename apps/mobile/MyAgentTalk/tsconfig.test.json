@@ -30,6 +30,8 @@
     "src/lib/ackChips.ts",
     "src/lib/ackHold.ts",
     "src/lib/layout.ts",
+    "src/lib/chainLogic.ts",
+    "src/lib/chainArchive.ts",
     "src/lib/voiceStage.ts",
     "src/lib/newChatTap.ts",
     "src/lib/holdStart.ts",

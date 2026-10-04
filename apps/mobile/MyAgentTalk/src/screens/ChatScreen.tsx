@@ -8,6 +8,8 @@ import { ChatFeedFooter, ChatFeedHeader } from '../components/chat/ChatFeed';
 import { useChatSelection } from '../hooks/useChatSelection';
 import { styles } from './chatScreenStyles';
 import ContextPanel from '../components/ContextPanel';
+import SideChainPanel from '../components/SideChainPanel';
+import { chainArchive } from '../lib/chainArchive';
 import { useCardActions } from '../hooks/useCardActions';
 import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useLayout } from '../hooks/useLayout';
@@ -119,7 +121,7 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
   // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
-  const { pc, wide, width, height: viewportHeight } = useLayout();
+  const { pc, wide, context, width, height: viewportHeight } = useLayout();
   const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
   // t_e735d936 요구 1/2 → t_4758f25d 재스펙: 웹 모바일 진입 = 하단 ~30% 투명 음성 스테이지
   // (홀드 시 링+마이크+실측 게인 sine 리본), 입력창은 ↑ 제스처로 여는 B 계층.
@@ -369,13 +371,19 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 데모 세션은 스레드 원천이 없다 → sessionId null과 함께 reset (이전 세션 스레드가 레일에 남으면 안 됨).
   useEffect(() => {
     if (isDemo || !sessionId) { railStore.reset(); return; }
+    // 포크 지점 = 최신 확정 발화(낙관 pending 행 제외) — 좌측 '새프로젝트' 버튼이 이 지점에서 하드포크한다 (t_00fe9b0f).
+    const last = [...messages].reverse().find((m) => m.pending !== true && m.status !== 'failed' && m.status !== 'streaming');
     railStore.publish({
       sessionId,
       threads,
-      meta: { agentName, sessionTitle, presetCategory, canFork },
+      meta: { agentName, sessionTitle, presetCategory, canFork, agentId: agentId ?? null },
+      lastMessageId: last?.id ?? null,
     });
-  }, [isDemo, sessionId, threads, agentName, sessionTitle, presetCategory, canFork]);
+  }, [isDemo, sessionId, threads, agentName, sessionTitle, presetCategory, canFork, messages, agentId]);
   useEffect(() => () => railStore.reset(), []);
+  // 사이드체인 아카이브(닫힘集合)는 화면이 중재하는 단일 원천 — 세션 전환 시 그 세션 키로 스위치,
+  // 데모/미확정은 bind(null)로 격리(이전 세션의 닫힘 상태가 새 세션에 붙으면 안 됨). 영속은 localStorage.
+  useEffect(() => { chainArchive.bind(isDemo ? null : sessionId ?? null); }, [isDemo, sessionId]);
   // 내 질문 트래커 모바일 경로 (t_fd869e5b) — wide 미만(우측 패널 미렌더) 앱바 '현황' 버튼 → 하단 시트.
   const [trackerOpen, setTrackerOpen] = useState(false);
   // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
@@ -758,7 +766,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         connection={connection}
         activeThreadCount={activeThreadCount}
         pendingReplyCount={pendingReplies.length}
-        showTrackerButton={!wide || Platform.OS !== 'web'}
+        showTrackerButton={!context || Platform.OS !== 'web'}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
@@ -987,9 +995,22 @@ export default function ChatScreen({ navigation, route }: Props) {
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
       <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
-    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지,
-        트래커는 앱바 '현황' 버튼 → 하단 시트로 대체: QuestionTrackerModal) */}
+    {/* PC wide(≥1024, t_00fe9b0f 3-팬): 우측 = 사이드체인(쓰레드 카드) 패널 상시 노출.
+        대표님 10/4: "오른쪽 창 = 쓰레드 카드 리스트의 진행 상태… 쓰레드를 클릭하면 그 쓰레드만
+        오른쪽 창에 보이고, 그 창 안에서 닫을 수도 다른 쓰레드로 옮겨 갈 수도 있다."
+        모바일/768~1023에서는 렌더 제외(현황 시트·답글 목록 경로 유지). */}
     {wide && Platform.OS === 'web' && (
+      <SideChainPanel
+        messages={messages}
+        pendingReplies={pendingReplies}
+        streams={streams}
+        queue={queue}
+        navigation={navigation}
+      />
+    )}
+    {/* PC context(≥1280): 컨텍스트 패널(트래커/즐겨찾기/카드 인스펙터) 추가 — 3-팬 폭 절층으로
+        1024~1279는 사이드체인 1패널만 (4컬럼 고정폭 압사 방지). */}
+    {context && Platform.OS === 'web' && (
       <ContextPanel
         sessionId={sessionId ?? null}
         messages={messages}

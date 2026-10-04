@@ -37,6 +37,7 @@ import {
   LegalDocScreen,
 } from './src/screens';
 import ThreadRail from './src/components/ThreadRail';
+import ProjectRail from './src/components/ProjectRail';
 
 // 네비게이션 타입
 export type RootStackParamList = {
@@ -57,17 +58,21 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// PC 사이드바 레일 (t_fd869e5b 요구1, 대표님 10/4: "왼쪽편의 공간은 슬랙처럼 쓰레드가 발생하는 공간으로
-// 내비되어야") — 채팅 라우트에서는 세션목록 대신 스레드 레일(ThreadRail). 세션 목록은 목록 라우트의
+// PC 사이드바 레일 (t_fd869e5b 요구1 → t_00fe9b0f 3-팬 개정, 대표님 10/4 원문: "왼쪽 창 = 한 에이전트
+// 안에서의 새프로젝트(갈라내기) 공간 리스트"). wide(≥1024) 채팅 = 좌측 1차 내용이 스레드 레일에서
+// 하드포크(새프로젝트) 리스트로 대체 — 스레드는 우측 사이드체인 카드로 이관되었다. 768~1023(2-팬)은
+// 기존 ThreadRail 유지(우측 패널 자원이 없어 스레드 목록이 좌측에 남는다). 세션 목록은 목록 라우트의
 // home 변형(전폭)으로 계속 도달 가능하고, 채팅에서는 앱바 ← 가 복귀 경로(슬랙: 채널 목록으로 백).
-// 이전 DialogueListScreen 'sidebar' 재사용은 모바일 미노출이라 레일 외 사용처 없음 (코드는 보존).
 // 내비게이션 패사드: 레일의 navigate는 중앙 Stack에 그대로 전달(모바일과 동일 라우트 계약).
 const RAIL_ROUTES = new Set(['Chat']); // 목록 화면은 home 변형(전폭)이 이미 목록을 렌더 — 레일 중복 제거
 function SidebarRail() {
   const navigation = useNavigation<any>();
+  const { width } = useWindowDimensions();
   return (
     <View style={styles.sidebarRail}>
-      <ThreadRail navigation={navigation} />
+      {layoutModeForWidth(width) === 'pc-wide'
+        ? <ProjectRail navigation={navigation} />
+        : <ThreadRail navigation={navigation} />}
     </View>
   );
 }
