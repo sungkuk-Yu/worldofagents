@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, queueVis = false, longCard = false, anchorMs = null } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, queueVis = false, longCard = false, anchorMs = null, queueDelayMs = 0 } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -242,6 +242,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     // page.route 재설정 경로 호환).
     const queuePath = path.match(/^\/api\/sessions\/([^/]+)\/queue$/);
     if (queuePath && request.method() === 'GET') {
+      // t_fb0792a6 회귀 잠금: queueDelayMs > 0 이면 /queue 응답을 messages 선착 뒤에 도착시킨다 —
+      // 부트스트랩 pull 을 pollTrigger flip 의 cleanup 으로 폐기하던 경합(pre-fix)을 결정적으로 재현.
+      if (queueDelayMs > 0) await new Promise((r) => setTimeout(r, queueDelayMs));
       if (!state.queue) return route.fulfill({ status: 404, json: { ok: false } });
       return ok(state.queue);
     }
