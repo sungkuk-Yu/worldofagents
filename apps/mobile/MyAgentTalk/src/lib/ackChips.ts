@@ -111,6 +111,101 @@ export function normalizeAckText(s: string): string {
   return s.trim().toLowerCase().replace(/[.!~〜？?。，,\s]+$/g, '');
 }
 
+/** 백엔드 graph.ts CONFIRMATION_UTTERANCES 미러 (t_0e03e405 — 프론트측 확인응답 판정 단일 원천).
+ *  백엔드 집합 변경 시 여기와 src/neurons/graph.ts 함께 갱신 (주석 미러 계약). */
+export const CONFIRMATION_UTTERANCES: ReadonlySet<string> = new Set([
+  '예', '네', '요', 'ㅇ', 'ㄴ', '응', '어', '넵', '넹', 'ㅇㅋ', 'ㄴㄴ',
+  '아니', '아니요', '아니오', 'yes', 'no', 'yeah', 'yep', 'nope', 'nah', 'y', 'n', 'ok', 'okay',
+  '맞아요', '맞습니다', '맞음', '맞아', '아니에오', '아니에요', '아닙니다',
+  '틀렸어', '틀렸어요', '틀림',
+]);
+
+/** 백엔드 isConfirmationUtterance(graph.ts:360)와 동일 판정: 정규화 + 길이 ≤8 + 정확 일치 (부분일치 금지).
+ *  '예를 들어 아침 루틴…'은 길이/집합 밖 → 오탐 0. */
+export function isConfirmationUtterance(text: string): boolean {
+  const n = normalizeAckText(text || '');
+  return n.length > 0 && n.length <= 8 && CONFIRMATION_UTTERANCES.has(n);
+}
+
+/**
+ * 확인응답 → 재질문(empathy) 링크 맵 (t_0e03e405 FINAL SCOPE — '예/아니오가 무조건 나오면 그건 쓰레드화')
+ *   key = 확인응답 user 행 id, value = 대상 empathy 행 id.
+ * 판정 2계층 (백엔드 empathySuppressed 게이트와 동일 전제, history 재현 포함):
+ *   ① 구조 신호: user 행의 replyToId가 열린 공감 윈도우의 empathy 행을 가리키면 본문 길이 무관 확인응답.
+ *      (열린 윈도우 = 이 empathy 뒤 다른 user 발화 없음. '예'를 리플라이 칩으로 달면 확인 취급 — 대표님
+ *      오탐 금지 조항과 정합: 맨 발화 '예를 들어…'는 顶级 유지.)
+ *   ② 문장 매칭 폴백: 본문이 CONFIRMATION_UTTERANCES 정확 일치 + 열린 공감 윈도우 존재.
+ *      백엔드는 empathy created_at 기준으로 판정하지만 프론트 history에는 타임스탬프 순서만 남는다 →
+ *      'empathy 직후(사이 user 발화 없음) 확인 문장' = 백엔드가 empathySuppressed로 처리한 발화와 동일 귀결.
+ *   ③ 연속 체인: 직전 user 발화가 확인응답이었고 본인도 확인 문장이면 같은 empathy에 링크
+ *      (백엔드 previousTurnWasConfirmation 미러 — '[empathy][예][네]'에서 '네'가 새 질문이 되지 않게).
+ * 열린 윈도우가 없으면 ('예' 단독 발화 = 공감 없음) 링크하지 않는다 → 顶级 질문 유지 (김비서 케이스 1 후속).
+ * 답글 스레드 user 행(parentMessageId)은 대상 아님 — 메인 피드 발화만 윈도우를 연다/닫는다.
+ * 낙관(pending) '예'도 링크 — 상단 스트립/트래커가 POST 왕복 전에 확인응답으로 흡수(반짝 질문 행 방지).
+ */
+export function confirmationLinks(messages: ChatMessage[]): Map<string, string> {
+  const out = new Map<string, string>();
+  let open: ChatMessage | null = null; // 메인 피드 empathy — 그 뒤 user 발화가 없을 때만 '열린' 상태
+  let lastAckEmpathy: string | null = null; // ③ 체인 앵커 (직전 user 발화가 확인응답だった empathy)
+  for (const m of messages) {
+    if (isEmpathyEchoMessage(m)) { open = m; lastAckEmpathy = null; continue; }
+    if (m.role !== 'user' || m.parentMessageId) continue;
+    if (open) {
+      const structural = !!m.replyToId && m.replyToId === open.id;
+      const matched = isConfirmationUtterance(m.content || '');
+      if (structural || matched) { out.set(m.id, open.id); lastAckEmpathy = open.id; open = null; continue; }
+    } else if (lastAckEmpathy && isConfirmationUtterance(m.content || '')) {
+      out.set(m.id, lastAckEmpathy); // ③ 연속 확인 체인
+      continue;
+    }
+    open = null; // 그 외 user 발화 = 윈도우 닫힘 (일반 질문/장문 '아니요 그거 말고' 등)
+    lastAckEmpathy = null;
+  }
+  return out;
+}
+
+/** 확인 스레드 프레임 (t_0e03e405 렌더 층위 스레드화) — empathy 행 → 원 질문 {id, text}.
+ *  원 질문 = 그 empathy 직전(턴 순) 메인 피드 user 루트 행. 없으면 프레임 없음(데모/이상 데이터 강등). */
+export interface ConfirmFrame { empathyId: string; rootId: string; rootText: string }
+export interface ConfirmFrames {
+  /** empathy id → 프레임 (ChatTurnRow가 해당 카드를 '확인 스레드' 컨테이너로 감싼다) */
+  byEmpathy: Map<string, ConfirmFrame>;
+  /** 원 질문 id → 그 아래 열린 empathy id 목록 (질문 카드의 '확인 스레드' 진입 배지) */
+  byRoot: Map<string, string[]>;
+}
+export function buildConfirmFrames(messages: ChatMessage[]): ConfirmFrames {
+  const byEmpathy = new Map<string, ConfirmFrame>();
+  const byRoot = new Map<string, string[]>();
+  const links = confirmationLinks(messages);
+  let lastRoot: ChatMessage | null = null;
+  for (const m of messages) {
+    // 顶级 질문 = 마지막 비답글 user 행 중 **확인응답 아닌 것** ([q][e][예][e2]에서 e2의 원문은 q)
+    if (m.role === 'user' && !m.parentMessageId && !links.has(m.id)) { lastRoot = m; continue; }
+    if (!isEmpathyEchoMessage(m) || !lastRoot) continue;
+    byEmpathy.set(m.id, { empathyId: m.id, rootId: lastRoot.id, rootText: (lastRoot.content || '').trim() });
+    byRoot.set(lastRoot.id, [...(byRoot.get(lastRoot.id) ?? []), m.id]);
+  }
+  return { byEmpathy, byRoot };
+}
+
+/** 화면(ChatScreen useMemo) → ChatTurnRow 배선 팩 (t_0e03e405) — frames + empathy별 병합 ack 행. */
+export interface ConfirmView extends ConfirmFrames {
+  /** empathy id → 확인응답 user 행(스레드 내부_reply 라인; 메인 버블에서는 숨김) */
+  acksByEmpathy: Map<string, ChatMessage[]>;
+  /** 병합 확인응답 user 행 id 집합 (O(1) 렌더 필터) */
+  ackIds: Set<string>;
+}
+export function buildConfirmView(messages: ChatMessage[]): ConfirmView {
+  const links = confirmationLinks(messages);
+  const frames = buildConfirmFrames(messages);
+  const acksByEmpathy = new Map<string, ChatMessage[]>();
+  for (const m of messages) {
+    const emp = links.get(m.id);
+    if (emp) acksByEmpathy.set(emp, [...(acksByEmpathy.get(emp) ?? []), m]);
+  }
+  return { ...frames, acksByEmpathy, ackIds: new Set(links.keys()) };
+}
+
 /**
  * ack 결과 카드 숨김 판정 (t_64e3edd6 ②, 대표님 9/29 "예 아 니오의 결과는 사실상 카드로 안 보여줘도 돼"):
  * 공감 재질문(empathy 행) 이후, 그 사이에 다른 user 발화 없이 등장한 user 행 중 본문이

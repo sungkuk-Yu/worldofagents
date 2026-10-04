@@ -68,7 +68,7 @@ import MessageActionSheet from '../components/MessageActionSheet';
 import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
-import { ackResultCardIds } from '../lib/ackChips';
+import { ackResultCardIds, buildConfirmView } from '../lib/ackChips';
 // QUIET_PROGRESS는 스트립 폐기(t_3c882443)로 ChatScreen 내 잔사용처 소멸 — 타이핑/스트리밍 억제
 // 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
 import { SENDER_GROUPING } from '../lib/featureFlags';
@@ -724,6 +724,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 예/아니요가 붙어 자동진행과 충돌하는 것을 막는다. done 카드(saving 구간)는 해제.
   const ackChip = useAckChip(messages, streams.some((s) => !s.done));
   const hiddenAckIds = useMemo(() => ackResultCardIds(messages, [t('chat.ackYes'), t('chat.ackNo')]), [messages, t]);
+  // t_0e03e405 FINAL SCOPE — 확인응답 스레드화 프레임 (판정 로직 lib/ackChips, 화면은 배선만):
+  // empathy 카드 → '확인 스레드' 컨테이너, 병합 ack user 행 → 프레임 내부 reply 라인(顶级 버블 제외).
+  const confirmView = useMemo(() => buildConfirmView(messages), [messages]);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
     void send(text);
@@ -827,6 +830,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           highlightId={highlightId}
           ackChipId={ackChip?.id ?? null}
           hiddenAckIds={hiddenAckIds}
+          confirmView={confirmView}
+          onJump={requestJump}
           onSendAck={sendAck}
           decorate={decorate}
           handlers={handlers}

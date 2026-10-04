@@ -67,6 +67,8 @@
     "suggestTitle": "Follow up?",
     "ackYes": "Yes",
     "ackNo": "No",
+    "confirmThread": "Confirm thread",
+    "confirmThreadBadge": "Confirm thread {{countText}}",
     "ackHoldArmedYes": "Yes — release to send",
     "ackHoldArmedNo": "No — release to send"
   },

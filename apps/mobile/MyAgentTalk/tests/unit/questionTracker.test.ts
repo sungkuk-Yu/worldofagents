@@ -40,12 +40,71 @@ test('트래커 — 완료/진행/낙관/실패 4단계 + 접수 구분', () => 
   assert.equal(TRACKER_STAGE_COUNT, 4);
 });
 
-test('트래커 — 공감 확인 발화(예) 이후 답변 전이면 답변 준비 중(2)로 전진', () => {
-  const messages: ChatMessage[] = [user('u1', 0), empathy('e1', 1), user('u2', 2, { content: '예' })];
+test('트래커 — 확인응답(예)은 顶级 질문이 아니다: 질문 수 불변 + 원 질문 stage2 전진 (t_0e03e405)', () => {
+  const messages: ChatMessage[] = [user('u1', 0), empathy('e1', 1), user('ack1', 2, { content: '예' })];
   const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
-  assert.equal(rows[0].needsConfirm, false, '확인 발화(예=늦은 user 행)로 재질문 해소');
+  assert.equal(rows.length, 1, "'예' 발화는 원 질문의 하위 이벤트 — 새 행 NOT (질문 수 = 顶级 질문 수 불변식)");
+  assert.equal(rows[0].messageId, 'u1');
+  assert.equal(rows[0].needsConfirm, false, '확인 발화(예)로 재질문 해소 — 확인 필요 배지 소멸');
   assert.equal(rows[0].stage, 2, '해소된 재질문 → 답변 준비 중 (ackChips와 동일 전제: 확인 후 answer 직결)');
-  assert.equal(rows[1].stage, 0, '확인 발화 u2 자체가 새 질문 행 (접수 후 대기)');
+});
+
+test('트래커 — 재질문 생성 후에도 질문 수 1 유지 (복명복창/재질문 행 자체는 비계수)', () => {
+  const messages: ChatMessage[] = [user('u1', 0), empathy('e1', 1), empathy('e2', 2), empathy('e3', 3)];
+  const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
+  assert.equal(rows.length, 1, '에파시 3행이 생겨도 질문 행은 원 질문 1개');
+  assert.equal(rows[0].stage, 1);
+  assert.equal(rows[0].needsConfirm, true, '미해소 재질문 = 확인 필요 (원 질문에 흡수)');
+});
+
+test('트래커 — 오탐 금지: empathy 없는 맨 발화 예/아니요·' + "'예를 들어…'류는 顶级 유지", () => {
+  const messages: ChatMessage[] = [
+    user('u1', 0, { content: '예' }),                       // 공감 윈도우 없는 단독 '예' → 링크 안 됨 (질문으로 남음)
+    user('u2', 1, { content: '예를 들어 아침 루틴 정리법 알려줘' }), // '예' 시작 진짜 질문 → 顶级
+    user('u3', 2, { content: '아니요 그거 말고 어젯밤 통화 내용' }), // 부분 일치(정확-일치 아님) → 顶级
+  ];
+  const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
+  assert.deepEqual(rows.map((r) => r.messageId), ['u1', 'u2', 'u3'], '3종 모두 질문 행 유지 (구조 신호 없으면 흡수 금지)');
+});
+
+test('트래커 — 답변이 확인응답 뒤 도착하면 원 질문 완료 전파 (11/12 부풀림·윈도우 절단 봉인)', () => {
+  const messages: ChatMessage[] = [
+    user('u1', 0), empathy('e1', 1), user('ack1', 2, { content: '예' }), agent('ans1', 3),
+    user('u2', 4), empathy('e2', 5), user('ack2', 6, { content: '아니요', replyToId: 'e2' }), agent('ans2', 7),
+  ];
+  const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
+  assert.equal(rows.length, 2, 'ack 행 2건 흡수 → 질문 2개만');
+  assert.equal(rows[0].stage, 3, 'ans1이 u1 윈도우에 귀속 (구현 전: ack1이 창을 끊어 stage2 고착 실측)');
+  assert.equal(rows[1].stage, 3, 'replyToId 구조 신호 ack2 흡수 + ans2 귀속');
+  assert.equal(rows[1].needsConfirm, false, '강등 pending 스냅샷이 있어도 확인응답 발화가 우선');
+});
+
+test('트래커 — 구조 신호 우선: reply_to가 empathy면 본문 길이 무관 흡수', () => {
+  const messages: ChatMessage[] = [
+    user('u1', 0), empathy('e1', 1),
+    user('ack1', 2, { content: '예를 들어도 되는 건 아니고, 그냥 맞다는 뜻이에요', replyToId: 'e1' }),
+  ];
+  const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
+  assert.equal(rows.length, 1, "리플라이 칩을 단 장문 확인은 확인으로 취급 (대표님 오탐 금지 조항과 정합)");
+  assert.equal(rows[0].stage, 2);
+});
+
+test('트래커 — 연속 확인 체인 [empathy][예][네]는 새 질문 NOT (백엔드 previousTurnWasConfirmation 미러)', () => {
+  const messages: ChatMessage[] = [user('u1', 0), empathy('e1', 1), user('a1', 2, { content: '예' }), user('a2', 3, { content: '네' })];
+  const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].stage, 2);
+});
+
+test('트래커 — 확인응답 흡수 후에도 낙관/실패/상한 채번은 顶级 기준', () => {
+  const messages: ChatMessage[] = [
+    user('u1', 0), empathy('e1', 1), user('ack1', 2, { content: '예' }),
+    user('u2', 3, { pending: true }),
+    user('u3', 4, { status: 'failed' }),
+  ];
+  const { rows } = buildQuestionTracker(messages, [], [], { now: NOW });
+  assert.deepEqual(rows.map((r) => r.seq), [1, 2, 3], 'ack 흡수 후 재채번 — 노이즈 없음 (14번 예 계열 원천 차단)');
+  assert.deepEqual(rows.map((r) => r.messageId), ['u1', 'u2', 'u3']);
 });
 
 test('트래커 — 활성 stream은 마지막 질문에만 귀속, answer.done 행이면 그걸로 완료', () => {
