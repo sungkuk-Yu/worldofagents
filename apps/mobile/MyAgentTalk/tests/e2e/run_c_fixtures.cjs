@@ -1,5 +1,5 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
-async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, threads = false, threadsLite = false, anchorMs = null } = {}) {
+async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, queueVis = false, longCard = false, anchorMs = null } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
   const agent = { id: 'agent', name: chief ? '김비서' : 'Test Agent' };
@@ -25,6 +25,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     row('task', 'task_flow', { items: [{ title: 'Review draft', status: 'pending' }] }),
     row('multi', 'multi_agent', { agents: [{ name: 'Expert', content: 'Expert result' }] }),
     row('unknown', 'future_card'),
+    // t_7f86eefb 검증 케이스: '긴 답변' 카드 (10줄 ≈ 스크린 초과) — 답글/새프로젝트 키가 카드
+    // 상단 20px 이내(우측 상단 클러스터)에 수납되는지 rect로 증명하는 대상.
+    ...(longCard ? [{ ...row('long-answer', 'text'), thread_reply_count: 1, content: Array.from({ length: 10 }, (_, i) => `긴 답변 ${i + 1}번째 줄 — 계약서 검토 결과 요약입니다.`).join('\n') }] : []),
   ] : wave ? (() => {
     // Wave 1 — 인터랙티브 3종 + 리치텍스트 + 즐겨찾기 복원(favorite:true 행)
     const fav = { ...row('fav', 'info_card', { title: 'Fav card', fields: [{ label: 'k', value: 'v' }, { label: 'k2', value: 'v2' }] }), favorite: true };
@@ -88,6 +91,53 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 트래커 확인', turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 트래커 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
     ];
   }
+  if (chains) {
+    // t_00fe9b0f 3-팬 사이드체인 시드 — 상태 3색 실측(추측 아닌 판정 소스 검증) + 하드포크 계보.
+    // 실행일 독립(재발방지 규율): 전부 런타임-상대 시각.
+    //  q1: 질문+완료 답변+답글 1 → 초록(confirmed) — 닫기 가능
+    //  q2: 질문+답글(답변 없음)          → 주황(pending) — 닫기 비활성 '답변 중이에요'
+    //  q3: 질문+답글+empathy 재질문 = 최후 발화(뒤 user 없음 → 미해소) → 빨강(stalled/확인 필요) — 닫기 비활성
+    //      (q4 뒤에 두면 '예/아니요' 해소가 되어 초록 진행으로 강등 — 순서가 판정 소스다)
+    //  q4: 질문+완료 답변+답글 1 → 초록(confirmed) 2번째 — 일괄 닫기/undo 검증용
+    //  f1: forked 세션(source에서 #4 지점) → 좌측 계보 행
+    const CAnchor = anchorMs ?? Date.now();
+    const cAgo = (h) => new Date(CAnchor - h * 3600 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'q1', role: 'user', content: '체인 완료 질문', turn_index: 1, created_at: cAgo(3), agent_id: 'agent', agent_name: agent.name },
+      { id: 'a1', role: 'agent', content: '체인 완료 답변', turn_index: 2, created_at: cAgo(2.9), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'r1', role: 'user', content: '체인 완료 답글', turn_index: 3, created_at: cAgo(1), parent_message_id: 'q1', root_message_id: 'q1', agent_id: 'agent', agent_name: agent.name },
+      { id: 'q2', role: 'user', content: '체인 진행 질문', turn_index: 4, created_at: cAgo(0.8), agent_id: 'agent', agent_name: agent.name },
+      { id: 'r2', role: 'user', content: '체인 진행 답글', turn_index: 5, created_at: cAgo(0.5), parent_message_id: 'q2', root_message_id: 'q2', agent_id: 'agent', agent_name: agent.name },
+      { id: 'q4', role: 'user', content: '체인 정리 질문', turn_index: 6, created_at: cAgo(0.4), agent_id: 'agent', agent_name: agent.name },
+      { id: 'a4', role: 'agent', content: '체인 정리 답변', turn_index: 7, created_at: cAgo(0.39), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'r4', role: 'user', content: '체인 정리 답글', turn_index: 8, created_at: cAgo(0.32), parent_message_id: 'q4', root_message_id: 'q4', agent_id: 'agent', agent_name: agent.name },
+      { id: 'q3', role: 'user', content: '체인 확인 질문', turn_index: 9, created_at: cAgo(0.42), agent_id: 'agent', agent_name: agent.name },
+      { id: 'r3', role: 'user', content: '체인 확인 답글', turn_index: 10, created_at: cAgo(0.36), parent_message_id: 'q3', root_message_id: 'q3', agent_id: 'agent', agent_name: agent.name },
+      { id: 'e3', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 체인 확인', turn_index: 11, created_at: cAgo(0.35), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 체인 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+    ];
+    state.sessions.push({ id: 'f1', agent_id: 'agent', title: '하드포크 프로젝트', status: 'active', last_activity_at: cAgo(0.6), forked_from: { session_id: 'source', message_id: 'q2', turn_index: 4, forked_at: cAgo(0.7), title: 'Original project' } });
+    state.sessions[0].last_activity_at = cAgo(0.2);
+    state.messages.f1 = state.messages.source.map((m) => ({ ...m })); // 하드포크 체인 = 본문 복제 계약(통째 복사)
+  }
+  if (queueVis) {
+    // t_140ecc15 진행 중 질문 전역 입구 시드 — 서버 큐 4행(답변됨1/대기2/멈춤1) + messages 미러.
+    // 앵커 런타임-상대(실행일 독립 규율): 멈춤 행은 4h 전 도착(> QUEUE_STOPPED_MS=180s)로 정체 판정.
+    const NOW = anchorMs ?? Date.now();
+    const ago = (sec) => new Date(NOW - sec * 1000).toISOString();
+    state.queue = [
+      { id: 'qi0', content: '답변 완료 질문', status: 'answered', position: 0 },
+      { id: 'qi1', content: '첫 밀림 질문', status: 'pending', position: 1 },
+      { id: 'qi2', content: '두 번째 밀림 질문', status: 'pending', position: 2 },
+      { id: 'qi3', content: '멈춤 질문', status: 'pending', position: 3 },
+    ];
+    state.messages.source = [
+      { id: 'qm0', role: 'user', content: '답변 완료 질문', turn_index: 0, created_at: ago(7200), agent_id: 'agent', agent_name: agent.name },
+      { id: 'qa0', role: 'agent', content: '완료 답변', turn_index: 1, created_at: ago(7100), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
+      { id: 'qm1', role: 'user', content: '첫 밀림 질문', turn_index: 2, created_at: ago(60), agent_id: 'agent', agent_name: agent.name },
+      { id: 'qm2', role: 'user', content: '두 번째 밀림 질문', turn_index: 4, created_at: ago(45), agent_id: 'agent', agent_name: agent.name },
+      { id: 'qm3', role: 'user', content: '멈춤 질문', turn_index: 6, created_at: ago(14400), agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
   if (threads) {
     // t_41c4c6f6 답글 목록(스레드 인덱스) 모달 시드 — t_2f45ccb1 확장3·4 재커버 (스트립/칩 폐기 후 회귀면).
     // 실행일 독립(재발방지 규율): 앵커는 런타임-상대. anchorMs 주입 시 노드 시드와 브라우저 Date(=
@@ -106,6 +156,23 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'tq2', role: 'user', content: '스레드 종료 질문', turn_index: 3, created_at: tAgo(24 * 9), agent_id: 'agent', agent_name: agent.name },
       { id: 'ta2', role: 'agent', content: '종료 답변', turn_index: 3, created_at: tAgo(24 * 9), source_neuron: 'answer', agent_id: 'agent', agent_name: agent.name },
       { id: 'tr2', role: 'user', content: '스레드 종료 답글', turn_index: 4, created_at: tAgo(24 * 9 - 0.2), parent_message_id: 'tq2', root_message_id: 'tq2', agent_id: 'agent', agent_name: agent.name },
+    ];
+  }
+  if (confirm) {
+    // t_0e03e405 확인응답 스레드화 시드 (히스토리 재현 — 칩 미노출, 행 병합/프레임/트래커 판정만):
+    //  cq1: 질문→empathy→'예'(문장 매칭)→답변 = 병합+답변 전파(stage3) 케이스
+    //  cq2: 질문→empathy→'아니요'(reply_to_id 구조 신호)→답변 — 확인은 답글 아님(replyCount 0)
+    const CNow = Date.now();
+    const cAgo = (min) => new Date(CNow - min * 60 * 1000).toISOString();
+    state.messages.source = [
+      { id: 'cq1', role: 'user', content: '확인 왕복 질문', turn_index: 0, created_at: cAgo(30), agent_id: 'agent', agent_name: agent.name },
+      { id: 'ce1', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 확인 왕복 질문', turn_index: 1, created_at: cAgo(29), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 확인 왕복 질문', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'ca1', role: 'user', content: '예', turn_index: 2, created_at: cAgo(28), agent_id: 'agent', agent_name: agent.name },
+      { id: 'cans1', role: 'agent', source_neuron: 'answer', content: '확인 왕복 답변', turn_index: 3, created_at: cAgo(27), agent_id: 'agent', agent_name: agent.name },
+      { id: 'cq2', role: 'user', content: '구조 신호 왕복 질문', turn_index: 4, created_at: cAgo(10), agent_id: 'agent', agent_name: agent.name },
+      { id: 'ce2', role: 'agent', source_neuron: 'empathy', content: '제 이해가 맞다면 구조 신호 왕복 질문', turn_index: 5, created_at: cAgo(9), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '제 이해가 맞다면 구조 신호 왕복 질문', template_id: 'eq_understand' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'ca2', role: 'user', content: '아니요', turn_index: 6, created_at: cAgo(8), reply_to_id: 'ce2', agent_id: 'agent', agent_name: agent.name },
+      { id: 'cans2', role: 'agent', source_neuron: 'answer', content: '구조 신호 왕복 답변', turn_index: 7, created_at: cAgo(7), agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (threadsLite) {
@@ -215,7 +282,7 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     const fork = path.match(/^\/api\/sessions\/([^/]+)\/fork$/);
     if (fork) {
       if (state.unsupportedFork) return route.fulfill({ status: 405, json: {} });
-      const session = { id: 'forked', title: body.new_session_title, agent_id: 'agent', status: 'active', forked_from: { session_id: fork[1], message_id: body.from_message_id, title: 'Original project' } };
+      const session = { id: 'forked', title: body.new_session_title, agent_id: 'agent', status: 'active', forked_from: { session_id: fork[1], message_id: body.from_message_id, title: 'Original project', turn_index: (state.messages.source || []).find((m) => m.id === body.from_message_id)?.turn_index ?? 0, forked_at: new Date().toISOString() } };
       state.sessions.push(session); state.messages.forked = [...state.messages.source];
       // 백엔드 실 계약 미러 (ebb43791~): data = { session, copied } 래퍼 (t_8917ca0d 루트cause 재발 방지)
       return ok({ session, copied: { messages: (state.messages.source || []).length, memories: 0, transcripts: 0, context_patches: 0 } });

@@ -49,7 +49,8 @@ async function longPress(page, locator) {
   await page.waitForTimeout(150);
   const box = await locator.boundingBox();
   assert.ok(box, 'longPress: no box');
-  await page.mouse.move(box.x + box.width / 2, box.y + Math.min(40, box.height / 2));
+  // t_7f86eefb: 홀드 지점 = 좌측 1/4·본문부 (우측 상단 액션 클러스터 + 본문 상단 '쓰레드' 회피)
+  await page.mouse.move(box.x + box.width * 0.25, box.y + Math.min(box.height * 0.55, box.height - 12));
   await page.mouse.down();
   await page.waitForTimeout(750);
   await page.mouse.up();
@@ -185,9 +186,11 @@ async function longPress(page, locator) {
       await page.close();
     }
 
-    // ── ④ 1440 레이아웃: 레일 헤더 카운트 · 답글 버튼 위치 · 모달 캡처 ──
+    // ── ④ 900(2-팬) 레이아웃: 레일 헤더 카운트 · 답글 버튼 위치 · 모달 캡처 ──
+    // t_00fe9b0f 3-팬 개정 승계: 1440(wide)에서는 좌측 레일이 프로젝트 레일로 대체되고 스레드는
+    // 우측 사이드체인 패널로 이관 → ThreadRail 유효 영역(768~1023)으로 뷰포트 하향, 계약 의미 불변.
     {
-      const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR', reducedMotion: 'reduce' });
+      const page = await browser.newPage({ viewport: { width: 900, height: 1200 }, locale: 'ko-KR', reducedMotion: 'reduce' });
       const errors = [];
       page.on('pageerror', (e) => errors.push(String(e)));
       await page.clock.setSystemTime(ANCHOR);
@@ -197,19 +200,20 @@ async function longPress(page, locator) {
       let railHead = '';
       await page.getByTestId('thread-rail-count').waitFor({ timeout: 8000 });
       railHead = await page.getByTestId('thread-rail').innerText();
-      check('⑤ 1440: 레일 헤더 = 답글 + 활성 카운트 1', railHead.includes('답글')
+      check('⑤ 900: 레일 헤더 = 답글 + 활성 카운트 1', railHead.includes('답글')
         && (await page.getByTestId('thread-rail-count').innerText()) === '1', railHead.slice(0, 40));
+      check('⑤ 900: 2-팬 = 우측 사이드체인 미렌더', (await page.getByTestId('sidechain-panel').count()) === 0);
       const railBox = await page.getByTestId('thread-rail').boundingBox();
       const btnBox = await page.getByTestId('threads-open').boundingBox();
-      check('⑤ 1440: 답글 버튼 = 앱바 상단·레일 우측', !!btnBox && !!railBox && btnBox.y < 90 && btnBox.x > railBox.x + railBox.width, btnBox ? `${Math.round(btnBox.x)},${Math.round(btnBox.y)}` : 'no box');
+      check('⑤ 900: 답글 버튼 = 앱바 상단·레일 우측', !!btnBox && !!railBox && btnBox.y < 90 && btnBox.x > railBox.x + railBox.width, btnBox ? `${Math.round(btnBox.x)},${Math.round(btnBox.y)}` : 'no box');
       await page.screenshot({ path: shot('04-pc1440-chat') });
       await page.getByTestId('threads-open').click();
       await page.getByTestId('threads-modal').waitFor({ timeout: 5000 });
       await page.getByTestId('threads-filter-all').click();
       await page.screenshot({ path: shot('05-pc1440-modal-all') });
-      check('⑤ 1440: 모달 전체 필터 = 2행+종료 배지', (await page.getByTestId('thread-ended-tq2').count()) === 1);
+      check('⑤ 900: 모달 전체 필터 = 2행+종료 배지', (await page.getByTestId('thread-ended-tq2').count()) === 1);
       await page.getByTestId('threads-close').click();
-      check('⑥ 런타임 오류 없음(1440)', errors.length === 0, errors.slice(0, 2).join('|'));
+      check('⑥ 런타임 오류 없음(900)', errors.length === 0, errors.slice(0, 2).join('|'));
       await page.close();
     }
 

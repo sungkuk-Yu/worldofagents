@@ -1,7 +1,8 @@
 // 카드 롱프레스 액션 시트 (t_62897e88 백로그④) — 텔레그램 관습: 길누르기(모바일)/호버 대용 홀드(웹) →
 // '답글' 메뉴. 웹 마우스 홀드는 react-native-web PressResponder의 450ms longpress 타이머로 동일 경로.
 // ※ FlatList 히트테스트에 압도되지 않도록 transparent Modal로 렌더 (t_3116c5bc/t_dee9e982 루트cause 교훈).
-// 행 = 답글(인용 바 오픈) / 즐겨찾기 토글 / 갈라내기(canFork 게이트) / 선택(다중 선택 모드 진입+이 카드 선택)
+// 행 = 쓰레드(인용 바 오픈) / 즐겨찾기 토글 / 새프로젝트(canFork 게이트) / 선택(다중 선택 모드 진입+이 카드 선택)
+//       (t_7f86eefb 10/4 라벨 승계: 답글→쓰레드·갈라내기→새프로젝트 — testID action-reply/action-fork 불변)
 //       / 되물음 끄기·켜기(t_8bf12fa4 — 설정 진입 없이 echoMode 즉시 반전. 설정 토글과 동일 상태: 같은 userPrefs).
 // 실행 즉시 시트 종료. 미전송/실패 행은 화면이 진입 자체를 거부한다(canReplyTo/카드 가드와 동일 원칙).
 import React from 'react';

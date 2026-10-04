@@ -97,19 +97,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const history = await B.waitForSelector('text=hello-crossdev', { timeout: 10000 }).catch(() => null);
     check('B(PC) 세션 진입 — A의 메시지 히스토리 로드', !!history);
 
-    // ② PC 3패널: wide ≥1100 = 컨텍스트 패널
+    // ② PC 3패널: ≥1280 = 우측 컨텍스트 패널 (t_00fe9b0f 폭 절층: 1024~1279는 사이드체인만)
     const panel1440 = await B.getByTestId('context-panel').count();
     check('1440 — 우측 컨텍스트 패널 상시 노출', panel1440 > 0);
     const sidebar = await B.getByTestId('new-chat-button').count();
-    // t_fd869e5b 요구1 개정: 1440 채팅 좌측 레일 = 세션목록 대신 슬랙식 스레드 레일 —
-    // new-chat-button은 중앙 홈(전폭 목록)에만 1개, 레일은 thread-rail이 차지.
-    const threadRail = await B.getByTestId('thread-rail').count();
-    check('1440 — 좌측 레일 = 스레드 전용 공간(세션목록 대체)', sidebar === 1 && threadRail === 1, `new-chat=${sidebar} rail=${threadRail}`);
+    // t_00fe9b0f 3-팬 개정 승계: 1440 채팅 좌측 = 스레드 레일 대신 새프로젝트(하드포크) 레일 —
+    // new-chat-button은 중앙 홈(전폭 목록)에만 1개, 우측에는 사이드체인 패널이 상주.
+    const projectRail = await B.getByTestId('project-rail').count();
+    check('1440 — 좌측 = 프로젝트 레일(3-팬), 우측 = 사이드체인', sidebar === 1 && projectRail === 1 && (await B.getByTestId('sidechain-panel').count()) > 0, `new-chat=${sidebar} rail=${projectRail}`);
     await B.screenshot({ path: shot('03-pc-1440-3panel') });
     await B.setViewportSize({ width: 900, height: 1200 });
     await sleep(700);
     const panel900 = await B.getByTestId('context-panel').count();
-    check('900 — 2패널(컨텍스트 패널 없음)', panel900 === 0);
+    check('900 — 2패널(컨텍스트·사이드체인 없음)', panel900 === 0 && (await B.getByTestId('sidechain-panel').count()) === 0);
     await B.screenshot({ path: shot('04-pc-900-2panel') });
     await B.setViewportSize({ width: 1440, height: 900 });
     await sleep(500);

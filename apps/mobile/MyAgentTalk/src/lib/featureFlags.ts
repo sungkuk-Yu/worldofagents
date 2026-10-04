@@ -8,3 +8,7 @@ export const QUIET_PROGRESS = true;
 // 타이핑/스트리밍 이름 생략). false 시 t_64af90b0 #3의 '첫 에이전트 메시지만 이름' 구 동작 +
 // 푸터 이름 상시 표시로 완전 복원 (커밋 revert와 동등 경로).
 export const SENDER_GROUPING = true;
+// t_140ecc15 기능 플래그 (롤백 게이트): '진행 중 질문' 전역 큐 입구 — 앱바 우측 버튼+pending/stop
+// 배지, 우측 패널 백로그 섹션(PC=스크롤 앵커), 모바일 시트. false 시 버튼/섹션 미렌더
+// (기존 현황 트래커/카드 마커는 그대로 — 배지 없는 구 화면으로 복원).
+export const QUEUE_VIS = true;

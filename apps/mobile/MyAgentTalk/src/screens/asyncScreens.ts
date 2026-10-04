@@ -15,4 +15,5 @@ export { default as SettingsScreen } from './SettingsScreen';
 export { default as JoystickSettingsScreen } from './JoystickSettingsScreen';
 export { default as LegalDocScreen } from './LegalDocScreen';
 export { default as ThreadRail } from '../components/ThreadRail';
+export { default as ProjectRail } from '../components/ProjectRail';
 export { default as FavoritesModal } from '../components/FavoritesModal';

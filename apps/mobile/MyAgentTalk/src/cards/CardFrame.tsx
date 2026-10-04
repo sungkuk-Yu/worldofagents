@@ -32,21 +32,49 @@ const expandAnimation = (skip: boolean) => {
   });
 };
 
+/** t_7f86eefb 라벨: 답글 열기 키 = '쓰레드' (+답글 수 배지 '(N)'). 목록/카운트 문구(답글 N개)와 구분. */
+const threadActionLabel = (t: (k: string) => string, i18n: { language: string }, count: number | undefined) =>
+  count === undefined || count <= 0 ? t('cards.threadFrom') : `${t('cards.threadFrom')} (${formatNumber(count, i18n.language)})`;
+
+/**
+ * t_7f86eefb (대표님 10/4) — '쓰레드'(답글 열기)/새프로젝트 키를 카드 우측 상단 클러스터로 이동.
+ * 구배치(하단부)는 에이전트 답변이 길어질수록 버튼이 화면 아래로 밀려 도달 불가 → 슬랙/텔레그램 웹
+ * 메시지 툴바 패턴으로 상단 고정. testID(card-thread-start/card-fork)·핸들러 계약 불변, 라벨만 이동.
+ * fork는 김비서 room 전용 게이트(canFork) 유지 — 생략 시 렌더 없음(데이터 보존).
+ */
+export function CardHeaderActions({ message, handlers, canFork = true }: CardProps & { canFork?: boolean }) {
+  const { t, i18n } = useTranslation();
+  return <View style={s.headerActions}>
+    <TouchableOpacity style={s.headerAction} accessibilityRole="button" onPress={() => handlers.openThread(message)} testID="card-thread-start">
+      <Text style={s.headerActionText} numberOfLines={1}>{threadActionLabel(t, i18n, message.threadReplyCount)}</Text>
+    </TouchableOpacity>
+    {canFork && <TouchableOpacity style={s.headerAction} accessibilityRole="button" onPress={() => handlers.forkFromHere(message)} testID="card-fork">
+      <Text style={s.headerActionText} numberOfLines={1}>{t('fork.action')}</Text>
+    </TouchableOpacity>}
+  </View>;
+}
+
+/**
+ * 하단 액션 행. t_7f86eefb 이후 일반(피드) 카드는 AI 고지만 남고 쓰레드/새프로젝트는 상단 클러스터로 이동.
+ * compact(스레드 패널 행)는 헤더가 없으므로 하단부에 쓰레드/즐겨찾기/새프로젝트 전체를 유지(기동 계약).
+ */
 export function CardActions({ message, handlers, withFavorite = true, canFork = true }: CardProps & { withFavorite?: boolean; canFork?: boolean }) {
   const { t, i18n } = useTranslation();
   return <View style={s.actions}>
     {message.role === 'agent' && message.aiGenerated !== false && <Text style={s.micro} testID="ai-generated-badge">{t('common.aiGenerated')}</Text>}
     {/* t_a0e998cc (대표님 9/26): 볼트/보드 저장·보관 액션 제거 — 카드는 기본적으로 볼트에 올라가고
-        즐겨찾기가 있으므로 별도 보관은 불필요. t_55f9ed57 (9/27): 답글/갈라내기로 라벨 단축. */}
-    <TouchableOpacity style={s.action} onPress={() => handlers.openThread(message)} testID="card-thread-start">
-      <Text style={s.link}>{message.threadReplyCount === undefined ? t('cards.threadFrom') : t('cards.replies', { count: message.threadReplyCount, countText: formatNumber(message.threadReplyCount, i18n.language) })}</Text>
-    </TouchableOpacity>
-    {withFavorite && <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
-      {/* t_64af90b0 #2 — ☆/★ 텍스트 글리프 → SVG 아이콘 (이모지/문자 아이콘 금지) */}
-      <StarIcon size={iconSize.tile} color={message.favorite ? colors.accent : colors.text3} />
-    </TouchableOpacity>}
-    {/* 갈라내기(fork)는 김비서 room 전용 (대표님 지시 9/27) — other room에서는 렌더 생략(데이터 보존) */}
-    {canFork && <TouchableOpacity style={s.action} onPress={() => handlers.forkFromHere(message)} testID="card-fork"><Text style={s.link}>{t('fork.action')}</Text></TouchableOpacity>}
+        즐겨찾기가 있으므로 별도 보관은 불필요. t_7f86eefb (10/4): compact 행만 하단 액션 유지. */}
+    {withFavorite && <>
+      <TouchableOpacity style={s.action} onPress={() => handlers.openThread(message)} testID="card-thread-start">
+        <Text style={s.link}>{threadActionLabel(t, i18n, message.threadReplyCount)}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.action} accessibilityLabel={t(message.favorite ? 'cards.unfavorite' : 'cards.favorite')} accessibilityRole="button" accessibilityState={{ selected: !!message.favorite }} onPress={() => handlers.toggleFavorite(message)}>
+        {/* t_64af90b0 #2 — ☆/★ 텍스트 글리프 → SVG 아이콘 (이모지/문자 아이콘 금지) */}
+        <StarIcon size={iconSize.tile} color={message.favorite ? colors.accent : colors.text3} />
+      </TouchableOpacity>
+      {/* 새프로젝트(fork)는 김비서 room 전용 (대표님 지시 9/27) — other room에서는 렌더 생략(데이터 보존) */}
+      {canFork && <TouchableOpacity style={s.action} onPress={() => handlers.forkFromHere(message)} testID="card-fork"><Text style={s.link}>{t('fork.action')}</Text></TouchableOpacity>}
+    </>}
   </View>;
 }
 
@@ -137,6 +165,10 @@ export default function CardFrame(props: CardProps & { agentName: string; preset
     {!props.compact && props.message.role === 'user' && <Text style={s.userLabel} testID="message-user-label">{t('chat.me')}</Text>}
     {!props.compact && props.message.role === 'agent' && <View style={s.headerRow}>
       {showHeader ? <Text style={[s.title, s.headerTitle]} numberOfLines={1} testID="card-sender">{senderLabel}</Text> : <View style={s.headerSpacer} />}
+      {/* t_7f86eefb (대표님 10/4) — 답글(쓰레드)/새프로젝트 키를 카드 우측 상단으로. 본문이 길어져도
+          헤더 라인은 카드 최상단 고정이라 버튼이 아래로 밀리지 않는다. 그룹 연속 카드(showHeader=false)도
+          동일 위치 유지(단, 이름 라벨 대신 스페이서). */}
+      <CardHeaderActions message={props.message} handlers={props.handlers} canFork={props.canFork !== false} />
       <ExportMenu message={props.message} sessionTitle={props.sessionTitle || props.agentName}
         disabled={props.exportDisabled === true || props.message.pending === true || props.message.status === 'failed'} />
       <FavoriteStar {...props} />

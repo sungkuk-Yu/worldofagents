@@ -24,10 +24,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, Platform, StyleSheet, View, type GestureResponderHandlers } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
-import { getDirection } from '../lib/gesture';
+import { getDirection, selectActionFromVector, vectorToAngle, COMPASS_DIRECTIONS, type StageAction } from '../lib/gesture';
 import { ackPhraseForDirection } from '../lib/ackHold';
-import { stageReleaseOutcome, formatRecordingDuration } from '../lib/voiceStage';
-import { pendingReleaseAction } from '../lib/holdStart';
+import { formatRecordingDuration, PAD_TOP_PERCENT } from '../lib/voiceStage';
+import { getGripHand, subscribePrefs, type GripHand } from '../lib/userPrefs';
 import { JoystickGesture } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
 import { MicIcon } from './Icon';
@@ -66,21 +66,33 @@ interface Props {
    *  true인데 제스처 그랜트가 없으면 합성 홀드(링+리본+타이머)로 진입, false 전환 시 제자리
    *  릴리스와 동일하게 done 체크로 마무리. 터치 홀드(이미 phase='holding')에는 무영(no-op). */
   externalHolding?: boolean;
+  // t_08d671a8 5방향 액션 콜백
+  /** → 수정: 녹음 완료하되 전송 전 텍스트 편집 상태로 */
+  onEdit?: () => void;
+  /** ↓ 사진첨부: 앨범 픽커 열기 */
+  onPhoto?: () => void;
+  /** ↗ 파일첨부: 파일 픽커 열기 */
+  onFile?: () => void;
 }
 
 type Phase = 'idle' | 'holding' | 'done';
 
-export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error, pending, externalHolding }: Props) {
+export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive = false, onOpenKeyboard, recording, level, error, pending, externalHolding, onEdit, onPhoto, onFile }: Props) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
   const [ackHint, setAckHint] = useState<'yes' | 'no' | null>(null);
   const [upTarget, setUpTarget] = useState(false);
+  // t_08d671a8: 현재 드래그 방향의 액션 — 나침반 강조용
+  const [activeAction, setActiveAction] = useState<StageAction | null>(null);
   const [hintSeen, setHintSeen] = useState(() => {
     try { return Platform.OS === 'web' && typeof localStorage !== 'undefined' && localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
   });
   const [hintOpacity] = useState(() => new Animated.Value(1));
   const [pulse] = useState(() => new Animated.Value(0));
   const [doneOpacity] = useState(() => new Animated.Value(1));
+  // t_08d671a8: 그립 손 설정에 따라 패드 좌우 위치 변경 — prefs 구독으로 실시간 반영
+  const [gripHand, setGripHandLocal] = useState<GripHand>(getGripHand);
+  useEffect(() => subscribePrefs(() => setGripHandLocal(getGripHand())), []);
   // t_2eea055a (대표님 9/30 "녹음할때 텔레그램처럼 녹음 시간"): 홀드 시작 시각 기준 경과 ms —
   // 250ms tick(초 표시라 그보다 빠른 갱선은 불필요, 렌더 부하 최소). Date.now 기준:
   // rAF과 달리 탭 비활성(background)에도 실경과가 유지된다(interval은 throttle되지만 재계산은 정확).
@@ -93,6 +105,8 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const stripRef = useRef<View | null>(null);
   const gestureRef = useRef<JoystickGesture | null>(null);
   const escapedRef = useRef(false);
+  // t_08d671a8: 마지막 드래그 벡터 — 릴리스 시 5방향 액션 결정용
+  const lastDragRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
   const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdStartRef = useRef(0);
 
@@ -105,12 +119,12 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const levelRef = useRef(level);
   const recordingRef = useRef(recording);
   const phaseRef = useRef<Phase>('idle');
-  const cbRef = useRef({ onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t, pending });
+  const cbRef = useRef({ onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t, pending, onEdit, onPhoto, onFile });
   useEffect(() => {
     levelRef.current = level;
     recordingRef.current = recording;
     phaseRef.current = phase;
-    cbRef.current = { onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t, pending };
+    cbRef.current = { onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onOpenKeyboard, ackActive, t, pending, onEdit, onPhoto, onFile };
   });
 
   useEffect(() => () => {
@@ -284,10 +298,14 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
     onPanResponderMove: (_evt, gs) => {
       if (!startedRef.current) return;
       const { dx, dy } = gs;
+      lastDragRef.current = { dx, dy }; // t_08d671a8: 릴리스 시 액션 결정용
       // 좌·우·하단 완전 이탈 = 폐기 후보. ↑ 이탈은 DIR_UP 스냅(30px) 후라 keyboard 경로가 우선.
       const box = boxRef.current;
       if (box && (gs.moveX < box.left - ESCAPE || gs.moveX > box.right + ESCAPE || gs.moveY > box.bottom + ESCAPE)) escapedRef.current = true;
       const g = getDirection(dx, dy);
+      // t_08d671a8: 5방향 액션 계산 — 나침반 강조용 (패드 반경 = STAGE_RING/2)
+      const action = selectActionFromVector(dx, dy, STAGE_RING / 2);
+      setActiveAction(action === 'send' ? null : action);
       if (!g || g === gestureRef.current) return;
       gestureRef.current = g;
       setUpTarget(g === 'DIR_UP');
@@ -302,40 +320,70 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
       const ack = g ? ackPhraseForDirection(g) : null;
       setAckHint(null);
       setUpTarget(false);
+      setActiveAction(null); // t_08d671a8: 나침반 강조 리셋
+
+      // t_08d671a8: 5방향 액션 결정 — 패드 밖 완전 이탈은 cancel (의도치 않은 photo 오픈 방지)
+      const { dx, dy } = lastDragRef.current;
+      const action = escapedRef.current ? 'cancel' : selectActionFromVector(dx, dy, STAGE_RING / 2);
+
       // t_5058e15f ②: 미시작(pending) 홀드의 릴리스 = holdStart 계약 — send는 cancel로 강등(전송 위장 금지).
       const notCapturedYet = cbRef.current.pending && !recordingRef.current;
-      const outcome = notCapturedYet
-        ? pendingReleaseAction({ escaped: escapedRef.current, ackActive: cbRef.current.ackActive, gesture: g })
-        : stageReleaseOutcome({ escaped: escapedRef.current, ackActive: cbRef.current.ackActive, gesture: g });
-      if (outcome === 'ack' && ack) {
-        cbRef.current.onHoldAbort(); // 음성 폐기 + 텍스트 발화
+
+      // ack 모드 (레거시 호환 — ackActive 시 좌/우)
+      if (cbRef.current.ackActive && ack) {
+        cbRef.current.onHoldAbort();
         cbRef.current.onSendAck(cbRef.current.t(ack === 'yes' ? 'chat.ackYes' : 'chat.ackNo'));
         finishDone();
-      } else if (outcome === 'keyboard') {
-        cbRef.current.onHoldAbort(); // 발화 미전환 — 폐기 후 B 계층
+      } else if (action === 'keyboard') {
+        cbRef.current.onHoldAbort();
         cbRef.current.onOpenKeyboard();
         setPhase('idle');
-      } else if (outcome === 'cancel') {
+      } else if (action === 'cancel') {
+        cbRef.current.onHoldAbort();
+        setPhase('idle');
+      } else if (action === 'edit' && cbRef.current.onEdit) {
+        // → 수정: 녹음 완료 + 편집 모드
+        cbRef.current.onHoldEnd();
+        cbRef.current.onEdit();
+        finishDone();
+      } else if (action === 'photo' && cbRef.current.onPhoto) {
+        // ↓ 사진첨부
+        cbRef.current.onHoldAbort();
+        cbRef.current.onPhoto();
+        setPhase('idle');
+      } else if (action === 'file' && cbRef.current.onFile) {
+        // ↗ 파일첨부
+        cbRef.current.onHoldAbort();
+        cbRef.current.onFile();
+        setPhase('idle');
+      } else if (notCapturedYet) {
+        // pending 상태에서 send 의도 = cancel 강등
         cbRef.current.onHoldAbort();
         setPhase('idle');
       } else {
-        cbRef.current.onHoldEnd();   // 탭/제자리 홀드 = 말하기 확정 전송
+        // 센터 유지 릴리스 = 전송
+        cbRef.current.onHoldEnd();
         finishDone();
       }
       gestureRef.current = null;
       escapedRef.current = false;
+      lastDragRef.current = { dx: 0, dy: 0 };
     },
     onPanResponderTerminate: () => {
       if (!startedRef.current) return;
       startedRef.current = false;
       setAckHint(null);
       setUpTarget(false);
+      setActiveAction(null);
       cbRef.current.onHoldAbort(); // 시스템 인터럽트 = 폐기(전송 없음)
       setPhase('idle');
     },
     });
     setPanHandlers(responder.panHandlers);
   }, [finishDone]);
+
+  // t_08d671a8 인체공학: 그립 손에 따른 패드 수평 위치 (left 백분율)
+  const gripLeftPercent = gripHand === 'left' ? '25%' : gripHand === 'right' ? '75%' : '50%';
 
   const holding = phase === 'holding';
 
@@ -346,36 +394,63 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
       style={[styles.strip, { height }]}
       testID="voice-stage"
     >
+      {/* t_08d671a8 인체공학 상단 클러스터: 가이드·타이머·녹음상태를 스트립 상단 중앙에 배치 — 손가락에 가려지지 않는 위치.
+          box-none 직계자식 pointer-events:auto 자동 주입(RNW) 우회: 이 클러스터에 명시 pointerEvents:'none'. */}
+      <View testID="voice-stage-compass" style={styles.topCluster} pointerEvents="none">
+        {/* 첫 진입 힌트 알약 — 상단 중앙, 3s 후 페이드 (대표님 10/4: "희미하게") */}
+        {!hintSeen && phase === 'idle' && !error && (
+          <Animated.View testID="voice-stage-hint" style={[styles.hintPillTop, { opacity: hintOpacity }]}>
+            <Text style={styles.hintText}>{t('chat.voiceStageHint')}</Text>
+          </Animated.View>
+        )}
+        {/* 권한 거부 폴백 안내 */}
+        {!!error && phase === 'idle' && (
+          <Text testID="chat-voice-fallback" style={styles.fallbackTextTop}>{t(error)}</Text>
+        )}
+        {/* t_08d671a8 5방향 나침반 가이드 — 홀드 중 표시, 현재 방향 강조 */}
+        {holding && (
+          <View testID="voice-compass-row" style={styles.compassRow}>
+            {COMPASS_DIRECTIONS.map((d) => (
+              <Text
+                key={d.action}
+                testID={`compass-${d.action}`}
+                style={[styles.compassItem, activeAction === d.action && styles.compassActive]}
+              >
+                {d.arrow}
+              </Text>
+            ))}
+          </View>
+        )}
+        {/* 타이머 (대표님 10/4: 손가락이 덮어도 시간 보임 → 상단) */}
+        {holding && (recording || !pending) && (
+          <Text testID="voice-stage-timer" style={styles.topTimer}>{formatRecordingDuration(elapsedMs)}</Text>
+        )}
+        {/* 녹음 중 / 연결 중 안내 — 상단 클러스터 */}
+        {pending && !recording && (
+          <Text testID="voice-stage-connecting" style={styles.topRecStatus}>{t('chat.connecting')}</Text>
+        )}
+        {holding && (recording || !pending) && (
+          <Text testID="voice-stage-recording" style={styles.topRecStatus}>{t('chat.pttRecording')}</Text>
+        )}
+      </View>
       {/* t_f8c40db0 (대표님 9/30): 스트립은 패스-쓰루 레이아웃 박스뿐 — 홀드 히트 = 서클 패드(96px) 한정.
           원 밖 터치/드래그는 배후 FlatList가 그대로 받아 전역 스크롤 가능(#311 레이아웃·제스처 계약 불변).
           RNW box-none 컴파일 = '.strip>*{pointer-events:auto!important}' — 직계자식 전역(atomic) 클래스와
-          특선·순서 승부가 모듈 로딩 순에 좌우됨(불안정). 회피: 장식(hint/fallback/링/글자)을 전부
-          패드 내부로 — 패드 자식은 위 >* 규칙 범위 밖, 명시 pointer-events:none 이 상속(auto)을 무조건 이김. */}
+          특선·순서 승부가 모듈 로딩 순에 좌우됨(불안정). 회피: 패드 내부 장식에 명시 pointer-events:none. */}
       <View
         {...panHandlers}
         testID="voice-stage-pad"
         accessibilityLabel={t('chat.voiceStageHint')}
-        style={styles.pad}
+        style={[styles.pad, { left: gripLeftPercent }]}
       >
-        {/* 첫 진입 힌트 알약 — 패드 하방(스트립 bottom-16 위치 환산), 3s 후 페이드 */}
-        {!hintSeen && phase === 'idle' && !error && (
-          <Animated.View testID="voice-stage-hint" style={[styles.hintPill, { bottom: 16 - (height - STAGE_RING) / 2, opacity: hintOpacity, pointerEvents: 'none' }]}>
-            <Text style={styles.hintText}>{t('chat.voiceStageHint')}</Text>
-          </Animated.View>
-        )}
-        {/* 권한 거부 폴백 안내 (자동 키보드 개방은 부모 ChatInputConsole 유지) */}
-        {!!error && phase === 'idle' && (
-          <Text testID="chat-voice-fallback" style={[styles.fallbackText, { bottom: 16 - (height - STAGE_RING) / 2, pointerEvents: 'none' }]}>{t(error)}</Text>
-        )}
         {phase !== 'idle' && (
-          <View testID="voice-stage-ring" style={styles.ring}>
+          <View testID="voice-stage-ring" style={[styles.ring, { left: gripLeftPercent }]}>
             <Animated.View testID="voice-stage-pulse" style={[styles.pulse, {
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
               transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }],
             }]} />
             {/* 리본: 링 상부 손가락 위 — canvas는 effect가 DOM 부착 (#316 '링 내부 또는 상부') */}
             <View ref={ribbonHostRef} testID="voice-stage-ribbon" style={styles.ribbonWrap} />
-            {upTarget && <Text style={styles.upLabel}>{t('chat.voiceStageToKeyboard')}</Text>}
             {ackHint && (
               <Text testID="joystick-ack-armed" style={styles.armedText}>
                 {t(ackHint === 'yes' ? 'chat.ackHoldArmedYes' : 'chat.ackHoldArmedNo')}
@@ -391,20 +466,6 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp]}>
           <MicIcon size={Math.max(16, Math.round(MIC_BUTTON * 0.52))} color={colors.onPrimary} />
         </View>
-        {holding && (recording || !pending) && (
-          // t_5e592321 (대표님 9/30 "녹음 시간이 무슨 버튼 위에 올라가서 겹쳐져 있고"):
-          // 구 배치 = 패드 좌상단(left12/top4) — 96px 링 테두리를 가로질러(원경계와 4px차) 겹침.
-          // 신 배치 = 링 내부 상단 중앙(타이머 상단=ring y4, 하단≈y24) — 마이크 디스크(34px, y31~65) 위 7px 이격,
-          // 리본(링 밖 -6↑)/하단 '녹음 중' 라벨과도 수직 이격. 힌트/폴백과 동일 패턴: 패드 자식 + 스타일 none(t_f8c40db0 히트 계약).
-          <Text testID="voice-stage-timer" style={[styles.recordingTimer, { pointerEvents: 'none' }]}>{formatRecordingDuration(elapsedMs)}</Text>
-        )}
-        {pending && !recording && (
-          // t_5058e15f ②: 연결 대기 중 홀드 = 캡처 지연 시작 — '연결 중' 안내로 조용한 스킵 폐지(토스트 아닌 상태 신호).
-          // r1 병합(t_cb8 계약 흡수): holding 게이트 없음 — 키보드(V) 경로의 pending도 A계층에서 보여야
-          // '무반응 금지'가 성립한다(pending은 pressIn/keydown 시에만 arm되고 릴리스/타임아웃에 해제됨).
-          <Text testID="voice-stage-connecting" style={[styles.recordingText, { bottom: 8 - (height - STAGE_RING) / 2 }]}>{t('chat.connecting')}</Text>
-        )}
-        {holding && (recording || !pending) && <Text testID="voice-stage-recording" style={[styles.recordingText, { bottom: 8 - (height - STAGE_RING) / 2 }]}>{t('chat.pttRecording')}</Text>}
       </View>
     </View>
   );
@@ -417,27 +478,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // t_08d671a8 인체공학 상단 클러스터: 손가락에 가려지지 않는 상단 중앙 — 가이드·타이머·녹음상태 배치
+  topCluster: {
+    position: 'absolute', top: 8, left: 0, right: 0,
+    alignItems: 'center',
+  },
+  hintPillTop: {
+    paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp2,
+    borderRadius: radii.full, backgroundColor: colors.surfaceRaise,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    opacity: 0.5, // 대표님 10/4: "희미하게"
+  },
+  fallbackTextTop: { ...typography.caption, color: colors.statusWarn, textAlign: 'center', opacity: 0.7 },
+  topTimer: { ...typography.bodyBold, color: colors.accent, textAlign: 'center', lineHeight: 20, fontVariant: ['tabular-nums'], marginBottom: 2 },
+  topRecStatus: { ...typography.caption, color: colors.accent, fontWeight: '600', opacity: 0.8 },
+  // t_08d671a8 5방향 나침반 스타일
+  compassRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  compassItem: { ...typography.body, color: colors.text2, opacity: 0.5, marginHorizontal: 8 },
+  compassActive: { opacity: 0.9, color: colors.accent, fontWeight: '600' },
   pad: {
     // 지문인식형 홀드 패드 (t_f8c40db0) — 링과 동일 중심·직경(96px), 대기 상태에서도 보이는 유일한 인식 원.
+    // t_08d671a8 인체공학: top: PAD_TOP_PERCENT% = 스트립 상단 1/3 → 뷰포트 ~60% 높이
     position: 'absolute', width: STAGE_RING, height: STAGE_RING,
-    left: '50%', top: '50%', marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
+    left: '50%', top: `${PAD_TOP_PERCENT}%`, marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
     borderRadius: radii.full,
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
     backgroundColor: colors.surfaceRaise + '14',
     alignItems: 'center', justifyContent: 'center',
   },
-  hintPill: {
-    paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp2,
-    borderRadius: radii.full, backgroundColor: colors.surfaceRaise,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
-    position: 'absolute', bottom: spacing.sp4, // 패드(중앙)와 겹치지 않게 하단 — t_f8c40db0
-  },
   hintText: { ...typography.caption, color: colors.text2 },
-  fallbackText: { ...typography.caption, color: colors.statusWarn, textAlign: 'center', position: 'absolute', bottom: spacing.sp4 }, // 패드(중앙)와 겹치지 않게 하단 — t_f8c40db0
   ring: {
     position: 'absolute', width: STAGE_RING, height: STAGE_RING,
-    // 중심 = 스트립 중앙 고정 (#311) — 백분율+마진이라 실측 대기 없이도 정확
-    left: '50%', top: '50%', marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
+    // 중심 = 패드와 동일 (t_08d671a8): 스트립 상단 PAD_TOP_PERCENT%
+    left: '50%', top: `${PAD_TOP_PERCENT}%`, marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
     borderRadius: radii.full,
     borderWidth: 2, borderColor: colors.accent,
     backgroundColor: 'rgba(0,168,107,0.10)',
@@ -453,16 +526,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
   },
   micDiscUp: { backgroundColor: colors.statusWarn }, // ↑ 구간 = '키보드 전환' 안내 틴트 (#316)
-  upLabel: { ...typography.caption, color: colors.text1, position: 'absolute', top: -RIBBON_H - 30, fontWeight: '600' },
   armedText: { ...typography.caption, color: colors.accent, fontWeight: '600', position: 'absolute', bottom: -26, textAlign: 'center' },
   doneBadge: {
     position: 'absolute', width: MIC_BUTTON, height: MIC_BUTTON, borderRadius: radii.full,
     backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
   },
   doneCheck: { color: colors.onPrimary, fontSize: 18, fontWeight: '700', lineHeight: 22 }, // ④: 26→18 — 34px 디스크에 맞춤
-  recordingText: { ...typography.caption, color: colors.accent, fontWeight: '600', position: 'absolute', bottom: spacing.sp2 },
-  // t_5e592321: 'M:SS' 카운터 — 링 내부 상단 중앙 고정(디스크 위 11px 이격).
-  // 구 배치(t_2eea055a 패드 좌상단 left12/top4)는 96px 링 테두리를 가로질러 버튼과 겹침(대표님 9/30 목격) → 폐기.
-  // chord 계산: y6~20에서 원경계 x≈24.8/71.2 — 'M:SS'(≤40px, bodyBold) 중앙정렬 시 테두리 안쪽 통과, 무충돌.
-  recordingTimer: { ...typography.bodyBold, color: colors.accent, position: 'absolute', top: 4, left: 0, right: 0, textAlign: 'center', lineHeight: 20, fontVariant: ['tabular-nums'] },
 });

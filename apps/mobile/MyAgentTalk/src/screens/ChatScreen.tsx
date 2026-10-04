@@ -8,6 +8,8 @@ import { ChatFeedFooter, ChatFeedHeader } from '../components/chat/ChatFeed';
 import { useChatSelection } from '../hooks/useChatSelection';
 import { styles } from './chatScreenStyles';
 import ContextPanel from '../components/ContextPanel';
+import SideChainPanel from '../components/SideChainPanel';
+import { chainArchive } from '../lib/chainArchive';
 import { useCardActions } from '../hooks/useCardActions';
 import { usePushToTalk } from '../hooks/usePushToTalk';
 import { useLayout } from '../hooks/useLayout';
@@ -15,6 +17,7 @@ import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
 import { QuestionTrackerModal } from '../components/QuestionTracker';
+import { QueueBacklogModal } from '../components/QueueBacklog';
 import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
@@ -39,7 +42,7 @@ import { formatNumber } from '../i18n/format';
 //   - 결과 중심: 에이전트 응답은 유형별 기능과 공통 액션이 있는 구조화 카드로 렌더
 //   - 처리중 상태는 100% 신뢰 가능: typing=true인 동안 카드가 예외 없이 항상 표시됨
 //     (useChatSession의 소스 카운터 트래커가 REST/WS 중복 신호에도 상태 소실을 방지)
-//   - 지연은 자연어로: 스피너 대신 대화체 quip ("잠깐만요, 생각 중이에요…") + 잔잔한 점 애니메이션
+//   - 지연은 단계명 라벨로: 스피너 대신 처리 단계 표시("답변 준비 중…") + 잔잔한 점 애니메이션 (t_140ecc15 ①)
 // 디자인 시스템: popular-web-designs/mintlify 패턴 재활용 — 화이트 캔버스, 초박형 테두리 분리,
 //   그린 액센트(#00A86B)는 CTA/포커스/라벨에만, 그림자 최소화, 사각 카드(radii.md 8px).
 // 컴포넌트: react-native-paper 조립 (Appbar/TextInput/Button/Surface/Text)
@@ -68,7 +71,7 @@ import MessageActionSheet from '../components/MessageActionSheet';
 import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
-import { ackResultCardIds } from '../lib/ackChips';
+import { ackResultCardIds, buildConfirmView } from '../lib/ackChips';
 // QUIET_PROGRESS는 스트립 폐기(t_3c882443)로 ChatScreen 내 잔사용처 소멸 — 타이핑/스트리밍 억제
 // 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
 import { SENDER_GROUPING } from '../lib/featureFlags';
@@ -109,6 +112,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
+    queueView,
     pendingReplies, applyPendingSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
@@ -119,7 +123,7 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
   // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
-  const { pc, wide, width, height: viewportHeight } = useLayout();
+  const { pc, wide, context, width, height: viewportHeight } = useLayout();
   const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
   // t_e735d936 요구 1/2 → t_4758f25d 재스펙: 웹 모바일 진입 = 하단 ~30% 투명 음성 스테이지
   // (홀드 시 링+마이크+실측 게인 sine 리본), 입력창은 ↑ 제스처로 여는 B 계층.
@@ -369,15 +373,35 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 데모 세션은 스레드 원천이 없다 → sessionId null과 함께 reset (이전 세션 스레드가 레일에 남으면 안 됨).
   useEffect(() => {
     if (isDemo || !sessionId) { railStore.reset(); return; }
+    // 포크 지점 = 최신 확정 발화(낙관 pending 행 제외) — 좌측 '새프로젝트' 버튼이 이 지점에서 하드포크한다 (t_00fe9b0f).
+    const last = [...messages].reverse().find((m) => m.pending !== true && m.status !== 'failed' && m.status !== 'streaming');
     railStore.publish({
       sessionId,
       threads,
-      meta: { agentName, sessionTitle, presetCategory, canFork },
+      meta: { agentName, sessionTitle, presetCategory, canFork, agentId: agentId ?? null },
+      lastMessageId: last?.id ?? null,
     });
-  }, [isDemo, sessionId, threads, agentName, sessionTitle, presetCategory, canFork]);
+  }, [isDemo, sessionId, threads, agentName, sessionTitle, presetCategory, canFork, messages, agentId]);
   useEffect(() => () => railStore.reset(), []);
+  // 사이드체인 아카이브(닫힘集合)는 화면이 중재하는 단일 원천 — 세션 전환 시 그 세션 키로 스위치,
+  // 데모/미확정은 bind(null)로 격리(이전 세션의 닫힘 상태가 새 세션에 붙으면 안 됨). 영속은 localStorage.
+  useEffect(() => { chainArchive.bind(isDemo ? null : sessionId ?? null); }, [isDemo, sessionId]);
   // 내 질문 트래커 모바일 경로 (t_fd869e5b) — wide 미만(우측 패널 미렌더) 앱바 '현황' 버튼 → 하단 시트.
   const [trackerOpen, setTrackerOpen] = useState(false);
+  // 진행 중 질문 전역 큐 입구 (t_140ecc15 ②) — 모바일/네이티브는 시트, PC wide는 우측 패널
+  // 백로그 섹션 스크롤 앵커(동일 데이터 상시 노출 — 시트 중복 금지).
+  const [queueOpen, setQueueOpen] = useState(false);
+  const openQueueEntry = useCallback(() => {
+    if (wide && Platform.OS === 'web') {
+      try {
+        const el = (globalThis as unknown as { document?: { querySelector?: (s: string) => HTMLElement | null } }).document
+          ?.querySelector?.('[data-testid="queue-backlog-panel"]');
+        el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      } catch { /* 비-web 환경 방어 — 앵커 실패는 무해 */ }
+      return;
+    }
+    setQueueOpen(true);
+  }, [wide]);
   // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   // 트래커 행 재발화 — 실패 user 카드 재전송 (ChatTurnRow onResend와 동일 경로: restoreFailedDraft 폴백 불요,
@@ -435,15 +459,19 @@ export default function ChatScreen({ navigation, route }: Props) {
   const sheetSelect = useCallback(() => { if (actionTarget) beginSelection(actionTarget.id); }, [actionTarget, beginSelection]);
   // 예/아니오 빠른 회신 (t_043539ff 조이스틱 대응 — 발화 '예'/'아니오' 동일): suggested 칩(sendSuggested)과
   // 동일 전송 경로. 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
-  const sendPendingReply = useCallback((utterance: string) => {
+  // t_0e03e405 FINAL SCOPE 1 — 회신 대상 행 ID에 reply_to를 attaches (구조 묶음; 대상이 히스토리 밖이면
+  // 서버가 null 강등 후 발화 통과 — invalid-무시 계약, 무해).
+  const sendPendingReply = useCallback((messageId: string, utterance: string) => {
     if (isDemo) return;
-    void send(utterance).then((res) => {
+    const target = messages.find((m) => m.id === messageId);
+    const quote = target && canReplyTo(target) ? localReplyQuote(target, agentName) : undefined;
+    void send(utterance, undefined, quote).then((res) => {
       if (!res.ok) {
         setInput((current) => restoreFailedDraft(current, utterance));
         setSendFailed(true);
       }
     });
-  }, [isDemo, send, setInput, setSendFailed]);
+  }, [isDemo, send, setInput, setSendFailed, messages, agentName]);
   const jumpComposePending = useCallback((messageId: string) => {
     setPendingOpen(false); // 시트를 닫아야 점프한 카드와 입력창이 보인다
     requestJump(messageId);
@@ -724,10 +752,18 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 예/아니요가 붙어 자동진행과 충돌하는 것을 막는다. done 카드(saving 구간)는 해제.
   const ackChip = useAckChip(messages, streams.some((s) => !s.done));
   const hiddenAckIds = useMemo(() => ackResultCardIds(messages, [t('chat.ackYes'), t('chat.ackNo')]), [messages, t]);
+  // t_0e03e405 FINAL SCOPE — 확인응답 스레드화 프레임 (판정 로직 lib/ackChips, 화면은 배선만):
+  // empathy 카드 → '확인 스레드' 컨테이너, 병합 ack user 행 → 프레임 내부 reply 라인(顶级 버블 제외).
+  const confirmView = useMemo(() => buildConfirmView(messages), [messages]);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
-    void send(text);
-  }, [isDemo, send]);
+    // t_0e03e405 FINAL SCOPE 1 — 확인응답 발화에 대상 재질문(empathy) 행의 reply_to를 attaches:
+    // DB 레벨 구조 묶음 → 히스토리 재현·서버 스냅샷에서도 확인응답이 문장이 아니라 구조로 판정된다.
+    // ('예'를 리플라이 칩으로 단다 = 대표님 오탐-금지 조항과 정합: 맨 발화 일반 질문은 이 경로 없음.)
+    const target = ackChip?.id ? messages.find((m) => m.id === ackChip.id) : undefined;
+    const quote = target && canReplyTo(target) ? localReplyQuote(target, agentName) : undefined;
+    void send(text, undefined, quote);
+  }, [isDemo, send, ackChip, messages, agentName]);
 
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
@@ -758,11 +794,14 @@ export default function ChatScreen({ navigation, route }: Props) {
         connection={connection}
         activeThreadCount={activeThreadCount}
         pendingReplyCount={pendingReplies.length}
-        showTrackerButton={!wide || Platform.OS !== 'web'}
+        showTrackerButton={!context || Platform.OS !== 'web'}
+        showQueueLabel={wide && Platform.OS === 'web'}
+        queueBadge={{ pendingCount: queueView.pendingCount, stoppedCount: queueView.stoppedCount, backlogCount: queueView.backlogCount }}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
         onOpenTracker={() => setTrackerOpen(true)}
+        onOpenQueue={openQueueEntry}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
@@ -776,7 +815,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         visible={pendingOpen}
         items={pendingReplies}
         onClose={() => setPendingOpen(false)}
-        onQuickReply={(_messageId, utterance) => sendPendingReply(utterance)}
+        onQuickReply={sendPendingReply}
         onJumpCompose={jumpComposePending}
       />
       {/* 카드 롱프레스 액션 시트 (t_62897e88) — 답글/즐겨찾기/갈라내기/선택. transparent Modal:
@@ -827,6 +866,8 @@ export default function ChatScreen({ navigation, route }: Props) {
           highlightId={highlightId}
           ackChipId={ackChip?.id ?? null}
           hiddenAckIds={hiddenAckIds}
+          confirmView={confirmView}
+          onJump={requestJump}
           onSendAck={sendAck}
           decorate={decorate}
           handlers={handlers}
@@ -982,14 +1023,36 @@ export default function ChatScreen({ navigation, route }: Props) {
         onOpenThread={(id) => { setTrackerOpen(false); openThreadOf(id); }}
         onRetry={retryFromTracker}
       />
+      {/* 진행 중 질문 전역 큐 입구 시트 (t_140ecc15 ②) — wide 미만(패널 미렌더)에서 앱바
+          '진행 중 질문' → 하단 시트(트래커와 동일 규격). 행 탭=카드 점프, 실패=재발화. */}
+      <QueueBacklogModal
+        visible={queueOpen}
+        onClose={() => setQueueOpen(false)}
+        view={queueView}
+        onJump={(id) => { setQueueOpen(false); requestJump(id); }}
+        onRetry={retryFromTracker}
+      />
       {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점 */}
       <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
       <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
-    {/* PC wide(≥1100): 우측 컨텍스트 패널 상시 노출 — 모바일/태블릿에서는 렌더 제외(단일 컬럼 유지,
-        트래커는 앱바 '현황' 버튼 → 하단 시트로 대체: QuestionTrackerModal) */}
+    {/* PC wide(≥1024, t_00fe9b0f 3-팬): 우측 = 사이드체인(쓰레드 카드) 패널 상시 노출.
+        대표님 10/4: "오른쪽 창 = 쓰레드 카드 리스트의 진행 상태… 쓰레드를 클릭하면 그 쓰레드만
+        오른쪽 창에 보이고, 그 창 안에서 닫을 수도 다른 쓰레드로 옮겨 갈 수도 있다."
+        모바일/768~1023에서는 렌더 제외(현황 시트·답글 목록 경로 유지). */}
     {wide && Platform.OS === 'web' && (
+      <SideChainPanel
+        messages={messages}
+        pendingReplies={pendingReplies}
+        streams={streams}
+        queue={queue}
+        navigation={navigation}
+      />
+    )}
+    {/* PC context(≥1280): 컨텍스트 패널(트래커/즐겨찾기/카드 인스펙터) 추가 — 3-팬 폭 절층으로
+        1024~1279는 사이드체인 1패널만 (4컬럼 고정폭 압사 방지). */}
+    {context && Platform.OS === 'web' && (
       <ContextPanel
         sessionId={sessionId ?? null}
         messages={messages}
@@ -997,6 +1060,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         pendingReplies={pendingReplies}
         streams={streams}
         queue={queue}
+        queueView={queueView}
         onJump={requestJump}
         onOpenThread={openThreadOf}
         onRetry={retryFromTracker}

@@ -1,4 +1,4 @@
-// t_8917ca0d 스모크 — ① 라벨(쓰레드 생성) ② 갈라내기 왕복 성공 회귀(pre-fix 재현은 repro_fork_wrapper_t8917ca0d.cjs) ③ 대화 제목 수정
+// t_8917ca0d 스모크 — ① 라벨(쓰레드/새프로젝트 — t_7f86eefb 승계) ② 새프로젝트(포크) 왕복 성공 회귀(pre-fix 재현은 repro_fork_wrapper_t8917ca0d.cjs) ③ 대화 제목 수정
 // 실행: expo export -p web --output-dir dist-t8917ca0d --clear
 //       node tests/e2e/fr-serve.cjs dist-t8917ca0d 8178
 //       APP_URL=http://localhost:8178 node tests/e2e/smoke_fork_title_t8917ca0d.cjs
@@ -29,7 +29,9 @@ async function hold(page, locator, { scrollList = true } = {}) {
   await page.waitForTimeout(150);
   const box = await locator.boundingBox();
   assert.ok(box, 'hold target has no bounding box');
-  await page.mouse.move(box.x + box.width / 2, box.y + Math.min(40, box.height / 2));
+  // t_7f86eefb: 홀드 지점 = 좌측 1/4 (우측 상단 액션 클러스터(thread/fork/export/star) 회피 —
+  // 센터 x가 카드 본문의 '쓰레드' 키에 떨어져 롱프레스 대신 시트 오픈됐음. 레퍼런스: 텔레그램 홀드)
+  await page.mouse.move(box.x + box.width * 0.25, box.y + Math.min(40, box.height / 2));
   await page.mouse.down();
   await page.waitForTimeout(750);
   await page.mouse.up();
@@ -48,24 +50,43 @@ const appbarTitle = (page) => page.getByTestId('chat-appbar-title').innerText();
       try { forkResponses.push(await res.json()); } catch { /* ignore */ }
     }
   });
-  const state = await installFixtures(page, { rich: true, chief: true });
+  const state = await installFixtures(page, { rich: true, chief: true, longCard: true });
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.getByTestId('session-card').click();
   await page.getByText('Server value', { exact: true }).waitFor({ timeout: 20000 });
 
-  // ── ① 라벨 ────────────────────────────────────────────────
-  // 1a. 롱프레스 시트 행 = 새 라벨 '쓰레드 생성' (testID action-fork 계약 유지)
+  // ── ① 라벨 (t_7f86eefb 승계: 답글→'쓰레드'·갈라내기→'새프로젝트') ──
+  // 1a. 롱프레스 시트 행 = '쓰레드'(action-reply)·'새프로젝트'(action-fork) (testID 계약 불변)
   await hold(page, page.getByTestId('message-agent').first());
   await page.getByTestId('msg-action-sheet').waitFor({ state: 'visible', timeout: 5000 });
   check('① 시트 action-fork 김비서 room 노출', await page.getByTestId('action-fork').isVisible());
   const sheetText = await page.getByTestId('action-fork').innerText();
-  check('① 시트 라벨 = 쓰레드 생성', sheetText.includes('쓰레드 생성'), `text=${sheetText}`);
-  check('① 시트 라벨 = 갈라내기 잔존 금지', !sheetText.includes('갈라내기'), `text=${sheetText}`);
+  check('① 시트 라벨 = 새프로젝트', sheetText.includes('새프로젝트'), `text=${sheetText}`);
+  check('① 시트 라벨 = 갈라내기·쓰레드 생성 잔존 금지', !sheetText.includes('갈라내기') && !sheetText.includes('쓰레드 생성'), `text=${sheetText}`);
+  check('① 시트 답글 행 라벨 = 쓰레드', (await page.getByTestId('action-reply').innerText()).includes('쓰레드'));
   await page.getByTestId('msg-action-backdrop').click();
   await page.waitForSelector('[data-testid="msg-action-sheet"]', { state: 'detached' });
-  // 1b. 카드 액션 = fork.action '갈라내기' 유지 (행 라벨만 변경 — 카드 범위)
+  // 1b. 카드 우상단 키 = fork.action '새프로젝트' / thread 키 '쓰레드 (N)' (t_7f86eefb ①)
   const cardForkText = await page.getByTestId('card-fork').first().innerText();
-  check('① 카드 버튼 = 갈라내기(fork.action) 유지', cardForkText.includes('갈라내기'), `text=${cardForkText}`);
+  check('① 카드 버튼 = 새프로젝트(fork.action)', cardForkText.includes('새프로젝트'), `text=${cardForkText}`);
+  // 1d. (t_7f86eefb ② 요구 케이스) 긴 답변(10줄) 카드에서 우측 상단 키 rect = 카드 상단 20px 이내 + 뷰포트 수납
+  const longCard = page.getByTestId('message-agent').filter({ hasText: '긴 답변 1번째 줄' }).first();
+  await longCard.waitFor({ timeout: 10000 });
+  const cardBox = await longCard.boundingBox();
+  const threadLoc = longCard.locator('[data-testid="card-thread-start"]');
+  const forkLoc = longCard.locator('[data-testid="card-fork"]');
+  check('② 10줄 카드: 상단 클러스터에 쓰레드(1)·새프로젝트 키 존재', (await threadLoc.count()) === 1 && (await forkLoc.count()) === 1);
+  const threadBox = await threadLoc.first().boundingBox();
+  const forkBox = await forkLoc.first().boundingBox();
+  check('② 10줄 카드: thread 키 = 카드 상단 20px 이내·우측', !!cardBox && !!threadBox && threadBox.y - cardBox.y <= 20 && threadBox.x + threadBox.width <= cardBox.x + cardBox.width && threadBox.x + threadBox.width > cardBox.x + cardBox.width / 2, JSON.stringify({ card: cardBox && Math.round(cardBox.y), thread: threadBox && Math.round([threadBox.x, threadBox.y]) }));
+  check('② 10줄 카드: fork 키 = 카드 상단 20px 이내', !!cardBox && !!forkBox && forkBox.y - cardBox.y <= 20);
+  check('② 10줄 카드: 키 최소 32px 타깃', !!threadBox && threadBox.width >= 32 && threadBox.height >= 32 && !!forkBox && forkBox.width >= 32 && forkBox.height >= 32);
+  check('② 10줄 카드: 키 = 첫 답변줄보다 위(밀림 없음)', !!threadBox && !!cardBox && threadBox.y < cardBox.y + 120);
+  await longCard.scrollIntoViewIfNeeded();
+  const vp = page.viewportSize();
+  const threadBox2 = await threadLoc.first().boundingBox();
+  check('② 10줄 카드: 스크롤 후 키 = 뷰포트 수납', !!threadBox2 && threadBox2.y >= 0 && threadBox2.y + threadBox2.height <= (vp ? vp.height : 844), `y=${threadBox2 && Math.round(threadBox2.y)}`);
+  await page.screenshot({ path: shot('01b-longcard-top-actions') });
   // 1c. (t_3c882443 ③ 후속 정합) 상단 큐 스트립 폐기 — 칩 DOM 0 + 스트립 라벨 이관 확인.
   //     (구 하네스는 queue-chip 전개로 queue-fork 라벨을 검증했으나, 대표님 10/4 "오른쪽 트래커
   //     있으면 상단 큐스트립 빼도 돼" 지시로 스트립 자체가 삭제됨 — 라벨 계약 ①은 카드 버튼·시트로 충분.)
@@ -86,11 +107,11 @@ const appbarTitle = (page) => page.getByTestId('chat-appbar-title').innerText();
   await page.waitForTimeout(1500);
   const wrapped = forkResponses.at(-1);
   check('② 백엔드 실 계약 {session,copied} 래퍼 수신', !!wrapped && !!wrapped.data && !!wrapped.data.session && !!wrapped.data.copied, JSON.stringify(wrapped && wrapped.data && Object.keys(wrapped.data)));
-  const failToast = await page.getByText('갈라내기에 실패했어요', { exact: false }).count();
+  const failToast = await page.getByText('새프로젝트 만들기에 실패했어요', { exact: false }).count();
   check('② 실패 토스트 없음 (pre-fix 재현 대비)', failToast === 0);
   const newHeader = await appbarTitle(page);
   check('② 새 방 진입 — 헤더 = 복제된 방', newHeader.includes('복제된 방'), `header=${newHeader}`);
-  check('② 계보 배너(fork.lineage)', (await page.getByText('에서 갈라냄', { exact: false }).count()) > 0);
+  check('② 계보 배너(fork.lineage)', (await page.getByText('에서 시작', { exact: false }).count()) > 0);
   await page.screenshot({ path: shot('03-forked-room') });
   // 새 방 발화 독립성 (기존 Run C 계약과 동일 경로)
   await openKeyboardIfVoice(page);
