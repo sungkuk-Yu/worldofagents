@@ -8,7 +8,7 @@
 //     (0d351d4d #304의 좌전송/우마이크 반전은 폐기). 첨부 로직 불변.
 // PC/네이티브/데모(voiceMode=false): 기존 입력바 상시(좌첨부-우전송) — DOM 불변 (t_e735d936 스모크 ⑧).
 // 권한 최초 요구는 A의 첫 홀드 시점(usePushToTalk.startHold) — 로드 중 getUserMedia 없음.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +20,7 @@ import { colors, radii, spacing, typography, iconSize } from '../theme';
 import { validateMessageInput } from '../lib/chatLogic';
 import { voiceStageHeight } from '../lib/voiceStage';
 import { formatNumber } from '../i18n/format';
+import { INPUT_MIN_HEIGHT, inputHeightFor, inputScrolls, shouldSendOnEnter } from '../lib/chatInputLogic';
 
 interface Props {
   value: string;
@@ -91,6 +92,52 @@ export default function ChatInputConsole({
   // t_e735d936 parity: error가 나도 A는 유지(재홀드 재시도), 안내 줄이 뜨고 입력창이 병행 개방된다.
   const stageActive = voiceMode && !keyboardOpen;
   useEffect(() => { onStageActiveChange?.(stageActive); }, [stageActive, onStageActiveChange]);
+  // ── t_c690274e 요구 1/2: Enter 단독=전송, Shift+Enter=개행, IME 조합 중 Enter=미전송 ──
+  // RN-web TextInput의 supportedProps.onKeyDownCapture(paper가 rest로 투하)이 bubble handleKeyDown보다
+  // 선행 실행: Enter 단독 → preventDefault(textarea 개행 삽입 차단) + submit 직접 호출.
+  // preventDefault로 RN-web bubble의 submit 분기도 스킵(isDefaultPrevented) → 이중 전송 0.
+  // Shift+Enter: 여기선 return만 — multiline+blurOnSubmit=false에서 RN-web도 submit을 스킵하므로
+  // 개행이 기본 동작으로 삽입된다(버그 교대의 핵심 경로).
+  // IME(한글) 조합 중: isComposing/keyCode 229 → 스킵(전송·개행 모두 브라우저/IME에 양보).
+  // 네이티브(0.86): submitBehavior='submit' 계약이 동일 분기를 수행하고 DOM nativeEvent가 없어 no-op.
+  const submitRef = useRef(onSubmit);
+  useLayoutEffect(() => { submitRef.current = onSubmit; }, [onSubmit]); // 전송 시점에 항상 최신 submit(첨부 게이트/드래프트 클로저) — 렌더 중 ref 기록 금지(lint)
+  const handleEnterKey = useCallback((e: { nativeEvent?: unknown }) => {
+    if (Platform.OS !== 'web') return;
+    const native = e.nativeEvent as KeyboardEvent | undefined;
+    if (!native || native.defaultPrevented) return;
+    if (!shouldSendOnEnter(native)) return;
+    native.preventDefault();
+    submitRef.current();
+  }, []);
+  // RN 0.86 .d.ts가 TextInputProps에 capture·rows를 선언 누락(flow/RNW에는 존재) → 웹 전용 props 스프레드.
+  // rows=1 필수: textarea의 height:'auto' 계측은 rows가 box 높이를 정하므로, 기본 rows=2면 1줄 본문도
+  // scrollHeight 2줄로 나온다(MUI TextareaAutosize 동일 처방). 네이티브는 rows 미지원 prop = 무시(no-op).
+  const WEB_INPUT_PROPS = { onKeyDownCapture: handleEnterKey, rows: 1 } as Record<string, unknown>;
+  // ── t_c690274e 요구 3: 높이 성장(1줄→최대 5줄, 초과 내부 스크롤)·발송(value 소거) 후 원복 ──
+  // MUI TextareaAutosize와 동일한 명령형 계측: height auto→scrollHeight(패딩 포함 자연 높이)→[48,155.75] 클램프.
+  // React 스타일에 height를 넣지 않는 이유: 고정 높이에서 scrollHeight는 clientHeight에 물려 축소 계측이
+  // 불가능(삭제 시 5줄에 고착). deps=[value,inputOpen] — 마운트/키보드 계층 개방·본문 변경·소거 시에만
+  // 재계측(스트리밍 재렌더 시 불필요 reflow 금지). paper가 rest로 투하한 testID가 textarea에 그대로 있어
+  // (RN-web data-testid) DOM 조회는 제품 코드 범위 내 결정적 셀렉터.
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web' || !inputOpen) return;
+    const ta = document.querySelector('[data-testid="chat-input"]') as HTMLTextAreaElement | null;
+    if (!ta || ta.tagName !== 'TEXTAREA') return;
+    // 빈 값은 계측하지 않는다 — placeholder가 좁은 폭(390px 모바일 B 계층, '에이전트에게 메시지 보내기'
+    // 2줄 절첩)에서 scrollHeight를 본문 없이 2줄(75px)로 부른다(Chrome placeholder 최소content known 동작).
+    // 본문 입력부터 계측 — IME 조합 text도 RN-web
+    // onChangeText가 value에 실어주므로 조합 중 성장이 정상 동작한다.
+    if (!value) {
+      ta.style.height = `${INPUT_MIN_HEIGHT}px`;
+      ta.style.overflowY = 'hidden';
+      return;
+    }
+    ta.style.height = 'auto';
+    const natural = ta.scrollHeight;
+    ta.style.height = `${inputHeightFor(natural)}px`;
+    ta.style.overflowY = inputScrolls(natural) ? 'auto' : 'hidden';
+  }, [value, inputOpen]);
   return (
     <>
       {value.trim().length > 4000 && <Text style={styles.errorText}>{t('errors.tooLong', { limit: formatNumber(4000, i18n.language) })}</Text>}
@@ -151,10 +198,23 @@ export default function ChatInputConsole({
               activeOutlineColor={colors.accent}
               textColor={colors.text1}
               dense
-              multiline={false}
+              // t_c690274e (대표님 10/3 'shift+엔터 줄바꿈 불가'): Shift+Enter=개행(\n 삽입)·Enter 단독=전송·
+              // 조합 중 Enter=미전송 복원 — 직전 HEAD(f7e0fcf9)는 multiline=false+returnKeyType='send'로
+              // Enter/Shift+Enter 모두 submit 경로만 태웠다(git show f7e0fcf9 …:ChatInputConsole.tsx:154 실측).
+              //   웹: multiline+blurOnSubmit=false → RN-web handleKeyDown이 Enter submit을 스킵하고
+              //        개행을 기본 동작에 남긴다 → Shift+Enter는 그대로 개행. Enter 단독은 아래
+              //        onKeyDownCapture에서 preventDefault(개행 차단)+submit 승격. IME 조합 중
+              //        (isComposing/keyCode 229)은 절대 승격 금지 — RN-web도 같은 가드로 submit을 막는다.
+              //   네이티브(0.86 new arch): submitBehavior='submit'가 multiline에서 Enter=submit
+              //        (Shift+Enter=개행), blurOnSubmit=false로 전송 후 포커스 유지.
+              multiline
+              blurOnSubmit={false}
+              submitBehavior="submit"
               testID="chat-input"
               onSubmitEditing={onSubmit}
-              returnKeyType="send"
+              // RN 0.86 .d.ts가 TextInputProps에 onKeyDownCapture/rows를 선언하지 않아(flow·RN-web에는 존재)
+              // 웹 전용 props로 스프레드 투하 — paper가 rest로 RN-web에 넘기고 pickProps가 DOM textarea에 전달.
+              {...WEB_INPUT_PROPS}
               accessibilityLabel={t('chat.input')}
             />
           </View>
@@ -204,7 +264,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flex: 1,
     backgroundColor: colors.surface,
-    maxHeight: spacing.sp6 * 2,
+    // t_c690274e 요구 3: 구 maxHeight 48(sp6*2)는 1줄 고정 시대의 상한 — 제거.
+    // 높이는 useLayoutEffect의 명령형 계측(inputHeightFor: 48→155.75 클램프)이 소유한다.
+    // 남은 상한(최대 5줄+내부 스크롤)은 그 클램프가 보장하므로 CSS 상한은 이중 제한이 된다.
     borderRadius: radii.md,
   },
   sendButton: {
