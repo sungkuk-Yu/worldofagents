@@ -310,6 +310,24 @@
     "original": "원본 대화",
     "badge": "갈라냄"
   },
+  "chain": {
+    "projects": "새프로젝트",
+    "newProject": "새프로젝트",
+    "projectsEmpty": "아직 갈라낸 프로젝트가 없어요.",
+    "unnamed": "이름 없는 프로젝트",
+    "lineage": "{{origin}}에서 #{{height}}",
+    "sideChains": "쓰레드",
+    "height": "#{{height}}",
+    "forkedAt": "갈라진 시각 {{when}}",
+    "close": "닫기",
+    "closeBusy": "답변 중이에요",
+    "closeWaiting": "확인 대기 중이에요",
+    "closeAll": "완료된 것 정리",
+    "closedCount": "{{countText}} closed",
+    "allClosed": "모든 쓰레드를 닫았어요 — 아래에서 다시 열 수 있어요.",
+    "reopen": "열기",
+    "undoToast": "{{countText}}개 정리했어요 — 탭하면 되돌려요"
+  },
   "rename": {
     "prompt": "이 대화의 제목을 변경합니다.",
     "title": "대화 제목",

@@ -82,25 +82,15 @@ function check(name, cond, extra = '') {
       await page.waitForTimeout(300);
       check('B: WS queue.answered → 완료 승격', (await page.getByTestId('tracker-row-q-new').innerText()).includes('완료'));
 
-      // D. 좌측 스레드 레일 (슬랙식) — 세션목록 자리 대체
-      const rail = page.getByTestId('thread-rail');
-      check('D: 좌측 레일 = 스레드 전용 공간', (await rail.count()) === 1);
-      check('D: 레일에 답글 스레드 행 (q-done)', (await page.getByTestId('thread-rail-row-q-done').count()) === 1);
-      check('D: 레일 = 세션목록(new-chat-button) 대체', (await rail.getByTestId('new-chat-button').count()) === 0);
-      await page.getByTestId('thread-rail-row-q-done').click();
-      await page.getByTestId('thread-rail-detail').waitFor({ timeout: 8000 });
-      // 레일 상세 = ThreadPanel이 GET /messages/:id/thread 비동기 로드 → 원문 노출까지 폴링
-      let detailText = '';
-      for (let i = 0; i < 20; i += 1) {
-        detailText = await page.getByTestId('thread-rail-detail').innerText();
-        if (detailText.includes('트래커 완료 질문')) break;
-        await page.waitForTimeout(250);
+      // D. 좌측 레일 = 스레드 전용 공간 — t_00fe9b0f 3-팬 개정 승계: 1440(wide)에서는 스레드가
+      // 우측 사이드체인 패널로 이관되고 좌측은 새프로젝트(하드포크) 레일이 된다(스레드 행·상세
+      // 검증은 smoke_pc_3pane으로 이전. 좌측이 세션목록이 아니라는 본래 요구는 project-rail로 승계).
+      {
+        check('D(승계): 좌측 = 세션목록 아닌 프로젝트 레일', (await page.getByTestId('project-rail').count()) === 1
+          && (await page.getByTestId('project-rail').getByTestId('new-chat-button').count()) === 0);
+        check('D(승계): 1440 = 우측 사이드체인 패널 수납', (await page.getByTestId('sidechain-panel').count()) === 1);
+        check('D(승계): 답글 스레드 = 우측 카드 행 (q-done)', (await page.getByTestId('sidechain-card-q-done').count()) === 1);
       }
-      check('D: 행 탭 → 레일 내부 상세(원본 고정)', detailText.includes('트래커 완료 질문'));
-      await page.screenshot({ path: shot('02-pc1440-rail-thread') });
-      await page.getByTestId('thread-panel-back').first().click();
-      await page.getByTestId('thread-rail-row-q-done').waitFor({ timeout: 5000 });
-      check('D: 상세 뒤로 → 레일 목록 복귀', true);
 
       // C. 즐겨찾기 상단 모달 — ContextPanel '전체' 링크
       await page.getByTestId('context-panel').getByText('전체', { exact: true }).first().click();
@@ -159,7 +149,7 @@ function check(name, cond, extra = '') {
         await page.waitForTimeout(250);
       }
       check('EN: Received 라벨', /Received/.test(en), en.replace(/\n/g, ' | '));
-      check('EN: 레일 Threads 헤더', (await page.getByTestId('thread-rail').innerText()).length > 0);
+      check('EN: 레일 Projects 헤더 (t_00fe9b0f 승계 — 1440 좌측=프로젝트 레일)', (await page.getByTestId('project-rail').innerText()).length > 0);
       await page.screenshot({ path: shot('06-en1440-panel') });
       await page.close();
     }

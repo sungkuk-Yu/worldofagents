@@ -12,12 +12,16 @@ export interface RailState {
     sessionTitle?: string;
     presetCategory?: string;
     canFork: boolean;
+    /** 현재 세션의 에이전트 id (라우트 파라 원료, 모르면 null) — 좌측 레일 '같은 에이전트' 게이트용 (t_00fe9b0f) */
+    agentId?: string | null;
   } | null;
+  /** 현재 방의 최신 확정 발화 id — 좌측 레일 '새프로젝트(하드포크)' 생성 버튼의 포크 지점 (t_00fe9b0f) */
+  lastMessageId?: string | null;
 }
 
 type Listener = () => void;
 
-const EMPTY: RailState = { sessionId: null, threads: [], meta: null };
+const EMPTY: RailState = { sessionId: null, threads: [], meta: null, lastMessageId: null };
 
 let current: RailState = EMPTY;
 const listeners = new Set<Listener>();

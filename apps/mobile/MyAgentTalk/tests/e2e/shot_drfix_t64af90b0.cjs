@@ -112,9 +112,10 @@ async function openChat(browser, width) {
       assert.ok(/내 질문 현황/.test(panelText), '#10→t_fd869e5b: 우측 패널 = 내 질문 현황 트래커');
       // 빈 상태 행은 아이콘(SVG)+텍스트 — 회색 안내문 단독 행보다 구조화됨
       assert.ok((await panel.locator('svg').count()) > 0, '#10 빈 섹션 요약행에 SVG 아이콘');
-      // #11→t_fd869e5b 요구1 개정: 채팅 좌측 레일 = 세션목록(로고) 대신 슬랙식 스레드 레일
+      // #11→t_fd869e5b→t_00fe9b0f 승계: 채팅 좌측 레일 = 세션목록(로고) 대신 3-팬 프로젝트 레일(스레드는 우측 사이드체인으로)
       assert.equal(await page.getByTestId('sidebar-logo').count(), 0, '레일 세션목록 폐기(스레드 레일 대체)');
-      assert.equal(await page.getByTestId('thread-rail').count(), 1, 't_fd869e5b 좌측 = 스레드 전용 레일');
+      assert.equal(await page.getByTestId('project-rail').count(), 1, 't_00fe9b0f 1440 좌측 = 새프로젝트 레일 (3-팬)');
+      assert.equal(await page.getByTestId('sidechain-panel').count(), 1, 't_00fe9b0f 1440 우측 = 사이드체인 패널');
       await page.screenshot({ path: shot('d-04-chat-after') });
       assert.deepEqual(errors, [], 'PC 런타임 오류 0');
       await page.close();

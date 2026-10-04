@@ -310,6 +310,24 @@
     "original": "Original conversation",
     "badge": "Forked"
   },
+  "chain": {
+    "projects": "Projects",
+    "newProject": "New project",
+    "projectsEmpty": "No forked projects yet.",
+    "unnamed": "Untitled project",
+    "lineage": "from {{origin}} at #{{height}}",
+    "sideChains": "Threads",
+    "height": "#{{height}}",
+    "forkedAt": "Forked {{when}}",
+    "close": "Close",
+    "closeBusy": "Answer in progress",
+    "closeWaiting": "Waiting for confirmation",
+    "closeAll": "Clear completed",
+    "closedCount": "{{countText}} closed",
+    "allClosed": "All threads closed — reopen them below.",
+    "reopen": "Reopen",
+    "undoToast": "Closed {{countText}} — undo?"
+  },
   "rename": {
     "prompt": "Rename this conversation.",
     "title": "Chat title",

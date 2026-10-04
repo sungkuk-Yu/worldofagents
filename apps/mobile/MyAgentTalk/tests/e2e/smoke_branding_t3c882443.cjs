@@ -75,8 +75,8 @@ function check(name, cond, extra = '') {
       // 대상(shot_drfix 'count 0' 단언과 동일 계약). 레일 자체의 존재로 브랜드 레일 승계 확인.
       const sbLogo = await page.getByTestId('sidebar-logo').count();
       check('② 사이드바(세션목록 레일) 폐기: sidebar-logo DOM 0', sbLogo === 0, `n=${sbLogo}`);
-      const rail = await page.getByTestId('thread-rail').count();
-      check('② 좌측 = 스레드 레일 존재 (t_fd869e5b 이관)', rail >= 1, `rail=${rail}`);
+      const rail = await page.getByTestId('project-rail').count(); // t_00fe9b0f 승계: 1440(wide) 좌측 = 새프로젝트 레일
+      check('② 좌측 = 프로젝트 레일 존재 (t_00fe9b0f 3-팬 이관)', rail >= 1, `rail=${rail}`);
       const strip1440 = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-strip"], [data-testid^="queue-chip-"]').length);
       check('③ 1440 채팅도 스트립 DOM 0', strip1440 === 0, `found=${strip1440}`);
       // queue 폴링/WS 단일 상태원천 경로 건재 검증: 발화 후 queue.updated(내용 매칭) → 카드 행 체크포인트 마커.
