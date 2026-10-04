@@ -68,7 +68,8 @@
     "ackYes": "예",
     "ackNo": "아니요",
     "ackHoldArmedYes": "예 — 놓으면 전송",
-    "ackHoldArmedNo": "아니요 — 놓으면 전송"
+    "ackHoldArmedNo": "아니요 — 놓으면 전송",
+    "typingBubble": "입력 중…"
   },
   "relay": {
     "briefing": "접수했어요, 담당 팀에 바로 전달합니다",

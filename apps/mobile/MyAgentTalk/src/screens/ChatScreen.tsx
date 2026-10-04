@@ -73,6 +73,10 @@ import { ackResultCardIds } from '../lib/ackChips';
 // 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
 import { SENDER_GROUPING } from '../lib/featureFlags';
 import { renderFlags } from '../lib/renderFlags';
+// 사람 타이핑 리빌 ②-프론트 (t_da4f8623): 저장소 토글(RN 모션 감지는 화면 계층)·칩 억제 게이트·버블.
+import { revealStore } from '../lib/revealStore';
+import { useRevealPending } from '../components/RevealBody';
+import { useReduceMotion } from '../lib/motion';
 import { createDraftSaver, readDraft } from '../lib/draftStore';
 
 interface Props {
@@ -109,7 +113,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
-    pendingReplies, applyPendingSnapshot,
+    pendingReplies, applyPendingSnapshot, firstOutputArrived,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -121,6 +125,11 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 네이티브에서는 enabled=false — 조이스틱 롱프레스 경로(VoiceHome)가 음성 입력을 담당.
   const { pc, wide, width, height: viewportHeight } = useLayout();
   const ptt = usePushToTalk(talk, { active: Platform.OS === 'web' && !isDemo });
+  // t_da4f8623 요구4: prefers-reduced-motion → 리빌 연출 정지(폴백=원문 즉시 = 구 동작 1:1).
+  // 토글 위치는 화면 계층 — revealStore/useChatSession은 RN import 금지(node unit 하네스)라
+  // AccessibilityInfo를 직접 볼 수 없다. 감지 전 기본 true(연출 ON) — 감지 후 false 전환.
+  const reduceMotion = useReduceMotion();
+  useEffect(() => { revealStore.setEnabled(renderFlags.typewriterReveal && !reduceMotion); }, [reduceMotion]);
   // t_e735d936 요구 1/2 → t_4758f25d 재스펙: 웹 모바일 진입 = 하단 ~30% 투명 음성 스테이지
   // (홀드 시 링+마이크+실측 게인 sine 리본), 입력창은 ↑ 제스처로 여는 B 계층.
   // PC 레이아웃(≥768)/네이티브/데모는 기존 텍스트 입력바 유지 (원 카드 요구 4).
@@ -722,7 +731,11 @@ export default function ChatScreen({ navigation, route }: Props) {
   // ③ 좌예·우아니요 조이스틱은 이 버튼 행이 활성일 때만 (VoiceStage ackActive).
   // t_cc232982 요구3: 답변 토큰 성장 중(answer.done 전)이면 버튼 행 억제 — 반쯤 쓰인 카드에
   // 예/아니요가 붙어 자동진행과 충돌하는 것을 막는다. done 카드(saving 구간)는 해제.
-  const ackChip = useAckChip(messages, streams.some((s) => !s.done));
+  // t_da4f8623: 재질문 1자 리빌进行中도 같은 semantics로 억제 — '노출 가능 첫 관측'이 리빌 완료 후로
+  // 미뤄져 2.5s 창과 리빌 시간이 겹치지 않는다(충돌 없음 요구). 리빌 미활성(플래그 OFF/reduced-motion)
+  // 상태에서는 hasPending이 항상 false → 구 동작 1:1.
+  const revealPending = useRevealPending();
+  const ackChip = useAckChip(messages, streams.some((s) => !s.done), revealPending);
   const hiddenAckIds = useMemo(() => ackResultCardIds(messages, [t('chat.ackYes'), t('chat.ackNo')]), [messages, t]);
   const sendAck = useCallback((text: string) => {
     if (isDemo) return;
@@ -733,9 +746,13 @@ export default function ChatScreen({ navigation, route }: Props) {
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
     streams={streams} suggested={suggested} isDemo={isDemo} onSendSuggested={sendSuggested}
     hideQuip={!!relay}
+    // t_da4f8623 요구1: '입력 중…' dots 버블 = 실행 중(typing)이면서 아직 첫 에이전트 출력 전.
+    // 리빌 연출이 켜진 상태에서만 새 라벨(구 동작 = reduced-motion/플래그 OFF 시 라벨 없는 dots 그대로).
+    // 요구1: 라벨은 텍스트 연출(애니메이션 아님) — reduced-motion과 무관, 롤백 게이트는 renderFlags 전용.
+    bubble={renderFlags.typewriterReveal && typing && !firstOutputArrived}
     // t_55b7e30c: 목록 꼬리가 에이전트 행이고 60초 창 내면 그룹 지속 → 타이핑/스트리밍 카드 이름 생략
     showSenderName={SENDER_GROUPING ? streamingHeaderAfter(messages[messages.length - 1]) : true}
-  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, relay, messages]);
+  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, relay, messages, firstOutputArrived, revealPending, reduceMotion]);
 
   const renderHeader = useCallback(() => <ChatFeedHeader
     hasMoreHistory={hasMoreHistory} loadingHistory={loadingHistory} isDemo={isDemo} onLoadHistory={() => void loadHistory()}

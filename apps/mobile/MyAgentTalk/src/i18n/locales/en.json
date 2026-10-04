@@ -68,7 +68,8 @@
     "ackYes": "Yes",
     "ackNo": "No",
     "ackHoldArmedYes": "Yes — release to send",
-    "ackHoldArmedNo": "No — release to send"
+    "ackHoldArmedNo": "No — release to send",
+    "typingBubble": "typing…"
   },
   "relay": {
     "briefing": "Got it — routing this to the right desk now",
