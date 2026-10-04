@@ -85,7 +85,7 @@
     "photoQuestion": "사진 질문",
     "count": "질문 {{countText}}개",
     "replyAction": "답글",
-    "forkAction": "갈라내기",
+    "forkAction": "쓰레드 생성",
     "threadsTitle": "답글 목록",
     "threadsEmpty": "아직 답글이 달린 질문이 없어요.",
     "filterActive": "활성",
@@ -249,6 +249,7 @@
     "unsupported": "이 서버는 아직 이 기능을 지원하지 않아요",
     "thread": "답글을 불러오지 못했어요. 다시 시도해 주세요.",
     "fork": "갈라내기에 실패했어요. 다시 시도해 주세요.",
+    "renameSession": "대화 제목을 변경하지 못했어요. 다시 시도해 주세요.",
     "withdraw": "탈퇴 처리에 실패했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.",
     "file": "파일을 열 수 없어요.",
     "favorite": "즐겨찾기를 반영하지 못했어요. 다시 시도해 주세요.",
@@ -299,6 +300,11 @@
     "lineage": "⟨{{origin}}⟩에서 갈라냄",
     "original": "원본 대화",
     "badge": "갈라냄"
+  },
+  "rename": {
+    "prompt": "이 대화의 제목을 변경합니다.",
+    "title": "대화 제목",
+    "save": "저장"
   },
   "favorites": {
     "title": "즐겨찾기",

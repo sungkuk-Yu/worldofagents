@@ -86,8 +86,25 @@ test('포크 응답은 새 세션 ID를 요구하며 계보는 선택적으로 �
   assert.throws(() => parseForkSession({ id: 'old' }, 'old'), /errors.fork/);
   for (const value of [null, {}, { id: 1 }]) assert.throws(() => parseForkSession(value, 'old'));
   assert.equal(parseForkSession({ id: 'new', title: 'New' }, 'old').id, 'new');
+  // t_8917ca0d 회귀: 백엔드 실 계약 data={session,copied} 래퍼 언래핑 — bare form과 동일 결과.
+  // (루트cause: 9/26 백엔드 ebb43791이 래퍼로 바뀌었으나 프론트는 bare만 기대 → 매번 errors.fork)
+  const wrapped = { session: { id: 'new', title: 'New', forked_from: { session_id: 'old', message_id: 'm', turn_index: 3 } },
+    copied: { messages: 6, memories: 2, transcripts: 2, context_patches: 0 } };
+  assert.deepEqual(parseForkSession(wrapped, 'old'), { id: 'new', title: 'New', forked_from: { session_id: 'old', message_id: 'm', title: undefined } });
+  assert.throws(() => parseForkSession({ session: { id: 'old' }, copied: {} }, 'old'), /errors.fork/);
+  assert.throws(() => parseForkSession({ session: 'not-a-record' }, 'old'), /errors.fork/);
   assert.equal(parseForkOrigin({ session_id: {} }), undefined);
   assert.deepEqual(parseForkOrigin({ session_id: 'old', session_title: 'Original' }), { session_id: 'old', title: 'Original', message_id: undefined });
+});
+test('라벨 확정 (t_8917ca0d ①) — queue.forkAction은 쓰레드 생성/Thread, 카드 fork.action은 갈라내기 유지', () => {
+  const flat = (obj: Record<string, unknown>, prefix = ''): string[] =>
+    Object.entries(obj).flatMap(([k, v]) => typeof v === 'string' ? [`${prefix}${k}=${v}`] : flat(v as Record<string, unknown>, `${prefix}${k}.`));
+  const ko = flat(JSON.parse(readFileSync('src/i18n/locales/ko.json', 'utf8'))).join('\n');
+  const en = flat(JSON.parse(readFileSync('src/i18n/locales/en.json', 'utf8'))).join('\n');
+  assert.match(ko, /queue\.forkAction=쓰레드 생성/);
+  assert.match(en, /queue\.forkAction=Thread/);
+  assert.match(ko, /fork\.action=갈라내기/); // 카드 버튼 라벨은 현행 유지 (카드 범위: 행 라벨만)
+  assert.match(ko, /queue\.replyAction=답글/); // 답글 라벨 불변
 });
 test('파일 링크는 웹 프로토콜만 허용한다', () => {
   for (const value of ['javascript:alert(1)', 'file:///secret', 'https://user:pass@example.test', {}, null]) assert.equal(safeFileUrl(value), undefined);

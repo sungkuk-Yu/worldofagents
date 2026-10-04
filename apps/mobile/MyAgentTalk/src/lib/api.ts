@@ -272,6 +272,10 @@ export const api = {
   listSessions: () => request<ApiEnvelope<SessionSummary[]>>('/api/sessions'),
 
   getSession: (id: string) => request<ApiEnvelope<SessionSummary>>(`/api/sessions/${encodeURIComponent(id)}`),
+  /** 대화 제목 수정 (t_8917ca0d ③) — 백엔드: 세션 소유권 검증 후 sessions.title(006 캐논 컬럼) 기록.
+   *  컨트랙트: PATCH /api/sessions/:id/title { title } → ok(updated session). 백카드 구현 전에는 404/400. */
+  renameSession: (id: string, title: string) =>
+    request<ApiEnvelope<SessionSummary>>(`/api/sessions/${encodeURIComponent(id)}/title`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   getThread: (id: string) => request<unknown>(`/api/messages/${encodeURIComponent(id)}/thread`),
   forkSession: (id: string, body: { from_message_id?: string; new_session_title?: string }) =>
     request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify(body) }),

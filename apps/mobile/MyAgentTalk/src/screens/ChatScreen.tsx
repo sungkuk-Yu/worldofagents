@@ -1,4 +1,5 @@
 import ForkDialog from '../components/ForkDialog';
+import SessionTitleDialog from '../components/SessionTitleDialog';
 import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
 import PttBannerComponent from '../components/PttBanner';
 import ChatAppBar from '../components/chat/ChatAppBar';
@@ -123,7 +124,10 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
   const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
   const [origin, setOrigin] = useState<ForkOrigin | undefined>(() => parseForkOrigin(route?.params?.forkedFrom));
-  const sessionTitle = route?.params?.sessionTitle || agentName;
+  // 제목 수정 (t_8917ca0d ③) — PATCH 성공 시 로컬 낙관 반영(라우트 params는 캐논이 되고 화면 제목만 갱신).
+  const [titleOverride, setTitleOverride] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const sessionTitle = titleOverride ?? (route?.params?.sessionTitle || agentName);
   const [unavailableError, setUnavailableError] = useState<string | null>(null);
   // #52: 스레드는 라우트 push 대신 바텀시트 디텐트(25/50/90%)로 열기 — Apple 지도 카드 시트 패턴
   const threadSheet = useRef<ThreadSheetHandle>(null);
@@ -724,6 +728,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         onOpenThreads={() => setThreadsOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
         onBeginSelection={() => beginSelection()}
+        onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
 
       {/* 상단 질문 큐 스트립 (t_2f45ccb1 + 9/28 확장) — 순번+원문+상태 칩. 0건 완전 숨김, 좌측 카운터, 칩 재탭(펼침) 시 답글/갈라내기.
@@ -762,6 +767,9 @@ export default function ChatScreen({ navigation, route }: Props) {
       {origin && <Text style={styles.pendingMark} numberOfLines={1}>{t('fork.lineage', { origin: origin.title || t('fork.original') })}</Text>}
       {(actionError || unavailableError) && <Text accessibilityRole="alert" style={styles.errorText}>{t(actionError || unavailableError!)}</Text>}
       {forkMessage && sessionId && <ForkDialog sessionId={sessionId} messageId={forkMessage.id} title={sessionTitle} navigation={navigation} onClose={() => setForkMessage(null)} />}
+      {/* 대화 제목 수정 (t_8917ca0d ③) — 헤더 탭 진입. 성공 시 로컬 낙관 반영 + 라우트 params 갱신(재진입 캐논) */}
+      {renameOpen && sessionId && <SessionTitleDialog sessionId={sessionId} title={sessionTitle} onClose={() => setRenameOpen(false)}
+        onRenamed={(next) => { setTitleOverride(next); try { navigation.setParams({ sessionTitle: next }); } catch { /* 구 라우터 컨텍스트 — override로 충분히 반영 */ } }} />}
       {error && (
         <View style={styles.errorBar} testID="error-bar">
           <Text style={styles.errorText}>{t(error)}</Text>

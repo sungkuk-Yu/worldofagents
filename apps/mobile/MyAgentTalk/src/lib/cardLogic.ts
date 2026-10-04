@@ -35,6 +35,11 @@ export function parseForkOrigin(value: unknown): ForkOrigin | undefined {
     title: typeof value.title === 'string' ? value.title : typeof value.session_title === 'string' ? value.session_title : undefined };
 }
 export function parseForkSession(value: unknown, oldId: string) {
-  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim() || value.id === oldId) throw new Error('errors.fork');
-  return { id: value.id, title: typeof value.title === 'string' ? value.title : undefined, forked_from: parseForkOrigin(value.forked_from) };
+  // 백엔드 계약(ebb43791~): data = { session, copied } 래퍼. 구계약/목업의 bare session 형태도
+  // 함께 수용한다 — 래퍼가 있으면 .session으로 언래핑.
+  // (t_8917ca0d: 언래핑 누락 시 data.id 부재로 매번 errors.fork throw, 유령 세션만 생성됨)
+  const body = isRecord(value) && isRecord((value as Record<string, unknown>).session)
+    ? (value as Record<string, unknown>).session : value;
+  if (!isRecord(body) || typeof body.id !== 'string' || !body.id.trim() || body.id === oldId) throw new Error('errors.fork');
+  return { id: body.id, title: typeof body.title === 'string' ? body.title : undefined, forked_from: parseForkOrigin(body.forked_from) };
 }

@@ -141,6 +141,19 @@ test('스레드 전송과 포크는 인코딩된 경로 및 계약 body를 사�
   assert.ok(requests[2].url.endsWith('/api/sessions/session%2Fid/fork'));
   assert.deepEqual(requests[2].body, { from_message_id: 'root/id', new_session_title: 'New' });
 });
+test('대화 제목 수정은 인코딩된 /title 경로 PATCH + {title} body (t_8917ca0d ③)', async (t) => {
+  const { client } = setup(t);
+  const requests: { url: string; method?: string; body: unknown }[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return new Response(JSON.stringify({ ok: true, data: { id: 'session/id', title: '바꾼 제목' } }));
+  });
+  const env = await client.api.renameSession('session/id', '바꾼 제목');
+  assert.equal(env.ok, true);
+  assert.equal(requests[0].url.endsWith('/api/sessions/session%2Fid/title'), true);
+  assert.equal(requests[0].method, 'PATCH');
+  assert.deepEqual(requests[0].body, { title: '바꾼 제목' });
+});
 test('404와 405는 미지원 번역 키를 반환한다', async (t) => {
   const { client } = setup(t);
   for (const status of [404, 405]) {
