@@ -161,6 +161,9 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       const target = state.sessions.find((s) => s.id === rename[1]);
       if (!target) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'NOT_FOUND', message: 'no session' } } });
       if (typeof body.title !== 'string' || !body.title.trim()) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'VALIDATION_ERROR', message: 'bad title' } } });
+      // 백엔드 세션 제목 상한 미러 (t_95c5498e SESSION_TITLE_EDIT_MAX=120, 코드포인트 단위) —
+      // 프론트 maxLength 200→120 정합(t_0da93d18) 후에도 서버 400 경로가 살아있음을 보장.
+      if ([...body.title.trim()].length > 120) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'VALIDATION_ERROR', message: '제목은 120자 이하여야 합니다.' } } });
       target.title = body.title.trim();
       return ok(target);
     }
