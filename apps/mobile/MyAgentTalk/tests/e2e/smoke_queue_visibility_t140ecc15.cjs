@@ -49,12 +49,18 @@ async function openChat(browser, viewport) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  const state = await installFixtures(page, { queueVis: true });
+  // t_fb0792a6 회귀 잠금: GET /queue 를 messages(낙관 시드) 선착 후 +600ms 에 도착시킨다 —
+  // 부트스트랩 pull 을 pollTrigger flip cleanup 으로 폐기하던 경합을 결정적으로 재현
+  // (pre-fix 빌드 = 15초 공백으로 아랫 단언 FAIL, fix 후 = 즉시 적용). dist-pe 실측 +1251ms 지점.
+  const state = await installFixtures(page, { queueVis: true, queueDelayMs: 600 });
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.getByTestId('session-card').first().click();
   await page.getByTestId('message-list').waitFor({ timeout: 8000 });
   for (let i = 0; i < 60 && !state.sockets.length; i++) await page.waitForTimeout(100);
   await page.getByTestId('queue-open').waitFor({ timeout: 8000 });
+  // 지연된 /queue(+600ms) 적용 settle 대기: pre-fix는 이 시점에도 부트스트랩 폐기 상태로
+  // '선두=멈춤 오귀하'가 유지된다(15초 공백) → 아래 ⑤가 FAIL. fix는 즉시 적용 → PASS.
+  await page.waitForTimeout(1200);
   return { ctx, page, state, errors };
 }
 

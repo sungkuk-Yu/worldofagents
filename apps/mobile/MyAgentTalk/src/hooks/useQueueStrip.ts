@@ -4,6 +4,8 @@
 // 계층 원칙 (t_2f45ccb1 교훈 그대로): WS queue.updated 우선 · 폴링 보조 —
 // 부트스트랩은 세션당 1회, pending이 있는 동안에만 15초 주기. 토글마다 즉시 재pull 금지
 // (낡은 스냅샷이 WS 갱신을 덮어씀). 적용기는 useChatSession의 단일 queue 상태를 그대로 쓴다 (이중 상태원천 금지).
+// t_fb0792a6: 부트스트랩은 pollTrigger 와 무관한 세션 전용 effect 로 분리 — messages 선착(낙관 시드)의
+// trigger flip 이 인플라이트 /queue 응답을 cleanup 으로 폐기하던 경합 수리 (아래 ③).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { normalizeQueueItems, ChatMessage, QueueItem } from '../lib/chatLogic';
@@ -34,6 +36,27 @@ export function useQueueStrip(opts: {
   const pollTrigger = queuePending || awaitingAnswer;
   const pollSid = live ? sessionId : null;
   const pulledSid = useRef<string | null>(null);
+  // ③ 부트스트랩 (t_fb0792a6): pollTrigger 와 무관한 세션 전용 effect.
+  // 과거 단일 effect 안에서 부트스트랩 pull과 15초 인터벌을 나란히 운영했더니, pull 출발 이후
+  // messages(prefetch 낙관 시드)가 먼저 도착해 pollTrigger 가 false→true 로 flip → cleanup 의
+  // disposed=true 가 인플라이트 GET /queue 응답을 폐기하고, pulledSid 가드가 재pull 을 억제해
+  // 서버 스냅샷이 +15초까지 공백 → 선두 '답변 중' 클레임이 4h 정체 행에 넘어갔다(t_710b5d28 회귀,
+  // smoke_queue_visibility ⑤ 3/3 재현). 부트스트랩은 세션 id 로만 산다 — flip 이 덮지 못한다.
+  useEffect(() => {
+    if (!pollSid || pulledSid.current === pollSid) return;
+    pulledSid.current = pollSid;
+    const sid = pollSid;
+    void (async () => {
+      try {
+        const env = await api.getQueue(sid);
+        // 세션이 이미 전환되면 낡은 응답을 새 세션에 덮지 않는다 (같은 세션 잔존 응답은 적용 —
+        // dev StrictMode 이중 마운트의 cleanup-드롭이 이 경합의 원본이므로 폐기 플래그를 쓰지 않는다).
+        if (pulledSid.current !== sid) return;
+        if (!env?.ok || !Array.isArray((env as { data?: unknown }).data)) return;
+        applyQueueSnapshot(normalizeQueueItems((env as { data: unknown }).data));
+      } catch { /* 404/네트워크 — 계약 미착지 구간: 조용히 버틴다 (기존 pulledSid semantics 동일) */ }
+    })();
+  }, [pollSid, applyQueueSnapshot]);
   useEffect(() => {
     if (!pollSid) return;
     let disposed = false;
@@ -44,12 +67,8 @@ export function useQueueStrip(opts: {
         applyQueueSnapshot(normalizeQueueItems((env as { data: unknown }).data));
       } catch { /* 404/네트워크 — 계약 미착지 구간: 마커/트래커는 렌더 없음으로 조용히 버틴다 */ }
     };
-    // 부트스트랩: 세션당 1회
+    // 부트스트랩은 위 세션 전용 effect가 소유(t_fb0792a6) — 여기는 pending 유지 중 저빈도 인터벌만.
     let timer: ReturnType<typeof setInterval> | undefined;
-    if (pulledSid.current !== pollSid) {
-      pulledSid.current = pollSid;
-      void pull();
-    }
     if (pollTrigger) timer = setInterval(() => void pull(), 15000);
     return () => { disposed = true; if (timer) clearInterval(timer); };
   }, [pollSid, pollTrigger, applyQueueSnapshot]);
