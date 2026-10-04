@@ -111,7 +111,15 @@
     "signup": "Create account",
     "switchSignup": "Create a new account",
     "switchLogin": "Sign in to an existing account",
-    "signupBusy": "Creating your account…"
+    "signupBusy": "Creating your account…",
+    "oauth": {
+      "or": "or",
+      "kakao": "Continue with Kakao",
+      "naver": "Continue with Naver",
+      "google": "Continue with Google",
+      "github": "Continue with GitHub",
+      "busy": "Connecting…"
+    }
   },
   "settings": {
     "interface": "Interface",
@@ -269,7 +277,10 @@
     "photoLoad": "Could not load the photo.",
     "photoPermDenied": "Photo access is not permitted. Allow it in settings.",
     "photoSaveFailed": "Could not render the edited image. The original attachment will still be sent.",
-    "saveDenied": "Save permission denied. Allow photo access in settings."
+    "saveDenied": "Save permission denied. Allow photo access in settings.",
+    "oauthFailed": "Social sign-in failed. Please try again in a moment.",
+    "oauthNetwork": "Couldn't reach the sign-in server. Check your network and try again.",
+    "oauthCancelled": "The social sign-in window was closed. Please try again."
   },
   "dialogueList": {
     "offline": "Offline",

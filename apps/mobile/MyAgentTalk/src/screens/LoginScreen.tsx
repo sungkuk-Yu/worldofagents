@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -14,6 +15,8 @@ import { Button, Surface, Text, TextInput } from 'react-native-paper';
 import { colors, radii, spacing, typography, webScreenMotion } from '../theme';
 import { errorKey } from '../lib/errorKeys';
 import { api, setToken } from '../lib/api';
+import { oauthEnabledProviders, startOAuthSignIn, takeOAuthNotice } from '../lib/oauth';
+import { GoogleIcon, GithubIcon, KakaoIcon, NaverIcon } from '../components/OAuthIcons';
 import ConsentGate, { contentGap, stackGap, formGap } from '../components/ConsentGate';
 import { emptyConsents, signupConsents, validateConsents } from '../lib/consents';
 
@@ -31,7 +34,12 @@ export default function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // OAuth (t_198b95cc): 부트스트랩에서 소비 실패한 콜백(사용자 취소 등) 1회성 안내로 표시.
+  const [error, setError] = useState<string | null>(() => takeOAuthNotice());
+  // OAuth 2단계 (t_198b95cc): 노출의 단일 소스는 EXPO_PUBLIC_OAUTH_PROVIDERS 플래그(카드 §1).
+  // 등록 전(env 미설정)에는 목록이 비어 이 섹션 전체가 렌더되지 않는다 — 회귀 안전.
+  const oauthProviders = oauthEnabledProviders();
+  const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   // t_391be23c #1 — 카드 실측 높이 기반 수직 중앙: 짧은 화면(로그인)은 진짜 중앙,
   // 가입처럼 카드가 뷰포트보다 길면 상단(sp8) 고정 후 스크롤(중앙이면 상단이 잘림).
   // onLayout 측정값은 모드 전환 시 갱신 → 점프가 아니라 재중앙(대표님 요구).
@@ -62,6 +70,31 @@ export default function LoginScreen({ navigation }: Props) {
       setError(errorKey(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // OAuth (t_198b95cc §1·§3): 웹은 signInWithOAuth가 페이지를 떠나므로 성공 시 이 함수가
+  // resolve되지 않는다. 네이티브는 외부 브라우저 복귀 후 딥링크 경로가 세션을 완성하므로,
+  // 여선에서는 버튼이 '열림' 상태 그대로 유지된다(부트스트랩/리스너가 reset 처리).
+  const oauthIcons: Record<string, React.ReactNode> = {
+    // 배경 색과 대비되는 포그라운드: 카카오 다크브라운(옐로 배경), 네이버 화이트(그린 배경),
+    // GitHub 화이트(다크 배경), Google은 4색 브랜드 마크(화이트 배경 규칙).
+    kakao: <KakaoIcon color="#391B1B" />, naver: <NaverIcon color="#FFFFFF" />,
+    google: <GoogleIcon />, github: <GithubIcon color="#FFFFFF" />,
+  };
+  const oauthLabelKey: Record<string, string> = {
+    kakao: 'login.oauth.kakao', naver: 'login.oauth.naver', google: 'login.oauth.google', github: 'login.oauth.github',
+  };
+  const startOAuth = async (provider: string) => {
+    if (busy || oauthBusy) return;
+    setOauthBusy(provider);
+    setError(null);
+    try {
+      await startOAuthSignIn(provider as never);
+    } catch (e) {
+      setError(errorKey(e));
+    } finally {
+      setOauthBusy(null);
     }
   };
 
@@ -153,6 +186,37 @@ export default function LoginScreen({ navigation }: Props) {
             {t(signup ? 'login.switchLogin' : 'login.switchSignup')}
           </Button>
 
+          {/* OAuth 2단계 (t_198b95cc §3) — '또는' 구분 + 소셜 버튼(로고 SVG, 브랜드 가이드 색).
+              카카오/네이버 한국 우선 배치(oauthLogic.orderProviders가 고정).
+              플래그 목록이 비면(등록 전 기본) 섹션 전체 미렌더 — 회귀 안전(카드 게이트 '버튼 숨김'). */}
+          {oauthProviders.length > 0 && (
+            <View style={styles.oauthSection} testID="oauth-section">
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{t('login.oauth.or')}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              <View style={styles.oauthStack}>
+                {oauthProviders.map((p) => (
+                  <TouchableOpacity
+                    key={p}
+                    accessibilityRole="button"
+                    accessibilityLabel={t(oauthLabelKey[p])}
+                    testID={`oauth-${p}`}
+                    disabled={busy || oauthBusy !== null}
+                    onPress={() => void startOAuth(p)}
+                    style={[styles.oauthBtn, p === 'kakao' && styles.oauthBtnKakao, p === 'naver' && styles.oauthBtnNaver, p === 'github' && styles.oauthBtnGithub]}
+                  >
+                    <View style={styles.oauthIcon}>{oauthIcons[p]}</View>
+                    <Text style={[styles.oauthLabel, p === 'kakao' && { color: '#391B1B' }, p === 'naver' && { color: '#FFFFFF' }, p === 'github' && { color: '#FFFFFF' }]} numberOfLines={1}>
+                      {oauthBusy === p ? t('login.oauth.busy') : t(oauthLabelKey[p])}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
 
         </Surface>
       </ScrollView>
@@ -243,5 +307,64 @@ const styles = StyleSheet.create({
   skipLabel: {
     ...typography.subhead,
     marginTop: spacing.sp2,
+  },
+  // ── OAuth 섹션 (t_198b95cc §3) ── '또는' 구분선 + 브랜드 가이드 색 버튼(카카오/네이버 우선)
+  oauthSection: {
+    marginTop: contentGap,
+    width: '100%',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sp3,
+    marginBottom: stackGap,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    ...typography.caption,
+    color: colors.text3,
+  },
+  oauthStack: {
+    gap: stackGap,
+  },
+  // 최소 44dp 히트영역 (동의 게이트 행 minHeight>=44 관례와 동일)
+  oauthBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sp2,
+    minHeight: 44,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sp3,
+  },
+  // 카카오: 브랜드 옐로 배경 + 다크 브라운 포그라운드(가이드) — 테두리 동일 톤으로 정리
+  oauthBtnKakao: {
+    backgroundColor: '#FEE500',
+    borderColor: '#FEE500',
+  },
+  // 네이버: 시그니처 그린 배경 + 화이트 로고/글자
+  oauthBtnNaver: {
+    backgroundColor: '#03C75A',
+    borderColor: '#03C75A',
+  },
+  // GitHub: 다크 배경 + 화이트 마크 (Octocat 단색 가이드)
+  oauthBtnGithub: {
+    backgroundColor: '#24292F',
+    borderColor: '#24292F',
+  },
+  oauthIcon: {
+    width: 20,
+    alignItems: 'center',
+  },
+  oauthLabel: {
+    ...typography.bodyBold,
+    color: colors.text1,
   },
 });
