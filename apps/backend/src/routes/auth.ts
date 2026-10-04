@@ -139,6 +139,56 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send(ok({ success: true }));
   });
 
+  // POST /api/auth/session/exchange — Supabase 세션 → 자체 JWT 전환 (t_7e25c65b)
+  // 프론트가 signInWithOAuth로 얻은 access token을 Bearer로 보내면 requireAuth의 폴백
+  // 경로(GoTrue getUser 검증)가 신원을 확정하고 이 라우트가 자체 JWT를 발급한다. 이후
+  // 요청은 1단계(자체 JWT) 경로를 탄다 — 인증 소스 장애와 무관한 내성 확보.
+  // OAuth 첫 로그인 지원: users 프로필 행이 없으면 생성하고(실DB 001~017에 auth.users
+  // → users 트리거가 없음 — signup 라우트가 수동 upsert하던 것과 동일 방식),
+  // provider가 확인되면 oauth_identities(018 초안)에 (provider, provider_user_id)
+  // → user_id 매핑을 upsert한다. 매핑 실패(018 미적용 환경 PGRST42P01 등)는 치명 아니다
+  // — 세션 발급은 속행하고 경고만 남긴다(중복가입 방지는 018 적용 후부터 완전).
+  app.post('/session/exchange', { preHandler: requireAuth }, async (request, reply) => {
+    const userId = request.userId;
+    const sb = request.supabaseAuth;
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('users')
+      .select('id,display_name')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profileError) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '프로필 조회에 실패했습니다.');
+    if (!profile) {
+      const { error: insertError } = await supabaseAdmin.from('users').insert({
+        id: userId,
+        display_name: (sb?.email || userId).split('@')[0],
+        timezone: 'Asia/Seoul',
+        language: 'ko',
+      });
+      // 동시 첫 exchange 레이스에서 2번째 insert는 PK 충돌(409/23505) — 이미 생성된 행을 쓴다.
+      if (insertError && !/duplicate|already exists|23505/i.test(insertError.message)) {
+        throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '프로필 저장에 실패했습니다.');
+      }
+    }
+    if (sb?.provider) {
+      try {
+        const { error: mapError } = await supabaseAdmin.from('oauth_identities').upsert(
+          {
+            provider: sb.provider,
+            provider_user_id: sb.provider_user_id,
+            user_id: userId,
+            email: sb.email,
+          },
+          { onConflict: 'provider,provider_user_id' }
+        );
+        if (mapError) request.log.warn(`oauth_identities 매핑 실패(018 미적용 환경?): ${mapError.message}`);
+      } catch (err) {
+        request.log.warn(`oauth_identities 매핑 예외: ${(err as Error).message}`);
+      }
+    }
+    const token = app.jwt.sign({ sub: userId, email: sb?.email || '' }, { expiresIn: config.jwt.expiresIn });
+    return reply.send(ok({ token, user: { id: userId } }));
+  });
+
   // GET /api/auth/me — 내 프로필
   app.get('/me', { preHandler: requireAuth }, async (request) => {
     const { data, error } = await request.db.from('users').select('*').eq('id', request.userId).maybeSingle();
@@ -207,9 +257,20 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    // DEV_MODE: 외부 OAuth 흐름 대신 email을 받아 세션 발급
+    // DEV_MODE: 외부 OAuth 흐름 대신 email을 받아 세션 발급 (t_7e25c65b: provider_user_id를
+    // user_metadata에 보존 — 이 계정으로 로그인해 session/exchange 폴백을 타면 018 매핑까지
+    // 검증된다. 실프로바이더 미설정 환경의 통합 테스트용 스텁.)
     if (config.devMode && email) {
-      const { data, error } = await supabaseAdmin.auth.admin.createUser({ email, password: 'oauth-dev-password', user_metadata: { oauth_provider: provider }, email_confirm: true });
+      const providerUserId = request.body && typeof request.body === 'object'
+        ? (request.body as { provider_user_id?: unknown }).provider_user_id
+        : undefined;
+      const pud = typeof providerUserId === 'string' && providerUserId ? providerUserId : `dev-${provider}-${email}`;
+      const { data, error } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: 'oauth-dev-password',
+        user_metadata: { oauth_provider: provider, provider_user_id: pud },
+        email_confirm: true,
+      });
       if (error && !data?.user) throw new ApiError(ERROR_CODES.AUTH_INVALID, error.message);
       await upsertUserProfile(supabaseAdmin, data.user!, { display_name: email.split('@')[0] });
       const token = app.jwt.sign({ sub: data.user!.id, email }, { expiresIn: config.jwt.expiresIn });

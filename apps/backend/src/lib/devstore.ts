@@ -51,6 +51,8 @@ export const emptyStore = (): DevStore => ({
     graph_checkpoint_writes: [],
     // context_patches 콜드 아카이브 인덱스 (t_848d0c3b, 마이그레이션 016).
     context_patch_archives: [],
+    // OAuth 신원 매핑 (t_7e25c65b, 마이그레이션 018 초안) — (provider, provider_user_id) UNIQUE.
+    oauth_identities: [],
   },
   usersByEmail: new Map(),
   sequences: {},
