@@ -29,7 +29,6 @@ import {
   CardThreadScreen,
   FavoritesScreen,
   FeedScreen,
-  VaultScreen,
   BoardScreen,
   NeuronDashboardScreen,
   SettingsScreen,
@@ -47,7 +46,6 @@ export type RootStackParamList = {
   CardThread: { sessionId: string; rootMessageId: string; agentName?: string; sessionTitle?: string };
   Favorites: undefined;
   Feed: undefined;
-  Vault: { noteId?: string; createTitle?: string } | undefined;
   Board: { boardId?: string } | undefined;
   NeuronDashboard: undefined;
   Settings: undefined;
@@ -239,11 +237,6 @@ export default function App() {
               name="Feed"
               component={FeedScreen}
               options={{ title: t('feed.title') }}
-            />
-            <Stack.Screen
-              name="Vault"
-              component={VaultScreen}
-              options={{ title: t('vault.title') }}
             />
             <Stack.Screen
               name="Board"

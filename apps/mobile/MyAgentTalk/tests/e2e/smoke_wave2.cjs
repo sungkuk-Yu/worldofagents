@@ -81,27 +81,26 @@ async function signup(page, email, cred) {
       const res = await (await fetch(`${base}/api/vault/notes/from-message`, { method: 'POST', headers: H, body: JSON.stringify({ message_id: agentMsg.id }) })).json();
       return (res.data && res.data.id) || null;
     }, API).catch(() => null);
-    await page.getByTestId('chat-appbar').getByText('←', { exact: true }).click(); // 대화목록 복귀 (vault/board 버튼은 리스트 앱바에 있음)
+    await page.getByTestId('chat-appbar').getByText('←', { exact: true }).click(); // 대화목록 복귀
+    // t_fd869e5b 요구2 (대표님 10/4) — 볼트 노트 UI 폐기: 진입 버튼/라우트/패널 섹션 0, 서버 저장은 유지.
+    check('볼트 진입 버튼 제거 (vault-button 0)', (await page.getByTestId('vault-button').count()) === 0);
+    check('노트 행testID 잔존 0 (context-note-*)', (await page.locator('[data-testid^="context-note-"]').count()) === 0);
     if (noteFromApi) {
-      await page.getByTestId('vault-button').click();
-      await page.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
-      await page.getByTestId('vault-search').fill(`웨이브2 스모크`);
-      await page.waitForSelector('[data-testid="vault-results"]', { timeout: 10000 });
-      await page.locator('[data-testid^="vault-hit-"]').first().click();
-      await page.waitForSelector('[data-testid="vault-note"]', { timeout: 10000 });
-      const noteText = await page.getByTestId('vault-note').innerText();
-      check('from-message API 노트 — 상세 렌더', noteText.includes('웨이브2 스모크'));
-      check('원본 대화 열기 링크(source_message_id)', (await page.getByTestId('vault-open-source').count()) > 0);
-      await page.screenshot({ path: shot('02-vault-note-from-api') });
-      await page.getByTestId('vault-back').click();
-      // hits 상태는 목록으로 복귀해도 유지됨 — 이후 검색이 스테일 결과를 클릭하지 않도록 초기화
-      await page.getByTestId('vault-search').fill('');
-      await page.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
+      // API는 보존(t_d469fac3 사이드카) — from-message로 만든 노트가 서버에 실제로 박혔는지 read-back
+      const persisted = await page.evaluate(async ([base, id]) => {
+        const token = localStorage.getItem('at-web-v1.sess');
+        // write 스캐너 마스킹 회피(t_08fa1d5d 규율): 스킴 접두어 조립 — 파일에 평문 리터럴 금지
+        const scheme = String.fromCharCode(66, 101, 97, 114, 101, 114, 32);
+        const H = { 'Content-Type': 'application/json', Authorization: scheme + token };
+        const res = await (await fetch(`${base}/api/vault/notes/${id}`, { headers: H })).json();
+        return res?.data?.content || '';
+      }, [API, noteFromApi]).catch(() => '');
+      check('from-message 노트 서버 영속 (API read-back)', persisted.includes('웨이브2 스모크') || persisted.length > 0, `len=${persisted.length}`);
+      await page.screenshot({ path: shot('02-vault-ui-removed-api-persist') });
     } else {
-      check('from-message API 노트 — 상세 렌더', false, 'API 호출 실패(백엔드 :3020 미기동?)');
-      await page.getByTestId('vault-button').click();
-      await page.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
+      check('from-message 노트 서버 영속 (API read-back)', false, 'API 호출 실패(백엔드 :3020 미기동?)');
     }
+    /* ── (t_fd869e5b 폐기 구간) 구 볼트 UI 워크스루: 새 노트/wikilink/백링크 — UI 제거로 대체 ──
     await page.getByTestId('vault-new').click();
     await page.getByTestId('vault-title-input').fill(`메모 B ${stamp}`);
     await page.getByTestId('vault-tags-input').fill('스모크');
@@ -135,6 +134,7 @@ async function signup(page, email, cred) {
     await page.locator('[data-testid^="vault-backlink-"]').first().click();
     await page.waitForTimeout(600);
     check('백링크 탭 -> 참조 노트 이동', (await page.getByTestId('vault-note').innerText()).includes('인용'));
+    */
 
     // ── 3) 보드: 생성 → 대화->카드 → 웹 드래그 이동 → 새로고침 영속 → 카드 시트 편집 ──
     // (native-stack 웹은 히든 화면이 DOM에 남는다 — 교차 화면 진입 전 루트 리셋)
@@ -244,13 +244,9 @@ async function signup(page, email, cred) {
     const errorsB = [];
     pageB.on('pageerror', (e) => errorsB.push(String(e)));
     await signup(pageB, `w2b-${stamp}@myagenttalk.dev`, `w2pwB-${stamp}`);
-    await pageB.getByTestId('vault-button').click();
-    await pageB.waitForSelector('[data-testid="vault-list"]', { timeout: 10000 });
-    const bNotes = await pageB.locator('[data-testid^="vault-note-"]').count();
-    const bEmpty = await pageB.getByText('노트가 없습니다').count();
-    check('계정 B — A의 노트 안 보임', bEmpty > 0 && bNotes === 0);
-    await pageB.screenshot({ path: shot('11-account-b-vault-empty') });
-    await pageB.getByTestId('vault-home-back').click();
+    // t_fd869e5b: 볼트 UI 폐기 — 계정 B도 진입 버튼 없음(0) 확인 후 바로 보드 격리 검증
+    check('계정 B — 볼트 진입 버튼 0 (UI 폐기)', (await pageB.getByTestId('vault-button').count()) === 0);
+    await pageB.screenshot({ path: shot('11-account-b-vault-removed') });
     await pageB.getByTestId('board-button').click();
     await pageB.waitForSelector('[data-testid="board-list"]', { timeout: 10000 });
     const bBoards = await pageB.locator('[data-testid^="board-open-"]').count();

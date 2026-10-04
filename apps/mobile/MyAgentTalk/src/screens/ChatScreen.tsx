@@ -924,7 +924,6 @@ export default function ChatScreen({ navigation, route }: Props) {
       <ContextPanel
         sessionId={sessionId ?? null}
         messages={messages}
-        onOpenVault={() => navigation.navigate('Vault')}
         onOpenFavorites={() => navigation.navigate('Favorites')}
       />
     )}

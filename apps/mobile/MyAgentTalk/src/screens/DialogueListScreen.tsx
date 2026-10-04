@@ -9,7 +9,7 @@ import { errorKey } from '../lib/errorKeys';
 import { parseForkOrigin } from '../lib/cardLogic';
 import { newChatTapAction, newChatQueuedAction } from '../lib/newChatTap';
 import { formatDayLabel } from '../i18n/format';
-import { BoardIcon, FeedIcon, GearIcon, MicIcon, StarIcon, VaultIcon } from '../components/Icon';
+import { BoardIcon, FeedIcon, GearIcon, MicIcon, StarIcon } from '../components/Icon';
 
 interface Props { navigation: any; route?: any; variant?: 'full' | 'sidebar' | 'home' }
 export default function DialogueListScreen({ navigation, variant = 'full' }: Props) {
@@ -99,8 +99,8 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
         <TouchableOpacity onPress={() => navigation.navigate('Favorites')} testID="favorites-button" style={styles.settingsButton} accessibilityLabel={t('favorites.title')}><StarIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
         {/* 피드 진입 (t_4497cfce P0-2): 즐겨찾기 소스 이미지/영상 그리드 */}
         <TouchableOpacity onPress={() => navigation.navigate('Feed')} testID="feed-button" style={styles.settingsButton} accessibilityLabel={t('feed.title')}><FeedIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
-        {/* 볼트/보드 진입 (Wave2 t_174b66d2 — "옵시디언과 칸반을 모두 적용" 대표님 지시) */}
-        <TouchableOpacity onPress={() => navigation.navigate('Vault')} testID="vault-button" style={styles.settingsButton} accessibilityLabel={t('vault.title')}><VaultIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
+        {/* 볼트/보드 진입 (Wave2 t_174b66d2) — t_fd869e5b 요구2 (대표님 10/4): 볼트 노트 UI 폐기,
+            사용자에게 보이지 않고 서버 내부 저장만 유지. 물리 파일·API 그대로, 진입 버튼만 제거. 보드는 유지. */}
         <TouchableOpacity onPress={() => navigation.navigate('Board')} testID="board-button" style={styles.settingsButton} accessibilityLabel={t('board.title')}><BoardIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
         {/* 음성 홈 진입 (t_5de18a91 — 3모드 입력 실사용/검증 경로. Phase 1부터 화면만 있고 진입점이 없었음) */}
         <TouchableOpacity onPress={() => navigation.navigate('VoiceHome')} testID="voice-button" style={styles.settingsButton} accessibilityLabel={t('common.voice')}><MicIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
