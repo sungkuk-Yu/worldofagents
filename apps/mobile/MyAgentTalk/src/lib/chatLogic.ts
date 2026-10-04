@@ -753,6 +753,11 @@ export function reduceStreams(streams: StreamingAnswer[], event: Record<string, 
 // WS `queue.updated`(전체 스냅샷) / GET messages 응답의 queue 배열로 수신 →
 // 사용자 발화 카드 하단에 상태 마커로 렌더한다 (대기=빈 원, 답변됨=초록 체크, 스킵=회색 대시).
 // 이벤트 미배포(백엔드 running) 환경에서는 배열이 항상 비어 있어 아무것도 렌더하지 않는다.
+// ── 질문 큐 상태 (t_344e047a 계약) ─────────────────────────────────────
+// 상단 질문 큐 스트립과 buildQueueStrip/QueueStripItem은 폐기됐다 (t_3c882443, 대표님 10/4 지시 3):
+// 진행 상황 표시는 '내 질문 트래커'(t_fd869e5b)와 카드 행 체크포인트(QueueMessageMark)가 담당한다.
+// 살아남는 경계: QueueItem 정규화(WS queue.updated/GET queue 폴링/messages 스냅샷 단일 상태원천)와
+// queueItemForMessage(마커 매칭) — 서버 큐 미착지 구간 폴백(로컬 페어링)이 필요하면 트래커 측에서 판정한다.
 export type QueueStatus = 'pending' | 'answered' | 'skipped';
 export interface QueueItem {
   id: string;
@@ -793,31 +798,8 @@ export function queueItemForMessage(queue: QueueItem[], message: ChatMessage): Q
   return queue.find((q) => normalizeQueueContent(q.content) === key);
 }
 
-// ── 상단 질문 큐 스트립 (t_2f45ccb1) ────────────────────────────────────
-// 데이터원 2계층: ① 서버 큐(t_344e047a message_queue → queue.updated WS / GET queue 폴링 / messages 스냅샷)
-//                ② 로컬 유도(메시지 목록에서 질문↔답변 페어링) — 서버 미착지 구간 기본값.
-// 서버 항목이 매칭되면 상태를 우선시(skipped는 서버 전용 정보), 없으면 로컬 페어링으로 추정.
-// 교체 지점: 백엔드 라우트/이벤트 확정 후에도 이 함수 형태(서버 우선+로컬 폴백) 그대로 유효.
-export interface QueueStripItem {
-  /** React key — 서버 큐 행 id 우선, 없으면 질문 메시지 id */
-  id: string;
-  text: string;
-  status: QueueStatus;
-  /** 탭 점프 대상: answered=답변 카드, 그 외 질문 카드. 서버 전용 행은 message_id 있을 때만. */
-  jumpMessageId?: string;
-  /** 질문(루트 user) 메시지 id — 답글/갈라내기 액션의 기준. 서버 전용 행(아직 messages 밖)이면 undefined. */
-  questionMessageId?: string;
-  /** 답글 수 (threadReplyCount) — 칩 액션 배지/스레드 목록 정렬용 */
-  replyCount: number;
-  createdAt?: string;
-  /** 세션 내 질문 순번 (1부터) — 칩 접두 표시 (대표님 9/28 확장 1) */
-  seq: number;
-}
-
-function hasQueuedAttachments(m: ChatMessage): boolean {
-  return (Array.isArray(m.attachments) && m.attachments.length > 0) || !!m.pendingAttachments?.length;
-}
-
+// (구 상단 질문 큐 스트립 빌더 t_2f45ccb1: buildQueueStrip/QueueStripItem/hasQueuedAttachments는
+//  폐기와 함께 제거 — t_3c882443 요구3. 위 '질문 큐 상태' 주석 참조.)
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** 답글(스레드) 인덱스 행 — 모달 렌더 단위 (대표님 9/28 확장 3·4). */
@@ -894,51 +876,7 @@ export function mergeThreadIndex(prev: ThreadIndexEntry[], fresh: ThreadIndexEnt
   return [...byRoot.values()].sort((a, b) => (a.ended === b.ended ? (b.lastActivity > a.lastActivity ? 1 : -1) : a.ended ? 1 : -1));
 }
 
-/** 첨부/본문 질문 목록에서 상단 큐 스트립 행을 만든다 (turn_index 오름, 답글 제외).
- *  seq = 세션 내 질문 순번 (대표님 9/28 확장 1 — user 메시지 시퀀스 재사용, 신규 컬럼 불요). */
-export function buildQueueStrip(messages: ChatMessage[], queue: QueueItem[]): QueueStripItem[] {
-  const timeline = messages
-    .filter((m) => m.role !== 'system' && !m.parentMessageId)
-    .sort((a, b) => a.turnIndex - b.turnIndex);
-  const items: QueueStripItem[] = [];
-  const usedQueue = new Set<string>();
-  const seenText = new Set<string>();
-
-  for (let i = 0; i < timeline.length; i += 1) {
-    const m = timeline[i];
-    if (m.role !== 'user') continue;
-    const text = m.content.trim();
-    if (!text && !hasQueuedAttachments(m)) continue; // 본문도 첨부도 없는 행은 존재하지 않는 질문
-    // 답변 = 이 질문 이후·다음 질문 이전의 첫 agent(공감 제외) 행
-    let answer: ChatMessage | undefined;
-    for (let j = i + 1; j < timeline.length; j += 1) {
-      const n = timeline[j];
-      if (n.role === 'user') break;
-      if (n.role === 'agent' && n.sourceNeuron !== 'empathy' && (n.content.trim() || hasQueuedAttachments(n))) { answer = n; break; }
-    }
-    const match = queueItemForMessage(queue, m);
-    if (match) usedQueue.add(match.id);
-    const status: QueueStatus = match ? match.status : answer ? 'answered' : 'pending';
-    if (text) seenText.add(normalizeQueueContent(text));
-    items.push({
-      id: match?.id ?? m.id,
-      text,
-      status,
-      jumpMessageId: status === 'answered' && answer ? answer.id : m.id,
-      questionMessageId: m.id,
-      replyCount: m.threadReplyCount ?? 0,
-      createdAt: m.createdAt,
-      seq: items.length + 1,
-    });
-  }
-
-  // 서버에만 있는 행(드레인 전 끼어들기 등 — 아직 messages에 없음) → 질문 원문으로 보조 칩
-  const serverOnly = queue
-    .filter((q) => !usedQueue.has(q.id) && q.content.trim() && !seenText.has(normalizeQueueContent(q.content)))
-    .sort((a, b) => a.position - b.position)
-    .map((q, k): QueueStripItem => ({ id: q.id, text: q.content.trim(), status: q.status, jumpMessageId: q.messageId, replyCount: 0, seq: items.length + k + 1 }));
-  return [...items, ...serverOnly];
-}
+// (buildQueueStrip 제거 완료 — t_3c882443 요구3 스트립 폐기. 위 '질문 큐 상태' 주석 참조.)
 
 // ── 답변 대기 (t_363c0faa / 백엔드 t_811e176c 계약) ─────────────────────
 // 회신 필요 메시지 스냅샷 — WS reply.pending.updated(queue.updated 관례 동일) + GET /pending.

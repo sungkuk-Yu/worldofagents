@@ -1,6 +1,7 @@
 // 대화 목록과 에이전트 선택은 서버의 실제 데이터를 카드로 표시한다.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography, iconSize, webScreenMotion } from '../theme';
 import { api, getApiConfig, SessionSummary, AgentSummary } from '../lib/api';
@@ -16,6 +17,8 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const { t, i18n } = useTranslation();
   const isSidebar = variant === 'sidebar';
   const isHome = variant === 'home';
+  // 헤더 워드마크 노출 임계 (t_3c882443 요구2) — 모바일 폭은 마크 단독, 넓은 화면만 마크+워드마크.
+  const { width: headerWidth } = useWindowDimensions();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,8 +94,14 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
   const offline = !connected && !loading && !signedOut;
   return <SafeAreaView style={[styles.container, isSidebar && styles.sidebarShell, webScreenMotion('mat-slide-from-right')]}>
     {!isSidebar && <View style={styles.header}>
-      {/* t_64af90b0 #11 — 검은 굵은 '마이에이전트톡' 텍스트 로고 → 초록 MAT 워드마크 (Round 7 확정 전까지 sans 통일) */}
-      <Text style={styles.headerLogo} numberOfLines={1}>{t('common.logo')}</Text>
+      {/* t_3c882443 요구2 (대표님 10/4 "왼쪽 상단도 MAT는 My Agent Talk라고 해주고, 우리 로고를 크게 넣어줘"):
+          t_64af90b0 #11의 'MAT' 텍스트 워드마크 → g3 확정 마크(wide-A+직립 i+버블, repo brand 자산) 대형 + MyAgentTalk 워드마크.
+          워드마크는 브랜드 영문 고정이므로 미번역 (라틴은 Inter 700).
+          폭 좁은 모바일(<640)은 아이콘 버튼 6종이 우측을 점유 — 워드마크 대신 마크 단독(브랜드 승계). */}
+      <View style={styles.brandRow} testID="header-brand">
+        <Image source={require('../../assets/logo-mark-g3.png')} style={styles.headerMark} contentFit="contain" accessibilityLabel={t('common.app')} />
+        {headerWidth >= 640 && <Text style={styles.headerWordmark} numberOfLines={1}>MyAgentTalk</Text>}
+      </View>
       <View style={styles.headerRight}>
         {offline && <View style={styles.demoBadge}><Text style={styles.demoBadgeText}>{t('dialogueList.offline')}</Text></View>}
         {/* t_64af90b0 #2 — 이모지/문자 글리프 버튼 → SVG 아이콘 (접근성 라벨 유지) */}
@@ -108,7 +117,11 @@ export default function DialogueListScreen({ navigation, variant = 'full' }: Pro
       </View>
     </View>}
     {isSidebar && <View style={styles.sidebarHeader}>
-      <Text style={styles.headerLogo} numberOfLines={1} testID="sidebar-logo">{t('common.logo')}</Text>
+      {/* 사이드바 레일(폭 300)도 동일 브랜드 — 마크는 레일용 축소, testID 유지 (shot_drfix_e2e 단언) */}
+      <View style={styles.brandRow} testID="header-brand">
+        <Image source={require('../../assets/logo-mark-g3.png')} style={styles.sidebarMark} contentFit="contain" accessibilityLabel={t('common.app')} testID="sidebar-logo" />
+        <Text style={styles.sidebarWordmark} numberOfLines={1}>MyAgentTalk</Text>
+      </View>
       <View style={styles.headerRight}>
         <TouchableOpacity onPress={() => navigation.navigate('Settings')} testID="sidebar-settings-button" accessibilityLabel={t('common.settings')}><GearIcon size={iconSize.glyph} color={colors.text2} /></TouchableOpacity>
       </View>
@@ -197,14 +210,34 @@ const styles = StyleSheet.create({
     minWidth: 0,
     color: colors.text1,
   },
-  // t_64af90b0 #11 — 목록 헤더 로고: 초록 MAT 워드마크 (sans, 굵게). 라운드7 확정 시 이미지 로고로 교체.
-  headerLogo: {
+  // t_3c882443 요구2 — 헤더 브랜드 락업: g3 확정 마크(이미지, 대형) + MyAgentTalk 워드마크.
+  // 마크는 초록 원체(brand 자산), 워드마크는 텍스트1(흑) — 컬러 마크 + 중립 워드 표준 락업.
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sp2,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  headerMark: { width: 40, height: 40 },
+  headerWordmark: {
     ...typography.title1,
     fontSize: 22,
+    lineHeight: 26,
     letterSpacing: -0.2,
     flexShrink: 1,
     minWidth: 0,
-    color: colors.accent,
+    color: colors.text1,
+  },
+  // 레일(폭 300) — 마크/워드마크 축소, 한 줄 유지
+  sidebarMark: { width: 30, height: 30 },
+  sidebarWordmark: {
+    ...typography.headline,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    flexShrink: 1,
+    minWidth: 0,
+    color: colors.text1,
   },
   demoBadge: {
     backgroundColor: colors.surfaceRaise,

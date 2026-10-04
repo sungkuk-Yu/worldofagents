@@ -4,7 +4,7 @@
  *  B. 텍스트 재질문 → 예/아니오 버튼 행: 표시 후 2.5초(±0.6s 유예) 미터치 자동 소진 + 답은 계속 와야 함.
  *  C. ack 결과 카드 숨김 — '예' 탭 후 user 카드 미렌더, 백엔드는 발화 수신(전송 왕복 1회).
  *  D. 마이크 링 실측 = 96px(±2), 디스크 = 34px(±2), 아이콘 16px 하한 — ④ 크기 실측 px 기록.
- *  E. QUIET_PROGRESS — 타이핑 표시는 점 3개뿐(문구 없음), 스트리밍 중 '질문 N개' 칩 행 숨김.
+ *  E. QUIET_PROGRESS — 타이핑 표시는 점 3개뿐(문구 없음). (E2/E3: 상단 질문 칩 행은 영구 폐기 — DOM 0 단언으로 전환, t_3c882443)
  * 실행:
  *   백엔드: DEV_MODE=true STT_SIDECAR_URL=http://127.0.0.1:9833 PORT=3077 CORS_ORIGIN=http://localhost:8113
  *   서빙:   node tests/e2e/fr-serve.cjs dist-t64e3 8113
@@ -289,27 +289,27 @@ function pcmToWav(pcm, rate = 16000) {
     }
     await page.waitForFunction(() => !document.querySelector('[data-testid="typing-indicator"]'), null, { timeout: 60000 }).catch(() => {});
 
-    // E2: 스트리밍 중 큐 칩 행 숨김 — 답변 진행 중 pending 질문이 쌓이는 상황 구성:
-    // 같은 입력창에서 즉시 두 번 sends (백엔드 run 직렬화 → 두 번째는 pending user 행 → buildQueueStrip 항목)
-    await page.getByTestId('chat-input').fill(`스트립-히든-증명1 ${stamp}`);
+    // E2: 상단 질문 칩 행 폐기 (t_3c882443, 대표님 10/4 지시 3) — 진행 상황은 사이드 트래커 이관.
+    // 답변 진행 중 pending 질문이 쌓이는 상황(2연속 발화)에서도 칩 행 DOM은 영구 0이어야 한다.
+    await page.getByTestId('chat-input').fill(`스트립-폐기-증명1 ${stamp}`);
     await page.getByTestId('send-button').click();
     await sleep(400);
-    await page.getByTestId('chat-input').fill(`스트립-히든-증명2 ${stamp}`);
+    await page.getByTestId('chat-input').fill(`스트립-폐기-증명2 ${stamp}`);
     await page.getByTestId('send-button').click();
     // 첫 런 타이핑 중 strip 노출 여부 검사
-    let stripDuringRun = null, rawStripItems = 0;
+    let stripDuringRun = null;
     for (let i = 0; i < 40 && stripDuringRun === null; i++) {
       const typing = await page.getByTestId('typing-indicator').count();
       if (typing) {
-        rawStripItems = await page.evaluate(() => document.querySelectorAll('[data-testid^="queue-chip-"]').length);
-        stripDuringRun = await page.getByTestId('queue-strip').count();
+        stripDuringRun = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-strip"], [data-testid^="queue-chip-"], [data-testid="queue-counter"]').length);
       } else await sleep(200);
     }
-    check('E2 스트리밍 중 질문 칩 행 DOM 0 (raw message 기반 항목이 있어도 숨김)', stripDuringRun === 0, `duringRun_strip=${stripDuringRun} (런 종료 후 복원: 아래 E3)`);
+    if (stripDuringRun === null) stripDuringRun = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-strip"], [data-testid^="queue-chip-"]').length);
+    check('E2 런 중 질문 칩 행 DOM 0 — 스트립 영구 폐기(t_3c882443)', stripDuringRun === 0, `duringRun_strip=${stripDuringRun}`);
     await page.waitForFunction(() => !document.querySelector('[data-testid="typing-indicator"]'), null, { timeout: 90000 }).catch(() => {});
     await sleep(600);
-    const stripAfter = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-chip-"]').length);
-    check('E3 런 종료 후 칩 복원 가능(완전 제거 아님 — 의도된 일시 숨김)', stripAfter >= 0, `after=${stripAfter}`);
+    const stripAfter = await page.evaluate(() => document.querySelectorAll('[data-testid="queue-strip"], [data-testid^="queue-chip-"]').length);
+    check('E3 런 종료 후에도 칩 행 DOM 0 (일시 숨김이 아닌 제거)', stripAfter === 0, `after=${stripAfter}`);
 
     check('Z 런타임 페이지 오류 0건', errors.length === 0, errors.join('|').slice(0, 160));
 
