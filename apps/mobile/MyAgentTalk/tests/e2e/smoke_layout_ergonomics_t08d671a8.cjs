@@ -2,7 +2,8 @@
  * smoke_layout_ergonomics_t08d671a8.cjs — P0 레이아웃 인체공학 회귀 9케이스 (대표님 10/4)
  * 지시 요약:
  *   ① 마이크·전송 버튼 완전 수납 (rect: 0≤x≤W, 0≤y≤H)
- *   ② 녹음 스테이지 링(패드) 중심 y/H ∈ [0.5,0.7] — 엄지 그립 하단15%보다 위
+ *   ② 녹음 스테이지 링(패드) 중심 y/H ∈ [0.72,0.84] + 패드-하단여유 ≤130px (t_8dbb1619 10/9 하향 개정;
+ *     구 [0.5,0.7] — t_08d671a8 상향 설계는 대표님 10/9 "너무 위" 지적으로 폐기)
  *   ③ 인사말 center + 칩 무절단
  * 뷰포트: 390x844(모바일) / 320x568(SE) / 1440x900(PC)
  * 상태: 기본(A계층=voiceStage) / 키보드오픈(B계층=입력바)
@@ -79,7 +80,11 @@ async function runCase(browser, label, viewport, expectStage) {
   if (expectStage) {
     check(`${label} ① 패드 수납`, inViewport(pad, W, H), pad ? `${pad.x},${pad.y} ${pad.width}x${pad.height}` : 'null');
     const padCenterY = pad ? (pad.y + pad.height / 2) / H : null;
-    check(`${label} ② 패드 중심 y/H ∈ [0.5,0.7]`, padCenterY !== null && padCenterY >= 0.5 && padCenterY <= 0.75, padCenterY?.toFixed(2));
+    // t_8dbb1619 (대표님 10/9 "너무 위로 가있다"): PAD_TOP_PERCENT 30→55 — 구 [0.5,0.75] 게이트 폐기.
+    // 신규: 중심 ∈ [0.72,0.84] (한손 홀드 엄지 도달 75~88% 상부) + 패드-하단여유(데드존) ≤130px.
+    check(`${label} ② 패드 중심 y/H ∈ [0.72,0.84]`, padCenterY !== null && padCenterY >= 0.72 && padCenterY <= 0.84, padCenterY?.toFixed(3));
+    const deadzone = pad ? H - (pad.y + pad.height) : null;
+    check(`${label} ②′ 패드-하단여유 ≤130px`, deadzone !== null && deadzone >= 0 && deadzone <= 130, deadzone === null ? 'null' : `${Math.round(deadzone)}px`);
     // 녹음 스테이지 홀드 검사
     if (pad) {
       const cx = pad.x + pad.width / 2, cy = pad.y + pad.height / 2;

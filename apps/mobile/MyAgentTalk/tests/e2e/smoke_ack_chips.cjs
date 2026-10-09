@@ -13,7 +13,7 @@
  *      (t_64e3edd6 0.8s arm 타이머 폐지 — stageReleaseOutcome ackActive 게이트, 소진 창 내 수행)
  *   ⑥ 소진 후(버튼 행 비활성) 좌 스와이프 = 텍스트 발화 없음 — t_08d671a8 5방향 재매핑: ← = cancel(폐기).
  *      (구 계약 '얕은 좌 스와이프 = audio.end 전송'은 무효 — 70px 드래그는 270° cancel 섹터)
- *      히트 앵커 ⑤⑥/openKeyboard = voice-stage-pad (96px 원, 스트립 상단 30% — t_a827e5ef 하네스 갱신).
+ *      히트 앵커 ⑤⑥/openKeyboard = voice-stage-pad (96px 원, 스트립 상단 55% — t_8dbb1619 하향 개정, t_a827e5ef 하네스 갱신).
  *   ⑦ 히스토리 재현(stale empathy 행) = 버튼 없음
  *   ⑧ PC 1440 = 버튼 행 정상(카드 폭 동일 비율), 조이스틱/홀드 없음(음성 콘솔 미렌더)
  * 실행: node tests/e2e/fr-serve.cjs dist-tc62a2eb7 8114 &
@@ -64,7 +64,7 @@ async function openMobileChat(browser, opts = {}) {
   return { page, state, errors, ctx };
 }
 // t_4758f25d: A→B 전이는 스트립 홀드 후 ↑ 릴리스뿐 (키보드 버튼 폐기)
-// t_a827e5ef (t_08d671a8 패드 재설계): 히트 앵커 = voice-stage-pad (스트립 상단 PAD_TOP_PERCENT=30%
+// t_a827e5ef (t_08d671a8 패드 재설계): 히트 앵커 = voice-stage-pad (스트립 상단 PAD_TOP_PERCENT=55% (t_8dbb1619)
 // 인데ント, 96px 원). 구 voice-stage 스트립 중심은 패드 하단 밖 — 홀드 그랜트 자체가 안 잡힌다.
 async function openKeyboard(page) {
   const box = await page.getByTestId('voice-stage-pad').boundingBox();
@@ -161,7 +161,7 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     check('⑤ 재질문 활성 전제(버튼 행 노출)', row5);
     await page.getByTestId('chat-voice-back').click(); // B→A: 입력바 우측 마이크 탭 (#304)
     await page.getByTestId('voice-stage').waitFor({ timeout: 5000 });
-    // t_a827e5ef: 홀드 히트 = voice-stage-pad (96px 원, 스트립 상단 30% 인덴트 — t_f8c40db0/t_08d671a8 계약).
+    // t_a827e5ef: 홀드 히트 = voice-stage-pad (96px 원, 스트립 상단 55% 인덴트 — t_f8c40db0/t_08d671a8 계약).
     const box = await page.getByTestId('voice-stage-pad').boundingBox();
     assert.ok(box, 'voice-stage-pad 박스');
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2;

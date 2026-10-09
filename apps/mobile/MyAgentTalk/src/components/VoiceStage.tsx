@@ -498,7 +498,7 @@ const styles = StyleSheet.create({
   compassActive: { opacity: 0.9, color: colors.accent, fontWeight: '600' },
   pad: {
     // 지문인식형 홀드 패드 (t_f8c40db0) — 링과 동일 중심·직경(96px), 대기 상태에서도 보이는 유일한 인식 원.
-    // t_08d671a8 인체공학: top: PAD_TOP_PERCENT% = 스트립 상단 1/3 → 뷰포트 ~60% 높이
+    // t_08d671a8 인체공학: top: PAD_TOP_PERCENT% — t_8dbb1619 10/9 30→55 하향 (뷰포트 ~80%·데드존 ≤130px)
     position: 'absolute', width: STAGE_RING, height: STAGE_RING,
     left: '50%', top: `${PAD_TOP_PERCENT}%`, marginLeft: -STAGE_RING / 2, marginTop: -STAGE_RING / 2,
     borderRadius: radii.full,
