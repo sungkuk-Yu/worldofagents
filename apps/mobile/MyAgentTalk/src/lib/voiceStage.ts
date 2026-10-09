@@ -14,10 +14,16 @@ export function voiceStageHeight(viewportH: number): number {
 
 /**
  * t_08d671a8 인체공학: 스트립 안에서 패드 중심 위치(top % 오프셋) — 30% = 상단 1/3.
- * 스트립 전체 높이의 30% 지점이 패드 중심 → 뷰포트 기준 ~60% 높이.
- * VoiceStage.styles.pad에서 top: `${PAD_TOP_PERCENT}%` 사용.
+ * t_8dbb1619 (대표님 10/9 "너무 위로 가있다"): 30→55 하향.
+ *   중심 = (H−strip) + p·strip, 패드 96px. 844 뷰포트(strip 380):
+ *     p=30 → 578px(68.5%)·데드존 218px / p=55 → 673px(79.7%)·데드존 123px.
+ *   55 = 중심 79.7% — 카드 목표(75~80%) 상단 ∧ 데드존 123px ≤130px 동시 충족.
+ *   카드 후보 43~46은 중심 74~76%여도 데드존 157~169px로 ≤130px 게이트 위반(산출 정합).
+ *   568(SE, strip 256)에서도 중심 79.7%·데드존 67px — 동일 비율 유지.
+ * VoiceStage.styles.pad/ring에서 top: `${PAD_TOP_PERCENT}%` 사용 — 홀드·링·나침반·타이머
+ * 히트 앵커 'voice-stage-pad' 계약 불변(상단 클러스터는 t_08d671a8 그대로, 링은 패드와 동행).
  */
-export const PAD_TOP_PERCENT = 30;
+export const PAD_TOP_PERCENT = 55;
 
 /**
  * t_dee9e982: 채팅 리스트 contentContainer 하단 패딩 오버라이드 (앵커 로직의 padding 축).

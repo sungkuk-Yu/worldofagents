@@ -79,12 +79,12 @@ async function stageDrag(page, { dx = 0, dy = 0, holdMs = 120, steps = 6, out = 
       // ── t_f8c40db0 (대표님 9/30): 지문형 서클 패드만 인식 · 원 밖은 전역 스크롤 통과 ──
       const pad = await page.getByTestId('voice-stage-pad').boundingBox();
       check('① 홀드 패드(서클) 렌더 — 직경 ~96px', !!pad && Math.abs(pad.width - 96) <= 2 && Math.abs(pad.height - 96) <= 2, pad ? `${pad.width}x${pad.height}` : '없음');
-      // t_08d671a8 PAD_TOP_PERCENT=30 개정: 패드 중심 = 스트립 상단 30% (지문형 스트립 중앙 아님 —
-      // 엄지 그립 상향, 뷰포트 기준 ~60%). 좌우 수평 중앙은 유지(grip default center).
-      check('① 패드 중심 = 스트립 상단 30%(패드 상향) · 수평 중앙', !!pad
+      // t_8dbb1619 (대표님 10/9 "너무 위로 가있다") PAD_TOP_PERCENT=30→55 개정: 패드 중심 = 스트립 상단 55%
+      // (지문형 — 뷰포트 기준 ~79.7%·데드존 123px; 엄지 홀드 도달대 하향). 좌우 수평 중앙은 유지(grip default center).
+      check('① 패드 중심 = 스트립 상단 55%(패드 하향) · 수평 중앙', !!pad
         && Math.abs((pad.x + pad.width / 2) - (strip.x + strip.width / 2)) <= 2
-        && Math.abs((pad.y + pad.height / 2) - (strip.y + strip.height * 0.30)) <= 2,
-      pad ? `padCy=${Math.round(pad.y + pad.height / 2)} strip30%=${Math.round(strip.y + strip.height * 0.30)}` : '없음');
+        && Math.abs((pad.y + pad.height / 2) - (strip.y + strip.height * 0.55)) <= 2,
+      pad ? `padCy=${Math.round(pad.y + pad.height / 2)} strip55%=${Math.round(strip.y + strip.height * 0.55)}` : '없음');
       const hitMap = await page.evaluate(([cx, cy, lx, rx, uy]) => {
         const at = (x, y) => {
           const el = document.elementFromPoint(x, y);
