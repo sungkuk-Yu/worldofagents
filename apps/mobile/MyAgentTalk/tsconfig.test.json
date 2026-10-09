@@ -35,6 +35,7 @@
     "src/lib/chainLogic.ts",
     "src/lib/chainArchive.ts",
     "src/lib/voiceStage.ts",
+    "src/lib/tailFollow.ts",
     "src/lib/newChatTap.ts",
     "src/lib/holdStart.ts",
     "src/lib/deviceLabel.ts",
