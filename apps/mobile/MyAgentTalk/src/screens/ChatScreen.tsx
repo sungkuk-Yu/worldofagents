@@ -22,6 +22,7 @@ import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
 import { voiceStageHeight, chatListPaddingOverride } from '../lib/voiceStage';
+import { decideTailScroll, decideTailGrowth, INTENT_WINDOW_MS, MOMENTUM_WINDOW_MS } from '../lib/tailFollow';
 import { getPttKey, getPttMode, getEchoMode, setEchoMode, ECHO_MODE_DEFAULT, subscribePrefs } from '../lib/userPrefs';
 import { pttKeyLabel } from '../lib/pttLogic';
 import { inspectStore } from '../lib/inspectStore';
@@ -323,7 +324,14 @@ export default function ChatScreen({ navigation, route }: Props) {
   //      답마다 배지 뜬 증상) → 수리: gap>100 전향은 추종 유휴일 때만, 이탈 판정은 실질 상방
   //      오프셋 감소 우선. clamp 타깃이 strip 패딩 포함 절대 끝이라 마지막 카드가 voice-stage
   //      아래로 넘어가지 않고(요구 C), flex-end 짧은 히스토리 앵커와는 직교(무해).
-  const tailRef = useRef({ raf: 0, budget: 0, contentH: 0, viewportH: 0, userScrollAt: 0 });
+  // lastMarkAt (t_4c12323c): 마지막 사용자 제스처 마킹 — 의도 체인(userScrollAt)과 달리
+  //  정착(gap≤100) 시 클리어되지 않는다. 릴리스 관성이 정착 창을 지나 gap>100을 건널 때
+  //  branch3의 '수축 클램프 딥' 오판(→말미 스냅백)을 막는 모멘텀 판정 원천.
+  // dragging (t_4c12323c): 손가락이 리스트에 닿은 구간 — growth 트리거(onContentSizeChange)의
+  //  followTail 발화를 억제한다. 말미에서 아래 드래그의 첫 ~90px은 gap≤100 정착 창이라
+  //  nearBottom=true인데 그 사이 리빌/delta 성장 이벤트가 끼면 옛 추종이 콘텐츠를 말미로
+  //  야킹한다(실측 445→401 얭김). 네이티브는 DOM 바인딩 없음 → 항상 false(기존 동작 불변).
+  const tailRef = useRef({ raf: 0, budget: 0, contentH: 0, viewportH: 0, userScrollAt: 0, lastMarkAt: 0, dragging: false });
   // 라이브 스크롤 박스 노드 (t_1731f0f6 r5): RNW FlatList→VirtualizedList→ScrollView 체인의
   // getScrollableNode. 이벤트 nativeEvent 쌍은 레이아웃 확정 전 스냅샷일 수 있어(낡은
   // contentSize + 클램프된 offset = r4 오판 root cause) 추종·정착 판정은 DOM 실측 우선,
@@ -533,6 +541,7 @@ export default function ChatScreen({ navigation, route }: Props) {
             cancelFollow();
             nearBottom.current = false;
             tailRef.current.userScrollAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            tailRef.current.lastMarkAt = tailRef.current.userScrollAt; // 딥링크 항법 = 사용자 제스처 — 모멘텀 마킹도 함께 (t_4c12323c)
             if (layout) listRef.current?.scrollToOffset({ offset: Math.max(0, layout.y - 60), animated: true });
             else listRef.current?.scrollToIndex({ index: groupIndex, animated: true, viewPosition: 0.3 });
           } catch { /* 미측정 행 — 다음 레이아웃 잡힐 때 재시도 */ }
@@ -562,7 +571,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     t.budget = steps;
     const step = () => {
       t.raf = 0;
-      if (!nearBottom.current || loadingRef.current) { t.budget = 0; return; }
+      // t_4c12323c: 손가락이 리스트에 닿는 순간 프로그램 추종 중단 — 사용자 드래그 우선
+      //  (growth 재발화가 드래그 직전에 끼고 rAF가 드래그 중 실행되는 교차 경봉 차단).
+      if (!nearBottom.current || loadingRef.current || t.dragging) { t.budget = 0; return; }
       t.budget -= 1;
       // 실측 우선 (r5): DOM 노드가 보이면 scrollHeight-clientHeight가 오늘의 진짜 끝.
       // 미러(t.contentH/t.viewportH)는 onContentSizeChange 순서에 낡을 수 있어 r4의
@@ -599,19 +610,31 @@ export default function ChatScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     let node: HTMLElement | null = null;
+    let dragHandles: { node: HTMLElement; down: () => void; up: () => void } | null = null;
     let raf = 0;
     let tries = 0;
-    const mark = () => { tailRef.current.userScrollAt = typeof performance !== 'undefined' ? performance.now() : Date.now(); };
+    const nowTs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const mark = () => { const n = nowTs(); tailRef.current.userScrollAt = n; tailRef.current.lastMarkAt = n; };
     // 스크롤바 드래그 = 의도(pointermove with button), 단순 탭/선택 = 무의도.
     const onPointerMove = (e: PointerEvent) => { if (e.buttons > 0) mark(); };
     const bind = () => {
       const next = scrollBoxNode();
       if (next && next !== node) {
+        if (dragHandles) { dragHandles.node.removeEventListener('touchstart', dragHandles.down); dragHandles.node.removeEventListener('touchend', dragHandles.up); dragHandles.node.removeEventListener('touchcancel', dragHandles.up); }
         node = next;
         next.addEventListener('wheel', mark, { passive: true });
         next.addEventListener('touchmove', mark, { passive: true });
         next.addEventListener('keydown', mark);
         next.addEventListener('pointermove', onPointerMove);
+        // t_4c12323c: 드래그 구간 게이트 — 리스트 위 touchstart=손가락 접점, end/cancel=해제.
+        //  (VoiceStage 패드 홀드는 리스트 밖 DOM 서브트리 — 리스트가 이벤트 수신하지 않아
+        //   growth 계약과 무해. touch 이벤트는 시작 타깃을 따라 버블하므로 end도 반드시 도달.)
+        const down = () => { tailRef.current.dragging = true; };
+        const up = () => { tailRef.current.dragging = false; };
+        next.addEventListener('touchstart', down, { passive: true });
+        next.addEventListener('touchend', up, { passive: true });
+        next.addEventListener('touchcancel', up, { passive: true });
+        dragHandles = { node: next, down, up };
       }
       // 노드 미확보 = 소수 프레임의 과도기 — 600프레임(≈10s) 상한으로 재시도(런어웨이 루프 금지)
       if (!next && ++tries < 600) raf = requestAnimationFrame(bind);
@@ -625,6 +648,8 @@ export default function ChatScreen({ navigation, route }: Props) {
         node.removeEventListener('keydown', mark);
         node.removeEventListener('pointermove', onPointerMove);
       }
+      if (dragHandles) { dragHandles.node.removeEventListener('touchstart', dragHandles.down); dragHandles.node.removeEventListener('touchend', dragHandles.up); dragHandles.node.removeEventListener('touchcancel', dragHandles.up); }
+      tailRef.current.dragging = false;
     };
   }, [scrollBoxNode]);
 
@@ -639,23 +664,29 @@ export default function ChatScreen({ navigation, route }: Props) {
       ? node.scrollHeight - node.scrollTop - node.clientHeight
       : contentSize.height - layoutMeasurement.height - contentOffset.y;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const intent = Platform.OS !== 'web' || now - t.userScrollAt < 400; // 네이티브=노드 미확보 → scrolledUp 단독(r4 이전 폴백)
+    const intent = Platform.OS !== 'web' || now - t.userScrollAt < INTENT_WINDOW_MS; // 네이티브=노드 미확보 → scrolledUp 단독(r4 이전 폴백)
+    // t_4c12323c 모멘텀 판정: 마지막 실제스처(touch/wheel/키) 마킹이 감쇠 창 이내면
+    // '의도 없는' 감소라도 관성이다. 의도 체인과 달리 정착(branch1)가 클리어하지 않아
+    // 'settled 후 관성 건넘'의 branch3 오판(말미 스냅백)을 막는다. 네이티브=마킹 없음→false
+    // (의도가 단독 참이고 intent=true라 branch2로 먼저 잡혀 기존 폴백 동작 불변).
+    const touchRecent = Platform.OS === 'web' && now - t.lastMarkAt < MOMENTUM_WINDOW_MS;
     if (intent && Platform.OS === 'web') t.userScrollAt = now; // 체인 갱신 — 관성/감속 구간 전체 유지
-    if (gap <= 100) {
+    const decision = decideTailScroll({ gap, scrolledUp, intent, touchRecent, nearBottom: nearBottom.current, following: !!t.raf });
+    if (decision === 'settle') {
       // 정착(근거: 텔레그램/Slack 관습 near-bottom ~100px — 김비서 적용 게이트 t_c6cbcd53 ①):
       // 추종 종료 + 배지 해제. 수축 프레임의 clamp(의도 무관)는 실측 gap≈0 → 여기로 온다.
       // 의도 창 클리어: 말미에 있다는 사실 자체가 프로그램적 딥의 이탈 오판을 무효화 —
       // 직후 clamp 딥은 branch3(재추종)으로, 실제 재이탈은 새 wheel/touch 마킹이 담당.
       cancelFollow();
-      t.userScrollAt = 0;
+      t.userScrollAt = 0; // lastMarkAt은 유지(t_4c12323c) — 정착 후 관성 건넘의 모멘텀 원천.
       if (node && node.scrollHeight > 0) { offset.current = node.scrollTop; t.contentH = node.scrollHeight; }
       nearBottom.current = true; setUnseen(0);
-    } else if (scrolledUp && intent) {
-      // 의도 있는 상방 이탈만 추종 사망(+ 이후 arrival 배지 armed). growth 추종 재시작은
+    } else if (decision === 'exit') {
+      // 의도 있는 상방 이탈(또는 정착 직후 관성 이탈 — t_4c12323c)만 추종 사망(+ 이후 arrival 배지 armed). growth 추종 재시작은
       // onContentSizeChange가 담당(nearBottom false라 성장 무시) — 상태만 지난다.
       cancelFollow();
       nearBottom.current = false;
-    } else if (scrolledUp && nearBottom.current && !t.raf) {
+    } else if (decision === 'refollow') {
       // 의도 없는 감소 + 말미 밖 + 유휴 = 지연 합성 scroll-end의 수축 클램프 딥(r4 29s 서명).
       // 이탈이 아니다 — 즉시 재추종(말미가 목표).
       followTail(3, false);
@@ -919,15 +950,18 @@ export default function ChatScreen({ navigation, route }: Props) {
           const node = scrollBoxNode();
           const maxOffset = node ? Math.max(0, node.scrollHeight - node.clientHeight)
             : (t.viewportH > 0 ? Math.max(0, h - t.viewportH) : null);
-          if (maxOffset !== null && offset.current > maxOffset) {
+          const overMax = maxOffset !== null && offset.current > maxOffset;
+          const growth = decideTailGrowth({ overMax, dragging: t.dragging, nearBottom: nearBottom.current });
+          if (growth === 'clamp-sync') {
             // 수축 clamp: 스트림 카드→짧은 확정 카드 교체 등으로 콘텐츠가 줄면 브라우저가
             // scroll 이벤트 없이 bottom clamp한다(오프셋 미러가 낡은 채로 말미에 도달). 미러를
             // 동기화하고 정착 처리 — 배지 잔등/추종 오탐 방지 (t_1731f0f6).
-            offset.current = node ? node.scrollTop : maxOffset;
+            offset.current = node ? node.scrollTop : (maxOffset ?? 0);
             if (node) t.contentH = node.scrollHeight;
             cancelFollow();
             nearBottom.current = true; setUnseen(0);
-          } else if (nearBottom.current && !loadingHistory) {
+          } else if (growth === 'follow' && !loadingHistory) {
+            // suppress(드래그 중 — t_4c12323c 얭김 차단)·ignore(이탈 상태)는 의도적 no-op.
             followTail(3, false);
           }
         }}
