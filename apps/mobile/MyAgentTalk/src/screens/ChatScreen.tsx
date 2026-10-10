@@ -31,7 +31,7 @@ import { parseForkOrigin, canForkAgent } from '../lib/cardLogic';
 import { api } from '../lib/api';
 import { useAttachments } from '../hooks/useAttachments';
 import PhotoEditorSheet, { PhotoEditResult } from '../components/PhotoEditorSheet';
-import { pickImages, measureImage } from '../lib/imagePicker';
+import { pickImages, pickFilesWeb, measureImage } from '../lib/imagePicker';
 import { errorKey } from '../lib/errorKeys';
 import type { ForkOrigin, ReplyQuote } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -215,6 +215,18 @@ export default function ChatScreen({ navigation, route }: Props) {
       const localId = await att.add(picked[0]);
       const size = await measureImage(picked[0].uri);
       if (localId && size.width > 0 && size.height > 0) setEditing({ source: { uri: picked[0].uri, width: size.width, height: size.height }, localId });
+    } catch (e) {
+      setUnavailableError(errorKey(e));
+    }
+  }, [isDemo, att, setUnavailableError]);
+  // t_55e92e7e 실행 배선: ↓ 사진 = attachPhoto 그대로 재사용(칩 경로 단일 소스), ↗ 파일 = 전유형
+  // picker(pickFilesWeb) → att.add(백엔드 /api/upload mime 검증 일임). 편집기 미해(파일은 원본 첨부).
+  const attachFile = useCallback(async () => {
+    if (isDemo) { setUnavailableError('errors.unavailableAction'); return; }
+    try {
+      const picked = await pickFilesWeb();
+      if (!picked.length) return;
+      await att.add(picked[0]);
     } catch (e) {
       setUnavailableError(errorKey(e));
     }
@@ -1038,6 +1050,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         onAttach={() => void attachPhoto()}
         onAttachmentRemove={att.remove}
         onAttachmentRetry={att.retry}
+        // t_55e92e7e 실행 배선: ↓ 사진첨부 / ↗ 파일첨부 조이스틱 릴리스 = 첨부 스테이지 (t_08d671a8 계약 온보딩).
+        onPhoto={() => void attachPhoto()}
+        onFile={() => void attachFile()}
         voiceMode={voiceMode}
         initialKeyboardOpen={route?.params?.keyboard === '1'}
         recording={ptt.active || talking}

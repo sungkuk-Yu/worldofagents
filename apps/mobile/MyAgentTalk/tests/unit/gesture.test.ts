@@ -130,7 +130,7 @@ test('나침반 항목: labelKey 완결 — STAGE_ACTION_LABEL_KEYS와 전사 �
   }
 });
 
-test('arm 배너 판정: send/미진입=null, ackActive 좌우=ack 배너에 양도(중복 금지), 그 외=섹터 라벨', () => {
+test('arm 배너 판정: send/null = 배너 없음, ackActive 좌우 = ack 배너에 양도(null), 그 외 = 섹터 라벨', () => {
   // 비ack 모드: 진입 섹터 = 그 라벨
   assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'keyboard' }), 'chat.joystickLabelKeyboard');
   assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'cancel' }), 'chat.joystickLabelCancel');
@@ -156,4 +156,15 @@ test('인라인 라벨 판정: 진입 항목만 라벨, ackActive 좌/우는 실
   assert.equal(inlineCompassLabelKey({ ackActive: true, ackPhrase: 'no', activeAction: 'edit', itemAction: 'edit' }), 'chat.ackNo');
   // ackActive + ackPhrase 없음(↑/↗/↓ 진입): 섹터 라벨 그대로
   assert.equal(inlineCompassLabelKey({ ackActive: true, ackPhrase: null, activeAction: 'keyboard', itemAction: 'keyboard' }), 'chat.joystickLabelKeyboard');
+});
+
+test('arm 배너 supported 게이트: 실행 콜백 없는 액션은 \'놓으면 실행\' 배너 억제 (화면-거짓 방지)', () => {
+  const SUP = ['keyboard', 'cancel', 'photo', 'file'] as StageAction[]; // onEdit 미배선 현재 계
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'keyboard', supported: SUP }), 'chat.joystickLabelKeyboard');
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'cancel', supported: SUP }), 'chat.joystickLabelCancel');
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'photo', supported: SUP }), 'chat.joystickLabelPhoto');
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'file', supported: SUP }), 'chat.joystickLabelFile');
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'edit', supported: SUP }), null);
+  // supported 생략 = 무 게이트 (후방 호환)
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'edit' }), 'chat.joystickLabelEdit');
 });

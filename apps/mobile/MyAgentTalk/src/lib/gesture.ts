@@ -189,15 +189,20 @@ export function selectActionLabelKey(angleDeg: number, distance: number, padRadi
  *   - activeAction send/null → null (전송은 기본 동작, 라벨 없음)
  *   - ackActive + 좌/우(ackPhrase) → null — 실행 동작은 ack 문장(예/아니요)이고 그 배너는
  *     이미 링 하단 joystick-ack-armed('예 — 놓으면 전송')가 표시 중(선례 패턴). 배너 중복 금지.
+ *   - supported(실행 콜백 장착 액션 집합) 밖 → null — '놓으면 실행' 약속을 콜백 없는 액션에
+ *     걸지 않는다(현재 미구현 실행 = 화면-거짓 방지; 라벨(의미)은 섹터 계약대로 상시 표시).
+ *     (t_08d671a8 온보드 갭: onEdit 미배선 — wire 전까지 edit 배너 억제, 후속 카드 t_…)
  *   - 그 외 → 섹터 액션 라벨 키 ('취소 — 놓으면 실행' 등)
  */
 export function armedCompassLabelKey(opts: {
   ackActive: boolean;
   ackPhrase: 'yes' | 'no' | null;
   activeAction: StageAction | null;
+  supported?: StageAction[];
 }): string | null {
   if (!opts.activeAction || opts.activeAction === 'send') return null;
   if (opts.ackActive && opts.ackPhrase) return null;
+  if (opts.supported && !opts.supported.includes(opts.activeAction)) return null;
   return labelKeyForStageAction(opts.activeAction);
 }
 

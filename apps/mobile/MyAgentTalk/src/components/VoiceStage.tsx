@@ -388,6 +388,12 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         cbRef.current.onHoldAbort();
         cbRef.current.onFile();
         setPhase('idle');
+      } else if (action === 'edit') {
+        // t_55e92e7e: → 편집 = 의도 있는 섹터인데 실행 콜백 미장착(onEdit 온보드 갭)이면
+        // 폐기(cancel). send 폴백 금지 — 편집 의도의 릴리스가 녹음을 전송하는 비가역 위장
+        // 실행이 된다(arm 배너는 supported 게이트로 미표시 중 — 화면/실행 일치 유지).
+        cbRef.current.onHoldAbort();
+        setPhase('idle');
       } else if (notCapturedYet) {
         // pending 상태에서 send 의도 = cancel 강등
         cbRef.current.onHoldAbort();
@@ -418,7 +424,13 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   const gripLeftPercent = gripHand === 'left' ? '25%' : gripHand === 'right' ? '75%' : '50%';
 
   // t_55e92e7e ②: arm 재확인 배너 라벨 — 순수 판정(단위테스트: armedCompassLabelKey).
-  const armedLabelKey = armedCompassLabelKey({ ackActive: !!ackActive, ackPhrase: ackHint, activeAction });
+  // supported = 실행 콜백이 실제 장착된 액션만 ('놓으면 실행' 약속의 진실성 게이트 — 콜백 없으면
+  // release는 send로 폴백하므로 배너가 거짓이 된다. onEdit 미배선(t_08d671a8 갭) 후속 카드까지 edit 억제).
+  const armedActions: StageAction[] = ['keyboard', 'cancel',
+    ...(onEdit ? (['edit'] as StageAction[]) : []),
+    ...(onPhoto ? (['photo'] as StageAction[]) : []),
+    ...(onFile ? (['file'] as StageAction[]) : [])];
+  const armedLabelKey = armedCompassLabelKey({ ackActive: !!ackActive, ackPhrase: ackHint, activeAction, supported: armedActions });
   // t_55e92e7e ①: 진입된 나침반 항목의 인라인 라벨 — ackActive 좌/우 실행 우선순위 반영(순수 판정: inlineCompassLabelKey).
   const inlineLabelFor = (itemAction: StageAction): string | null =>
     inlineCompassLabelKey({ ackActive: !!ackActive, ackPhrase: ackHint, activeAction, itemAction });

@@ -35,6 +35,9 @@ interface Props {
   onAttach: () => void;
   onAttachmentRemove: (localId: string) => void;
   onAttachmentRetry: (localId: string) => void;
+  /** t_55e92e7e 실행 배선: ↓ 사진 / ↗ 파일 조이스틱 방향 = 첨부 스테이지 실행 (t_08d671a8 5방향 계약의 온보딩) */
+  onPhoto?: () => void;
+  onFile?: () => void;
   // 음성 계층 (t_4758f25d)
   voiceMode: boolean;
   /** route params keyboard=1 → 키보드 계층으로 진입 */
@@ -72,6 +75,7 @@ interface Props {
 export default function ChatInputConsole({
   value, onChangeText, onSubmit, isDemo,
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
+  onPhoto, onFile,
   voiceMode, initialKeyboardOpen, recording, level, pttError, pttPending,
   onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive, forceOpenKeyboard, viewportHeight,
   onVoicePress, pttCapturing,
@@ -191,6 +195,9 @@ export default function ChatInputConsole({
             onSendAck={onSendAck}
             ackActive={ackActive}
             onOpenKeyboard={() => setKeyboardOpen(true)}
+            // t_55e92e7e 실행 배선: ↓/↗ 라벨의 '놓으면 실행'을 참으로 — 첨부 경로 단일 소스 재사용.
+            onPhoto={onPhoto}
+            onFile={onFile}
             recording={recording}
             level={level}
             error={pttError}
