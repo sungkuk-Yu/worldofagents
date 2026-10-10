@@ -10,12 +10,16 @@ import type { Locale } from './locale';
 
 type EmpathyTemplate = { id: string; ko: string; en: string };
 
-/** pool 인덱스 = 회전 순서. template_id는 프론트 버튼 문구 결정 키로도 쓰인다. */
+/** pool 인덱스 = 회전 순서. template_id는 프론트 버튼 문구 결정 키로도 쓰인다.
+ *  ⚠ 대표님 10/10 판정 (t_51f9fd01): eq_confirm 원문 '"이거 맞죠? {요약}"'는 폐기 지시 —
+ *  "대답이 뭐 이거 맞죠야. 니가 분석해서 ~하는 거죠? 이렇게 보내". 전 템플릿은 분석형
+ *  재해석 의문문이어야 하고, 어떤 ko/en 문구도 '이거 맞' 복창 접두로 시작하지 않는다.
+ *  (id·pool 순서·회전 계약은 프론트 바인딩 불변 — 문자열만 교체.) */
 export const EMPATHY_REQUESTION_TEMPLATES: EmpathyTemplate[] = [
-  { id: 'eq_confirm', ko: '이거 맞죠? {요약}', en: 'Quick check — "{요약}", right?' },
-  { id: 'eq_proceed', ko: '{요약} — 맞으면 계속 진행할게요', en: '"{요약}" — if that\'s right, I\'ll keep going' },
-  { id: 'eq_understand', ko: '제 이해가 맞다면 {요약}', en: 'If I read you right, it\'s about "{요약}"' },
-  { id: 'eq_align', ko: '맞나요? {요약} 쪽으로 받아들이면 돼요', en: 'Sound good? I\'ll take it as "{요약}"' },
+  { id: 'eq_confirm', ko: '제 생각엔 {요약}라는 말씀이신 건가요?', en: 'Am I right that you mean "{요약}"?' },
+  { id: 'eq_proceed', ko: '{요약} 건으로 제가 바로 진행해도 될까요?', en: 'Shall I go ahead with "{요약}" as I read it?' },
+  { id: 'eq_understand', ko: '제가 이해한 건 {요약} 쪽이에요 — 맞을까요?', en: 'My reading is "{요약}" — does that land?' },
+  { id: 'eq_align', ko: '{요약}이라는 말씀이신 거죠?', en: 'You\'re saying "{요약}", right?' },
 ];
 
 /** 발화 → {요약} 키워드 압축 (규칙 기반): 문두 불요 소거 + 구두점 제거 + 24자 절단.

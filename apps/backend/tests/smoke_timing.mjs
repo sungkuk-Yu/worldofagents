@@ -138,7 +138,9 @@ async function main() {
     // 롤백 게이트 (HUMAN_TYPING=false): 재질문 문구는 규칙 템플릿 폴백(기계 어미 복귀), 자동예
     // 신계약 대신 기존 answerLeadMs(3000) 리드가 살아있다 — 어느 쪽이든 empathy→답변 준비 ≥2.5s.
     const gap = empAt && answerStart ? answerStart.at - empAt : -1;
-    check('off: 규칙 템플릿 복귀(LLM 재해석 어미 아님)', typeof empContent === 'string' && !/[?？]$/.test(empContent.trim()), `content="${String(empContent).slice(0, 36)}"`);
+    // t_51f9fd01: 규칙 풀이 전부 분석형 의문문('?')으로 재설계 — 어미 판정 무의미. 판별자는
+    // 'LLM 재해석 어미 아님'에서 '풀 문장 marker 실재(= 규칙 경로 착지)'로 교체.
+    check('off: 규칙 템플릿 복귀(풀 문장 marker)', typeof empContent === 'string' && /제 생각엔|말씀이신|진행해도 될까요|제가 이해한 건/.test(empContent), `content="${String(empContent).slice(0, 36)}"`);
     check(`off 롤백: 기존 리드 계약 유효 — 노출→답변 준비 ≥2500ms`, gap >= 2500, `gap=${gap}ms`);
   } else if (empAt && answerStart) {
     const gap = answerStart.at - empAt;
