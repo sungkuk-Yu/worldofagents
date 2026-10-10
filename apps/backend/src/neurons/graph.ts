@@ -488,12 +488,13 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       leadMs = typingLeadMs(state.userMessage.length);
     }
   }
-  // t_20746efa 게이트 3 (front desk TTFT ≤1.5s): ack 이후 실제 답변 첫 글자는 1.5s를
-  // 넘기지 않는다 — 리드는 '체감 연출'이지 SLA가 아니다( ack·quip가 이미 대기를 채운다).
-  // empathy 리드(칩 창 2.5s)는 사용자 읽기 계약이라 유보하되, 그 외 리드는 1.5s로 캡.
-  // voice/off 턴(leadMs=0)과 깊이 lane(백스테이지 = '한 답의 지연' 계약)은 대상 아님.
-  if (leadMs && !state.empathyResponse && !state.deepLane && leadMs > config.protocol.frontDeskFirstTokenMs) {
-    leadMs = config.protocol.frontDeskFirstTokenMs;
+  // t_20746efa 게이트 3 (front desk SLA: ack→첫 글자 ≤frontDeskFirstTokenMs): 연출 리드는
+  // '체감'이지 SLA가 아니다(ack·quip가 대기를 채운다) — 리드 상한 = SLA − TTFT 예산(실측
+  // flash 548ms+지터 700ms). empathy 리드(칩 창 2.5s 읽기 계약)·깊이 lane(백스테이지 =
+  // '한 답의 지연')·voice/off(lead0)는 대상 아님. cap≤0이면 리드 전면 생략.
+  if (leadMs && !state.empathyResponse && !state.deepLane) {
+    const cap = config.protocol.frontDeskFirstTokenMs - config.protocol.frontDeskTtftBudgetMs;
+    if (cap < leadMs) leadMs = Math.max(0, cap);
   }
   if (leadMs) await waitOrAbort(leadMs, ctx.signal);
   const prompt = state.persona ? buildPersonaPrompt(state.persona, 'answer') : '';
