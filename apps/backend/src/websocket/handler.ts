@@ -552,7 +552,11 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
 
   sendJson(socket, { type: 'audio.vad', session_id: target, active: false });
 
-  const result = await transcribeAudio(audio.buffer.bundle);
+  // 언어 힌트 전파 (t_827dcbcc, 'is' 오전사): 우선순위 client config.language > 세션/요청 locale
+  // > config.defaultLocale (카드계약 #1, 기본 ko 강제) — 무힌트 자동감지는 짧은 한국어 발화를
+  // 아이슬란드어로 오인해 화면까지 도달했다(10/10 08:43, message 435f61c3).
+  const hintLang = audio.language !== 'auto' ? audio.language : (state.locale || config.defaultLocale);
+  const result = await transcribeAudio(audio.buffer.bundle, hintLang);
   if (draft) {
     // 전사 실패·무결과도 draft는 영속하지 않고 회신으로 마감 (text:'' 은 프론트 no-op).
     sendJson(socket, { type: 'transcript.draft', session_id: target, text: result.text, confidence: result.confidence, language: result.language, duration_ms: result.durationMs });

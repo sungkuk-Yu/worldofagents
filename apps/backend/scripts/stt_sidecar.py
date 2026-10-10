@@ -43,6 +43,14 @@ PORT = int(os.environ.get("STT_SIDECAR_PORT", "9833"))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s stt-sidecar %(levelname)s %(message)s")
 log = logging.getLogger("stt")
 
+# t_827dcbcc: ?language= 힌트 화이트리스트 — faster-whisper가 실제 받는 코드만 통과(500 원천 차단).
+# 라이브러리 import 실패 시에도 계약 언어(ko/en)는 보장한다.
+try:
+    from faster_whisper.tokenizer import _LANGUAGE_CODES as _FW_LANGUAGES
+    VALID_LANGUAGE_CODES = frozenset(_FW_LANGUAGES)
+except Exception:
+    VALID_LANGUAGE_CODES = frozenset({"ko", "en"})
+
 _model = None
 _model_ready = False
 _lock = asyncio.Lock()
@@ -126,13 +134,24 @@ def create_app():
         if len(raw) < 3200:  # 0.1s 미만은 전사 불가로 본다
             return {"text": "", "language": "ko", "confidence": 0.0, "duration_ms": 0, "service": "local"}
         qp = request.query_params
-        language = qp.get("language") or None
+        # t_827dcbcc: 힌트 정규화 — 'auto'/빈값/비코드는 자동감지(None)로 폴백.
+        # 'auto'를 그대로 transcribe에 넘기면 faster-whisper ValueError(500) (10/10 실측).
+        language = (qp.get("language") or "").strip().lower() or None
+        if language == "auto":
+            language = None
+        if language is not None and language not in VALID_LANGUAGE_CODES:
+            log.warning("invalid language hint %r — auto-detect fallback", language)
+            language = None
         try:
             async with _lock:
                 loop = asyncio.get_running_loop()
                 t0 = time.monotonic()
                 result = await loop.run_in_executor(None, transcribe_blocking, raw, language)
-            log.info("transcribe %dms audio → %dms infer: %r", len(raw) // 32, (time.monotonic() - t0) * 1000, result["text"][:60])
+            # 계약#2 override 기록: 힌트가 실 감지언어를 덮었다면 (실제감지=힌트 아님) 로그에 명시.
+            if language and result.get("language") != language:
+                log.warning("language hint %r overrode detected %r", language, result.get("language"))
+            log.info("transcribe %dms audio → %dms infer (lang_hint=%s): %r",
+                     len(raw) // 32, (time.monotonic() - t0) * 1000, language or "-", result["text"][:60])
             return result
         except Exception as e:
             log.exception("transcribe failed")
