@@ -3,7 +3,9 @@
  *  ① 잘림: 웹 모바일 최하단 메시지 카드가 음성 strip에 가려지지 않는다 (패딩=strip 실높이 계약)
  *  ② 절단: 첫 진입 힌트 알약이 뷰포트 폭에서 좌우 잘림 없음 + 한 줄 개행
  *  ③ 겹침: PC 1440 입력바/첨부/전송 상호 겹침 0, 입력 상단 > 최하단 카드 하단 (스크롤 최하단 기준)
- *  ④ strip 점유: 첫 진입 모바일에서 strip이 뷰포트 30% 클램프를 넘지 않는다(히스토리 70%+ 확보)
+ *  ④ strip 점유: 첫 진입 모바일에서 strip이 뷰포트 45% 클램프(240~400)를 넘지 않는다.
+ *     (t_08d671a8 대표님 10/4 인체공학 P0: 30%→45% 승격 — 이 게이트는 머지 페어 정합에서
+ *      누락된 30% 잔존 하네스 드리프트였고 t_d123bece에서 계약값으로 봉합. 844→380=voiceStageHeight.)
  *  ⑤ 부재: 모바일 A 계층에 조이스틱 디스크/키보드 버튼 DOM 0 (#294-4 고정 콘솔 폐기)
  * 실행: node tests/e2e/fr-serve.cjs dist-<본빌드> 8159
  *       APP_URL=http://localhost:8159 node tests/e2e/smoke_bottom_regression_t4758f25d.cjs
@@ -72,7 +74,12 @@ const overlap = (a, b) => !!a && !!b && a.x < b.right && b.x < a.right && a.y < 
       await page.getByTestId('voice-stage').waitFor({ timeout: 15000 });
       const g = await bottomGeometry(page);
       assert.ok(g.strip, 'voice-stage 존재');
-      check('④ strip 높이 ≤ 30%+α 뷰포트(히스토리 70%+ 확보)', g.strip.h <= Math.round(g.vh * 0.3) + 2 && g.strip.h >= 180, `strip=${g.strip.h}/${g.vh}`);
+      // t_08d671a8 (대표님 10/4 인체공학 P0): 스트립 30%→45% 클램프 240~400 승격.
+      // 구 게이트(≤30%+α)는 머지 페어 정합(unit 1b27861b/da4d9676·voice_console 72행)에서 누락된
+      // 하네스 드리프트 — t_d123bece(김비서) 재현 실측 strip=380/844 = voiceStageHeight(844) 정확값.
+      // 레이아웃 회귀 금지: 계약 산출식과 1:1 일치 단언(느슨한 상한이 아님 — clamp·비율 동시 봉인).
+      const contractH = Math.round(Math.min(400, Math.max(240, g.vh * 0.45))); // = src/lib/voiceStage.ts voiceStageHeight
+      check('④ strip 높이 = 45% 클램프(240~400) 계약 정확 일치 (t_08d671a8 승계 봉인 — 회귀 시 FAIL)', g.strip.h === contractH, `strip=${g.strip.h}/${g.vh} contract=${contractH}`);
       check('① 스크롤 최하단 = 마지막 카드 하단이 strip 상단 이상으로 노출(가림 0)', g.lastCardBottom !== null && g.lastCardBottom <= g.strip.top + 4, `card.bottom=${g.lastCardBottom} strip.top=${g.strip.top}`);
       check('② 힌트 알약 좌우 잘림 없음·한 줄', !!g.hint && !g.hint.clipped && g.hint.h < 60, g.hint ? JSON.stringify(g.hint) : 'no hint');
       check('⑤ 고정 콘솔 요소 DOM 0 (joystick-mic/keyboard-button)', (await page.getByTestId('joystick-mic').count()) === 0 && (await page.getByTestId('chat-keyboard-button').count()) === 0);
