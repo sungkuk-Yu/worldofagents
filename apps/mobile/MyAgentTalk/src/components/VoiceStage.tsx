@@ -24,7 +24,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, Platform, StyleSheet, View, type GestureResponderHandlers } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
-import { getDirection, selectActionFromVector, vectorToAngle, COMPASS_DIRECTIONS, type StageAction } from '../lib/gesture';
+import { getDirection, selectActionFromVector, vectorToAngle, COMPASS_DIRECTIONS, armedCompassLabelKey, inlineCompassLabelKey, type StageAction } from '../lib/gesture';
 import { ackPhraseForDirection } from '../lib/ackHold';
 import { formatRecordingDuration, PAD_TOP_PERCENT } from '../lib/voiceStage';
 import { getGripHand, subscribePrefs, type GripHand } from '../lib/userPrefs';
@@ -388,6 +388,12 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         cbRef.current.onHoldAbort();
         cbRef.current.onFile();
         setPhase('idle');
+      } else if (action === 'edit') {
+        // t_55e92e7e: → 편집 = 의도 있는 섹터인데 실행 콜백 미장착(onEdit 온보드 갭)이면
+        // 폐기(cancel). send 폴백 금지 — 편집 의도의 릴리스가 녹음을 전송하는 비가역 위장
+        // 실행이 된다(arm 배너는 supported 게이트로 미표시 중 — 화면/실행 일치 유지).
+        cbRef.current.onHoldAbort();
+        setPhase('idle');
       } else if (notCapturedYet) {
         // pending 상태에서 send 의도 = cancel 강등
         cbRef.current.onHoldAbort();
@@ -417,6 +423,18 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   // t_08d671a8 인체공학: 그립 손에 따른 패드 수평 위치 (left 백분율)
   const gripLeftPercent = gripHand === 'left' ? '25%' : gripHand === 'right' ? '75%' : '50%';
 
+  // t_55e92e7e ②: arm 재확인 배너 라벨 — 순수 판정(단위테스트: armedCompassLabelKey).
+  // supported = 실행 콜백이 실제 장착된 액션만 ('놓으면 실행' 약속의 진실성 게이트 — 콜백 없으면
+  // release는 send로 폴백하므로 배너가 거짓이 된다. onEdit 미배선(t_08d671a8 갭) 후속 카드까지 edit 억제).
+  const armedActions: StageAction[] = ['keyboard', 'cancel',
+    ...(onEdit ? (['edit'] as StageAction[]) : []),
+    ...(onPhoto ? (['photo'] as StageAction[]) : []),
+    ...(onFile ? (['file'] as StageAction[]) : [])];
+  const armedLabelKey = armedCompassLabelKey({ ackActive: !!ackActive, ackPhrase: ackHint, activeAction, supported: armedActions });
+  // t_55e92e7e ①: 진입된 나침반 항목의 인라인 라벨 — ackActive 좌/우 실행 우선순위 반영(순수 판정: inlineCompassLabelKey).
+  const inlineLabelFor = (itemAction: StageAction): string | null =>
+    inlineCompassLabelKey({ ackActive: !!ackActive, ackPhrase: ackHint, activeAction, itemAction });
+
   const holding = phase === 'holding';
 
   return (
@@ -439,7 +457,12 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         {!!error && phase === 'idle' && (
           <Text testID="chat-voice-fallback" style={styles.fallbackTextTop}>{t(error)}</Text>
         )}
-        {/* t_08d671a8 5방향 나침반 가이드 — 홀드 중 표시, 현재 방향 강조 */}
+        {/* t_08d671a8 5방향 나침반 가이드 — 홀드 중 표시, 현재 방향 강조.
+            t_55e92e7e (대표님 10/10): 방향 진입 순간 그 섹터의 동작을 글자로 표시 — 진입된 화살표
+            옆에 인라인 라벨(arm 상태 = 강조+글자, 비진입 = 화살표만 희미). 섹터 판정은
+            onPanResponderMove의 selectActionFromVector(±30° 경계) 결과(activeAction) 단일 소스 reuse —
+            신규 각도 계산 없음. 상단 클러스터(히트 앵커 voice-stage-pad 계약 불변) 내 render —
+            손가락 도달대(뷰포트 ~80%) 밖이라 가림 없음, #mat-callout 서브트리(user-select none 상속). */}
         {holding && (
           <View testID="voice-compass-row" style={styles.compassRow}>
             {COMPASS_DIRECTIONS.map((d) => (
@@ -449,9 +472,22 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
                 style={[styles.compassItem, activeAction === d.action && styles.compassActive]}
               >
                 {d.arrow}
+                {inlineLabelFor(d.action) ? ` ${t(inlineLabelFor(d.action)!)}` : ''}
               </Text>
             ))}
           </View>
+        )}
+        {/* t_55e92e7e ②: arm 상태(현재 선택 방향) = 실행 예정 동작 글자 재확인 — joystick-ack-armed
+            패턴 계승(accent bold '놓으면 실행' 문구). 상단 클러스터 인-flow(링 하단 absolute와 달리
+            자식 정렬 순 유지). 비-arm(센터/deadzone=send) 시 미표시 — 전송은 기본 동작이라 라벨 없음.
+            ackActive(재질문 행) + 좌/우 끝에서는 release 실행 우선순위(stageReleaseOutcome)가 ack
+            문장(예/아니요)이므로 armedCompassLabelKey가 그 판정을 그대로 반영 — 화면/실행 불일치 금지. */}
+        {holding && !!armedLabelKey && (
+          <Text testID={`compass-label-${activeAction}`} style={styles.compassArmConfirm}>
+            {t(armedLabelKey)}
+            {' — '}
+            {t('chat.joystickArmRelease')}
+          </Text>
         )}
         {/* 타이머 (대표님 10/4: 손가락이 덮어도 시간 보임 → 상단) */}
         {holding && (recording || !pending) && (
@@ -528,6 +564,8 @@ const styles = StyleSheet.create({
   compassRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   compassItem: { ...typography.body, color: colors.text2, opacity: 0.5, marginHorizontal: 8 },
   compassActive: { opacity: 0.9, color: colors.accent, fontWeight: '600' },
+  // t_55e92e7e ②: arm 재확인 문구 — 상단 클러스터 인-flow, accent bold (joystick-ack-armed 계승 톤)
+  compassArmConfirm: { ...typography.caption, color: colors.accent, fontWeight: '600', textAlign: 'center', marginTop: 2 },
   pad: {
     // 지문인식형 홀드 패드 (t_f8c40db0) — 링과 동일 중심·직경(96px), 대기 상태에서도 보이는 유일한 인식 원.
     // t_08d671a8 인체공학: top: PAD_TOP_PERCENT% — t_8dbb1619 10/9 30→55 하향 (뷰포트 ~80%·데드존 ≤130px)

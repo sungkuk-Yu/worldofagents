@@ -51,3 +51,26 @@ export async function measureImage(uri: string): Promise<{ width: number; height
     return { width: s.width || 0, height: s.height || 0 };
   } catch { return { width: 0, height: 0 }; }
 }
+
+/**
+ * t_55e92e7e 후속 실행 배선: ↗ 파일첨부 웹 선택기 — hidden <input type=file>(accept 없음 = 전 유형,
+ * 백엔드 /api/upload mime 검증에 일임). 네이티브는 expo-document-picker 미설치 — errors.unavailableAction
+ * throw(호출측 setUnavailableError 폴백). att.add가 받는 { uri, name, type } 형태 반환.
+ */
+export async function pickFilesWeb(): Promise<{ uri: string; name: string; type: string }[]> {
+  if (Platform.OS !== 'web') throw new Error('errors.unavailableAction');
+  if (typeof document === 'undefined') return [];
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.style.display = 'none';
+    input.onchange = () => {
+      const files = Array.from(input.files ?? []);
+      input.remove();
+      resolve(files.map((f) => ({ uri: URL.createObjectURL(f), name: f.name || 'file.bin', type: f.type || 'application/octet-stream' })));
+    };
+    // 취소는 resolve 안 함 — pickWeb과 동일 계약(호출측 상태 유지).
+    document.body.appendChild(input);
+    input.click();
+  });
+}
