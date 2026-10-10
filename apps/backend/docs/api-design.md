@@ -667,6 +667,12 @@ Whisper v3 Turbo로 실시간 음성 인식. 오디오는 바이너리 프레임
 { "type": "audio.end", "session_id": "uuid" }
 ```
 
+`draft: true` 옵션 (t_8bac5645 hold-for-edit, 대표님 10/4 '녹음 완료하나 전송 전 텍스트 편집'):
+```json
+{ "type": "audio.end", "session_id": "uuid", "draft": true }
+```
+draft 릴리스는 전사 회신(`transcript.draft`)만 보내고 마감한다 — user 행 영속·턴 실행·`transcript.final`·멱등(client_req_id) 저장 없이. absent/false 이면 기존 전송 경로 그대로(하위호환). 무음 릴리스는 `text:""` (프론트 no-op). `audio.cancel` 폐기 계약 무영향.
+
 #### VAD (Voice Activity Detection) 신호
 ```json
 { "type": "audio.vad", "active": true }
@@ -687,6 +693,20 @@ Whisper v3 Turbo로 실시간 음성 인식. 오디오는 바이너리 프레임
   "language": "ko"
 }
 ```
+
+#### 초안 트랜스크립트 (hold-for-edit, 비영속)
+**서버 → 클라이언트** (`audio.end{draft:true}`의 전사 회신 — t_8bac5645):
+```json
+{
+  "type": "transcript.draft",
+  "session_id": "uuid",
+  "text": "내일 회의 자료 좀 정리해줘",
+  "confidence": 0.92,
+  "language": "ko",
+  "duration_ms": 2340
+}
+```
+turn_index/message_id 없음(발화 미영속)·seq 미채번 — 발화 소켓 회신 전용으로 eventlog 리플레이 대상에서 제외된다(구 draft 재폭주 방지). 프론트는 텍스트를 입력창에 채우고 사용자의 명시 전송 시에만 기존 `message.send`/`audio.end`(무draft)로 영속·실행한다.
 
 #### 최종 확정 트랜스크립트 (문장 경계)
 **서버 → 클라이언트:**

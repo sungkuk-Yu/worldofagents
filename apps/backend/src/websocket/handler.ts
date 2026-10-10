@@ -395,7 +395,9 @@ export async function websocketHandler(connection: any, request: FastifyRequest)
           break;
 
         case 'audio.end':
-          await handleAudioEnd(socket, state, session!, state.userId, message.client_req_id ?? null);
+          // draft=true (t_8bac5645 '→편집' 릴리스): 전사만 하고 비영속 마감 — absent/false 는
+          // 기존 전송 경로 1:1 (하위호환).
+          await handleAudioEnd(socket, state, session!, state.userId, message.client_req_id ?? null, message.draft === true);
           break;
 
         case 'audio.cancel':
@@ -520,7 +522,7 @@ async function handleAudioStart(socket: WSSocket, state: ConnState, message: Ext
   });
 }
 
-async function handleAudioEnd(socket: WSSocket, state: ConnState, session: SessionsRow, userId: string, clientReqId: string | null = null) {
+async function handleAudioEnd(socket: WSSocket, state: ConnState, session: SessionsRow, userId: string, clientReqId: string | null = null, draft = false) {
   const target = session.id;
   if (!target) {
     sendJson(socket, { type: 'error', code: 'VALIDATION_ERROR', message: 'session_id가 필요합니다.' });
@@ -534,7 +536,16 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
   }
   state.audio = null;
 
+  // hold-for-edit 브리지 (t_8bac5645, 대표님 10/4 '수정(녹음 완료하나 전송 전 텍스트 편집)'):
+  // audio.end{draft:true}는 전사 회신만 보낸다 — user 행 영속 0·runTextTurn 0·transcript.final 0·
+  // 멱등(client_req_id) 저장 0. 발화 소켓 회신 전용(sendJson)이라 seq 미채번·eventlog 미기록 —
+  // last_seq diff 리플레이에 구 draft가 재폭주하지 않는다 (휘발성 연출). audio.cancel 폐기 계약 무영향.
   if (!audio.buffer.hasSignal) {
+    // 무음 릴리스(draft)는 text:'' — 프론트 no-op. 기존 '' final 경로와 대칭.
+    if (draft) {
+      sendJson(socket, { type: 'transcript.draft', session_id: target, text: '', confidence: 0, language: audio.language, duration_ms: audio.buffer.durationMs });
+      return;
+    }
     sendJson(socket, { type: 'transcript.final', session_id: target, turn_index: -1, text: '', confidence: 0, language: audio.language, duration_ms: audio.buffer.durationMs, message_id: null });
     return;
   }
@@ -542,6 +553,11 @@ async function handleAudioEnd(socket: WSSocket, state: ConnState, session: Sessi
   sendJson(socket, { type: 'audio.vad', session_id: target, active: false });
 
   const result = await transcribeAudio(audio.buffer.bundle);
+  if (draft) {
+    // 전사 실패·무결과도 draft는 영속하지 않고 회신으로 마감 (text:'' 은 프론트 no-op).
+    sendJson(socket, { type: 'transcript.draft', session_id: target, text: result.text, confidence: result.confidence, language: result.language, duration_ms: result.durationMs });
+    return;
+  }
   if (!result.text) {
     sendJson(socket, { type: 'transcript.final', session_id: target, turn_index: -1, text: '', confidence: 0, language: audio.language, duration_ms: result.durationMs, message_id: null });
     return;
