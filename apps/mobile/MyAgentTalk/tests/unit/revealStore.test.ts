@@ -135,3 +135,14 @@ test('대형 행: begin/feed 모두 MAX 초과 시 상태 미생성(장문 통�
   assert.equal(st.has('stream-big'), false);
   assert.equal(st.has('row-big'), false);
 });
+
+test('t_e1de4cc4 ②: hasPending(exceptKey) — 칩 후보(empathy) 자기 리빌은 억제 사유 제외, 타 리빌은 유지', () => {
+  const st = createRevealStore();
+  st.begin('emp-1', '이거 맞죠? 긴 재질문 문장입니다 타이핑이 오래 걸리는 정도', T0);
+  assert.equal(st.hasPending(), true, '인자 없음 = 기존 동작 1:1');
+  assert.equal(st.hasPending('emp-1'), false, 'exceptKey = 자기 리빌만 있으면 false (칩 창 발화 가능)');
+  st.feed('stream-r9', '답변 성장 중', T0);
+  assert.equal(st.hasPending('emp-1'), true, '답변 delta 리빌(stream-*)은 억제 사유 유지');
+  for (let i = 0; i < 400 && st.hasPending(); i++) { st.tick(T0 + i * 32); }
+  assert.equal(st.hasPending('emp-1'), false, '소진 후 어떤 키에서도 false');
+});

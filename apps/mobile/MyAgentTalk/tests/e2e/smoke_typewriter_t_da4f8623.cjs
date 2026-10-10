@@ -52,6 +52,16 @@ async function openKeyboard(page) {
 }
 const caretShown = async (page) => (await page.getByTestId('typing-caret').count()) > 0;
 const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector('[data-testid="typing-bubble-label"]'), null, { timeout: 4000 }).then(() => true).catch(() => false);
+// t_96a708c5 D 시나리오 확정 대기 봉인 (smoke_ack_chips waitChips류 poll 관례 승계):
+//  waitEchoMounted — 에코행 마운트 결정적 술어: message-agent 행 중 발화 고유 선두 접두('Test reply
+//  to 견적서' — 히스토리 시드 '이전 질문 복창'과 충돌 없는 텍스트) 포함 행 실존. 클릭 직후 즉시
+//  읽기는 POST 라운드트립에 진다(선재 28/1 재현). 선두 매칭만: 전체 텍스트 매칭은 reduced-motion
+//  폴백 파손(리빌 진행) 빌드에서 소진 후 성립→회귀 은폐. 매칭 직후 유예 없이 읽으면 회귀는 부분
+//  텍스트로 FAIL 유지(변별력 보존). 상한 초과 시 WARN 후 기존 단언이 그대로 FAIL — check 수 불변.
+const waitEchoMounted = (page, headMarker, ms = 15000) =>
+  page.waitForFunction((t) => Array.from(document.querySelectorAll('[data-testid="message-agent"]'))
+    .some((el) => (el.innerText || '').includes(t)), headMarker, { timeout: ms, polling: 100 })
+    .then(() => true).catch(() => false);
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE });
@@ -82,7 +92,7 @@ const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector(
 
     // ══ B. 재질문(empathy) 1자 리빌 — 중간 프레임 capture, 1:1 수렴, 커서 생멸 ══
     {
-      const EXPECT = '이거 맞죠? 내일 출장 일정 잡아줘'; // ack 픽스처 eq_confirm 회전 = '이거 맞죠? ' + 발화(12자)
+      const EXPECT = require('./empathyPool.generated.cjs').requestion('내일 출장 일정 잡아줘', null, 'ko').text; // t_a7b39e0f: 백엔드 미러 첫 회전(hash seed)과 문자 동일 — 하드카피 금지
       const { page, state, errors, ctx } = await openChat(browser, { gateSend: true });
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('내일 출장 일정 잡아줘');
@@ -96,7 +106,7 @@ const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector(
       const samples = [];
       let monotone = true, jumped = false, caretMid = false, t0 = Date.now();
       let prevLen = -1;
-      while (Date.now() - t0 < 2600) {
+      while (Date.now() - t0 < 6000) {
         const txt = (await body.innerText().catch(() => '')).trim();
         if (txt && txt !== samples[samples.length - 1]) {
           samples.push(txt);
@@ -166,6 +176,9 @@ const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector(
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('견적서 다시 보내줘');
       await page.getByTestId('send-button').click();
+      // t_96a708c5 waitEchoMounted + t_a7b39e0f 계약(도착 후 첫 관측=전문) 통합: 결정적 술어 대기 후 즉시 읽기.
+      const arrived = await waitEchoMounted(page, 'Test reply to 견적서');
+      if (!arrived) console.log('  WARN  D 에코행 15s 내 미도착 — 단언은 그대로 FAIL (경합 봉인 실패 관측)');
       const finalTxt = (await page.getByTestId('message-agent').last().innerText().catch(() => '')).trim();
       check('D reduced-motion — 도착 즉시 전문 노출 (Test reply to 견적서…)', finalTxt.includes('Test reply to 견적서 다시 보내줘'), finalTxt.slice(0, 40));
       check('D reduced-motion — 리빌 경로(caret/reveal-body) 미사용', !(await caretShown(page)) && (await page.getByTestId('typing-caret').count()) === 0);

@@ -59,11 +59,16 @@ async function openChat(browser) {
   for (let i = 0; i < 40 && !socket(); i++) await sleep(100);
   return { ctx, page, state, errors, socket };
 }
-const empathyRow = (id, ageMs, turnIndex, extra = {}) => ({
-  id, session_id: 'source', role: 'agent', source_neuron: 'empathy', turn_index: turnIndex,
-  content: `이거 맞죠? 앵커-프루브-${id}`, created_at: new Date(Date.now() - ageMs).toISOString(),
-  structured_payload: { empathy_question: '이거 맞죠?', template_id: 'eq_confirm', empathy_ack: '네, 확인했어요' }, ...extra,
-});
+const empathyRow = (id, ageMs, turnIndex, extra = {}) => {
+  // t_a7b39e0f: content는 백엔드 eq_confirm 포맷 미러와 문자 동일 합성 — 구 복창 접두 서식 폐기(t_51f9fd01) 반영.
+  const q = require('./empathyPool.generated.cjs');
+  const text = q.pool.find((x) => x.id === 'eq_confirm').ko.split('{요약}').join(q.summary(`앵커-프루브-${id}`));
+  return {
+    id, session_id: 'source', role: 'agent', source_neuron: 'empathy', turn_index: turnIndex,
+    content: text, created_at: new Date(Date.now() - ageMs).toISOString(),
+    structured_payload: { empathy_question: text, template_id: 'eq_confirm', empathy_ack: '네, 확인했어요' }, ...extra,
+  };
+};
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });

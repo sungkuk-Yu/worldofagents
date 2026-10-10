@@ -46,8 +46,10 @@ export interface RevealStore {
   has: (key: string) => boolean;
   subscribe: (key: string, cb: RevealListener) => () => void;
   subscribeAll: (cb: RevealListener) => () => void;
-  /** 진행 중 리빌 존재 — 칩 억제 게이트·타이핑 버블 소멸 조건 */
-  hasPending: () => boolean;
+  /** 진행 중 리빌 존재 — 칩 억제 게이트·타이핑 버블 소멸 조건.
+   *  t_e1de4cc4 ②: exceptKey(칩 후보 empathy 행) 리빌은 제외하고 판정 — 통째 도착 문장의
+   *  표시 연출이 예/아니요 발화 가능 창(도착부터 2.5s)을 먹지 않게. 미주입 = 기존 동작 1:1. */
+  hasPending: (exceptKey?: string) => boolean;
   /** 순수 구동 통로 (unit: 타머 대신 시각 주입) */
   tick: (now: number) => void;
   tickMs: number;
@@ -70,8 +72,11 @@ export function createRevealStore(): RevealStore {
     allListeners.forEach((cb) => { try { cb(); } catch { /* ignore */ } });
   }
 
-  function pendingNow(): boolean {
-    for (const s of states.values()) if (isRevealing(s)) return true;
+  function pendingNow(exceptKey?: string): boolean {
+    // t_e1de4cc4 ②: exceptKey = '예/아니요 칩 후보 행(empathy)'의 리빌 — 통째 확정 문장의 표시
+    // 연출일 뿐이라 칩 발화 가능 창(도착부터 2.5s)을 태우면 안 된다. 그 외(답변 delta 리빌)는
+    // t_da4f8623 충돌 방지 억제 유지. exceptKey 미주입 = 기존 동작 1:1.
+    for (const s of states.values()) if (isRevealing(s) && s.key !== exceptKey) return true;
     return false;
   }
 
@@ -209,7 +214,7 @@ export function createRevealStore(): RevealStore {
       return () => { const cur = listeners.get(key); if (!cur) return; cur.delete(cb); if (!cur.size) listeners.delete(key); };
     },
     subscribeAll(cb) { allListeners.add(cb); return () => { allListeners.delete(cb); }; },
-    hasPending: () => pendingNow(),
+    hasPending: (exceptKey?: string) => pendingNow(exceptKey),
     tick,
   };
 }

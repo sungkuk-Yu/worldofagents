@@ -1,4 +1,12 @@
 // 브라우저 검증 전용 픽스처: 제품 코드로 가져오지 않는다.
+// t_a7b39e0f: 재질문 미러는 백엔드 lib/empathyRule의 esbuild CJS 스냅샷(empathyPool.generated.cjs)에서
+// 합성한다 — 문자열 하드카피 금지(백엔드 서식 변경 시 tools/extract-empathy-pool.sh 재생성 1회로 전파).
+const EQ = require('./empathyPool.generated.cjs');
+/** template_id 고정 미러: 백엔드 pool ko 포맷 + empathyKeywordSummary(=요약) 경로와 문자 동일 합성. */
+function mirrorRequestion(templateId, utterance) {
+  const t = EQ.pool.find((x) => x.id === templateId) || EQ.pool[0];
+  return { text: t.ko.split('{요약}').join(EQ.summary(utterance)), templateId: t.id };
+}
 async function installFixtures(page, { rich = false, wave = false, chief = false, uploadStub = null, feedPhoto = false, reader = false, exportStub = null, ack = false, gateSend = false, dedupWindow = false, sender = false, tracker = false, confirm = false, chains = false, threads = false, threadsLite = false, queueVis = false, longCard = false, anchorMs = null, queueDelayMs = 0 } = {}) {
   const state = { calls: [], unsupportedThread: false, unsupportedFork: false, failFavorite: false, favorites: [], sessions: [], messages: {}, queue: undefined, sockets: [], exports: [], frames: [], resolveSend: null, lastIngress: null };
   // chief=true → 에이전트명 '김비서' (t_55f9ed57 갈라내기 게이트: 김비서 room만 fork 노출)
@@ -88,7 +96,7 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'r-done', role: 'user', content: '트래커 답글', turn_index: 4, created_at: ago(1.5), parent_message_id: 'q-done', root_message_id: 'q-done', agent_id: 'agent', agent_name: agent.name },
       { id: 'q-new', role: 'user', content: '트래커 새 질문', turn_index: 5, created_at: ago(0.2), agent_id: 'agent', agent_name: agent.name },
       { id: 'q-ask', role: 'user', content: '트래커 확인 질문', turn_index: 6, created_at: ago(0.1), agent_id: 'agent', agent_name: agent.name },
-      { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 트래커 확인', turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 트래커 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'e-ask', role: 'agent', source_neuron: 'empathy', content: mirrorRequestion('eq_confirm', '트래커 확인 질문').text, turn_index: 7, created_at: ago(0.1), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: mirrorRequestion('eq_confirm', '트래커 확인 질문').text, template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
     ];
   }
   if (chains) {
@@ -113,7 +121,7 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
       { id: 'r4', role: 'user', content: '체인 정리 답글', turn_index: 8, created_at: cAgo(0.32), parent_message_id: 'q4', root_message_id: 'q4', agent_id: 'agent', agent_name: agent.name },
       { id: 'q3', role: 'user', content: '체인 확인 질문', turn_index: 9, created_at: cAgo(0.42), agent_id: 'agent', agent_name: agent.name },
       { id: 'r3', role: 'user', content: '체인 확인 답글', turn_index: 10, created_at: cAgo(0.36), parent_message_id: 'q3', root_message_id: 'q3', agent_id: 'agent', agent_name: agent.name },
-      { id: 'e3', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 체인 확인', turn_index: 11, created_at: cAgo(0.35), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 체인 확인', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'e3', role: 'agent', source_neuron: 'empathy', content: mirrorRequestion('eq_confirm', '체인 확인 질문').text, turn_index: 11, created_at: cAgo(0.35), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: mirrorRequestion('eq_confirm', '체인 확인 질문').text, template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
     ];
     state.sessions.push({ id: 'f1', agent_id: 'agent', title: '하드포크 프로젝트', status: 'active', last_activity_at: cAgo(0.6), forked_from: { session_id: 'source', message_id: 'q2', turn_index: 4, forked_at: cAgo(0.7), title: 'Original project' } });
     state.sessions[0].last_activity_at = cAgo(0.2);
@@ -166,11 +174,11 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
     const cAgo = (min) => new Date(CNow - min * 60 * 1000).toISOString();
     state.messages.source = [
       { id: 'cq1', role: 'user', content: '확인 왕복 질문', turn_index: 0, created_at: cAgo(30), agent_id: 'agent', agent_name: agent.name },
-      { id: 'ce1', role: 'agent', source_neuron: 'empathy', content: '이거 맞죠? 확인 왕복 질문', turn_index: 1, created_at: cAgo(29), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '이거 맞죠? 확인 왕복 질문', template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'ce1', role: 'agent', source_neuron: 'empathy', content: mirrorRequestion('eq_confirm', '확인 왕복 질문').text, turn_index: 1, created_at: cAgo(29), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: mirrorRequestion('eq_confirm', '확인 왕복 질문').text, template_id: 'eq_confirm' }, agent_id: 'agent', agent_name: agent.name },
       { id: 'ca1', role: 'user', content: '예', turn_index: 2, created_at: cAgo(28), agent_id: 'agent', agent_name: agent.name },
       { id: 'cans1', role: 'agent', source_neuron: 'answer', content: '확인 왕복 답변', turn_index: 3, created_at: cAgo(27), agent_id: 'agent', agent_name: agent.name },
       { id: 'cq2', role: 'user', content: '구조 신호 왕복 질문', turn_index: 4, created_at: cAgo(10), agent_id: 'agent', agent_name: agent.name },
-      { id: 'ce2', role: 'agent', source_neuron: 'empathy', content: '제 이해가 맞다면 구조 신호 왕복 질문', turn_index: 5, created_at: cAgo(9), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: '제 이해가 맞다면 구조 신호 왕복 질문', template_id: 'eq_understand' }, agent_id: 'agent', agent_name: agent.name },
+      { id: 'ce2', role: 'agent', source_neuron: 'empathy', content: mirrorRequestion('eq_understand', '구조 신호 왕복 질문').text, turn_index: 5, created_at: cAgo(9), structured_payload: { empathy_ack: '네, 확인했어요', empathy_question: mirrorRequestion('eq_understand', '구조 신호 왕복 질문').text, template_id: 'eq_understand' }, agent_id: 'agent', agent_name: agent.name },
       { id: 'ca2', role: 'user', content: '아니요', turn_index: 6, created_at: cAgo(8), reply_to_id: 'ce2', agent_id: 'agent', agent_name: agent.name },
       { id: 'cans2', role: 'agent', source_neuron: 'answer', content: '구조 신호 왕복 답변', turn_index: 7, created_at: cAgo(7), agent_id: 'agent', agent_name: agent.name },
     ];
@@ -323,17 +331,17 @@ async function installFixtures(page, { rich = false, wave = false, chief = false
         const user = { id: 'u' + index, role: 'user', content: body.content, turn_index: base, created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, attachments: echo, ...(quoteTarget ? { reply_to_id: quoteTarget.id, structured_payload: quotePayload } : {}) };
         // 백엔드 t_02f58030 코멘트: answer 행도 structured_payload.reply_to 요약본(컨텍스트 있는 답변).
         const answer = { id: 'a' + index, role: 'agent', content: 'Test reply to ' + body.content, turn_index: base + (ack && !body.parent_message_id ? 2 : 0), created_at: new Date().toISOString(), parent_message_id: body.parent_message_id, agent_id: 'agent', agent_name: agent.name, ...(quoteTarget ? { structured_payload: quotePayload } : {}) };
-        // t_043539ff ack 픽스처 → t_c62a2eb7/t_44f8896c 계약형 empathy 행: content=재질문("이거 맞냐" 4종
-        // 회전 시뮬레이션), structured_payload={empathy_question,template_id,empathy_full,empathy_ack},
+        // t_043539ff ack 픽스처 → t_c62a2eb7/t_44f8896c 계약형 empathy 행: content=재질문.
+        // t_a7b39e0f: 회전·문구는 백엔드 빌더(empathyPool.generated.cjs = lib/empathyRule 스냅샷)를
+        // 그대로 쓴다 — lastTemplateId 시드 회전(연속 금지)까지 1:1. 구 복창 접두 서식은
+        // 대표님 10/10 판정으로 백엔드에서 폐기됨(t_51f9fd01 ba397b4b) → 미러도 자동 소멸.
+        // structured_payload={empathy_question,template_id,empathy_full,empathy_ack},
         // created_at=요청 시각(실시간 행). 확인 발화 재에코 금지 상태 머신은 백엔드 소관이라 프론트 스모크는 미검.
-        const ROT = ['eq_confirm', 'eq_proceed', 'eq_understand', 'eq_align'];
-        const tid = ROT[(state.ackTurn = (state.ackTurn ?? -1) + 1) % 4];
-        const requestion = tid === 'eq_confirm' ? `이거 맞죠? ${body.content.slice(0, 12)}`
-          : tid === 'eq_proceed' ? `${body.content.slice(0, 12)} — 맞으면 계속 진행할게요`
-          : tid === 'eq_understand' ? `제 이해가 맞다면 ${body.content.slice(0, 12)}`
-          : `맞나요? ${body.content.slice(0, 12)} 쪽으로 받아들이면 돼요`;
+        const mirror = EQ.requestion(body.content, state.lastTemplateId ?? null, 'ko');
+        state.lastTemplateId = mirror.templateId;
+        const requestion = mirror.text;
         const empathy = ack && !body.parent_message_id
-          ? { id: 'emp' + index, role: 'agent', source_neuron: 'empathy', content: requestion, turn_index: base + 1, created_at: new Date().toISOString(), structured_payload: { empathy_ack: '네, 확인했어요', empathy_full: '에코: ' + body.content, empathy_question: requestion, template_id: tid } }
+          ? { id: 'emp' + index, role: 'agent', source_neuron: 'empathy', content: requestion, turn_index: base + 1, created_at: new Date().toISOString(), structured_payload: { empathy_ack: '네, 확인했어요', empathy_full: '에코: ' + body.content, empathy_question: requestion, template_id: mirror.templateId } }
           : null;
         if (!body.parent_message_id) state.messages[sid].push(user, ...(empathy ? [empathy] : []), answer);
         const result = { user_message_id: user.id, empathy_message_id: empathy ? empathy.id : null, empathy_response: empathy ? empathy.content : null, messages: { user, empathy, answer }, run_id: 'r' + index };

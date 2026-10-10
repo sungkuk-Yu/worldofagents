@@ -29,6 +29,7 @@ import { chipProceedMs, typingLeadMs } from '../lib/typingPacer';
 // t_a654c9ac: 규칙 풀은 lib/empathyRule.ts로 분리(단일 소스). 재질문은 LLM 재해석 우선,
 // 규칙은 최후 폴백. 테스트 하위호환: graph.ts가 아래 export-from로 같은 경로를 유지한다.
 import { buildEmpathyRequestion } from '../lib/empathyRule';
+import { textSimilarity } from '../lib/textSimilarity';
 export { EMPATHY_REQUESTION_TEMPLATES, empathyKeywordSummary, buildEmpathyRequestion } from '../lib/empathyRule';
 import { detectReplyRequest, replyRequestColumns, isMissingReplyColumns, markAwaitingReplyColumnsMissing, ReplyRequest } from '../lib/awaitingReply';
 import { clientReqColumns, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing } from '../lib/idempotency';
@@ -308,21 +309,9 @@ export function answerableHistory(history: HistoryMessage[]): HistoryMessage[] {
   );
 }
 
-/** 문자 2-gram Dice 계수 (0~1) — 재귀 생성 판정용 (t_c31e3f45 B, 임계 0.8). */
-export function textSimilarity(a: string, b: string): number {
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-  const grams = (s: string) => {
-    const set = new Set<string>();
-    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
-    return set;
-  };
-  const ga = grams(norm(a));
-  const gb = grams(norm(b));
-  if (!ga.size || !gb.size) return 0;
-  let inter = 0;
-  for (const g of ga) if (gb.has(g)) inter++;
-  return (2 * inter) / (ga.size + gb.size);
-}
+/** 문자 2-gram Dice 계수 (0~1) — 재귀 생성 판정용 (t_c31e3f45 B, 임계 0.8).
+ *  t_51f9fd01: 구현은 lib/textSimilarity.ts로 이동(공감 복창 차단과 공유) — 하위호환 재수출 유지. */
+export { textSimilarity } from '../lib/textSimilarity';
 
 /** 직전 답변 행 content (answerNode 재생성 판정·히스토리 차단 문구용). */
 function lastAnswerContent(history: HistoryMessage[]): string | null {
