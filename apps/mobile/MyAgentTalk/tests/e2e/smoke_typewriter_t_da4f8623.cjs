@@ -1,15 +1,16 @@
 /**
- * 사람 타이핑 ②-프론트 e2e 스모크 — t_da4f8623
+ * 사람 타이핑 e2e 스모크 — t_da4f8623 → t_4c266653 3차 개정(대표님 10/10 원지시 ①②③)
  * 백엔드 없이 run_c_fixtures 인터셉트 + routeWebSocket 프레임 주입 (관례 승계).
- * 검증 (카드 요구5):
- *  A. '입력 중…' dots 버블: 발화~첫 answer.delta 실존 → 첫 토큰에 소멸, 확정 후 재점등 없음
- *  B. 재질문(empathy) 1자 리빌: 첫 관측 strict prefix(통째 렌더 금지), 신장 단조, 5자 청크 점프 아님,
- *     완료 후 원문=서문 1:1, 커서(▍) 리빌 중 존재 → 완료 후 소멸
- *  C. WS 답변 스트림: 서버 delta 폭주(~5자/톡) 중에도 노출은 진도 앞부분만, done+message.new 후
- *     확정 행 1:1, 스트림 카드 계승(잔류 0), 커서 소멸
- *  D. reduced-motion: 연출 0 — 도착 즉시 전문(폴백 1:1), reveal-body/caret 미사용
- *  E. 배치 GET 히스토리 재현: 진입 즉시 전문, 리빌 상태·캐aret 0 (content 변형 0)
- * 실행: node tests/e2e/fr-serve.cjs dist-typewriter2 8131 &
+ * 개정 계약 (폐기: 1자씩 40~120ms 지터 리빌 = '30자/s 총알받이 연출'):
+ *  A. 리드 캡: '입력 중…' dots 버블 = 발화~첫 문장 노출 구간. 미완 delta 도착에도 유지(보류),
+ *     첫 문장 경계 노출에 소멸, 확정 후 재점등 없음(모노토닉).
+ *  B. 재질문(empathy) = 통째 확정 행 → 도착 즉시 전문 표시(리빌 상태 미생성·캐aret 0),
+ *     칩 ≤2s(억제 창을 연출이 태우지 못한다), 본문=서문 1:1.
+ *  C. WS 스트림: 미완 첫 청크 = 보류(0자+캐aret). 폭주 청크 후 노출=컷점 즉시(≤1틱 게이트).
+ *     answer.done=전문 즉시, 확정 행 계승 1:1, 잔류 0.
+ *  D. reduced-motion: 연출 0 — 도착 즉시 전문(폴백 1:1), reveal-body/caret 미사용.
+ *  E. 배치 GET 히스토리 재현: 진입 즉시 전문, 리빌 상태·캐aret 0 (content 변형 0).
+ * 실행: node tests/e2e/fr-serve.cjs dist-typewriter3 8131 &
  *       APP_URL=http://localhost:8131 node tests/e2e/smoke_typewriter_t_da4f8623.cjs
  */
 const assert = require('node:assert/strict');
@@ -52,12 +53,20 @@ async function openKeyboard(page) {
 }
 const caretShown = async (page) => (await page.getByTestId('typing-caret').count()) > 0;
 const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector('[data-testid="typing-bubble-label"]'), null, { timeout: 4000 }).then(() => true).catch(() => false);
-// t_96a708c5 D 시나리오 확정 대기 봉인 (smoke_ack_chips waitChips류 poll 관례 승계):
-//  waitEchoMounted — 에코행 마운트 결정적 술어: message-agent 행 중 발화 고유 선두 접두('Test reply
-//  to 견적서' — 히스토리 시드 '이전 질문 복창'과 충돌 없는 텍스트) 포함 행 실존. 클릭 직후 즉시
-//  읽기는 POST 라운드트립에 진다(선재 28/1 재현). 선두 매칭만: 전체 텍스트 매칭은 reduced-motion
-//  폴백 파손(리빌 진행) 빌드에서 소진 후 성립→회귀 은폐. 매칭 직후 유예 없이 읽으면 회귀는 부분
-//  텍스트로 FAIL 유지(변별력 보존). 상한 초과 시 WARN 후 기존 단언이 그대로 FAIL — check 수 불변.
+const bubbleStill = (page, ms = 400) => new Promise(async (res) => {
+  // ms 창 동안 버블이 '한 프레임도' 사라지지 않아야 true — 회귀(조기 소멸)면 waitForFunction 타임아웃.
+  try {
+    await page.waitForFunction(() => {
+      if (!document.querySelector('[data-testid="typing-bubble-label"]')) throw new Error('gone');
+      return false; // 계속 false = poll 반복 (사라지면 throw → catch)
+    }, null, { timeout: ms, polling: 50 });
+    res(true);
+  } catch (e) { res(String(e && e.message || '').includes('gone') ? false : true); }
+});
+// t_96a708c5 확정 대기 봉인 (smoke_ack_chips waitChips류 poll 관례 승계):
+//  waitEchoMounted — message-agent 행 중 마커 텍스트 포함 행 실존을 100ms poll로 기달.
+//  3차 개정: 통째 행은 첫 관측=전문이라 선두/후미 매칭이 동시에 성립. C의 후미(tail) 매칭은
+//  '노출=컷점 즉시' 변별자 — 지터 리빌 회귀 빌드에서는 소진(~2s)까지 실패해 FAIL 유지.
 const waitEchoMounted = (page, headMarker, ms = 15000) =>
   page.waitForFunction((t) => Array.from(document.querySelectorAll('[data-testid="message-agent"]'))
     .some((el) => (el.innerText || '').includes(t)), headMarker, { timeout: ms, polling: 100 })
@@ -66,31 +75,39 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE });
   try {
-    // ══ A. dots 버블: 발화~첫 청크 실존 → 첫 answer.delta에 소멸, 완료 후 재점등 없음 ══
+    // ══ A. 리드 캡: 버블 = 발화~첫 문장 노출. 미완 delta에 소멸 아님(보류), 경계 노출에 소멸 ══
     {
       const { page, state, errors, ctx } = await openChat(browser, { ack: false, gateSend: true });
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('출장 보고서 초안 만들어줘');
       await page.getByTestId('send-button').click();
       const bubble = page.getByTestId('typing-bubble-label');
-      const bubbleOn = await bubble.waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
-      check('A 발화 발송 직후 에이전트 자리에 \'입력 중…\' dots 버블', bubbleOn);
-      if (bubbleOn) check('A 라벨 텍스트 = 입력 중…', (await bubble.innerText()).includes('입력 중'));
+      const shown0 = await bubble.waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
+      check('A 발화 발송 직후 에이전트 자리에 \'입력 중…\' dots 버블(리드)', shown0);
+      if (shown0) check('A 라벨 텍스트 = 입력 중…', (await bubble.innerText()).includes('입력 중'));
       const ws = () => state.sockets.at(-1);
       ws().send(JSON.stringify({ type: 'run.started', session_id: 'source', run_id: 'rA', seq: 1 }));
+      await page.waitForTimeout(250);
+      check('A run.started 후 버블 유지 (첫 delta 전)', await bubbleStill(page, 400));
+      // 첫 delta = 종결부호 없는 미완 문장 → 노출 보류 → 버블이 리드로 남는다 (3차 개정 리드 캡:
+      // 회귀(도착 즉시 소멸·1자 폭주)면 이 체크가 FAIL)
       ws().send(JSON.stringify({ type: 'answer.delta', session_id: 'source', run_id: 'rA', delta: '좋습니다', index: 0, seq: 2 }));
-      check('A 첫 answer.delta(첫 토큰)로 버블 소멸', await bubbleGone(page));
-      await page.screenshot({ path: shot('01-after-first-chunk') });
-      ws().send(JSON.stringify({ type: 'answer.done', session_id: 'source', run_id: 'rA', message_id: 'a9', text: '좋습니다. 초안을 만들게요. 잠시만요', ai_generated: true, seq: 3 }));
-      ws().send(JSON.stringify({ type: 'run.completed', session_id: 'source', run_id: 'rA', seq: 4 }));
+      await page.waitForTimeout(350); // rAF/처리 유예 — 이 창에 소멸했다면 회귀 확정
+      check('A 미완 delta(컷점 없음)에도 버블 유지 — 리드 캡 (30cps 총알받이 폐기 근거)', await bubbleStill(page, 400));
+      // 경계 완성: 마침표 포함 청크 → 첫 문장('좋습니다.') 노출 = 버블 소멸각
+      ws().send(JSON.stringify({ type: 'answer.delta', session_id: 'source', run_id: 'rA', delta: '. 초안을', index: 1, seq: 3 }));
+      check('A 첫 문장 경계 노출에 버블 소멸', await bubbleGone(page));
+      await page.screenshot({ path: shot('01-after-first-sentence') });
+      ws().send(JSON.stringify({ type: 'answer.done', session_id: 'source', run_id: 'rA', message_id: 'a9', text: '좋습니다. 초안을 만들게요. 잠시만요', ai_generated: true, seq: 4 }));
+      ws().send(JSON.stringify({ type: 'run.completed', session_id: 'source', run_id: 'rA', seq: 5 }));
       state.resolveSend && state.resolveSend(); // POST 보류 해제 (실행 창 마감)
-      await page.waitForTimeout(4000); // 리빌 소진 + settling
+      await page.waitForTimeout(2000); // 회수 틱 + settling (구 4000 → 리빌 소진 창 폐지로 단축)
       check('A 완료/확정 후 버블 재점등 없음 (모노토닉)', (await page.getByTestId('typing-bubble-label').count()) === 0);
       check('A pageerror 0건', errors.length === 0, errors.join(' | ').slice(0, 140));
       await ctx.close();
     }
 
-    // ══ B. 재질문(empathy) 1자 리빌 — 중간 프레임 capture, 1:1 수렴, 커서 생멸 ══
+    // ══ B. 재질문(empathy) = 통째 도착 즉시 표시 + 칩 창 유지 — 리빌 상태 자체가 없다 ══
     {
       const EXPECT = require('./empathyPool.generated.cjs').requestion('내일 출장 일정 잡아줘', null, 'ko').text; // t_a7b39e0f: 백엔드 미러 첫 회전(hash seed)과 문자 동일 — 하드카피 금지
       const { page, state, errors, ctx } = await openChat(browser, { gateSend: true });
@@ -100,46 +117,25 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
       await page.getByTestId('typing-bubble-label').waitFor({ timeout: 5000 }).catch(() => {});
       state.resolveSend(); // empathy+answer 도착 = 첫 에이전트 출력 = 버블 소멸각
       check('B empathy(재질문) 도착으로 버블 소멸', await bubbleGone(page));
-      const body = page.getByTestId('chat-bubble-reveal').first(); // empathy 카드(nth 0 agent+reveal)
-      const seen = await body.waitFor({ timeout: 4000 }).then(() => true).catch(() => false);
-      check('B 재질문이 RevealBody(리빌 경로)로 들어온다 — 도착 즉시 통째 렌더 아님', seen);
-      const samples = [];
-      let monotone = true, jumped = false, caretMid = false, t0 = Date.now();
-      let prevLen = -1;
-      while (Date.now() - t0 < 6000) {
-        const txt = (await body.innerText().catch(() => '')).trim();
-        if (txt && txt !== samples[samples.length - 1]) {
-          samples.push(txt);
-          if (txt.length < prevLen) monotone = false;
-          if (prevLen >= 0 && txt.length - prevLen > 3) jumped = true; // 1~2자 신장이어야 (5자 점프 금지)
-          prevLen = txt.length;
-          if (!caretMid) caretMid = await caretShown(page);
-        }
-        if (txt.length >= EXPECT.length) break;
-        await page.waitForTimeout(40);
-      }
-      await page.screenshot({ path: shot('02-reveal-frames') });
-      const first = samples[0] ?? '';
-      check('B 리빌 다중 프레임 관측 (frames≥3, 통째 1회 렌더 배제)', samples.length >= 3, `frames=${samples.length}`);
-      check('B 첫 관측 = 원문 strict prefix (한 글자부터)', first.length >= 1 && first.length < EXPECT.length && EXPECT.startsWith(first), `first='${first}'`);
-      check('B 신장 단조 — 되감기 없음', monotone, samples.map((x) => x.length).join(','));
-      check('B 5자 청크 점프 아님 — 사람 1자 감각', !jumped, samples.map((x) => x.length).join(','));
-      check('B 리빌 중 말미 커서(▍) 존재', caretMid);
-      check('B 완료 프레임 원문 = 서문 1:1', samples[samples.length - 1] === EXPECT, `last='${samples[samples.length - 1]}'`);
-      await page.waitForTimeout(1200); // 소진→회수(커서/리빌 testID 수렴)
-      check('B 완료 후 커서 소멸 (reveal-body 정리)', !(await caretShown(page)));
-      // 칩 창: 리빌 중 억제 → 완료 후 노출 (요구1 visibleAckChip 충돌 방지)
-      const chip = await page.getByTestId('ack-chips').waitFor({ timeout: 4000 }).then(() => true).catch(() => false);
-      check('B 리빌 완료 후 예/아니요 칩 노출 (억제 해제)', chip);
-      const finalTxt = (await page.getByTestId('message-agent').nth(1).innerText().catch(() => '')).trim();
-      check('B 재질문 카드 본문 = 서문 (표시만 늦었지 content 불변)', finalTxt.includes(EXPECT), finalTxt.slice(0, 40));
+      // 3차 개정: 통째 행 = 리빌 미생성 → 첫 관측부터 전문. 2초 상한(구 4s 소진 대기가 아님).
+      const body = page.getByTestId('message-agent').nth(1);
+      const arrived = await waitEchoMounted(page, EXPECT.slice(0, 6), 2000);
+      check('B 재질문 도착 즉시 전문 표시 (컷점 무관 통째 노출 — 1자 연출 폐기)', arrived);
+      const shown = (await body.innerText().catch(() => '')).trim();
+      check('B 첫 관측 본문 = 서문 1:1 (content 불변 — 표시 계층만)', shown.includes(EXPECT), shown.slice(0, 40));
+      check('B 리빌 캐aret 없음 (통째 행 연출 0)', !(await caretShown(page)));
+      const chip = await page.getByTestId('ack-chips').waitFor({ timeout: 2000 }).then(() => true).catch(() => false);
+      check('B 예/아니요 칩 ≤2s 노출 — 칩 발화 창을 표시 연출이 태우지 않는다 (t_e1de4cc4 승계)', chip);
+      const finalTxt = (await body.innerText().catch(() => '')).trim();
+      check('B 재질문 카드 본문 = 서문 유지', finalTxt.includes(EXPECT), finalTxt.slice(0, 40));
       check('B pageerror 0건', errors.length === 0, errors.join(' | ').slice(0, 140));
+      await page.screenshot({ path: shot('02-empathy-instant') });
       await ctx.close();
     }
 
-    // ══ C. WS 답변 스트림 — 서버가 앞서가도(5자/톡) 노출은 1자, 확정 계승 ══
+    // ══ C. WS 스트림 폭주 — 노출=컷점 즉시(≤1틱 게이트): 폭주 후 150ms 내 전문 ══
     {
-      const LONG = '제14조 위약금은 연 5퍼센트 상한입니다. 제22조 해지는 30일 통보가 원칙이에요.';
+      const LONG = '제14조 위약금은 연 5퍼센트 상한입니다. 제22조 해지는 30일 통보가 원칙이에요. 예외 조항은 특약으로 우선합니다.'; // ~57자
       const { page, state, errors, ctx } = await openChat(browser, { ack: false });
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('계약서 조항 요약해줘');
@@ -149,23 +145,35 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
       ws().send(JSON.stringify({ type: 'run.started', session_id: 'source', run_id: 'rC', seq: 20 }));
       const card = page.getByTestId('stream-card-rC').first();
       await card.waitFor({ timeout: 4000 }).catch(() => {});
-      const chunks = LONG.match(/.{1,5}/g) ?? [];
+      // 1) 미완 첫 청크: 보류 — 노출 Text 미마운트(0자)·캐aret만 (노출=완료 문장부터, '중간 결과물' 금지)
+      ws().send(JSON.stringify({ type: 'answer.delta', session_id: 'source', run_id: 'rC', delta: '제14조', index: 0, seq: 21 }));
+      await page.waitForTimeout(350);
+      const revealCount1 = await card.getByTestId('chat-bubble-reveal').count();
+      check('C 미완 첫 delta: 노출 보류(0자=Text 미마운트) + 캐aret 말미 (컷점 전 중간 결과물 금지)', revealCount1 === 0 && (await caretShown(page)));
+      // 2) 폭주 주입 — 마지막 청크에 종결부호 포함. 회귀(30cps 지터)면 57자 소진 ~1.9s; ≤1틱이면 즉시.
+      const tBurst = Date.now();
+      const chunks = LONG.slice('제14조'.length).match(/.{1,5}/g) ?? [];
       for (let i = 0; i < chunks.length; i++) {
-        ws().send(JSON.stringify({ type: 'answer.delta', session_id: 'source', run_id: 'rC', delta: chunks[i], index: i, seq: 21 + i }));
-        await page.waitForTimeout(60); // 백엔드 pacer 각도(t_a654c9ac 12~25자/s)
+        ws().send(JSON.stringify({ type: 'answer.delta', session_id: 'source', run_id: 'rC', delta: chunks[i], index: i + 1, seq: 22 + i }));
       }
-      const cardReveal = card.getByTestId('chat-bubble-reveal'); // 카드 스코프 — REST 인라인 행 리빌과 혼동 금지
-      const mid = (await cardReveal.first().innerText().catch(() => '')).trim();
-      check('C delta 폭주 중 노출 = 누적 원문보다 진도 앞 (버퍼 선행)', mid.length > 0 && mid.length < LONG.length && LONG.startsWith(mid), `shown=${mid.length}/${LONG.length}`);
-      await page.screenshot({ path: shot('03-stream-reveal') });
+      // 컷점=마침표까지 첫 문장('…상한입니다.')이 1틱 내 노출되는 것이 정본 게이트.
+      const firstSent = '제14조 위약금은 연 5퍼센트 상한입니다.';
+      const cutShown = await page.waitForFunction((t) => {
+        const els = Array.from(document.querySelectorAll('[data-testid="chat-bubble-reveal"]'));
+        return els.some((el) => (el.innerText || '').includes(t));
+      }, firstSent, { timeout: 800, polling: 50 }).then(() => true).catch(() => false);
+      const cutMs = Date.now() - tBurst;
+      check('C 폭주 청크 노출 지연 ≤1틱(800ms 상한) — 마지막 delta 후 첫 문장 즉시 (30cps 회귀 차단)', cutShown, `t=${cutMs}ms`);
+      await page.screenshot({ path: shot('03-stream-instant') });
+      // 3) 확정 계승 — done/message.new 후 잔류 0·캐aret 소멸·행 원문 1:1
       ws().send(JSON.stringify({ type: 'answer.done', session_id: 'source', run_id: 'rC', message_id: 'ansC', text: LONG, ai_generated: true, seq: 90 }));
       ws().send(JSON.stringify({ type: 'message.new', session_id: 'source', run_id: 'rC', seq: 91, message: { id: 'ansC', session_id: 'source', role: 'agent', source_neuron: 'answer', turn_index: 40, content: LONG, created_at: new Date().toISOString() } }));
       ws().send(JSON.stringify({ type: 'run.completed', session_id: 'source', run_id: 'rC', seq: 92 }));
-      await page.waitForTimeout(7000); // 소진(≤70자, drain 보증 2s) + 확정 행 수렴
+      await page.waitForTimeout(1500); // 회수 틱 + ID merge 수렴 (구 7000 → 드레인 창 폐지)
       const finalTxt = (await page.getByTestId('message-agent').last().innerText().catch(() => '')).trim();
-      check('C 확정 행 원문=서문 1:1', finalTxt.includes(LONG), finalTxt.slice(0, 40));
+      check('C 확정 행 원문=서문 1:1 (되감기·재타이핑 없음)', finalTxt.includes(LONG), finalTxt.slice(0, 40));
       check('C 스트림 카드 계승·잔류 0 (ID merge)', (await page.getByTestId('stream-card-rC').count()) === 0);
-      check('C 확정 후 커서 소멸', !(await caretShown(page)));
+      check('C 확정 후 캐aret 소멸', !(await caretShown(page)));
       check('C pageerror 0건', errors.length === 0, errors.join(' | ').slice(0, 140));
       await ctx.close();
     }
@@ -198,9 +206,9 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
       await ctx.close();
     }
 
-    console.log(`\nsmoke_typewriter_t_da4f8623 — PASS ${passed} / FAIL ${failed}`);
+    console.log(`\nsmoke_typewriter_t_da4f8623 (3차 개정) — PASS ${passed} / FAIL ${failed}`);
     if (failed) process.exitCode = 1;
   } finally {
     await browser.close();
   }
-})().catch((e) => { console.error('FATAL', e); process.exit(2); });
+})().catch((e) => { console.error('SMOKE ABORT:', e.message); process.exit(2); });

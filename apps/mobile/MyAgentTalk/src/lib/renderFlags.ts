@@ -27,8 +27,9 @@ export const renderFlags = {
   inputDraftPersist: envFlags.inputDraftPersist ?? true,
   /** ⑤ 전송 ticks: 시계(pending)→체크(sent=서버 ID)→(!)+탭 재전송(failed), 조용한 삭제 금지 */
   sendTicks: envFlags.sendTicks ?? true,
-  /** ⑥ (t_da4f8623) 사람 타이핑 리빌: 재질문/답변을 1자씩 40~120ms 지터로 노출(서버 청크는 수신 버퍼).
-   *  OFF 시 기존 즉시 렌더 1:1 복귀 (prefers-reduced-motion과 동일 폴백 경로) */
+  /** ⑥ (t_da4f8623 → t_4c266653 3차 개정) 사람 타이핑 리빌: 답변 스트림을 문장 경계(컷점)까지
+   *  서버 스트림 속도 그대로 노출(30자/s 지터 연출 폐기·재질문 통째 즉시 표시). '입력 중…' dots는
+   *  첫 문장 노출 전까지 리드. OFF 시 기존 즉시 렌더 1:1 복귀 (prefers-reduced-motion과 동일 폴백 경로) */
   typewriterReveal: envFlags.typewriterReveal ?? true,
 } as const;
 

@@ -6,9 +6,9 @@
 // '답변 중 · 대기 n'/단계명 quip/'AI 생성' 배지 등 텍스트를 이 카드에서 일절 렌더하지 않는다.
 // 진행 신호 = 무텍스트 연출만(하단 펄스 도트 + 리빌 말미 커서). 대기 수 단일 소스는 우상단 큐 배지.
 // queueStore/quip/i18n 읽기 전부 제거 — 텍스트 소스가 구조적으로 존재하지 않아야 게이트가 반전된다.
-// ②-프론트 (t_da4f8623) 사람 타이핑 리빌: content(서버 누적 원문)는 불변, 본문은 RevealBody가
-// stream-<runId> 노출 진도로 1자씩 그림. 리빌 미활성(플래그 OFF·reduced-motion)이면 폴백=content
-// 즉시 렌더로 기존과 1:1 (회귀 금지).
+// ②-프론트 (t_da4f8623) → ③ (t_4c266653, 대표님 10/10): content(서버 누적 원문)는 불변, 본문은 RevealBody가
+// stream-<runId> 노출 진도(문장 경계까지 즉시 — 30자/s 지터 연출 폐기)로 그림. 리빌 미활성(플래그 OFF·
+// reduced-motion)이면 폴백=content 즉시 렌더로 기존과 1:1 (회귀 금지).
 import React from 'react';
 import { Animated, Easing, Platform, StyleSheet, View } from 'react-native';
 import type { CardProps } from './types';
