@@ -579,6 +579,17 @@ export type ServerMessage = (
   | { type: 'error'; code: string; message: string }
   | { type: 'transcript.partial'; session_id: string; text: string; confidence: number; language: string }
   | {
+      // t_8bac5645 브리지 / t_616e9abf 배선: audio.end{draft:true}('→편집' 릴리스)의 전사 회신 —
+      // 비영속 전문(全文). user 행 영속·런 실행·transcript.final 0. seq 미채번·리플레이 제외(휘발성).
+      // 미배선 클라이언트는 default 분기가 무시하므로 무해 (하위호환).
+      type: 'transcript.draft';
+      session_id: string;
+      text: string;
+      confidence: number;
+      language: string;
+      duration_ms: number;
+    }
+  | {
       type: 'transcript.final';
       session_id: string;
       turn_index: number;
