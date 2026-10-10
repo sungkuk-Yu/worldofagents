@@ -157,11 +157,76 @@ export function selectActionFromVector(dx: number, dy: number, padRadius: number
   return selectAction(angle, distance, padRadius);
 }
 
-/** 5방향 나침반 데이터 — 상단 클러스터 가이드 렌더용 */
-export const COMPASS_DIRECTIONS: { action: StageAction; arrow: string; label: string; angle: number }[] = [
-  { action: 'keyboard', arrow: '↑', label: '키보드', angle: 0 },
-  { action: 'file', arrow: '↗', label: '파일', angle: 30 },
-  { action: 'edit', arrow: '→', label: '수정', angle: 90 },
-  { action: 'photo', arrow: '↓', label: '사진', angle: 180 },
-  { action: 'cancel', arrow: '←', label: '취소', angle: 270 },
+// ────────────────────────────────────────────────────────────────────────────
+// t_55e92e7e (대표님 10/10): 방향=동작 인라인 라벨 — 섹터→i18n 키 순수 매핑.
+//   섹터 판정은 selectAction(±30° 경계·first-match 오버lap 규약) 그대로 재사용 — 신규 각도 계산 없음.
+//   send(센터·매칭 없는 영역) = 라벨 없음(null) — 5방향만 글자로 표시.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** StageAction → i18n 라벨 키 (lib/i18n chat.*) — send 제외 5방향 */
+export const STAGE_ACTION_LABEL_KEYS: Record<Exclude<StageAction, 'send'>, string> = {
+  keyboard: 'chat.joystickLabelKeyboard',
+  file: 'chat.joystickLabelFile',
+  edit: 'chat.joystickLabelEdit',
+  photo: 'chat.joystickLabelPhoto',
+  cancel: 'chat.joystickLabelCancel',
+};
+
+/** 액션 → i18n 키 (send = null: 라벨 없음) */
+export function labelKeyForStageAction(action: StageAction): string | null {
+  if (action === 'send') return null;
+  return STAGE_ACTION_LABEL_KEYS[action];
+}
+
+/** 각도·거리 → 라벨 키 — selectAction(±30° 경계) 재사용 래퍼 (unit: 섹터→라벨 매핑) */
+export function selectActionLabelKey(angleDeg: number, distance: number, padRadius: number): string | null {
+  return labelKeyForStageAction(selectAction(angleDeg, distance, padRadius));
+}
+
+/**
+ * t_55e92e7e ②: 아밍 재확인 배너 라벨 단일 판정 — 릴리스 실행 우선순위(stageReleaseOutcome의 ack
+ * 브랜치 선행)와 동일 소스로 따른다.
+ *   - activeAction send/null → null (전송은 기본 동작, 라벨 없음)
+ *   - ackActive + 좌/우(ackPhrase) → null — 실행 동작은 ack 문장(예/아니요)이고 그 배너는
+ *     이미 링 하단 joystick-ack-armed('예 — 놓으면 전송')가 표시 중(선례 패턴). 배너 중복 금지.
+ *   - 그 외 → 섹터 액션 라벨 키 ('취소 — 놓으면 실행' 등)
+ */
+export function armedCompassLabelKey(opts: {
+  ackActive: boolean;
+  ackPhrase: 'yes' | 'no' | null;
+  activeAction: StageAction | null;
+}): string | null {
+  if (!opts.activeAction || opts.activeAction === 'send') return null;
+  if (opts.ackActive && opts.ackPhrase) return null;
+  return labelKeyForStageAction(opts.activeAction);
+}
+
+/**
+ * t_55e92e7e ①: 나침반 항목 인라인 라벨 단일 판정 — 진입된(activeAction) 항목만 라벨, 그 외 화살표만.
+ * ackActive + 좌/우 끝에서는 릴리스 실행이 ack 문장(stageReleaseOutcome의 ack 브랜치 선행)이므로
+ * 좌(←cancel 섹터)='예', 우(→edit 섹터)='아니요'로 표시 — 섹터 라벨('취소'/'편집')을 그대로
+ * 보이면 화면과 실행이 불일치(라벨만 믿고 놓으면 예/아니요 발화). 순수 판정 — 단위테스트 대상.
+ */
+export function inlineCompassLabelKey(opts: {
+  ackActive: boolean;
+  ackPhrase: 'yes' | 'no' | null;
+  activeAction: StageAction | null;
+  itemAction: StageAction;
+}): string | null {
+  const { activeAction, itemAction } = opts;
+  if (!activeAction || activeAction === 'send' || activeAction !== itemAction) return null;
+  if (opts.ackActive && opts.ackPhrase) {
+    if (itemAction === 'cancel' && opts.ackPhrase === 'yes') return 'chat.ackYes';
+    if (itemAction === 'edit' && opts.ackPhrase === 'no') return 'chat.ackNo';
+  }
+  return labelKeyForStageAction(itemAction);
+}
+
+/** 5방향 나침반 데이터 — 상단 클러스터 가이드 렌더용 (label: 레거시 표시용 문자열, 화면 미사용) */
+export const COMPASS_DIRECTIONS: { action: StageAction; arrow: string; label: string; labelKey: string; angle: number }[] = [
+  { action: 'keyboard', arrow: '↑', label: '키보드', labelKey: STAGE_ACTION_LABEL_KEYS.keyboard, angle: 0 },
+  { action: 'file', arrow: '↗', label: '파일', labelKey: STAGE_ACTION_LABEL_KEYS.file, angle: 30 },
+  { action: 'edit', arrow: '→', label: '수정', labelKey: STAGE_ACTION_LABEL_KEYS.edit, angle: 90 },
+  { action: 'photo', arrow: '↓', label: '사진', labelKey: STAGE_ACTION_LABEL_KEYS.photo, angle: 180 },
+  { action: 'cancel', arrow: '←', label: '취소', labelKey: STAGE_ACTION_LABEL_KEYS.cancel, angle: 270 },
 ];

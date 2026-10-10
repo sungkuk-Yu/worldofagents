@@ -71,6 +71,12 @@
     "confirmThreadBadge": "확인 쓰레드 {{countText}}",
     "ackHoldArmedYes": "예 — 놓으면 전송",
     "ackHoldArmedNo": "아니요 — 놓으면 전송",
+    "joystickLabelKeyboard": "키보드 열기",
+    "joystickLabelCancel": "취소",
+    "joystickLabelEdit": "편집",
+    "joystickLabelPhoto": "사진",
+    "joystickLabelFile": "파일",
+    "joystickArmRelease": "놓으면 실행",
     "typingBubble": "입력 중…"
   },
   "relay": {

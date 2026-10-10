@@ -71,6 +71,12 @@
     "confirmThreadBadge": "Confirm thread {{countText}}",
     "ackHoldArmedYes": "Yes — release to send",
     "ackHoldArmedNo": "No — release to send",
+    "joystickLabelKeyboard": "Open keyboard",
+    "joystickLabelCancel": "Cancel",
+    "joystickLabelEdit": "Edit",
+    "joystickLabelPhoto": "Photo",
+    "joystickLabelFile": "File",
+    "joystickArmRelease": "release to run",
     "typingBubble": "typing…"
   },
   "relay": {
