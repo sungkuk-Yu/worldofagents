@@ -92,7 +92,7 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
 
     // ══ B. 재질문(empathy) 1자 리빌 — 중간 프레임 capture, 1:1 수렴, 커서 생멸 ══
     {
-      const EXPECT = '내일 출장 일정 잡아줘 하려는 거죠?'; // ack 픽스처 eq_analytic 회전 (t_e1de4cc4 ②: eq_confirm 폐기) = 발화(12자) + ' 하려는 거죠?'
+      const EXPECT = require('./empathyPool.generated.cjs').requestion('내일 출장 일정 잡아줘', null, 'ko').text; // t_a7b39e0f: 백엔드 미러 첫 회전(hash seed)과 문자 동일 — 하드카피 금지
       const { page, state, errors, ctx } = await openChat(browser, { gateSend: true });
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('내일 출장 일정 잡아줘');
@@ -106,7 +106,7 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
       const samples = [];
       let monotone = true, jumped = false, caretMid = false, t0 = Date.now();
       let prevLen = -1;
-      while (Date.now() - t0 < 2600) {
+      while (Date.now() - t0 < 6000) {
         const txt = (await body.innerText().catch(() => '')).trim();
         if (txt && txt !== samples[samples.length - 1]) {
           samples.push(txt);
@@ -176,8 +176,7 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('견적서 다시 보내줘');
       await page.getByTestId('send-button').click();
-      // t_96a708c5: 에코행 마운트 결정적 술어 대기 — 발화 고유 접두('Test reply to 견적서'; 히스토리
-      // 시드·chip fixture 행과 충돌 없는 선두 매칭) 실존 확인 후 즉시 읽기(유예 없음 — 회귀 은폐 금지).
+      // t_96a708c5 waitEchoMounted + t_a7b39e0f 계약(도착 후 첫 관측=전문) 통합: 결정적 술어 대기 후 즉시 읽기.
       const arrived = await waitEchoMounted(page, 'Test reply to 견적서');
       if (!arrived) console.log('  WARN  D 에코행 15s 내 미도착 — 단언은 그대로 FAIL (경합 봉인 실패 관측)');
       const finalTxt = (await page.getByTestId('message-agent').last().innerText().catch(() => '')).trim();
