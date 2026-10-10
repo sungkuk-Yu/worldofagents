@@ -21,7 +21,8 @@ import { linkAttachmentsToMessage } from '../lib/attachments';
 import { photoEditCardForTurn, photoEditDirectivePending } from '../lib/photoEditCard';
 import { PersonaConfig, DialogueType } from '../types/db';
 import { NeuronRouter, classifyDialogueType } from './router';
-import { classifyByLLM, CLASSIFY_ADOPT } from './llmClassify';
+import { classifyByRulesSync } from './dialogClassifier';
+import { classifyByLLM, CLASSIFY_ADOPT, LlmClassifyResult } from './llmClassify';
 import { generateSuggestedQuestions, SuggestedQuestion } from '../lib/suggestedQuestions';
 import { generateEmpathyRequest } from '../lib/empathyRequest';
 import { chipProceedMs, typingLeadMs } from '../lib/typingPacer';
@@ -76,6 +77,13 @@ export interface NodeContext {
   voiceOrEchoOff?: boolean;
   /** t_a654c9ac: 재질문 카드 message.new 노출 시각(Date.now) — 자동 예 진행 ≤2.6s 측정 앵커. */
   empathyExposureMs?: number;
+  /**
+   * t_baee5c42 (게이트1 ack→첫글자 ≤1.5s): Stage2 분류 선(先)발사 프라미스.
+   * processTurn이 그래프 진입 전(user 저장·ack·empathy early와 오버랩되게) 발사하면
+   * routerNode가 이를 재사용한다 — 분류 ~900ms의 직렬 소각 제거. 미설정/resume는
+   * routerNode가 인라인 호출(현행 1:1). 소비 후 재사용 금지(1턴 1발사).
+   */
+  classifyPrefired?: Promise<LlmClassifyResult | null>;
 }
 
 type HistoryMessage = { role: string; content: string; source_neuron?: string | null; structured_payload?: Record<string, unknown> | null };
@@ -406,7 +414,10 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     // A (t_c31e3f45): Stage2 컨텍스트에도 공감 재질문 행을 주입하지 않는다 —
     // 자기 발화 에코가 분류기를 오염시켜 같은 소리를 재생산한다.
     const history = answerableHistory(state.history || []).slice(-6).map(h => `${h.role}: ${String(h.content).slice(0, 200)}`);
-    const llm = await classifyByLLM(state.userMessage, { history, signal: ctx.signal });
+    // t_baee5c42: processTurn이 파이프라인 진입 전에 선발사한 분류면 그 결과를 소비한다
+    // (ack/empathy early/user 저장과 오버랩 — 직렬 ~900ms 제거). resume·미발사 경로는
+    // 인라인 호출(현행 1:1 폴백). 두 경로 모두 프라미스 1회 소비(재사용 금지).
+    const llm = ctx.classifyPrefired ? await ctx.classifyPrefired : await classifyByLLM(state.userMessage, { history, signal: ctx.signal });
     if (llm && llm.confidence >= CLASSIFY_ADOPT) {
       dialogueType = llm.type;
       dialogueStage = 2;
@@ -1019,6 +1030,20 @@ export async function processTurn(
         history = (data || []).reverse().filter((m: any) => !opts.persistedUser || m.id !== opts.persistedUser.id);
       } else if (opts.persistedUser) {
         history = history.filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id);
+      }
+
+      // t_baee5c42 (게이트1 잔여분 교정 — ack→첫글자 median 1,826~1,990 실측: 평상 발화가
+      // Stage2 규칙 미확정(stage 3)이면 분류 ~900ms가 routerNode에서 ack 후 직렬로 소각된다).
+      // 분류 킥을 파이프라인 진입 전으로 당긴다 — user 행 저장·empathy early·첨부 링크와
+      // 오버랩되므로 routerNode 도달 시점에는 이미 resolved된 프라미스를 소비만 한다(대기 ~0).
+      // 비용 정책 불변: 규칙 확정(stage 1) 발화는 계속 0ms — stage 3일 때만 발사.
+      // resume은 스킵(저널 재실행은 router 재진입 — 인라인 폴백이 현행 1:1). 실패·타임아웃은
+      // classifyByLLM 내부에서 null(던지지 않는다) — floating reject 없음.
+      const stage3 = classifyByRulesSync(userMessage).stage === 3;
+      if (!resuming && stage3 && config.classification.llmEnabled && isLlmConfigured() && !opts.signal?.aborted) {
+        // A (t_c31e3f45): Stage2 컨텍스트에도 공감 재질문 행을 주입하지 않는다(인라인과 동일 필터).
+        const earlyHistory = answerableHistory(history || []).slice(-6).map(h => `${h.role}: ${String(h.content).slice(0, 200)}`);
+        ctx.classifyPrefired = classifyByLLM(userMessage, { history: earlyHistory, signal: opts.signal });
       }
 
       // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴이면
