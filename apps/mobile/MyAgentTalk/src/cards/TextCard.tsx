@@ -20,9 +20,10 @@ export default function TextCard({ message }: CardProps) {
   // 못 그리는 블록 문법이 감지되면 MarkdownView 계보(ChatMarkdown)로 통일 렌더.
   // 평문·링크·인라인코드·인용·코드블록뿐인 응답은 판정이 false → 아래 RichText 경로 = 기존과 100% 동일(회귀 금지).
   // 사용자 발화 버블은 텔레그램 관습대로 평문 유지(UserCard는 role!=='agent').
-  // t_da4f8623 사람 타이핑 리빌 ② — 에이전트 행(empathy 재질문 포함) 본문은 RevealBody 경유:
-  // 리빌 상태가 있으면 1자씩 노출+커서, 없으면(히스토리 재현·배치 GET·플래그 OFF·reduced-motion)
-  // 아래 두 분기와 동일한 렌더를 그대로 내재(RichText/markdown passthrough) → 트리 1:1 무회귀.
+  // t_da4f8623 ② → t_4c266653 ③: 에이전트 행(empathy 재질문 포함) 본문은 RevealBody 경유:
+  // 스트림 리빌 상태가 있으면 컷점(문장)까지 노출+커서, 없으면(통째 도착·히스토리 재현·배치 GET·
+  // 플래그 OFF·reduced-motion) 아래 두 분기와 동일한 렌더를 그대로 내재(RichText/markdown passthrough)
+  // → 트리 1:1 무회귀. 재질문 통째 행 = 상태 미생성 = 즉시 표시(③).
   if (message.role === 'agent' && renderFlags.typewriterReveal) return <View>
     <RevealBody revealKey={message.id} content={message.content} allowMarkdown fallbackTestId="chat-bubble" />
     {links.length > 0 && <RichLinks links={links} />}
