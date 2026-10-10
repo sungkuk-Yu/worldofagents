@@ -19,7 +19,9 @@ export interface TalkBridge {
   ready: boolean;
   start: (mode?: 'hold' | 'toggle') => void;
   frame: (pcm: ArrayBuffer) => void;
-  end: () => void;
+  /** t_616e9abf: draft=true = '→편집' 릴리스 (audio.end{draft:true} — 백엔드 t_8bac5645 브리지).
+   *  absent/false 는 기존 전송 경로 1:1 유지 (하위호환). */
+  end: (draft?: boolean) => void;
   cancel: () => void;
 }
 
@@ -48,6 +50,10 @@ export interface UsePushToTalkReturn {
   startHold: () => void;
   /** 음성 릴리스 — 전송 종료(위로 올려 빠져나와도 음성 발화는 확정 전송). */
   endHold: () => void;
+  /** t_616e9abf '→편집' 릴리스 — 녹음 완료하되 전사문은 비영속 회신(transcript.draft)으로만
+   *  받는다. WS 프레임 audio.end{draft:true} — user 행 영속/턴 실행 0 (백엔드 t_8bac5645 브리지).
+   *  미시작(pending) 상태면 endHold와 동일 폐기(발화 위장 금지). */
+  endHoldDraft: () => void;
   /** 음성 폐기 — 위로 끌어 키보드로 전환한 것처럼 녹음 중 다른 계층으로 빠질 때 서버에 보내지 않고 취소. */
   abortHold: () => void;
 }
@@ -121,14 +127,15 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
     return subscribePrefs(() => forceRender((n) => n + 1));
   }, []);
 
-  const stopCapture = useCallback((send: boolean) => {
+  const stopCapture = useCallback((send: boolean, draft = false) => {
     if (!activeRef.current) return;
     activeRef.current = false;
     setActive(false);
     setLevel(0);
     captureRef.current?.stop(send);
     captureRef.current = null;
-    if (send) talk.end(); else talk.cancel();
+    // t_616e9abf: draft=true는 '→편집' 릴리스 전용 — audio.end{draft:true} (전송과 달리 비영속 회신).
+    if (send) talk.end(draft); else talk.cancel();
   }, [talk]);
 
   // 프레임 콜백은 AudioWorklet 스레드 근처에서 초당 수십 회 — 상태 갱신은 120ms 스로틀
@@ -281,6 +288,12 @@ export function usePushToTalk(talk: TalkBridge, opts: { active?: boolean } = {})
       // 미시작(pending) 상태의 endHold = 폐기 — 연결 중 잡은 홀드를 조용히 놓는 것(발화 위장 금지).
       if (pendingRef.current && !activeRef.current) { clearPending(); return; }
       stopCapture(true);
+    },
+    endHoldDraft: () => {
+      // t_616e9abf '→편집' 릴리스 — pending(미시작) 상태는 endHold와 동일 폐기(전송·draft 위장 금지),
+      // 캡처 중이면 audio.end{draft:true}: 서버는 전사만 하고 비영속 회신(transcript.draft)으로 마감.
+      if (pendingRef.current && !activeRef.current) { clearPending(); return; }
+      stopCapture(true, true);
     },
     abortHold: () => { clearPending(); stopCapture(false); },
   };

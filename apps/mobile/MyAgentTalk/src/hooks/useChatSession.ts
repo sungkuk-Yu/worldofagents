@@ -34,7 +34,7 @@ import { consumePrefetchedHistory } from '../lib/sessionPrefetch';
 
 export type SendResult = { ok: true } | { ok: false; error: string };
 export type Connection = 'connecting' | 'live' | 'reconnecting' | 'offline';
-export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean; device?: string; /** WS favorite.updated 수신 시 카드 즐겨찾기 갱신 (t_b89df485) */ onFavoriteUpdated?: (messageId: string, favorite: boolean) => void }
+export interface UseChatSessionOptions { sessionId?: string | null; agentId?: string | null; rootMessageId?: string; deferConnection?: boolean; device?: string; /** WS favorite.updated 수신 시 카드 즐겨찾기 갱신 (t_b89df485) */ onFavoriteUpdated?: (messageId: string, favorite: boolean) => void; /** t_616e9abf: transcript.draft(audio.end{draft:true} '→편집' 회신) 수신 — 휘발성, 영속 0. 화면이 입력창에 채운다. */ onTranscriptDraft?: (text: string, durationMs?: number) => void }
 export interface UseChatSessionReturn {
   sessionId: string | null;
   rootMessage: ChatMessage | null;
@@ -70,7 +70,8 @@ export interface UseChatSessionReturn {
     ready: boolean;
     start: (mode?: 'hold' | 'toggle') => void;
     frame: (pcm: ArrayBuffer) => void;
-    end: () => void;
+    /** t_616e9abf: draft=true = '→편집' 릴리스(audio.end{draft:true}) — absent는 기존 전송 경로. */
+    end: (draft?: boolean) => void;
     cancel: () => void;
   };
   // 질문 큐 체크포인트 (t_1797f432 ②): 세션 message_queue 스냅샷 — 빈 배열이면 표시 없음
@@ -136,6 +137,9 @@ export function useChatSession(
   // favorite.updated 콜백은 소켓 클로저가 최초 렌더에 고착되지 않게 ref로 최신값 유지 (t_b89df485)
   const favoriteCbRef = useRef(opts.onFavoriteUpdated);
   favoriteCbRef.current = opts.onFavoriteUpdated;
+  // t_616e9abf: transcript.draft('→편집' 회신) 콜백 — favoriteCbRef와 동일 수법(클로저 최신값).
+  const draftCbRef = useRef(opts.onTranscriptDraft);
+  draftCbRef.current = opts.onTranscriptDraft;
   const [rootMessage, setRootMessage] = useState<ChatMessage | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(requestedSession ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -525,6 +529,15 @@ export function useChatSession(
             // 턴 파이프라인(run.*/streams/coordinator)에 넣지 않으며(계약: message 아님), 재생 이중 도착은
             // applyRelayEvent 커튼(단조·dedup)로 무해. 여기를 early-return해 default 분기 유입을 막는다.
             if (type === 'relay.updated') return;
+            // 음성 '→편집' 회신 (t_616e9abf / 백엔드 t_8bac5645): transcript.draft = 휘발성 전문 —
+            // seq 미채번이라 presence/favorite/queue와 동일 원칙으로 필터 앞에서 처리한다.
+            // text:''(무음 릴리스)는 프론트 no-op(전송·채움 없음) — 백엔드 계약과 대칭.
+            if (type === 'transcript.draft') {
+              if (typeof raw.text === 'string' && raw.text.trim()) {
+                draftCbRef.current?.(raw.text, typeof raw.duration_ms === 'number' && Number.isFinite(raw.duration_ms) ? raw.duration_ms : undefined);
+              }
+              return;
+            }
             if (type === 'audio.started') { runtime.audioOpen = true; setTalking(true); return; }
             if (type === 'audio.vad') {
               // 서버 안전망(홀드 상한/무음 타임아웃)/릴리스 종료 → UI 녹음 상태 해제
@@ -950,10 +963,12 @@ export function useChatSession(
         }));
       },
       frame: (pcm: ArrayBuffer) => { if (runtime.audioOpen) runtime.socket?.send(pcm); },
-      end: () => {
+      end: (draft?: boolean) => {
         if (!runtime.audioOpen) return;
         runtime.audioOpen = false;
-        sendControl({ type: 'audio.end' });
+        // t_616e9abf: draft=true('→편집')는 audio.end{draft:true} — 백엔드는 전사만 하고
+        // transcript.draft 비영속 회신(user 행 영속·런 실행 0). absent = 기존 전송 경로 1:1.
+        sendControl(draft ? { type: 'audio.end', draft: true } : { type: 'audio.end' });
       },
       cancel: () => {
         if (!runtime.audioOpen) return;

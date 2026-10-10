@@ -168,3 +168,11 @@ test('arm 배너 supported 게이트: 실행 콜백 없는 액션은 \'놓으면
   // supported 생략 = 무 게이트 (후방 호환)
   assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'edit' }), 'chat.joystickLabelEdit');
 });
+
+test('arm 배너 supported 게이트 — t_616e9abf →편집 배선 전환: VoiceStage armedActions 실세트', () => {
+  // VoiceStage: ...(onEdit ? ['edit'] : []) — onEdit 전달 시(현재 ChatScreen 배선) edit 포함.
+  const WIRED = ['keyboard', 'cancel', 'edit', 'photo', 'file'] as StageAction[];   // onEdit 장착 계
+  const GAPS = ['keyboard', 'cancel', 'photo', 'file'] as StageAction[];            // onEdit absent 폴백 계
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'edit', supported: WIRED }), 'chat.joystickLabelEdit', '배선 전환 = 배너 참(화면-약속 일치)');
+  assert.equal(armedCompassLabelKey({ ackActive: false, ackPhrase: null, activeAction: 'edit', supported: GAPS }), null, '미장착 폴백(비보이스 화면 등)은 여전히 억제');
+});

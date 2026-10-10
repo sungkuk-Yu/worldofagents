@@ -67,7 +67,8 @@ interface Props {
    *  릴리스와 동일하게 done 체크로 마무리. 터치 홀드(이미 phase='holding')에는 무영(no-op). */
   externalHolding?: boolean;
   // t_08d671a8 5방향 액션 콜백
-  /** → 수정: 녹음 완료하되 전송 전 텍스트 편집 상태로 */
+  /** → 수정: 녹음 완료하되 전송 전 텍스트 편집 상태로. t_616e9abf 실행 배선 — 이 콜백이
+   *  릴리스 실행자 단독(ptt.endHoldDraft = audio.end{draft:true}); onHoldEnd 병행 호출 금지. */
   onEdit?: () => void;
   /** ↓ 사진첨부: 앨범 픽커 열기 */
   onPhoto?: () => void;
@@ -374,8 +375,9 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
         cbRef.current.onHoldAbort();
         setPhase('idle');
       } else if (action === 'edit' && cbRef.current.onEdit) {
-        // → 수정: 녹음 완료 + 편집 모드
-        cbRef.current.onHoldEnd();
+        // t_616e9abf →편집 실행 배선: 릴리스는 onEdit(ptt.endHoldDraft = audio.end{draft:true}) 단독 —
+        // onHoldEnd(audio.end 무draft)를 병행 호출하면 전사 즉시 user 행 영속+턴 실행(위장전송,
+        // t_55e92e7e 결정2 위반). 백엔드(t_8bac5645)는 draft 회신 transcript.draft만 보낸다.
         cbRef.current.onEdit();
         finishDone();
       } else if (action === 'photo' && cbRef.current.onPhoto) {
