@@ -953,34 +953,20 @@ export async function processTurn(
       // empathy 미생성 — 공감 행·예/아니오 칩·확인음 리드 지연 없이 answer 직진. 미설정/그 외
       // 값은 'on'(현행 1:1 계약), 조회 오류도 'on' 강등 — 선호 하나로 턴을 죽이지 않는다.
       // 턴당 SELECT 1회(PATCH /me·auth/me 딥 머지 경로 재사용, 마이그레이션 불필요 JSONB 키).
-      const { data: echoPrefRow } = await db.from('users').select('preferences').eq('id', userId).maybeSingle();
-      const userPrefs = (echoPrefRow as { preferences?: { echoMode?: unknown; protectedTerms?: unknown } } | null)?.preferences || {};
-      const echoModeOff = userPrefs.echoMode === 'off';
-      // 고유명사 보호 사전 (t_f5a9b570, 김비서 #454 실측): preferences.protectedTerms(문자열 배열)
-      // + 페르소나명. 배열이 아니거나 모양이 엉성하면 무시(턴 사망 금지 관례 동일).
-      const orthoProtectedTerms = normalizeProtectedTerms([
-        ...(Array.isArray(userPrefs.protectedTerms) ? userPrefs.protectedTerms.map(String) : []),
-        persona?.name || '',
-      ]);
-      const ctx: NodeContext = { signal: opts.signal, emit: e => {
-        emit(e);
-        opts.onTurnStatus?.('processing', { stage: e.stage });
-      }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false },
-      // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
-      // 음성 턴은 지연 0 (t_5cba9ebb 9/29 #325 보강 2항): 공감 스테이지가 없어 지연할
-      // 확인음이 존재하지 않는다 — answer.delta가 전사 직후 시작되는 것이 목표(≤3.5s).
-      // 공감 off 선호도 동일 — 지연할 확인음(empathy)이 없다 (t_95ac521b, 같은 선례).
-      leadMs: (opts.sttMetadata || echoModeOff) ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
-      // t_a654c9ac: 음성/off 턴 표시 — 타이핑 리드가 leadMs=0 SLA(t_5cba9ebb ≤3.5s)를 덮지 않게.
-      voiceOrEchoOff: Boolean(opts.sttMetadata || echoModeOff),
-      // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
-      db };
-      const dialogueType = classifyDialogueType(userMessage);
-
-      // t_baee5c42 (게이트1 — 앞라인 병렬화): 진입부 컨텍스트 조회 5종이 서로 독립인데도
-      // 직렬.await라 라운드트립이 그대로 ack→첫글자 창 앞에 쌓였다. Promise.all로 1회
-      // 왕복으로 압축 — 에러 던지기 순서(agent→thread root→history)는 기존과 동일하게
-      // 병렬 완료 후 순차 판정(무언 실패 금지). 값· 폴백 semantics 1:1.
+      // t_baee5c42: 아래 진입부 병렬 배치에 합류(직렬 RTT 1개 제거) — userPrefs는 ctx 앞
+      // 어느 곳에도 쓰이지 않는다.
+      const echoPrefPromise = db.from('users').select('preferences').eq('id', userId).maybeSingle();
+      // 답글 인용 (t_02f58030, 마이그레이션 012): 수신 검증은 invalid-무시 계약 — 없는 ID/
+      // 다른 세션이면 null 강등 후 발화 통과. 요약 스냅샷은 user 행 structured_payload.reply_to에
+      // 박아 원문 삭제(SET NULL) 후에도 인용바가 렌더된다 (텔레그램 관습).
+      // t_baee5c42: 같은 배치로 병렬화(발화 직렬 지연 1 RTT 제거).
+      const replyCtxPromise = (opts.replyToId !== undefined
+        ? resolveReplyContext(db, sessionId, opts.replyToId, userId, agentId)
+        : Promise.resolve({ replyToId: null, summary: null })).catch(() => ({ replyToId: null, summary: null })); // invalid-무시 계약: 어떤 실패도 null 강등
+      // t_baee5c42 (게이트1 — 앞라인 병렬화): 진입부 독립 조회 6종(echoPref·reply·agent·
+      // tasks·queue·history)이 직렬.await로 ack→첫글자 창 앞에 쌓였다. Promise.all로
+      // 라운드트립 압축 — agent 에러 throw·thread root NOT_FOUND 등 판정 순서는 기존과
+      // 동일하게 병렬 완료 후 순차 재현(턴 사망 semantics 불변).
       const historyPromise: Promise<any[]> = opts.thread
         ? (async () => {
             const { data: root, error: rootError } = await db.from('messages').select('*')
@@ -1006,12 +992,50 @@ export async function processTurn(
       const agentPromise = db.from('agents').select('*').eq('id', agentId).maybeSingle();
       const tasksPromise = db.from('tasks').select('id').eq('session_id', sessionId).in('status', ['pending', 'in_progress']);
       const queuePromise = db.from('context_patches').select('*').eq('session_id', sessionId).eq('key', 'task.queue');
-      const [agentRes, tasksRes, queueRes, historyLoaded] = await Promise.all([
+      // t_baee5c42: 분류 킥은 batch 전체가 아니라 history 도착에만 체이닝 — 나머지 RTT와
+      // 분류가 겹친다. 실패는 null 강등(턴은 아래 batch await에서 동일 semantics로 사망).
+      const classifyKicked = !resuming && classifyByRulesSync(userMessage).stage === 3
+        && config.classification.llmEnabled && isLlmConfigured() && !opts.signal?.aborted;
+      const classifyPrefire: Promise<LlmClassifyResult | null> | undefined = classifyKicked
+        ? historyPromise.then((h: any) => h === null ? null : classifyByLLM(userMessage, {
+            // A (t_c31e3f45): Stage2 컨텍스트에도 공감 재질문 행을 주입하지 않는다(인라인과 동일 필터).
+            // 선영속 배제(load 경로 historyPromise 내부/여기 opts.history 경로) 동일 semantics.
+            history: answerableHistory((opts.persistedUser && opts.history
+              ? (h as any[]).filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id)
+              : h || [])).slice(-6).map(x => `${x.role}: ${String(x.content).slice(0, 200)}`),
+            signal: opts.signal,
+          })).catch(() => null)
+        : undefined;
+      const [echoPrefRes, agentRes, tasksRes, queueRes, historyLoaded] = await Promise.all([
         // 스레드 루트 NOT_FOUND는 기존과 같이 다른 판정보다 앞선다(root 조회 실패 시).
-        // agentRes/tasks/queue는 이미 병렬 비행했지만 읽기 전용이라 무해 — throw 시점 semantics 유지.
-        agentPromise, tasksPromise, queuePromise, historyPromise,
+        // 병렬 비행한 읽기 전용 조회들은 무해 — throw 시점 semantics 유지.
+        echoPrefPromise, agentPromise, tasksPromise, queuePromise, historyPromise,
       ]);
       if (opts.thread && historyLoaded === null) throw new ApiError('NOT_FOUND', '스레드 루트를 찾을 수 없습니다.');
+      const userPrefs = ((echoPrefRes as { data?: { preferences?: unknown } } | null)?.data?.preferences as { echoMode?: unknown; protectedTerms?: unknown } | null) || {};
+      const echoModeOff = userPrefs.echoMode === 'off';
+      // 고유명사 보호 사전 (t_f5a9b570, 김비서 #454 실측): preferences.protectedTerms(문자열 배열)
+      // + 페르소나명. 배열이 아니거나 모양이 엉성하면 무시(턴 사망 금지 관례 동일).
+      const orthoProtectedTerms = normalizeProtectedTerms([
+        ...(Array.isArray(userPrefs.protectedTerms) ? userPrefs.protectedTerms.map(String) : []),
+        persona?.name || '',
+      ]);
+      const ctx: NodeContext = { signal: opts.signal, emit: e => {
+        emit(e);
+        opts.onTurnStatus?.('processing', { stage: e.stage });
+      }, onDelta: d => opts.onAnswerDelta?.(d, deltaIndex++), llm: { used: false, model: null, fallback: false },
+      // t_baee5c42: 선발사된 분류 — routerNode가 소비한다(미발사 시 undefined → 인라인 폴백).
+      ...(classifyPrefire ? { classifyPrefired: classifyPrefire } : {}),
+      // ① 확인음 후 답변 시작 전 체감 공백 (t_344e047a). 0이면 즉시.
+      // 음성 턴은 지연 0 (t_5cba9ebb 9/29 #325 보강 2항): 공감 스테이지가 없어 지연할
+      // 확인음이 존재하지 않는다 — answer.delta가 전사 직후 시작되는 것이 목표(≤3.5s).
+      // 공감 off 선호도 동일 — 지연할 확인음(empathy)이 없다 (t_95ac521b, 같은 선례).
+      leadMs: (opts.sttMetadata || echoModeOff) ? 0 : (opts.answerLeadMs ?? config.answerLeadMs),
+      // t_a654c9ac: 음성/off 턴 표시 — 타이핑 리드가 leadMs=0 SLA(t_5cba9ebb ≤3.5s)를 덮지 않게.
+      voiceOrEchoOff: Boolean(opts.sttMetadata || echoModeOff),
+      // ③ 후속 질문 보강 컨텍스트 조회 (볼트 노트·선호) — t_344e047a.
+      db };
+      const dialogueType = classifyDialogueType(userMessage);
       const { data: agentRow, error: agentFetchError } = agentRes as { data: any; error: any };
       if (agentFetchError) throw new ApiError('INTERNAL_ERROR', agentFetchError.message);
       // 전문가 카테고리 판정 (t_d54bc456) — 그라운딩 게이트와 저장 시 디스클레이머가 공유한다.
@@ -1031,20 +1055,6 @@ export async function processTurn(
       let history: any[] | undefined = opts.persistedUser && opts.history
         ? (historyLoaded as any[]).filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id)
         : (historyLoaded as any[]);
-
-      // t_baee5c42 (게이트1 잔여분 교정 — ack→첫글자 median 1,826~1,990 실측: 평상 발화가
-      // Stage2 규칙 미확정(stage 3)이면 분류 ~900ms가 routerNode에서 ack 후 직렬로 소각된다).
-      // 분류 킥을 파이프라인 진입 전으로 당긴다 — user 행 저장·empathy early·첨부 링크와
-      // 오버랩되므로 routerNode 도달 시점에는 이미 resolved된 프라미스를 소비만 한다(대기 ~0).
-      // 비용 정책 불변: 규칙 확정(stage 1) 발화는 계속 0ms — stage 3일 때만 발사.
-      // resume은 스킵(저널 재실행은 router 재진입 — 인라인 폴백이 현행 1:1). 실패·타임아웃은
-      // classifyByLLM 내부에서 null(던지지 않는다) — floating reject 없음.
-      const stage3 = classifyByRulesSync(userMessage).stage === 3;
-      if (!resuming && stage3 && config.classification.llmEnabled && isLlmConfigured() && !opts.signal?.aborted) {
-        // A (t_c31e3f45): Stage2 컨텍스트에도 공감 재질문 행을 주입하지 않는다(인라인과 동일 필터).
-        const earlyHistory = answerableHistory(history || []).slice(-6).map(h => `${h.role}: ${String(h.content).slice(0, 200)}`);
-        ctx.classifyPrefired = classifyByLLM(userMessage, { history: earlyHistory, signal: opts.signal });
-      }
 
       // photo_edit 카드 emission (t_78ffba4f): user 지시 펜스 + 이미지 첨부가 같은 턴이면
       // 답변 structured를 photo_edit로 승격 — 프론트 registerCard('photo_edit')가 즉시 렌더.
@@ -1072,10 +1082,8 @@ export async function processTurn(
       // answerNode가 로컬 LLM 대신 Hermes kimsecretary를 부른다. 그 외 room은 false — 기존 동작 1:1.
       const secretaryBridge = isBridgeConfigured() && isKimSecretaryAgent((agentRow as { name?: string } | null)?.name);
 
-      // 답글 인용 (t_02f58030, 마이그레이션 012): 수신 검증은 invalid-무시 계약 — 없는 ID/
-      // 다른 세션이면 null 강등 후 발화 통과. 요약 스냅샷은 user 행 structured_payload.reply_to에
-      // 박아 원문 삭제(SET NULL) 후에도 인용바가 렌더된다 (텔레그램 관습).
-      const replyCtx = opts.replyToId !== undefined ? await resolveReplyContext(db, sessionId, opts.replyToId, userId, agentId) : { replyToId: null, summary: null };
+      // 답글 인용 (t_02f58030): 판정·조회는 위 병렬 배치에서 선발사 — 여기서 소비만 한다.
+      const replyCtx = await replyCtxPromise;
 
       const initial: NeuronState = {
         locale,
