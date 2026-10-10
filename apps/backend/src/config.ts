@@ -278,8 +278,10 @@ export const config = {
     // 저장·발행 구동작 1:1 복귀.
     empathyEarly: process.env.EMPATHY_EARLY !== 'false',
     // t_20746efa (대표님 10/10 two-speed 게이트 3): front desk 단순 발화의 ack→첫 글자
-    // ≤1.5s. 연출 리드(answerLeadMs/typingLead) 상한 — 0이면 리드 전면 생략.
+    // ≤1.5s 실측 flash TTFT 548ms(t_20746efa 라이브 프로브) + 지터 여유 700ms —
+    // 연출 리드 상한 = SLA − TTFT 예산. 0 이하이면 리드 전면 생략.
     frontDeskFirstTokenMs: parseInt(process.env.FRONT_DESK_FIRST_TOKEN_MS || '1500', 10),
+    frontDeskTtftBudgetMs: parseInt(process.env.FRONT_DESK_TTFT_BUDGET_MS || '700', 10),
     deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
     deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
     seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',

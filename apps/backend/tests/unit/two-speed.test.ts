@@ -140,17 +140,19 @@ describe('③ Stage 2 LLM deep 보강 — 규칙 미잡은 깊이 발화 승격'
 });
 
 describe('④ front desk TTFT 게이트 — ack 후 연출 리드 ≤frontDeskFirstTokenMs', () => {
-  it('empathy 없는 front 텍스트 턴: 3s answerLeadMs라도 1.5s로 캡', async () => {
+  it('empathy 없는 front 텍스트 턴: 3s 리드라도 SLA−TTFT예산으로 컷 (1200−700→500)', async () => {
     vi.stubGlobal('fetch', captureFetch());
     vi.spyOn(config, 'answerLeadMs', 'get').mockReturnValue(3000);
-    vi.spyOn(config.protocol, 'frontDeskFirstTokenMs', 'get').mockReturnValue(250);
-    // 반복 발화 게이트로 empathy 억제 → empathyResponse 없음 → 리드 캡 대상
+    vi.spyOn(config.protocol, 'frontDeskFirstTokenMs', 'get').mockReturnValue(1200);
+    vi.spyOn(config.protocol, 'frontDeskTtftBudgetMs', 'get').mockReturnValue(700);
+    // 반복 발화 게이트로 empathy 억제 → empathyResponse 없음 → 리드 컷 대상
     store.tables.messages.push({ id: 'm1', session_id: session.id, role: 'user', content: '같은 말 반복', source_neuron: null, turn_index: 1 } as any);
     const events: TurnEmitEvent[] = [];
     const t0 = Date.now();
     await runTextTurn(db, session, 'user', '같은 말 반복', { locale: 'ko', emit: e => events.push(e) });
     const elapsed = Date.now() - t0;
-    expect(elapsed).toBeLessThan(1200); // 3000 리드가 아니라 250 캡
+    expect(elapsed).toBeGreaterThanOrEqual(400);  // 리드 0이 아니라 500ms (연출 유지)
+    expect(elapsed).toBeLessThan(1100);           // 3000 리드는 불가 — SLA 컷 증명
     expect(events.some(e => e.type === 'answer.done')).toBe(true);
   });
 
