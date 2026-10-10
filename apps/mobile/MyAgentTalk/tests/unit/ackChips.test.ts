@@ -200,3 +200,26 @@ test('t_b2004d50 ⑥: WS 에코 merge 경유 도장 — mergeIncoming 후 candid
   assert.equal(visibleAckChip([msg({ id: 'u1', role: 'user', turnIndex: 1 }), skewed], T0 + 1000)!.id, 'eK', '미주입 = arrivedAt 앵커 (created 미래 스큐 무시)');
   assert.equal(visibleAckChip([msg({ id: 'u1', role: 'user', turnIndex: 1 }), skewed], T0 + 2501), null, '수신각 기준 2.5s 후 소진(스크어가 창을 무한 연장하지 못함)');
 });
+
+// ── t_e1de4cc4 ②: 칩 억제 입력의 순수 판정 — placeholder(실토큰 전)는 억제 대상 아님 ──
+test('t_e1de4cc4: answerOutputActive — text 빈 placeholder=미억제, 첫 실토큰부터 억제, done 후 해제', () => {
+  const { answerOutputActive } = ackChips;
+  assert.equal(answerOutputActive([]), false, '스트림 없음 = 미억제');
+  assert.equal(answerOutputActive([{ done: false, text: '' }]), false, 'placeholder(text="") = 미억제 (ON 경로 empathy 각인 보장)');
+  assert.equal(answerOutputActive([{ done: false, text: ' part' }]), true, '첫 실토 성장 중 = 억제 (t_cc232982 요구3)');
+  assert.equal(answerOutputActive([{ done: true, text: 'part' }]), false, 'done = 해제');
+  assert.equal(answerOutputActive([{ done: true, text: 'x' }, { done: false, text: '' }]), false, 'done 카드+saving placeholder = 미억제');
+  assert.equal(answerOutputActive([{ done: true, text: 'x' }, { done: false, text: 'y' }]), true, '둘 중 하나라도 성장 중 = 억제');
+});
+
+test('t_e1de4cc4: lastEmpathyId — 칩 후보 여부와 무관하게 최신 empathy id (exceptKey 주입용)', () => {
+  const { lastEmpathyId } = ackChips;
+  assert.equal(lastEmpathyId([]), null);
+  assert.equal(lastEmpathyId([msg({ id: 'u1', role: 'user' })]), null, 'empathy 없음 = null');
+  const list = [empathy({ id: 'e1', turnIndex: 2 }), empathy({ id: 'e2', turnIndex: 4 })];
+  assert.equal(lastEmpathyId(list), 'e2', 'turnIndex 오름 목록 = 마지막 empathy');
+  // 소진·억제된 후보도 exceptKey로는 반환 (리빌 자기 행 제외 판단은 후보 게이트와 독립)
+  assert.equal(lastEmpathyId([empathy({ id: 'eX', turnIndex: 2 }), msg({ id: 'u9', role: 'user', turnIndex: 3 })]), 'eX');
+  // 스레드 답글 empathy·빈 본문은 후보 아님 (isEmpathyEchoMessage 게이트 공유)
+  assert.equal(lastEmpathyId([empathy({ id: 'te', parentMessageId: 'x' })]), null);
+});

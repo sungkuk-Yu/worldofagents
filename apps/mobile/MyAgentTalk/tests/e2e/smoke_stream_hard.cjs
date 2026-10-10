@@ -57,7 +57,7 @@ function check(name, cond, extra = '') {
     const card = page.getByTestId('stream-card-r1');
     check('③ run.started/progress 직후 첫 토큰 전 placeholder 카드 자리 확보', await card.count() === 1);
     const quipVisible = await page.getByTestId('stream-live-mark').count();
-    check('③ placeholder는 quip만 노출 (본문 빈 카드)', quipVisible === 1);
+    check('③ placeholder 자리 확보 — 무텍스트 라이브 마커만 (t_e1de4cc4 ①: quip 문구 0줄)', quipVisible === 1);
     await page.screenshot({ path: shot('01-placeholder') });
 
     ws().send(JSON.stringify({ type: 'answer.delta', session_id: 'source', run_id: 'r1', delta: '헬로', index: 0, seq: 3 }));

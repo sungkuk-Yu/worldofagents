@@ -92,7 +92,7 @@ const waitEchoMounted = (page, headMarker, ms = 15000) =>
 
     // ══ B. 재질문(empathy) 1자 리빌 — 중간 프레임 capture, 1:1 수렴, 커서 생멸 ══
     {
-      const EXPECT = '이거 맞죠? 내일 출장 일정 잡아줘'; // ack 픽스처 eq_confirm 회전 = '이거 맞죠? ' + 발화(12자)
+      const EXPECT = '내일 출장 일정 잡아줘 하려는 거죠?'; // ack 픽스처 eq_analytic 회전 (t_e1de4cc4 ②: eq_confirm 폐기) = 발화(12자) + ' 하려는 거죠?'
       const { page, state, errors, ctx } = await openChat(browser, { gateSend: true });
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('내일 출장 일정 잡아줘');

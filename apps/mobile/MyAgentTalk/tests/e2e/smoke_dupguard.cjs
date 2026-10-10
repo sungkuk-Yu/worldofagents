@@ -80,8 +80,10 @@ const postCalls = (state) => state.calls.filter((c) => c.method === 'POST' && /\
       const streamVisible = (await page.getByText('부분 답변이 흘러갑니다').count()) > 0;
       const quipCount = await page.getByText(QUIP, { exact: false }).count();
       check('A2 타이핑 카드 + 스트리밍 카드 공존(검증 구간 성립)', typingVisible && streamVisible, `typing=${typingVisible} stream=${streamVisible}`);
-      check('A2 quip 문구 DOM 정확히 1회 (이중 렌더 회귀 차단)', quipCount === 1, `count=${quipCount}`);
-      await page.screenshot({ path: shot('a2-quip-single') });
+      // t_e1de4cc4 ①재작업 게이트 반전: 이중 렌더(2)→1줄(1차 픽스)→0줄(정본, "답변중도 빼").
+      // quip 문구는 이제 어느 카드에도 존재하면 안 된다 — 진행 신호는 무텍스트 연출만.
+      check('A2 quip 문구 DOM 0건 (① 상태 문구 0줄 계약 — 과거 이중 렌더/1줄 모두 회귀)', quipCount === 0, `count=${quipCount}`);
+      await page.screenshot({ path: shot('a2-quip-zero') });
 
       // A3 REST 확정(gate 해제) 후 동일 발화 재전송은 정당한 재요청 — 통과해야 한다
       state.resolveSend();

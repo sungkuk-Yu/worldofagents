@@ -22,10 +22,12 @@ export function useRevealView(store: RevealStore | undefined, key: string, fallb
 /** 진행 중 리빌 존재의 React 반응형 뷰 (subscribeAll+hasPending) —
  *  타이핑 버블 소멸(t_da4f8623 요구1)·예/아니요 창 억제(충돌 방지)가 이 하나를 공유한다.
  *  서버 스냅샷 false는 항상 안전(재현 경로는 상태 미생성) → 기존 e2e reduced-motion 하네스는
- *  영구 false = 무회귀. */
-export function useRevealPending(store: RevealStore = revealStore): boolean {
+ *  영구 false = 무회귀.
+ *  t_e1de4cc4 ②: exceptKey = 예/아니요 칩 후보(empathy) 행 id — 그 행의 통째-리빌은 칩 발화
+ *  가능 창을 태우는 억제 사유가 아니다. 타이핑 버블 등 기존 소비자는 인자 없이 호출 = 1:1. */
+export function useRevealPending(store: RevealStore = revealStore, exceptKey?: string): boolean {
   const subscribe = React.useCallback((cb: () => void) => store.subscribeAll(cb), [store]);
-  return React.useSyncExternalStore(subscribe, () => store.hasPending(), () => false);
+  return React.useSyncExternalStore(subscribe, () => store.hasPending(exceptKey), () => false);
 }
 
 /** 말미 커서 — 사람 타이핑 감각(550ms 펄스, StreamingCursor 계보). 리빌 소진·확정 시 미렌더=정지(요구3). */
