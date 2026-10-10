@@ -33,7 +33,13 @@ async function req(method, path, { token, body } = {}) {
 
 async function main() {
   const email = `pplx-smoke-${Date.now()}@test.io`;
-  const signupRes = await req('POST', '/api/auth/signup', { body: { email, password: 'password123', display_name: 'smoke' } });
+  // t_74792ee1 (1010): 필수 약관 게이트 도입 후 signup은 consents 필요 (smoke_timing 동일 관례)
+  const signupRes = await req('POST', '/api/auth/signup', { body: { email, password: 'password123', display_name: 'smoke', age_confirmed: true, consents: [
+    { type: 'terms', version: '1.0', consented: true },
+    { type: 'privacy', version: '1.0', consented: true },
+    { type: 'voice_recording', version: '1.0', consented: true },
+    { type: 'overseas_transfer', version: '1.0', consented: true },
+  ] } });
   if (signupRes.status !== 201 && signupRes.status !== 400) throw new Error(`signup ${signupRes.status}`);
   let token = signupRes.json?.data?.token;
   if (!token) {
