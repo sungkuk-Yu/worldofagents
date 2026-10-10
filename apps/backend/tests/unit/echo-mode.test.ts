@@ -82,7 +82,12 @@ describe('off 선호: empathy 미생성 + 답변 직결', () => {
     expect(offElapsed).toBeLessThan(450); // 600ms 대기는 존재할 수 없다
 
     // 대조: on(기본)은 리드 지연이 걸린다.
+    // t_baee5c42: TTFT 예산 재산정(700→1100)으로 front desk 리드컷 기본이 400ms로
+    // 내려와 600ms 리드가 컷된다 — 이 테스트의 계약('off와 달리 on은 리드가 걸림')은
+    // 컷 무관하게 성립해야 하므로 SLA 상한을 리드보다 크게 고정(1500-200=컷1300).
     store.tables.users.length = 0;
+    vi.spyOn(config.protocol, 'frontDeskFirstTokenMs', 'get').mockReturnValue(2000);
+    vi.spyOn(config.protocol, 'frontDeskTtftBudgetMs', 'get').mockReturnValue(200);
     const t1 = Date.now();
     await runTextTurn(db, session, 'user', '날씨 어때', { emit: () => undefined });
     expect(Date.now() - t1).toBeGreaterThanOrEqual(550);

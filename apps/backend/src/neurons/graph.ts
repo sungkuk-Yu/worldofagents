@@ -489,9 +489,10 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     }
   }
   // t_20746efa 게이트 3 (front desk SLA: ack→첫 글자 ≤frontDeskFirstTokenMs): 연출 리드는
-  // '체감'이지 SLA가 아니다(ack·quip가 대기를 채운다) — 리드 상한 = SLA − TTFT 예산(실측
-  // flash 548ms+지터 700ms). empathy 리드(칩 창 2.5s 읽기 계약)·깊이 lane(백스테이지 =
-  // '한 답의 지연')·voice/off(lead0)는 대상 아님. cap≤0이면 리드 전면 생략.
+  // '체감'이지 SLA가 아니다(ack·quip가 대기를 채운다) — 리드 상한 = SLA − TTFT 예산.
+  // t_baee5c42: 예산=실발화 프롬프트 실측 TTFT(worst 1085)+여유=1100 → 컷 400(구 800).
+  // empathy 리드(칩 창 2.5s 읽기 계약)·깊이 lane(백스테이지 = '한 답의 지연')·
+  // voice/off(lead0)는 대상 아님. cap≤0이면 리드 전면 생략.
   if (leadMs && !state.empathyResponse && !state.deepLane) {
     const cap = config.protocol.frontDeskFirstTokenMs - config.protocol.frontDeskTtftBudgetMs;
     if (cap < leadMs) leadMs = Math.max(0, cap);
@@ -574,9 +575,14 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     // t_20746efa two-speed: 깊이 lane은 백스테이지 고모델 승격(설정 시). 미설정이면
     // front 모델 유지 — 승격 실패 폴백이 아니라 '고모델 미배포' 상태라도 턴이 살아간다.
     const answerModel = state.deepLane && config.chatLlm.deepModel ? config.chatLlm.deepModel : undefined;
+    // t_baee5c42 (게이트1 실측 FAIL 교정): thinking 파라미터를 lane별로 분리 —
+    // front desk(flash, answerModel undefined)는 enable_thinking=false 강제 전송
+    // (미전송 시 프로바이더 기본 ON → ack→첫글자 median 7.538ms 실측, 1.5s 대비 5배).
+    // depth lane(deepModel 승격)은 품질 우선 — 미전송(현행 유지, 기본 ON).
     try {
       const result = await chatCompletion({
         model: answerModel,
+        enableThinking: answerModel === undefined ? false : undefined,
         messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
         onDelta: d => ctx.onDelta?.(d),
         signal: ctx.signal,
@@ -606,6 +612,8 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
         const regen = await chatCompletion({
           // t_20746efa: 복창 재생성도 같은 lane 모델 유지 (front/deep 혼선 방지).
           model: answerModel,
+          // t_baee5c42: 재생성도 같은 lane thinking 정책 (front=false 강제, deep=미전송).
+          enableThinking: answerModel === undefined ? false : undefined,
           messages: [
             { role: 'system', content: systemPrompt + `\n\n[ANTI-ECHO] ${state.locale === 'en' ? 'Your previous answer was: ' : '네 직전 답변: '}${prevAnswer.slice(0, 600)}\n${NO_REPEAT_INSTRUCTION[state.locale]}` },
             ...history,

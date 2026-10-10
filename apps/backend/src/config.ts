@@ -135,7 +135,10 @@ export const config = {
    * - deepModel: back stage — 라우터가 '깊이 필요'(법률/세무/시사)로 판정한 턴만
    *   이 모델로 승격(빈 값=승격 없음, front 모델 유지). 미지정 모델명 400 방지를
    *   위해 코드 기본값은 없다 — 게이트웨이에서 실증된 모델명만 .env로 주입.
-   * - enableThinking: qwen3 하이브리드 모델의 reasoning 모드 (미설정 시 파라미터 전송 안 함)
+   * - enableThinking: qwen3 하이브리드 모델의 reasoning 모드 (미설정 시 파라미터 전송 안 함).
+   *   t_baee5c42: 전역 스위치로 누르면 depth lane까지 thinking OFF — 게이트1 FAIL은
+   *   answerNode의 lane별 opts.enableThinking 강제(front=false 강제 전송, deep=미전송
+   *   현행 유지)로 교정한다. 이 값은 callChat 미지정 호출(보조 경로)의 기본.
    */
   chatLlm: {
     enabled: process.env.CHAT_LLM_DISABLED !== 'true',
@@ -278,10 +281,16 @@ export const config = {
     // 저장·발행 구동작 1:1 복귀.
     empathyEarly: process.env.EMPATHY_EARLY !== 'false',
     // t_20746efa (대표님 10/10 two-speed 게이트 3): front desk 단순 발화의 ack→첫 글자
-    // ≤1.5s 실측 flash TTFT 548ms(t_20746efa 라이브 프로브) + 지터 여유 700ms —
-    // 연출 리드 상한 = SLA − TTFT 예산. 0 이하이면 리드 전면 생략.
+    // ≤1.5s — 연출 리드 상한 = SLA − TTFT 예산. 0 이하이면 리드 전면 생략.
+    // t_baee5c42 예산 재산정 (실발화 프롬프트 라이브 실측 n=5, live_ttft_gate1_1010.mts):
+    // thinking=false 강제 시 front 답변 flash 스트리밍 TTFT median 626ms / worst 1085ms
+    // (미전송=프로바이더 기본 ON이면 median 4.7s worst 8.5s — 게이트1 FAIL 원인 확정).
+    // 기존 700ms는 max_tokens=8 초단명 조건 근거 과소평가(대표님 10/10 지적) →
+    // worst+여유 1100. 리드컷 = 1500−1100 = 400ms (lead+TTFT worst ≤1485 = 계약 유지).
+    // 참고: Stage2 분류(~1s)가 같은 창에 직렬로 앉는 발화는 여전히 초과 — 병렬화/앵커
+    // 결정은 김비서 판단 사항(후속 카드).
     frontDeskFirstTokenMs: parseInt(process.env.FRONT_DESK_FIRST_TOKEN_MS || '1500', 10),
-    frontDeskTtftBudgetMs: parseInt(process.env.FRONT_DESK_TTFT_BUDGET_MS || '700', 10),
+    frontDeskTtftBudgetMs: parseInt(process.env.FRONT_DESK_TTFT_BUDGET_MS || '1100', 10),
     deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
     deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
     seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',

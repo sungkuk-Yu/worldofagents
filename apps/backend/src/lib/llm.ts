@@ -60,6 +60,12 @@ export interface ChatOptions {
   temperature?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * t_baee5c42: lane별 thinking 파라미터 강제 (null=config.chatLlm.enableThinking 상속).
+   * front desk는 false 강제 전송(providers 기본 ON이 TTFT median 7.5s의 실측 원인),
+   * depth lane은 미전송(현행 = 프로바이더 품질 우선).
+   */
+  enableThinking?: boolean | null;
 }
 
 export interface ChatResult {
@@ -156,7 +162,13 @@ function buildRequestBody(provider: LlmProvider, opts: ChatOptions, stream: bool
   // qwen 전용 파라미터는 DashScope에만 전송 (Anthropic 호환 엔드포인트는 미지원 파라미터에 취약)
   if (provider.id === 'primary') {
     if (stream) body.stream_options = { include_usage: true };
-    if (config.chatLlm.enableThinking !== null) body.enable_thinking = config.chatLlm.enableThinking;
+    // t_baee5c42: lane override 우선(false=front desk 강제 전송). 미지정(undefined/null)은
+    // config 상속 — config도 미설정이면 미전송(현행 = 프로바이더 기본 ON,
+    // depth lane 품질 우선이므로 변경하지 않는다).
+    const thinking = opts.enableThinking !== undefined && opts.enableThinking !== null
+      ? opts.enableThinking
+      : (config.chatLlm.enableThinking ?? undefined);
+    if (thinking !== undefined) body.enable_thinking = thinking;
   }
   return body;
 }

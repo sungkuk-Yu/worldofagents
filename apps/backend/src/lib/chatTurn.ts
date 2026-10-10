@@ -379,8 +379,11 @@ export async function runTextTurn(
         return (d: string, _i: number) => {
           partialText += d;
           buffer += d;
-          if (buffer.length >= batchChars) { if (pending) { clearTimeout(pending); pending = null; } if (first) { first = false; killVoice(); } flush(); return; }
-          if (!pending) pending = setTimeout(() => { pending = null; if (first) { first = false; killVoice(); } flush(); }, batchMs);
+          // t_baee5c42 (게이트1 실측): 첫 글자 = ack→첫글자 SLA 앵커 — 300ms 배칭 타이머를
+          // 태우지 않고 즉시 flush(체감 SLA가 배칭 정책보다 우선). 이후 델타부터 배칭 유지.
+          if (first) { first = false; killVoice(); if (pending) { clearTimeout(pending); pending = null; } flush(); return; }
+          if (buffer.length >= batchChars) { if (pending) { clearTimeout(pending); pending = null; } flush(); return; }
+          if (!pending) pending = setTimeout(() => { pending = null; flush(); }, batchMs);
         };
       })(),
     });

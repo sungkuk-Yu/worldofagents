@@ -32,13 +32,13 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-/** fetch 모크 — 요청 body(model/스트림 여부) 수집 + 분류(system에 classify) 분기. */
+/** fetch 모크 — 요청 body(model/스트림 여부/thinking) 수집 + 분류(system에 classify) 분기. */
 function captureFetch(opts: { classifyJson?: string } = {}) {
-  const calls: Array<{ model: string; stream: boolean; system: string }> = [];
+  const calls: Array<{ model: string; stream: boolean; system: string; thinking?: boolean }> = [];
   const fetchSpy = vi.fn(async (_url: any, init: any) => {
     const body = JSON.parse(init.body);
     const sys = String(body.messages?.[0]?.content || '');
-    calls.push({ model: body.model, stream: Boolean(body.stream), system: sys });
+    calls.push({ model: body.model, stream: Boolean(body.stream), system: sys, thinking: body.enable_thinking });
     if (body.stream) {
       return new Response('data: {"model":"ans-model","choices":[{"delta":{"content":"답변 본문"}}]}\n\ndata: [DONE]\n');
     }
@@ -201,5 +201,46 @@ describe('④ front desk TTFT 게이트 — ack 후 연출 리드 ≤frontDeskFi
     const t0 = Date.now();
     await runTextTurn(db, session, 'user', '상속세 법률 상담이 필요해', { locale: 'ko', emit: () => undefined });
     expect(Date.now() - t0).toBeGreaterThanOrEqual(500); // 600ms 리드 유지(50ms 캡 안 함)
+  });
+});
+
+describe('⑤ t_baee5c42 lane별 thinking 파라미터 — front 강제 OFF / depth 현행 유지', () => {
+  it('front desk 답변 스트림은 enable_thinking=false 강제 전송 (게이트1 원인 교정 봉인)', async () => {
+    const calls = captureFetch();
+    await runTextTurn(db, session, 'user', '점심 뭐 먹지', { locale: 'ko', emit: () => undefined });
+    const answer = calls.find(c => c.stream);
+    expect(answer).toBeDefined();
+    expect(answer!.thinking).toBe(false);
+  });
+
+  it('depth lane 승격 답변은 thinking 미전송 (품질 우선, 프로바이더 기본 ON 현행)', async () => {
+    vi.spyOn(config.chatLlm, 'deepModel', 'get').mockReturnValue('deep-test-model');
+    vi.spyOn(perplexity, 'isPerplexityConfigured').mockReturnValue(false);
+    const calls = captureFetch();
+    await runTextTurn(db, session, 'user', '해고예고수당 안 주면 법률적으로 어떻게 되나요?', { locale: 'ko', emit: () => undefined });
+    const answer = calls.find(c => c.stream);
+    expect(answer!.model).toBe('deep-test-model');
+    expect(answer!.thinking).toBeUndefined(); // 파라미터 자체를 붙이지 않는다
+  });
+
+  it('Stage2 분류는 enable_thinking=false — 타임아웃 소각·deep 보강 미발동 회귀 봉인', async () => {
+    vi.spyOn(config.classification, 'llmEnabled', 'get').mockReturnValue(true);
+    vi.spyOn(config.chatLlm, 'deepModel', 'get').mockReturnValue('deep-test-model');
+    const calls = captureFetch({ classifyJson: '{"type":"information","confidence":0.5,"deep":true,"domain":"legal"}' });
+    await runTextTurn(db, session, 'user', '다음 달 임대 계약 만료인데 위약금 부담이 얼마나 커?', { locale: 'ko', emit: () => undefined });
+    const classify = calls.find(c => !c.stream && c.system.includes('classify the user'));
+    expect(classify).toBeDefined();
+    expect(classify!.thinking).toBe(false);
+  });
+
+  it('TTFT 예산 재산정 기본값: frontDeskTtftBudgetMs=1100 (실발화 프롬프트 worst TTFT+여유)', async () => {
+    vi.resetModules();
+    vi.stubEnv('FRONT_DESK_TTFT_BUDGET_MS', '');
+    const fresh = (await import('../../src/config')).config;
+    expect(fresh.protocol.frontDeskTtftBudgetMs).toBe(1100);
+    expect(fresh.protocol.frontDeskFirstTokenMs).toBe(1500);
+    // 연출 리드 상한 = 1500 − 1100 = 400ms (lead+TTFT worst 1085 ≤ 1485 — 계약 유지 범위)
+    expect(fresh.protocol.frontDeskFirstTokenMs - fresh.protocol.frontDeskTtftBudgetMs).toBe(400);
+    vi.unstubAllEnvs();
   });
 });

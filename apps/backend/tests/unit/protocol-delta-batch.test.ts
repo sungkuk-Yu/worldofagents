@@ -55,9 +55,9 @@ describe('answer.delta 백프레셔', () => {
     const events: TurnEmitEvent[] = [];
     await runTextTurn(db, { ...session, id: 'batch-char', persona_id: 'batch-char-p' } as any, session.user_id, '테스트', { emit: e => events.push(e) });
     const deltas = events.filter(e => e.type === 'answer.delta');
-    // "ab" 2글자 → flush#1, "c" 1글자는 setTimeout 대기(processTurn 동기 완료 전에 flush 안 됨)
-    // 동기 완료 후 setTimeout이 돌지 않으므로 "c"는 flush 안 됨 — 배칭 라운드는 1회 이상.
+    // t_baee5c42 계약 변경: 첫 델타 'a'는 ack→첫글자 SLA 앵커 — 배칭 없이 즉시 flush(index 0).
+    // 이후 'b' 1글자는 2글자 상한 미달 + 타이머 대기 → 동기 완료 전 미flush(1회만 관측).
     expect(deltas.length).toBeGreaterThanOrEqual(1);
-    expect(deltas[0]).toMatchObject({ delta: 'ab', index: 0 });
+    expect(deltas[0]).toMatchObject({ delta: 'a', index: 0 });
   });
 });

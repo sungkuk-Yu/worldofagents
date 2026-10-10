@@ -62,6 +62,10 @@ export async function classifyByLLM(
     const contextLines = (opts.history || []).slice(-6).map(h => `- ${h}`).join('\n');
     const result = await chatCompletion({
       model: config.classification.model || undefined,
+      // t_baee5c42 (게이트1 실측): Stage2 분류는 front desk ack→첫글자 창에 직렬로
+      // 앉는다. thinking 기본 ON이면 flash 분류가 자체 타임아웃(1500ms)을 초과해
+      // 창 전량을 태우고 deep 보강도 미발동(10/10 실측보고 게이트3) — false 강제.
+      enableThinking: false,
       temperature: 0,
       maxTokens: 64,
       timeoutMs: config.classification.timeoutMs,
