@@ -168,10 +168,12 @@ export function buildConversationHistory(
   return history.slice(-maxTurns);
 }
 
-export const DISCLAIMERS: Record<'legal' | 'accounting' | 'medical' | 'general', Record<Locale, string>> = {
+export const DISCLAIMERS: Record<'legal' | 'accounting' | 'medical' | 'current' | 'general', Record<Locale, string>> = {
   legal: { ko: '※ 본 응답은 AI가 생성한 정보이며 정식 법률 자문이 아닙니다.', en: '※ This response is AI-generated information and is not professional legal advice.' },
   accounting: { ko: '※ 본 응답은 AI가 생성한 정보이며 정식 세무·회계 자문이 아닙니다.', en: '※ This response is AI-generated information and is not professional tax or accounting advice.' },
   medical: { ko: '※ 본 응답은 AI가 생성한 정보이며 전문 의료진의 진단이나 진료를 대신하지 않습니다.', en: '※ This response is AI-generated information and does not replace professional medical diagnosis or care.' },
+  // t_20746efa — 시사/뉴스 depth lane(대표님 10/10 2안): 최신 사실 확인이 필요한 카테고리.
+  current: { ko: '※ 본 응답은 AI가 생성한 정보이며 최신 보도는 출처와 함께 확인이 필요합니다.', en: '※ This response is AI-generated information; please verify latest reports against their sources.' },
   general: { ko: '※ 본 응답은 AI가 생성한 정보입니다.', en: '※ This response is AI-generated information.' },
 };
 
@@ -181,5 +183,8 @@ export function classifyExpertise(...values: unknown[]): keyof typeof DISCLAIMER
   if (/법률|변호|legal|lawyer/i.test(text)) return 'legal';
   if (/세무|회계|tax|account/i.test(text)) return 'accounting';
   if (/의료|의사|진료|medical|doctor/i.test(text)) return 'medical';
+  // t_20746efa: 시사(current affairs) — depth lane 판정용 발화 텍스트 분류.
+  // 오탐 비용은 '검색 한 번 더'지만 precision-first: 뉴스/시사 고유 키워드만 잡는다.
+  if (/시사|뉴스|정국|선거|국회|latest\s*news|current\s*affairs|breaking\s*news/i.test(text)) return 'current';
   return 'general';
 }
