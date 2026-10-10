@@ -93,6 +93,38 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
   // t_08d671a8: 그립 손 설정에 따라 패드 좌우 위치 변경 — prefs 구독으로 실시간 반영
   const [gripHand, setGripHandLocal] = useState<GripHand>(getGripHand);
   useEffect(() => subscribePrefs(() => setGripHandLocal(getGripHand())), []);
+  // t_5131cb09 (대표님 10/10): 홀드 중 브라우저 카피 Callout/텍스트 선택이 제스처를 탈취·지연 —
+  //   1차 봉인 = 전역 CSS(public/index.html #mat-callout; -webkit-touch-callout은 RN 스타일
+  //   화이트리스트 밖이라 CSS가 유일한 실행 지점 — RNW 드롭 실측). 2차 = 스트립 DOM에서
+  //   selectstart/contextmenu 원천 preventDefault. RNW View는 ref가 실제 DOM 요소(div)로
+  //   포워딩(memo forwardRef → useMergeRefs)되고 박스이벤트는 자식(ring/pad/힌트)에서
+  //   스트립을 통해 전파된다(pointer-events:none은 히트만 제외, 전파 아님) — 스트립 부착이
+  //   홀드 계층(힌트·나침반·타이머·ring 전부 직계 서브트리)을 덮는 최소 지점. mount-effect 대신
+  //   콜백 ref로 부착/해제 — 노드 실존 시점에 정확히 붙고 언마운트 시 정리(명령형 DOM —
+  //   MagicPad 캔버스와 동일 예외), stripRef 측정 경로도 동일 콜백에서 갱신 유지.
+  const stripElSeal = useRef<{ el: HTMLElement; off: () => void } | null>(null);
+  const sealStripRef = useCallback((node: View | null) => {
+    stripRef.current = node;
+    if (stripElSeal.current) { stripElSeal.current.off(); stripElSeal.current = null; }
+    if (Platform.OS !== 'web') return;
+    const el = node as unknown as HTMLElement | null;
+    if (!el || typeof el.addEventListener !== 'function') return;
+    const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+    const selBlock = (e: Event) => {
+      // 스트립 밖에서 시작된 선택은 건드리지 않는다 — 앵커가 홀드 계층 subtree일 때만 차단
+      const s = document.getSelection();
+      const n = s && s.rangeCount > 0 ? s.getRangeAt(0).startContainer : null;
+      if (n && (n === el || el.contains(n))) { e.preventDefault(); e.stopPropagation(); }
+    };
+    el.addEventListener('selectstart', selBlock, true);
+    el.addEventListener('contextmenu', block, true);
+    stripElSeal.current = { el, off: () => {
+      el.removeEventListener('selectstart', selBlock, true);
+      el.removeEventListener('contextmenu', block, true);
+    } };
+  }, []);
+
+
   // t_2eea055a (대표님 9/30 "녹음할때 텔레그램처럼 녹음 시간"): 홀드 시작 시각 기준 경과 ms —
   // 250ms tick(초 표시라 그보다 빠른 갱선은 불필요, 렌더 부하 최소). Date.now 기준:
   // rAF과 달리 탭 비활성(background)에도 실경과가 유지된다(interval은 throttle되지만 재계산은 정확).
@@ -389,7 +421,7 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
 
   return (
     <View
-      ref={stripRef}
+      ref={sealStripRef}
       pointerEvents="box-none"
       style={[styles.strip, { height }]}
       testID="voice-stage"
@@ -505,6 +537,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
     backgroundColor: colors.surfaceRaise + '14',
     alignItems: 'center', justifyContent: 'center',
+    // t_5131cb09 (대표님 10/10): 홀드 중 텍스트 선택/브라우저 카피 Callout 봉인 — RNW는 userSelect를
+    //   -webkit-user-select+user-select까지 직렬화(실측 sheet 확인). touch-callout은 RN 스타일
+    //   화이트리스트 밖(RNW가 드롭)이라 여기서 불가 → 전역 CSS(#mat-callout)가 담당.
+    userSelect: 'none',
   },
   hintText: { ...typography.caption, color: colors.text2 },
   ring: {

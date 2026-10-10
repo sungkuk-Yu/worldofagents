@@ -53,6 +53,27 @@
         flex: 1;
       }
     </style>
+    <style id="mat-callout">
+      /* t_5131cb09 (대표님 10/10 라이브 신고 — 마이크 홀드 시 복사용 Callout 팝업 중첩):
+         모바일 Safari/Chrome은 홀드가 ~500ms 넘으면 선택 가능 요소에서 텍스트 선택 +
+         복사용 랩업 캐러셀(-webkit-touch-callout)을 띄워 PanResponder 홀드를 탈취·지연시킨다.
+         홀드 계층(스트립→패드→링과 그 하위 텍스트 ✓/armed/힌트 전부)을 선택·콜아웃 불가로 봉인.
+         touch-callout은 RN 스타일 화이트리스트에 없어 RNW가 직렬화하지 못하므로(실측: 무효
+         kebab 'touch-callout' 드롭) 전역 CSS가 유일한 실행 지점 — userSelect는
+         VoiceStage styles.pad/ring RN 스타일에도 병기(네이티브 동봉 + 인라인 우선순위). */
+      [data-testid="voice-stage"],
+      [data-testid="voice-stage"] *,
+      [data-testid="voice-stage-pad"],
+      [data-testid="voice-stage-pad"] *,
+      [data-testid="voice-stage-ring"],
+      [data-testid="voice-stage-ring"] *,
+      [data-testid="voice-stage-hint"],
+      [data-testid="voice-stage-hint"] * {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+    </style>
     <style id="mat-motion">
       /* 화면 전환 — 애플 감성 (#52): 웹은 react-native-screens no-op → CSS keyframes 폴백.
          곡선 cubic-bezier(0.32,0.72,0,1) = Apple 계열 snappy 스프링 근사 (오버슈트 없음). */
