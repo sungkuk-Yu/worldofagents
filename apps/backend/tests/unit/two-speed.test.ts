@@ -244,3 +244,37 @@ describe('⑤ t_baee5c42 lane별 thinking 파라미터 — front 강제 OFF / de
     vi.unstubAllEnvs();
   });
 });
+
+describe('⑥ t_baee5c42 Stage2 분류 선(先)발사 — ack→첫글자 직렬 ~900ms 제거', () => {
+  it('stage3 발화: 분류는 user 행 저장 전에 발사되고 routerNode에서 1회만 소비 (이중 발사 금지)', async () => {
+    vi.spyOn(config.classification, 'llmEnabled', 'get').mockReturnValue(true);
+    let messagesAtClassify = -1;
+    const fetchSpy = vi.fn(async (_url: any, init: any) => {
+      const body = JSON.parse(init.body);
+      const sys = String(body.messages?.[0]?.content || '');
+      if (!body.stream && sys.includes('classify the user')) {
+        // 선발사 증거: 이 시점에 user 행이 아직 없다 (인라인 경로는 insert 이후라 1).
+        if (messagesAtClassify < 0) messagesAtClassify = store.tables.messages.length;
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"type":"information","confidence":0.9}' } }] }));
+      }
+      if (body.stream) {
+        return new Response('data: {"model":"ans-model","choices":[{"delta":{"content":"답변 본문"}}]}\n\ndata: [DONE]\n');
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'JSON 아님' } }] }));
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    await runTextTurn(db, session, 'user', '나 심심해', { locale: 'ko', emit: () => undefined });
+    expect(messagesAtClassify).toBe(0); // kickoff < saveUser — empathy early·첨부 링크와 오버랩
+    const classifyCalls = fetchSpy.mock.calls
+      .map(([, i]: any) => i)
+      .filter((i: any) => { const b = JSON.parse(i.body); return !b.stream && String(b.messages?.[0]?.content || '').includes('classify the user'); });
+    expect(classifyCalls).toHaveLength(1); // 선발사 소비 — router 인라인 이중 발사 회귀 봉인
+  });
+
+  it('stage1 규칙확정 발화는 분류를 발사하지 않는다 — 0ms 비용 정책 불변', async () => {
+    vi.spyOn(config.classification, 'llmEnabled', 'get').mockReturnValue(true);
+    const calls = captureFetch({ classifyJson: '{"type":"task","confidence":0.9}' });
+    await runTextTurn(db, session, 'user', '내일 일정 정리해줘', { locale: 'ko', emit: () => undefined });
+    expect(calls.filter(c => !c.stream && c.system.includes('classify the user'))).toHaveLength(0);
+  });
+});
