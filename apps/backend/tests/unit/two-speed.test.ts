@@ -118,6 +118,29 @@ describe('② depth lane — 규칙 판정(법률/시사) 발화만 승격', () 
     expect(classifyExpertise('breaking news about the election')).toBe('current');
     expect(classifyExpertise('오늘 저녁 뭐 먹지')).toBe('general');
   });
+
+  it('세목 파생어 규칙 씨앗 — 상속세/증여세/양도세/영문 세목이 accounting 판정 (t_a546fb54)', async () => {
+    // 실측 실패 발화(카드 지정) + precision-first: 단독 '세/세금' 오탐은 general 유지.
+    const { classifyExpertise } = await import('../../src/lib/persona');
+    expect(classifyExpertise('상속세 신고 기한이 언제야')).toBe('accounting');
+    expect(classifyExpertise('증여세 절세 방법이 궁금해')).toBe('accounting');
+    expect(classifyExpertise('양도세 비과세 요건 알려줘')).toBe('accounting');
+    expect(classifyExpertise('종합소득세 신고 기간이 언제까지야')).toBe('accounting');
+    expect(classifyExpertise('capital gains tax on my house')).toBe('accounting');
+    expect(classifyExpertise('inheritance tax filing deadline')).toBe('accounting');
+    expect(classifyExpertise('estate tax threshold')).toBe('accounting');
+    // 오탐 확인: 세목 아닌 일반 발화는 front 유지
+    expect(classifyExpertise('세금 납부 영수증 어디갔지')).toBe('general');
+    expect(classifyExpertise('오늘 일정 정리해줘')).toBe('general');
+  });
+
+  it('상속세 발화 end-to-end 승격 — 규칙 씨앗이 deepLane → deepModel (t_a546fb54 실측 회귀)', async () => {
+    vi.spyOn(config.chatLlm, 'deepModel', 'get').mockReturnValue('deep-test-model');
+    const calls = captureFetch();
+    vi.spyOn(perplexity, 'isPerplexityConfigured').mockReturnValue(false);
+    await runTextTurn(db, session, 'user', '상속세 신고 기한이 언제야', { locale: 'ko', emit: () => undefined });
+    expect(answerModel(calls)[0]).toBe('deep-test-model');
+  });
 });
 
 describe('③ Stage 2 LLM deep 보강 — 규칙 미잡은 깊이 발화 승격', () => {
@@ -136,6 +159,18 @@ describe('③ Stage 2 LLM deep 보강 — 규칙 미잡은 깊이 발화 승격'
     const calls = captureFetch({ classifyJson: '{"type":"information","confidence":0.5}' });
     await runTextTurn(db, session, 'user', '그냥 궁금한 게 있어서요', { locale: 'ko', emit: () => undefined });
     expect(answerModel(calls)[0]).toBe(config.chatLlm.model);
+  });
+
+  it('상속세 파생 발화 — 규칙 미히트여도 Stage2 OR(deep=true)로 승격 (t_a546fb54)', async () => {
+    // classifyExpertise 패턴 밖 서술('물려받다' 등) → 규칙 씨앗 general.
+    vi.spyOn(config.classification, 'llmEnabled', 'get').mockReturnValue(true);
+    vi.spyOn(config.chatLlm, 'deepModel', 'get').mockReturnValue('deep-test-model');
+    const { classifyExpertise } = await import('../../src/lib/persona');
+    const utterance = '부모님 재산 물려받으면 신고는 언제까지 해야 해';
+    expect(classifyExpertise(utterance)).toBe('general'); // 규칙 미확정 전제
+    const calls = captureFetch({ classifyJson: '{"type":"information","confidence":0.5,"deep":true,"domain":"accounting"}' });
+    await runTextTurn(db, session, 'user', utterance, { locale: 'ko', emit: () => undefined });
+    expect(answerModel(calls)[0]).toBe('deep-test-model');
   });
 });
 

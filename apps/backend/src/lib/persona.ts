@@ -181,7 +181,10 @@ export const DISCLAIMERS: Record<'legal' | 'accounting' | 'medical' | 'current' 
 export function classifyExpertise(...values: unknown[]): keyof typeof DISCLAIMERS {
   const text = values.map(v => typeof v === 'string' ? v : JSON.stringify(v) || '').join(' ');
   if (/법률|변호|legal|lawyer/i.test(text)) return 'legal';
-  if (/세무|회계|tax|account/i.test(text)) return 'accounting';
+  // t_a546fb54 — 세목 파생어 보강 (대표님 10/10 두배속 실측: '상속세 신고 기한이 언제야'
+  // 가 (세무|회계|tax|account)에만 걸려 미판정 → 승격 누락). precision-first:
+  // '○○세' 전용 세목 명사만 — 오탐 비용은 백스테이지 지연뿐, 단독 '세/세금'은 미포함.
+  if (/세무|회계|tax|account|상속세|증여세|부가가치세|양도세|종합소득세|부가세|capital\s*gains|inheritance\s*tax|estate\s*tax/i.test(text)) return 'accounting';
   if (/의료|의사|진료|medical|doctor/i.test(text)) return 'medical';
   // t_20746efa: 시사(current affairs) — depth lane 판정용 발화 텍스트 분류.
   // 오탐 비용은 '검색 한 번 더'지만 precision-first: 뉴스/시사 고유 키워드만 잡는다.
