@@ -82,7 +82,7 @@ const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector(
 
     // ══ B. 재질문(empathy) 1자 리빌 — 중간 프레임 capture, 1:1 수렴, 커서 생멸 ══
     {
-      const EXPECT = '이거 맞죠? 내일 출장 일정 잡아줘'; // ack 픽스처 eq_confirm 회전 = '이거 맞죠? ' + 발화(12자)
+      const EXPECT = require('./empathyPool.generated.cjs').requestion('내일 출장 일정 잡아줘', null, 'ko').text; // t_a7b39e0f: 백엔드 미러 첫 회전(hash seed)과 문자 동일 — 하드카피 금지
       const { page, state, errors, ctx } = await openChat(browser, { gateSend: true });
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('내일 출장 일정 잡아줘');
@@ -96,7 +96,7 @@ const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector(
       const samples = [];
       let monotone = true, jumped = false, caretMid = false, t0 = Date.now();
       let prevLen = -1;
-      while (Date.now() - t0 < 2600) {
+      while (Date.now() - t0 < 6000) {
         const txt = (await body.innerText().catch(() => '')).trim();
         if (txt && txt !== samples[samples.length - 1]) {
           samples.push(txt);
@@ -166,7 +166,15 @@ const bubbleGone = (page) => page.waitForFunction(() => !document.querySelector(
       await openKeyboard(page);
       await page.getByTestId('chat-input').fill('견적서 다시 보내줘');
       await page.getByTestId('send-button').click();
-      const finalTxt = (await page.getByTestId('message-agent').last().innerText().catch(() => '')).trim();
+      // t_a7b39e0f 하네스 레이스 수리(baseline FAIL 재현 3/3): 발송 직후 동보 읽기 = 응답 미도착 각도.
+      // reduced-motion = 폴백 즉시 렌더(연출 없음)이므로 '도착 후 첫 관측 = 전문' 계약은 유지.
+      let dTxt = '';
+      for (let i = 0; i < 40; i++) {
+        dTxt = (await page.getByTestId('message-agent').last().innerText().catch(() => '')).trim();
+        if (dTxt.includes('Test reply to 견적서 다시 보내줘')) break;
+        await page.waitForTimeout(150);
+      }
+      const finalTxt = dTxt;
       check('D reduced-motion — 도착 즉시 전문 노출 (Test reply to 견적서…)', finalTxt.includes('Test reply to 견적서 다시 보내줘'), finalTxt.slice(0, 40));
       check('D reduced-motion — 리빌 경로(caret/reveal-body) 미사용', !(await caretShown(page)) && (await page.getByTestId('typing-caret').count()) === 0);
       check('D pageerror 0건', errors.length === 0, errors.join(' | ').slice(0, 140));
