@@ -111,6 +111,26 @@ export function normalizeAckText(s: string): string {
   return s.trim().toLowerCase().replace(/[.!~〜？?。，,\s]+$/g, '');
 }
 
+/** 마지막 공감(재질문) 행 id (turnIndex 오름 목록 기준) — 순수, 수명 게이트 무관.
+ *  t_e1de4cc4 ②: 예/아니요 칩용 useRevealPending의 exceptKey로 쓰인다 — 재질문 자체의
+ *  통째-리빌 연출은 칩 발화 가능 창을 태우는 억제 사유가 아니다. */
+export function lastEmpathyId(messages: ChatMessage[]): string | null {
+  let last: ChatMessage | null = null;
+  for (const m of messages) if (isEmpathyEchoMessage(m)) last = m;
+  return last ? last.id : null;
+}
+
+/**
+ * '답변이 실제로 성장 중' 판정 (t_e1de4cc4 ②) — 예/아니요 칩 억제(t_cc232982 요구3) 입력.
+ * placeholder(첫 delta 전 자리 확보 카드, text='')는 억제 대상이 아니다: 백엔드 라이브 순서는
+ * run.started(placeholder) → message.new(empathy) → [자동예 리드 2.5~2.6s] → answer.delta이므로,
+ * !done 전부를 억제하면 empathy 도착 순간 이미 억제되어 칩 각인이 영구 미생성(대표님 10/10
+ * "예/아니오 안보였어" 실증). '반쯤 쓰인 카드에 버튼 금지' 취지는 text>0(실 토큰 성장)로 보존.
+ */
+export function answerOutputActive(streams: { done: boolean; text: string }[]): boolean {
+  return streams.some((s) => !s.done && s.text.length > 0);
+}
+
 /** 백엔드 graph.ts CONFIRMATION_UTTERANCES 미러 (t_0e03e405 — 프론트측 확인응답 판정 단일 원천).
  *  백엔드 집합 변경 시 여기와 src/neurons/graph.ts 함께 갱신 (주석 미러 계약). */
 export const CONFIRMATION_UTTERANCES: ReadonlySet<string> = new Set([

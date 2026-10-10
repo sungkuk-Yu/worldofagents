@@ -72,7 +72,7 @@ import MessageActionSheet from '../components/MessageActionSheet';
 import { ReplyDraftBar } from '../components/ReplyQuoteBar';
 import { useChatSession } from '../hooks/useChatSession';
 import { useAckChip } from '../hooks/useAckChip';
-import { ackResultCardIds, buildConfirmView } from '../lib/ackChips';
+import { ackResultCardIds, buildConfirmView, answerOutputActive, lastEmpathyId } from '../lib/ackChips';
 // QUIET_PROGRESS는 스트립 폐기(t_3c882443)로 ChatScreen 내 잔사용처 소멸 — 타이핑/스트리밍 억제
 // 전용 사용자(TypingCard·ChatFeed)만 featureFlags를 직접 import한다.
 import { SENDER_GROUPING } from '../lib/featureFlags';
@@ -805,8 +805,14 @@ export default function ChatScreen({ navigation, route }: Props) {
   // t_da4f8623: 재질문 1자 리빌进行中도 같은 semantics로 억제 — '노출 가능 첫 관측'이 리빌 완료 후로
   // 미뤄져 2.5s 창과 리빌 시간이 겹치지 않는다(충돌 없음 요구). 리빌 미활성(플래그 OFF/reduced-motion)
   // 상태에서는 hasPending이 항상 false → 구 동작 1:1.
-  const revealPending = useRevealPending();
-  const ackChip = useAckChip(messages, streams.some((s) => !s.done), revealPending);
+  // t_e1de4cc4 ②: 단, 재질문(empathy) 행 '자기 자신'의 통째-리빌은 exceptKey로 제외 — 칩 후보가
+  // 최대 240자(≈2s+) 타이핑되는 구간이 발화 가능 창(도착부터 2.5s)을 통째로 태워 '칩 미노출'로
+  // 귀결됐다(대표님 10/10 실증). 답변 delta 리빌(stream-*)·타 행 리빌은 억제 사유 유지.
+  const revealExceptKey = useMemo(() => lastEmpathyId(messages) ?? undefined, [messages]);
+  const revealPending = useRevealPending(revealStore, revealExceptKey);
+  // 억제(t_cc232982 요구3) 입력 = '실토큰 성장 중' (text>0) — 첫 delta 전 placeholder은 억제
+  // 대상 아니다(t_e1de4cc4 ②: ON 경로 run.started→empathy 순서에서 각인 영구 미생성 차단).
+  const ackChip = useAckChip(messages, answerOutputActive(streams), revealPending);
   const hiddenAckIds = useMemo(() => ackResultCardIds(messages, [t('chat.ackYes'), t('chat.ackNo')]), [messages, t]);
   // t_0e03e405 FINAL SCOPE — 확인응답 스레드화 프레임 (판정 로직 lib/ackChips, 화면은 배선만):
   // empathy 카드 → '확인 스레드' 컨테이너, 병합 ack user 행 → 프레임 내부 reply 라인(顶级 버블 제외).

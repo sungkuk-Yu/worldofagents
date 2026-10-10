@@ -37,14 +37,17 @@ export default function StreamCard({ message }: CardProps) {
     return t(quip);
   })();
   const runId = message.runId ?? message.id.replace(/^stream-/, '');
+  // t_e1de4cc4 ①: 상태 라벨은 1줄 계약 — 본문 위 emptyFallback에 statusText를 넣으면 content=''
+  // 구간(첫 delta 전 placeholder·리빌 진도 0)에서 하단 stream-live-mark와 같은 문구가 2중 렌더된다
+  // (대표님 10/10 스크린샷 '답변 중 · 대기 1건' 두 줄). fallback 폐기(본문 자리 공란),
+  // 단일 소스는 하단 live-mark — SR polite announced성도 live-mark로 이관.
   return <View style={[s.frame, CONTAIN_WEB]} testID={`stream-card-${message.runId ?? message.id}`}>
     <RevealBody
       revealKey={`stream-${runId}`}
       content={message.content}
       bodyStyle={[s.body, s.micro]}
-      emptyFallback={<Text style={[s.body, s.micro]} accessibilityLiveRegion="polite">{statusText}</Text>}
     />
-    {!done && <Text testID="stream-live-mark" style={s.micro}>{statusText}</Text>}
+    {!done && <Text testID="stream-live-mark" style={s.micro} accessibilityLiveRegion="polite">{statusText}</Text>}
     <Text testID="ai-generated-badge" style={s.micro}>{t('common.aiGenerated')}</Text>
   </View>;
 }
