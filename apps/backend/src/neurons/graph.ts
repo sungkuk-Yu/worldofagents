@@ -977,49 +977,60 @@ export async function processTurn(
       db };
       const dialogueType = classifyDialogueType(userMessage);
 
-      // 전문가 카테고리 판정 (t_d54bc456) — 그라운딩 게이트와 저장 시 디스클레이머가 공유한다.
-      const { data: agentRow, error: agentFetchError } = await db.from('agents').select('*').eq('id', agentId).maybeSingle();
+      // t_baee5c42 (게이트1 — 앞라인 병렬화): 진입부 컨텍스트 조회 5종이 서로 독립인데도
+      // 직렬.await라 라운드트립이 그대로 ack→첫글자 창 앞에 쌓였다. Promise.all로 1회
+      // 왕복으로 압축 — 에러 던지기 순서(agent→thread root→history)는 기존과 동일하게
+      // 병렬 완료 후 순차 판정(무언 실패 금지). 값· 폴백 semantics 1:1.
+      const historyPromise: Promise<any[]> = opts.thread
+        ? (async () => {
+            const { data: root, error: rootError } = await db.from('messages').select('*')
+              .eq('session_id', sessionId).eq('id', opts.thread!.rootMessageId).maybeSingle();
+            if (rootError || !root) return null as any; // 아래에서 NOT_FOUND로 승격
+            const { data: replies, error } = await db.from('messages').select('*')
+              .eq('session_id', sessionId).eq('root_message_id', (root as any).id)
+              .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3));
+            if (error) throw new ApiError('INTERNAL_ERROR', error.message);
+            return [root, ...(replies || []).reverse()];
+          })()
+        : opts.history
+          ? Promise.resolve(opts.history)
+          : db.from('messages').select('id,role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
+              .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3))
+              // 선(先)영속 행 배제 (t_2133e4fc): 이번 발화가 history의 "직전 user 행"으로 자기 자신과
+              // 만나면 repeatUtterance 오탐 + LLM 컨텍스트 복제가 된다. 배제는 load-only —
+              // lastUserUtterance 등 history 판정자 전부에 일관 적용(호출 지점 추가 수정 불필요).
+              .then(({ data, error }: any) => {
+                if (error) throw new ApiError('INTERNAL_ERROR', error.message);
+                return (data || []).reverse().filter((m: any) => !opts.persistedUser || m.id !== opts.persistedUser.id);
+              });
+      const agentPromise = db.from('agents').select('*').eq('id', agentId).maybeSingle();
+      const tasksPromise = db.from('tasks').select('id').eq('session_id', sessionId).in('status', ['pending', 'in_progress']);
+      const queuePromise = db.from('context_patches').select('*').eq('session_id', sessionId).eq('key', 'task.queue');
+      const [agentRes, tasksRes, queueRes, historyLoaded] = await Promise.all([
+        // 스레드 루트 NOT_FOUND는 기존과 같이 다른 판정보다 앞선다(root 조회 실패 시).
+        // agentRes/tasks/queue는 이미 병렬 비행했지만 읽기 전용이라 무해 — throw 시점 semantics 유지.
+        agentPromise, tasksPromise, queuePromise, historyPromise,
+      ]);
+      if (opts.thread && historyLoaded === null) throw new ApiError('NOT_FOUND', '스레드 루트를 찾을 수 없습니다.');
+      const { data: agentRow, error: agentFetchError } = agentRes as { data: any; error: any };
       if (agentFetchError) throw new ApiError('INTERNAL_ERROR', agentFetchError.message);
+      // 전문가 카테고리 판정 (t_d54bc456) — 그라운딩 게이트와 저장 시 디스클레이머가 공유한다.
       const expertise = classifyExpertise(agentRow?.category, agentRow?.config, persona?.name, persona?.system_prompt, persona?.tags);
       // 그라운딩 활성 조건: 에이전트/페르소나가 전문가 카테고리이거나 질문 자체가 법률·회계·의료 질문.
       // (종량제 — 일반 토크에는 호출하지 않는다. 대표님 지시: 법률 답변은 무조건 검색 근거와 함께.)
       // t_20746efa: Perplexity 기본 OFF(opt-in) — 위 조건이 참이어도 플래그·키가 없으면 미발동.
       const questionExpertise = classifyExpertise(userMessage);
-      // two-speed (대표님 10/10 확정): '깊이 lane' 씨앗 = 전문가 규칙 판정(에이전트 카테고리
-      // 또는 발화 자체가 법률/세무/의료/시사). 검색 발동은 오직 이 lane에서만 — 매 턴 선행검색
-      // 영구 폐기. routerNode Stage 2 LLM deep 판정이 규칙 미잡은 깊이 발화를 OR로 보강한다.
-      // (평상 발화 = front desk: 기본 flash 무검색 즉시 답변. deepModel/검색 미설정 시
-      //  깊이 lane도 flash 경로로 돌아간다 — 승격은 운영 opt-in.)
+      // two-speed (대표님 10/10 확정): '깊이 lane' 씨앗 = 전문가 판정(규칙) — 검색 발동은
+      // 오직 이 lane에서만 (매 턴 선행검색 영구 폐기). routerNode Stage 2 LLM deep 보강 OR.
       const deepLane = expertise !== 'general' || questionExpertise !== 'general';
       const groundEnabled = deepLane && isPerplexityConfigured();
 
-      // 활성 작업/큐 상태 컨텍스트 조회
-      const { data: activeTasks } = await db.from('tasks').select('id').eq('session_id', sessionId).in('status', ['pending', 'in_progress']);
-      const hasActiveTask = (activeTasks as any[] | null)?.length ? true : false;
-      const prevQueue = await db.from('context_patches').select('*').eq('session_id', sessionId).eq('key', 'task.queue');
-      const pendingQueueLength = (prevQueue.data as any[] | null)?.length ? 1 : 0;
+      const hasActiveTask = (tasksRes.data as any[] | null)?.length ? true : false;
+      const pendingQueueLength = (queueRes.data as any[] | null)?.length ? 1 : 0;
 
-      let history = opts.history;
-      if (opts.thread) {
-        const { data: root, error: rootError } = await db.from('messages').select('*')
-          .eq('session_id', sessionId).eq('id', opts.thread.rootMessageId).maybeSingle();
-        if (rootError || !root) throw new ApiError('NOT_FOUND', '스레드 루트를 찾을 수 없습니다.');
-        const { data: replies, error } = await db.from('messages').select('*')
-          .eq('session_id', sessionId).eq('root_message_id', root.id)
-          .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3));
-        if (error) throw new ApiError('INTERNAL_ERROR', error.message);
-        history = [root, ...(replies || []).reverse()];
-      } else if (!history) {
-        const { data, error } = await db.from('messages').select('id,role,content,source_neuron,structured_payload,turn_index').eq('session_id', sessionId)
-          .order('turn_index', { ascending: false }).limit(Math.max(0, config.chatLlm.historyTurns * 3));
-        if (error) throw new ApiError('INTERNAL_ERROR', error.message);
-        // 선(先)영속 행 배제 (t_2133e4fc): 이번 발화가 history의 "직전 user 행"으로 자기 자신과
-        // 만나면 repeatUtterance 오탐 + LLM 컨텍스트 복제가 된다. 배제는 load-only —
-        // lastUserUtterance 등 history 판정자 전부에 일관 적용(호출 지점 추가 수정 불필요).
-        history = (data || []).reverse().filter((m: any) => !opts.persistedUser || m.id !== opts.persistedUser.id);
-      } else if (opts.persistedUser) {
-        history = history.filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id);
-      }
+      let history: any[] | undefined = opts.persistedUser && opts.history
+        ? (historyLoaded as any[]).filter((m: any) => m.id !== (opts.persistedUser as { id?: string }).id)
+        : (historyLoaded as any[]);
 
       // t_baee5c42 (게이트1 잔여분 교정 — ack→첫글자 median 1,826~1,990 실측: 평상 발화가
       // Stage2 규칙 미확정(stage 3)이면 분류 ~900ms가 routerNode에서 ack 후 직렬로 소각된다).
