@@ -192,6 +192,11 @@ async function main() {
   const beforeVoice = ws.events.length;
   const runsBefore6 = ws.events.filter(e => e.type.startsWith('run.')).length;
   const seqBefore6 = sub.current_seq;
+  // 세션 허브 브로드캐스트는 인과-무지: 선행 위상의 런이 아직 꼬리(run.progress 등)를 흘리는
+  // 상태에서 타입-only 종결 대기를 타면 남의 completed로 조기 만족한다 (t_8bac5645 리뷰 FAIL 1).
+  // 음성 런의 run_id를 '기존 집합 밖 신규'로 포착하고, 종결도 run_id 인식 predicate로 대기한다.
+  const runIdsAt = (upto) => new Set(ws.events.slice(0, upto).filter(e => e.run_id).map(e => e.run_id));
+  const priorRunIds6b = runIdsAt(beforeVoice);
   ws.send({ type: 'audio.start', session_id: sessionId, config: { sample_rate: 16000, encoding: 'pcm_s16le' } });
   const audioStarted = await waitForAfter(beforeVoice, e => e.type === 'audio.started', 'audio.started', 10000).catch(() => null);
   check('⑥b audio.started wire (config echo)', !!audioStarted?.config && audioStarted.config.sample_rate === 16000);
@@ -200,13 +205,22 @@ async function main() {
   const final6 = await waitForAfter(beforeVoice, e => e.type === 'transcript.final' && e.text, 'transcript.final(음성)').catch(() => null);
   check('⑥b 음성 발화 → transcript.final (확정 id)', !!final6 && typeof final6.message_id === 'string' && final6.message_id.length > 0, final6 ? `text="${(final6.text || '').slice(0, 24)}"` : 'timeout');
   check('⑥b user message.new 영속 (audio.send 경로)', !!final6 && ws.events.some(e => e.type === 'message.new' && e.message?.role === 'user' && e.message?.id === final6.message_id));
-  // 런 종결까지 대기 — 이후 [6]c 윈도우에 잔류 run.*/message.new가 섞이지 않게.
-  await waitForAfter(beforeVoice, e => e.type === 'run.completed' || e.type === 'run.failed', '음성 런 종결', 120000).catch(() => null);
+  // 런 종결까지 대기 — 이후 [6]c 윈도우에 잔류 run.*/message.new가 섞이지 않게 (run_id 인식).
+  const voiceStarted = await waitForAfter(beforeVoice, e => e.type === 'run.started' && e.session_id === sessionId && e.run_id && !priorRunIds6b.has(e.run_id), '음성 run.started(신규 런)', 120000).catch(() => null);
+  const voiceRunId = voiceStarted?.run_id ?? null;
+  check('⑥b 음성 런 run.started 포착 (신규 run_id)', !!voiceRunId, voiceRunId ? `run=${voiceRunId.slice(0, 8)}` : 'timeout');
+  await waitForAfter(beforeVoice, e => e.run_id === voiceRunId && (e.type === 'run.completed' || e.type === 'run.failed' || e.type === 'run.cancelled'), '음성 런 종결(run_id 인식)', 120000).catch(() => null);
   check('⑥b 음성 런 run.* 진행', ws.events.filter(e => e.type.startsWith('run.')).length > runsBefore6);
 
   //  [6]c audio.end{draft:true} hold-for-edit — 전사 회신만, 발화 비영속.
   await new Promise(res => setTimeout(res, 300));
   const before6c = ws.events.length;
+  // 인과 윈도우: 세션 허브 브로드캐스트는 draft 발생을 모른다 — 선행 시작 런의 지연 꼬리
+  // (progress/message.new)가 윈도우에 유입될 수 있어 문자열 '0건'은 인과적이지 않다 (리뷰 FAIL 1).
+  // 기존 run_id 소유 이벤트를 제외하고 'draft가 신규 run.*/message.new를 발생시키지 않음'을 assert.
+  // transcript.final은 run_id 없이 handleTr 동기와 경로 전용(선항 런 꼬리 성질 아님)이므로 문자열 0건 유지.
+  const priorRunIds6c = runIdsAt(before6c);
+  const ownedByPrior = (e) => !!e.run_id && priorRunIds6c.has(e.run_id);
   const msgCount = async () => (((await req('GET', `/api/sessions/${sessionId}/messages`, { token })).json?.data) || []).length;
   const rowsBefore6c = await msgCount();
   ws.send({ type: 'audio.start', session_id: sessionId, config: {} });
@@ -219,8 +233,10 @@ async function main() {
   await new Promise(res => setTimeout(res, 800)); // 잔류 전파 관찰 창
   const win6c = ws.events.slice(before6c);
   check('⑥c draft 윈도우: transcript.final 0건', !win6c.some(e => e.type === 'transcript.final'));
-  check('⑥c draft 윈도우: message.new 0건', !win6c.some(e => e.type === 'message.new'));
-  check('⑥c draft 윈도우: run.* 0건', win6c.filter(e => e.type.startsWith('run.')).length === 0, win6c.filter(e => e.type.startsWith('run.')).map(e => e.type).join(','));
+  const newMsgNew6c = win6c.filter(e => e.type === 'message.new' && !ownedByPrior(e));
+  check('⑥c draft 윈도우: message.new 신규 0건 (선행 런 꼬리 제외)', newMsgNew6c.length === 0, newMsgNew6c.map(e => `${e.type}:${(e.run_id || '').slice(0, 8)}:${e.message?.role}`).join(','));
+  const newRun6c = win6c.filter(e => e.type.startsWith('run.') && !ownedByPrior(e));
+  check('⑥c draft 윈도우: draft 유발 신규 run.* 0건 (선행 런 꼬리 제외)', newRun6c.length === 0, newRun6c.map(e => `${e.type}:${(e.run_id || '').slice(0, 8)}`).join(','));
   check('⑥c user 행 영속 0 (read-back)', (await msgCount()) === rowsBefore6c, `before=${rowsBefore6c} after=${await msgCount()}`);
 
   //  [6]d audio.cancel 폐기 계약 무영향.
