@@ -91,7 +91,7 @@ const delta = (sock, runId, text, index) => sock.send(JSON.stringify({ type: 'an
     check('① ON 모드 회귀 가드 — 구 footer 스트립 testID 잔존 0(streaming-card/text/cursor)',
       (await p1.getByTestId('streaming-card').count()) === 0 && (await p1.getByTestId('streaming-text').count()) === 0 && (await p1.getByTestId('streaming-cursor').count()) === 0);
     check('① footer 이중 렌더 없음 — 누적 본문 노출 위치 1개', (await p1.getByText(full, { exact: false }).count()) === 1);
-    check('① 성장 마커(stream-live-mark — 커서 대체) 노출', (await p1.getByTestId('stream-live-mark').count()) === 1);
+    check('① 성장 마커(stream-live-mark — 무텍스트 펄스 도트, ①재작업 0줄 계약) 노출', (await p1.getByTestId('stream-live-mark').count()) === 1);
     check('③ 스트리밍 성장 중 예/아니요 버튼 행 억제(t_cc232982 요구3)', (await p1.getByTestId('ack-chips').count()) === 0);
     await p1.screenshot({ path: shot('01-growing-card') });
 

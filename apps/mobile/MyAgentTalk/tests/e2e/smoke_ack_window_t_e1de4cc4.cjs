@@ -1,8 +1,10 @@
 /**
- * t_e1de4cc4 — ① 스트림 카드 상태문구 2중 줄 봉인 + ② 공감 재질문 예/아니요 칩 발화 가능 창 봉인
+ * t_e1de4cc4 — ① 스트림 카드 상태 문구 0줄 봉인 + ② 공감 재질문 예/아니요 칩 발화 가능 창 봉인
  *
  * 대표님 10/10 스크린샷 신고(확인 스레드의 '이거 맞죠? 제 생각엔 ~라는 말씀이신 건대' 복창형
- * + 예/아니오 칩 부재)의 프론트 절반 봉인. 라이브 ON 경로 = 백엔드 실이벤트 순서(read-back:
+ * + 예/아니오 칩 부재)의 프론트 절반 봉인. 재작업 정본(볼트 2026-10-10-김비서-지시-t_e1de4cc4-재작업사양):
+ * ① 상태 문구는 1줄도 아닌 0줄 — 'AI 생성' 배지·'답변 중 · 대기 n' 텍스트 전부 제거, 무텍스트 연출만.
+ * 라이브 ON 경로 = 백엔드 실이벤트 순서(read-back:
  * chatTurn.ts/graph.ts): message.new(user) → run.started(placeholder, text='') →
  * message.new(empathy) → [자동예 리드 2.5~2.6s] → answer.delta… → answer.done → message.new(answer).
  *
@@ -11,9 +13,9 @@
  *   S1b 창 활성 중 첫 answer.delta(실토큰) = 억제 소멸 — t_cc232982 요구3 '반쯤 쓰인 카드 금지' 취지 불변.
  *   S1c answer.done = 억제 해제 → 새 창 개시 ≈2.5s 미터치 소진 (t_b2004d50 요구3).
  *   S2 POST 확정 empathy(ack fixture) 단일 창 노출 → ≈2.5s 자동 소진 — 대조/회귀 구간(base도 PASS 기대).
- *   S3 (reduced) 선두 placeholder + queue.updated pending 2건(서버 position 0/1) → '답변 중 ·
- *      대기 1건' 상태문구 카드 내부 DOM 정확히 1회 + testID stream-live-mark=1 — 결함① 봉인.
- *      (결함 전: emptyFallback+live-mark 2회 — 스크린샷 '답변 중' 2줄.)
+ *   S3 (reduced) 선두 placeholder + queue.updated pending 2건 → 카드 내부 상태 텍스트 0건·'AI 생성'
+ *      라벨 0건·무텍스트 펄스(stream-live-mark 텍스트 길이 0)=1 + 우상단 큐 배지 단일 소스 — ① 게이트 반전.
+ *      (결함 계보: emptyFallback+live-mark 2중 줄 → live-mark 1줄 → 텍스트 0줄 정본.)
  *   S4 (reveal ON) 200자+ 재질문 통째-리빌 중에도 칩 ≤1.5s 노출 — 자기(empathy) 리빌 exceptKey 봉인.
  *      (결함 전: 재질문 리빌 ≈10s+가 발화 가능 창(2.5s)을 통째 태워 실질 미노출.)
  *
@@ -47,11 +49,12 @@ let SEQ = 100;
 const ev = (socket, type, extra = {}) => socket.send(JSON.stringify({ type, session_id: 'source', seq: (SEQ += 1), ...extra }));
 const msgNew = (socket, row) => ev(socket, 'message.new', { message: { ...row, session_id: row.session_id || 'source', role: row.role || 'agent', created_at: row.created_at || iso() } });
 
-/** empathy 행 (메인 피드 라이브 경로 — arrivedAt WS 도장 = 앵커는 프론트 수신각) */
+/** empathy 행 (메인 피드 라이브 경로 — arrivedAt WS 도장 = 앵커는 프론트 수신각)
+ *  t_e1de4cc4 ②재작업: 재질문 서식은 분석형 의문문만 ('~하려는 거죠?') — eq_confirm('이거 맞죠') 폐기. */
 const empathyRow = (id, ageMs, text) => ({
   id, role: 'agent', source_neuron: 'empathy', turn_index: 2, content: text,
   created_at: iso(-ageMs),
-  structured_payload: { empathy_question: text, template_id: 'eq_confirm', empathy_full: '에코: 원문', empathy_ack: '네, 확인했어요' },
+  structured_payload: { empathy_question: text, template_id: 'eq_analytic', empathy_full: '에코: 원문', empathy_ack: '네, 확인했어요' },
 });
 const userRow = (id, turn, content, ageMs = 5000) => ({
   id, role: 'user', content, turn_index: turn, created_at: iso(-ageMs),
@@ -97,9 +100,10 @@ const userRow = (id, turn, content, ageMs = 5000) => ({
       await sleep(300);
       ev(socket(), 'run.started', { run_id: 'r-w1' }); // 선두 런 placeholder (text='' — 억제 대상 아님)
       await sleep(300);
-      msgNew(socket(), empathyRow('empW1', 100, '이거 맞죠? 윈도우 프루브 확인입니다')); // ON 경로: empathy는 placeholder 후
+      msgNew(socket(), empathyRow('empW1', 100, '윈도우 프루브 확인하려는 거죠?')); // ON 경로: empathy는 placeholder 후 (② 분석형 서식)
       const shownIn = await waitChips(page, 1500);
       check('S1 ON경로 empathy=placeholder 후 도착 → 칩 ≤1.5s 노출 (결함 전=영구 미노출)', shownIn >= 0, `latency=${shownIn}ms`);
+      check('S1 재질문 본문에 폐기 서식 없음 — \'이거 맞죠\' 페이지 0건 (② 게이트)', !/이거 맞죠/.test(await page.evaluate(() => document.body.innerText)));
       await page.screenshot({ path: shot('s1-chip-window-open') });
       const beforeA = page.locator('no-such'); // placeholder — POST 카운터는 state.calls
       void beforeA;
@@ -154,7 +158,9 @@ const userRow = (id, turn, content, ageMs = 5000) => ({
       await ctx.close();
     }
 
-    // ══ 페이지 C: 결함① — 선두 실행 placeholder + '대기 1건', 상태문구 1줄 봉인 (실측 2중 줄 재현) ══
+    // ══ 페이지 C: ①재작업 — 선두 실행 placeholder + 대기 큐: 상태 문구 0줄 봉인 ══
+    // (대표님 10/10 "ai 생성 이런거 빼고 답변중도 빼". 결함 계보: 2중 줄(1차) → 1줄(2차) → 0줄(정본).
+    //  진행 신호 = 무텍스트 연출만(stream-live-mark 펄스 도트). 대기 수 단일 소스 = 우상단 큐 배지.)
     {
       const { ctx, page, errors, socket } = await openChat();
       msgNew(socket(), userRow('uwsA', 1, '윈도우 프루브 발화 셋', 3000)); // 선두 질문
@@ -169,18 +175,29 @@ const userRow = (id, turn, content, ageMs = 5000) => ({
       check('S3-0 placeholder 카드 자리 확보', (await card.count()) === 1);
       const st = await card.evaluate((el) => {
         const txt = el.textContent || '';
-        return { status: (txt.match(/답변 중/g) || []).length, live: el.querySelectorAll('[data-testid="stream-live-mark"]').length };
+        return {
+          answering: (txt.match(/답변 중/g) || []).length,
+          waiting: (txt.match(/대기/g) || []).length,
+          ai: (txt.match(/AI 생성/g) || []).length,
+          live: el.querySelectorAll('[data-testid="stream-live-mark"]').length,
+          liveText: (el.querySelector('[data-testid="stream-live-mark"]')?.textContent || '').trim().length,
+        };
       });
-      check('S3 카드 내부 상태문구 DOM 정확히 1회 (결함 전=emptyFallback+live-mark 2회)', st.status === 1, `status=${st.status}`);
-      check('S3 testID stream-live-mark 카운트=1', st.live === 1, `live=${st.live}`);
+      check('S3 카드 내부 \'답변 중\' 0건 — 게이트 반전 (결함 전: 2→1→0줄)', st.answering === 0, `answering=${st.answering}`);
+      check('S3 카드 내부 \'대기\' 0건 — 대기 수는 카드에 존재하지 않는다', st.waiting === 0, `waiting=${st.waiting}`);
+      check('S3 \'AI 생성\' 라벨 0건 (② 라벨 제거, 게이트 반전)', st.ai === 0, `ai=${st.ai}`);
+      check('S3 무텍스트 연출만: stream-live-mark 카운트=1 + 텍스트 길이 0 (펄스 도트)', st.live === 1 && st.liveText === 0, `live=${st.live} textLen=${st.liveText}`);
+      const badge = await page.getByTestId('queue-badge-warn').count();
+      const badgeTxt = badge ? await page.getByTestId('queue-badge-warn').innerText() : '';
+      check('S3 대기 수 단일 소스 = 우상단 큐 배지 실재 (pending 수치)', badge >= 1 && /[0-9]/.test(badgeTxt), `badge=${badgeTxt}`);
       check('C 런타임 JS 예외 0건', errors.length === 0, errors.slice(0, 2).join('|').slice(0, 160));
-      await page.screenshot({ path: shot('s3-placeholder-single-line') });
+      await page.screenshot({ path: shot('s3-placeholder-zero-line') });
       await ctx.close();
     }
 
     // ══ 페이지 D: 리빌 ON — 재질문 통째-리빌이 칩 창을 태우면 안 된다 (exceptKey 봉인) ══
     {
-      const LONG = '이거 맞죠? 윈도우 프루브 긴 재질문 문장을 리빌 지연 검증용으로 늘려서 이백자 내외로 타이핑되게 합니다 리빌이 오래 걸려도 칩은 도착 즉시 떠야 합니다 대표님 계약은 재질문 노출과 동시에 예 아니오 선택창 유지입니다';
+      const LONG = '윈도우 프루브 긴 재질문입니다 — 연결을 확인하려는 거죠? 문장을 리빌 지연 검증용으로 늘려서 이백자 내외로 타이핑되게 합니다 리빌이 오래 걸려도 칩은 도착 즉시 떠야 합니다 대표님 계약은 재질문 노출과 동시에 예 아니오 선택창 유지입니다';
       const { ctx, page, errors, socket } = await openChat({ reducedMotion: 'no-preference' });
       msgNew(socket(), userRow('uwsB', 1, '윈도우 프루브 발화 다섯'));
       await sleep(300);

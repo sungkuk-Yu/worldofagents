@@ -84,7 +84,7 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     const { page, state, errors } = await openMobileChat(browser);
     check('⑦ 진입 시점 stale 공감 행에 버튼 행 없음', (await page.getByTestId('ack-chips').count()) === 0);
 
-    // ── ① 발화 → 재질문 카드 하단 50/50 버튼 행 (첫 턴 = eq_confirm → '아니에오'/'예') ──
+    // ── ① 발화 → 재질문 카드 하단 50/50 버튼 행 (첫 턴 = eq_analytic → '예'/'아니요') ──
     await openKeyboard(page);
     await page.getByTestId('chat-input').fill('내일 출장 일정 잡아줘');
     await page.getByTestId('send-button').click();
