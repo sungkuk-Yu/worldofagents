@@ -27,7 +27,9 @@ export type ClientMessage =
   | { type: 'subscribe'; locale?: Locale; session_id: string; channels?: WSChannel[]; last_seq?: number; device?: string }
   | { type: 'run.cancel'; session_id: string; run_id?: string }
   | { type: 'audio.start'; session_id: string; config?: { sample_rate?: number; encoding?: string; language?: string; mode?: PttMode; device?: string } }
-  | { type: 'audio.end'; session_id: string; client_req_id?: string }
+  // audio.end의 draft (t_8bac5645 hold-for-edit 브리지): true = '→편집' 릴리스 — 전사만 하고
+  // 비영속 마감(transcript.draft). absent/false 이면 기존 전송 경로 1:1 유지(하위호환).
+  | { type: 'audio.end'; session_id: string; client_req_id?: string; draft?: true }
   | { type: 'audio.cancel'; session_id: string }
   | { type: 'transcript'; text: string; session_id: string; is_final?: boolean; client_req_id?: string }
   | { type: 'ping'; ts?: number }
@@ -54,6 +56,12 @@ export type ServerMessage =
   | { type: 'audio.vad'; session_id: string; active: boolean }
   | { type: 'presence.update'; session_id: string; devices: PresenceDevice[] }
   | { type: 'transcript.partial'; seq?: number; session_id: string; text: string; confidence: number; language: string }
+  /** 음성 hold-for-edit 브리지 (t_8bac5645, 대표님 10/4 '수정(녹음 완료하나 전송 전 텍스트 편집)'):
+   *  audio.end{draft:true}의 전사 회신 — 비영속 전문(全文). user 행 영속·런 실행·transcript.final
+   *  없음. sendJson 발화 소켓 회신 전용: seq 미채번·eventlog 미기록 — last_seq diff 리플레이에
+   *  구 draft가 재폭주하지 않는다 (favorite.updated 선행례; 휘발성 연출). 무음 릴리스는 text:''
+   *  (프론트 no-op) — 기존 '' final 경로와 대칭. */
+  | { type: 'transcript.draft'; session_id: string; text: string; confidence: number; language: string; duration_ms: number }
   | { type: 'transcript.final'; seq?: number; session_id: string; turn_index: number; text: string; confidence: number; language: string; duration_ms: number; message_id: string | null }
   | { type: 'neuron.status'; seq?: number; session_id: string; neuron: { slug: string; name: string }; status: string; stage: string; quip: string }
   | { type: 'task.status'; session_id: string; task_id: string; status: string; progress: number; message: string }
