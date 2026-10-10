@@ -127,15 +127,22 @@ export const config = {
 
   /**
    * 채팅 답변 생성 LLM (DashScope OpenAI 호환 모드).
-   * - apiKey: CHAT_LLM_API_KEY 우선, 없으면 DASHSCOPE_API_KEY
-   * - baseUrl/model: 환경변수로 오버라이드 가능 (기본: dashscope-intl + qwen3-max)
+   * - apiKey: *** 우선, 없으면 DASHSCOPE_API_KEY
+   * - baseUrl/model: 환경변수로 오버라이드 가능.
+   * - t_20746efa two-speed (대표님 10/10 확정 계약): 기본 모델 = front desk —
+   *   항상 가볍게 도는 qwen3.8-flash 무검색 즉시 응대선. 예전 기본 qwen3-max는
+   *   평상 답변까지 고모델로 끌어 지연시킨 실측의 주범이라 강등한다.
+   * - deepModel: back stage — 라우터가 '깊이 필요'(법률/세무/시사)로 판정한 턴만
+   *   이 모델로 승격(빈 값=승격 없음, front 모델 유지). 미지정 모델명 400 방지를
+   *   위해 코드 기본값은 없다 — 게이트웨이에서 실증된 모델명만 .env로 주입.
    * - enableThinking: qwen3 하이브리드 모델의 reasoning 모드 (미설정 시 파라미터 전송 안 함)
    */
   chatLlm: {
     enabled: process.env.CHAT_LLM_DISABLED !== 'true',
     apiKey: process.env.CHAT_LLM_API_KEY || process.env.DASHSCOPE_API_KEY || '',
     baseUrl: process.env.CHAT_LLM_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    model: process.env.CHAT_LLM_MODEL || 'qwen3-max',
+    model: process.env.CHAT_LLM_MODEL || 'qwen3.8-flash',
+    deepModel: process.env.CHAT_LLM_DEEP_MODEL || '',
     maxTokens: parseInt(process.env.CHAT_LLM_MAX_TOKENS || '1024', 10),
     timeoutMs: parseInt(process.env.CHAT_LLM_TIMEOUT_MS || '60000', 10),
     temperature: process.env.CHAT_LLM_TEMPERATURE ? parseFloat(process.env.CHAT_LLM_TEMPERATURE) : 0.8,
@@ -145,8 +152,10 @@ export const config = {
 
   
   /**
-   * Perplexity Sonar 검색 그라운딩 (t_d54bc456) — 법률·회계·의료 전문가 카테고리
-   * 답변만 호출한다(종량제 비용 제어). 키: .env PERPLEXITY_API_KEY.
+   * Perplexity Sonar 검색 그라운딩 (t_d54bc456) — t_20746efa(대표님 10/10 two-speed 확정):
+   * **기본 OFF**. 매 턴 선행검색 영구 폐기 — 평상 답변은 front desk(flash·무검색)가 즉시 답하고,
+   * 라우터가 '깊이 필요'(법률/세무/시사)로 판정한 턴만 back stage가 이 엔진으로 근거 초안을 만든다.
+   * opt-in: PERPLEXITY_ENABLED=true + 키. 종량제 비용 게이트는 그대로.
    */
   /**
    * LLM 비상전원 (t_67eaf475) — DashScope 장애 시 자동 전환되는 Anthropic 호환 폴백.
@@ -163,7 +172,9 @@ export const config = {
   },
 
   perplexity: {
-    enabled: process.env.PERPLEXITY_DISABLED !== 'true',
+    // t_20746efa: 기본 OFF(opt-in PERPLEXITY_ENABLED=true) — 매 턴 선행검색 영구 폐기.
+    // depth lane(라우터가 '깊이 필요' 판정)이면서 키 설정된 경우에만 발동한다.
+    enabled: process.env.PERPLEXITY_ENABLED === 'true',
     apiKey: process.env.PERPLEXITY_API_KEY || '',
     baseUrl: process.env.PERPLEXITY_BASE_URL || 'https://api.perplexity.ai',
     model: process.env.PERPLEXITY_MODEL || 'sonar-pro',
@@ -266,6 +277,11 @@ export const config = {
     // control도 3연속 19/19 PASS. 옵트아웃: EMPATHY_EARLY=false 시에만 런 종료 시
     // 저장·발행 구동작 1:1 복귀.
     empathyEarly: process.env.EMPATHY_EARLY !== 'false',
+    // t_20746efa (대표님 10/10 two-speed 게이트 3): front desk 단순 발화의 ack→첫 글자
+    // ≤1.5s 실측 flash TTFT 548ms(t_20746efa 라이브 프로브) + 지터 여유 700ms —
+    // 연출 리드 상한 = SLA − TTFT 예산. 0 이하이면 리드 전면 생략.
+    frontDeskFirstTokenMs: parseInt(process.env.FRONT_DESK_FIRST_TOKEN_MS || '1500', 10),
+    frontDeskTtftBudgetMs: parseInt(process.env.FRONT_DESK_TTFT_BUDGET_MS || '700', 10),
     deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
     deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
     seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',

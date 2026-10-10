@@ -57,7 +57,21 @@ describe('searchGrounding (fetch 모킹)', () => {
     expect(r.reason).toBe('NOT_CONFIGURED');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+  it('t_20746efa: 키가 있어도 기본 OFF — 선행검색 영구 폐기 계약 (네트워크 호출 0)', async () => {
+    // 대표님 10/10 two-speed: Perplexity는 opt-in(PERPLEXITY_ENABLED=true) 전용.
+    // vitest env는 키를 봉인하지만, enabled 기본값 자체가 false임을 here 증명한다.
+    expect(config.perplexity.enabled).toBe(false);
+    vi.spyOn(config.perplexity, 'apiKey', 'get').mockReturnValue('pplx-test');
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = await searchGrounding('계약 위반 손해배상', 'ko');
+    expect(r.status).toBe('skipped');
+    expect(r.reason).toBe('NOT_CONFIGURED');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
   it('성공 응답 → grounded + citations, request body에 sonar 모델/검색 컨텍스트', async () => {
+    // t_20746efa: 검색 엔진 기본 OFF(opt-in) — 테스트는 enabled 플래그를 명시적으로 켠다.
+    vi.spyOn(config.perplexity, 'enabled', 'get').mockReturnValue(true);
     vi.spyOn(config.perplexity, 'apiKey', 'get').mockReturnValue('pplx-test');
     const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       model: 'sonar-pro',
@@ -74,6 +88,7 @@ describe('searchGrounding (fetch 모킹)', () => {
     expect(String(fetchSpy.mock.calls[0][0])).toBe(`${config.perplexity.baseUrl}/chat/completions`);
   });
   it('429/401/네트워크 오류도 throw 없이 failed 정규화', async () => {
+    vi.spyOn(config.perplexity, 'enabled', 'get').mockReturnValue(true);
     vi.spyOn(config.perplexity, 'apiKey', 'get').mockReturnValue('pplx-test');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('rate', { status: 429 })));
     expect((await searchGrounding('q', 'ko')).reason).toBe('RATE_LIMITED');

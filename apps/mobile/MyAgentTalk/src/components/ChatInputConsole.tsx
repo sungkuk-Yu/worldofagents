@@ -54,6 +54,10 @@ interface Props {
   onHoldAbort: () => void;
   /** t_043539ff→t_64e3edd6 ③: 재질문 활성 시 좌/우 끝 릴리스 → '예'/'아니요' 텍스트 발화 */
   onSendAck: (text: string) => void;
+  /** t_616e9abf 실행 배선: → 편집 릴리스 = ptt.endHoldDraft (audio.end{draft:true} — 전사 회신
+   *  transcript.draft만, user 행 영속/턴 실행 0). 미전달 시 VoiceStage의 미장착 게이트가
+   *  edit 릴리스를 cancel로 강등(t_55e92e7e send 폴백 금지 계약 유지). */
+  onEdit?: () => void;
   /** t_64e3edd6 #324/#325: 공감 재질문 예/아니요 버튼 행 활성 — false면 좌/우도 음성 send(무확인 진행) */
   ackActive?: boolean;
   /** 답변 대기 freeform 점프 (t_363c0faa) — 값이 바뀌면 음성 모드에서도 키보드 입력바를 개방(focus).
@@ -77,7 +81,7 @@ export default function ChatInputConsole({
   attachmentItems, attachmentCount, onAttach, onAttachmentRemove, onAttachmentRetry,
   onPhoto, onFile,
   voiceMode, initialKeyboardOpen, recording, level, pttError, pttPending,
-  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, ackActive, forceOpenKeyboard, viewportHeight,
+  onPressHoldStart, onHoldEnd, onHoldAbort, onSendAck, onEdit, ackActive, forceOpenKeyboard, viewportHeight,
   onVoicePress, pttCapturing,
   onStageActiveChange,
 }: Props) {
@@ -198,6 +202,9 @@ export default function ChatInputConsole({
             // t_55e92e7e 실행 배선: ↓/↗ 라벨의 '놓으면 실행'을 참으로 — 첨부 경로 단일 소스 재사용.
             onPhoto={onPhoto}
             onFile={onFile}
+            // t_616e9abf: → 편집 라벨의 '놓으면 실행'을 참으로 — arm 배너 supported 게이트는
+            // onEdit 전달 시 자동 포함(armedActions). 전달 없으면 기존 cancel 강등 게이트 유지.
+            onEdit={onEdit}
             recording={recording}
             level={level}
             error={pttError}

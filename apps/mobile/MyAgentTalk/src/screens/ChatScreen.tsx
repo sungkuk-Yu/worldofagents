@@ -124,6 +124,13 @@ export default function ChatScreen({ navigation, route }: Props) {
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
     // 카드 훅이 아래에서 생성되므로 ref 우회로 최신 구현체를 쓴다 (WS 수신은 항상 렌더 이후).
     onFavoriteUpdated: (messageId, favorite) => favoriteSyncRef.current?.(messageId, favorite),
+    // t_616e9abf '→편집' 회신 (백엔드 t_8bac5645): transcript.draft 전문을 입력창에 채우고
+    // B 계층 개방+포커스(forceOpenKeyboard nonce 리프터 재사용 — t_363c0faa와 동일 통로).
+    // user 행 영속·턴 실행 0 — 전송은 센터 릴리스/전송 버튼에서만 (t_08d671a8 원계약).
+    onTranscriptDraft: (text) => {
+      setInput((prev) => (prev ? prev + ' ' + text : text));
+      setComposeNonce((n) => n + 1);
+    },
   });
 
   // PTT (t_eded715c): PC 웹 키보드(V 등 재매핑 가능) + 웹 모바일 터치 홀드 겸용.
@@ -1074,6 +1081,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         onVoicePress={voiceMode && !isDemo ? ptt.press : undefined}
         pttCapturing={ptt.active}
         onHoldEnd={ptt.endHold}
+        // t_616e9abf 실행 배선: → 편집 릴리스 = endHoldDraft — audio.end{draft:true} 단독 실행
+        // (무draft audio.end 병행 = 위장전송, VoiceStage edit 분기에서 제거됨).
+        onEdit={voiceMode && !isDemo ? ptt.endHoldDraft : undefined}
         onHoldAbort={ptt.abortHold}
         onSendAck={sendAck}
         ackActive={!!ackChip}

@@ -113,6 +113,12 @@ export interface NeuronState {
   visualRequested: boolean;
   /** 전문가 그라운딩 (t_d54bc456) — 법률·회계 카테고리 판정과 검색 활성화 조건 */
   expertise: keyof typeof DISCLAIMERS;
+  /**
+   * t_20746efa two-speed (대표님 10/10 확정 계약) — '깊이 필요' 판정 lane.
+   * true면 back stage: 고모델(chatLlm.deepModel) 승격 + (키 설정 시) Perplexity 근거.
+   * false면 front desk: 기본 flash 무검색 즉시 답변. 평상 턴은 전부 false가 목표.
+   */
+  deepLane: boolean;
   groundEnabled: boolean;
   grounding: GroundingResult | null;
   /** photo_edit 지시+이미지 첨부 동반 (t_78ffba4f) — routerNode가 answer 강제 활성에 사용. */
@@ -395,6 +401,7 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
   let dialogueType = plan.dialogueType;
   let dialogueStage: 1 | 2 | 3 = plan.dialogueStage;
   let confidence = plan.confidence;
+  let deepFromLlm = false;
   if (plan.dialogueStage === 3) {
     // A (t_c31e3f45): Stage2 컨텍스트에도 공감 재질문 행을 주입하지 않는다 —
     // 자기 발화 에코가 분류기를 오염시켜 같은 소리를 재생산한다.
@@ -405,6 +412,10 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       dialogueStage = 2;
       confidence = llm.confidence;
     }
+    // t_20746efa two-speed: depth 판정은 type 인용과 독립 채취 — 법률/시사 발화가
+    // information 저신뢰로 type 미채택이어도 '깊이 필요' 신호는 살린다 (오탐 비용은
+    // 백스테이지 지연뿐, precision-first 프롬프트). LLM 실패/미응답 → false (front desk).
+    deepFromLlm = llm ? llm.deep === true : false;
   }
   ctx.emit({ neuron: 'router', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') });
   // Stage 2 인용 시 계획 보정: 요청형이면 answer, data면 visual (plan과 동일 규칙).
@@ -440,7 +451,9 @@ async function routerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     dialogueConfidence: confidence,
     activationPlan,
     reason,
+    // t_20746efa two-speed: 깊이 판정 = processTurn 규칙 씨앗 OR Stage 2 LLM deep 보강.
     events: [...state.events, { neuron: 'router', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') }],
+    ...(deepFromLlm ? { deepLane: true, reason: `${reason}, depth_llm` } : {}),
   };
 }
 
@@ -474,6 +487,14 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     } else {
       leadMs = typingLeadMs(state.userMessage.length);
     }
+  }
+  // t_20746efa 게이트 3 (front desk SLA: ack→첫 글자 ≤frontDeskFirstTokenMs): 연출 리드는
+  // '체감'이지 SLA가 아니다(ack·quip가 대기를 채운다) — 리드 상한 = SLA − TTFT 예산(실측
+  // flash 548ms+지터 700ms). empathy 리드(칩 창 2.5s 읽기 계약)·깊이 lane(백스테이지 =
+  // '한 답의 지연')·voice/off(lead0)는 대상 아님. cap≤0이면 리드 전면 생략.
+  if (leadMs && !state.empathyResponse && !state.deepLane) {
+    const cap = config.protocol.frontDeskFirstTokenMs - config.protocol.frontDeskTtftBudgetMs;
+    if (cap < leadMs) leadMs = Math.max(0, cap);
   }
   if (leadMs) await waitOrAbort(leadMs, ctx.signal);
   const prompt = state.persona ? buildPersonaPrompt(state.persona, 'answer') : '';
@@ -519,11 +540,12 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     ctx.emit(bridgeEnd);
     return { answerResponse, structured: bridgeStructured, grounding: null, llm: ctx.llm, events: [...state.events, start, bridgeEnd] };
   }
-  // ── 전문가 그라운딩 (t_d54bc456) — 법률·회계 등 전문가 카테고리는 Perplexity
-  // 최신 웹 검색 근거 + 출처를 반드시 동반한다. 키 미설정 시 시도하지 않는다
-  // (DEV/unit 테스트는 실 키 없이도 기존 동작 그대로). ──
+  // ── 전문가 그라운딩 (t_d54bc456) — two-speed(t_20746efa)에서 검색은 **깊이 lane 전용**.
+  // 발동 조건 = state.deepLane(규칙 씨앗 OR router Stage2 LLM 보강) + Perplexity 설정(opt-in).
+  // 매 턴 선행검색 영구 폐기(대표님 10/10): 평상 턴은 이 gate를 통과하지 않는다.
+  // 키 미설정 시 시도하지 않는다 (DEV/unit 테스트는 실 키 없이도 기존 동작 그대로). ──
   let grounding: GroundingResult | null = null;
-  if (state.groundEnabled && isPerplexityConfigured() && !ctx.signal?.aborted) {
+  if (state.deepLane && isPerplexityConfigured() && !ctx.signal?.aborted) {
     ctx.emit({ neuron: 'grounding', status: 'processing', stage: 'thinking', quip: quipText(state, 'thinking') });
     grounding = await searchGrounding(state.userMessage, state.locale, { signal: ctx.signal });
     ctx.emit({
@@ -549,8 +571,12 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
     // 'Respond in ….' 꼬리 계약(run-e) 보존. ko일 때만 주입(en 답변에 한국어 맞춤법 무의미).
     // t_f5a9b570: 보호 사전(사용자 prefs+페르소나명)을 규칙에 고지 — '김비서'를 스스로 쪼기지 않게.
     const systemPrompt = appendLanguageInstruction(prompt + '\nAnswer naturally. Avoid excessive markdown.' + noRepeat + orthographyRules(state.locale, mergeProtectedTerms(state.orthoProtectedTerms || [])) + groundingBlock + replyInstruction(state), state.locale);
+    // t_20746efa two-speed: 깊이 lane은 백스테이지 고모델 승격(설정 시). 미설정이면
+    // front 모델 유지 — 승격 실패 폴백이 아니라 '고모델 미배포' 상태라도 턴이 살아간다.
+    const answerModel = state.deepLane && config.chatLlm.deepModel ? config.chatLlm.deepModel : undefined;
     try {
       const result = await chatCompletion({
+        model: answerModel,
         messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
         onDelta: d => ctx.onDelta?.(d),
         signal: ctx.signal,
@@ -578,6 +604,8 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       ctx.emit({ neuron: 'answer', status: 'processing', stage: 'organizing', quip: quipText(state, 'organizing') });
       try {
         const regen = await chatCompletion({
+          // t_20746efa: 복창 재생성도 같은 lane 모델 유지 (front/deep 혼선 방지).
+          model: answerModel,
           messages: [
             { role: 'system', content: systemPrompt + `\n\n[ANTI-ECHO] ${state.locale === 'en' ? 'Your previous answer was: ' : '네 직전 답변: '}${prevAnswer.slice(0, 600)}\n${NO_REPEAT_INSTRUCTION[state.locale]}` },
             ...history,
@@ -814,6 +842,7 @@ async function langGraphPipeline(
     structured: Annotation,
     visualRequested: Annotation,
     expertise: Annotation,
+    deepLane: Annotation,
     groundEnabled: Annotation,
     grounding: Annotation,
     photoEditPending: Annotation,
@@ -946,8 +975,15 @@ export async function processTurn(
       const expertise = classifyExpertise(agentRow?.category, agentRow?.config, persona?.name, persona?.system_prompt, persona?.tags);
       // 그라운딩 활성 조건: 에이전트/페르소나가 전문가 카테고리이거나 질문 자체가 법률·회계·의료 질문.
       // (종량제 — 일반 토크에는 호출하지 않는다. 대표님 지시: 법률 답변은 무조건 검색 근거와 함께.)
+      // t_20746efa: Perplexity 기본 OFF(opt-in) — 위 조건이 참이어도 플래그·키가 없으면 미발동.
       const questionExpertise = classifyExpertise(userMessage);
-      const groundEnabled = (expertise !== 'general' || questionExpertise !== 'general') && isPerplexityConfigured();
+      // two-speed (대표님 10/10 확정): '깊이 lane' 씨앗 = 전문가 규칙 판정(에이전트 카테고리
+      // 또는 발화 자체가 법률/세무/의료/시사). 검색 발동은 오직 이 lane에서만 — 매 턴 선행검색
+      // 영구 폐기. routerNode Stage 2 LLM deep 판정이 규칙 미잡은 깊이 발화를 OR로 보강한다.
+      // (평상 발화 = front desk: 기본 flash 무검색 즉시 답변. deepModel/검색 미설정 시
+      //  깊이 lane도 flash 경로로 돌아간다 — 승격은 운영 opt-in.)
+      const deepLane = expertise !== 'general' || questionExpertise !== 'general';
+      const groundEnabled = deepLane && isPerplexityConfigured();
 
       // 활성 작업/큐 상태 컨텍스트 조회
       const { data: activeTasks } = await db.from('tasks').select('id').eq('session_id', sessionId).in('status', ['pending', 'in_progress']);
@@ -1030,6 +1066,7 @@ export async function processTurn(
         structured: { dialogue_type: 'text', structured_payload: {}, classifier: 'rules' },
         visualRequested: false,
         expertise,
+        deepLane,
         groundEnabled,
         grounding: null,
         photoEditPending,
@@ -1428,7 +1465,7 @@ export async function processTurn(
         guardPassed = guardResult.passed;
         // 전문가 디스클레이머 + 그라운딩 정직 표기 (t_d54bc456)
         let suffix = expertise === 'general' ? '' : `\n\n${DISCLAIMERS[expertise][locale]}`;
-        if (final.groundEnabled && final.grounding && final.grounding.status !== 'grounded' && final.grounding.reason !== 'CANCELLED') {
+        if ((final.groundEnabled || final.deepLane) && final.grounding && final.grounding.status !== 'grounded' && final.grounding.reason !== 'CANCELLED') {
           // 검색 성공했는데 인용이 없는 것과 검색 자체가 실패한 것을 구분해 정직 표기한다.
           const key = final.grounding.reason === 'NO_CITATIONS' || final.grounding.reason === 'EMPTY_RESPONSE' ? 'NO_SOURCES' : 'UNAVAILABLE';
           suffix += `\n${GROUNDING_NOTES[key][locale]}`;

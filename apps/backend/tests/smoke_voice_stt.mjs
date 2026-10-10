@@ -2,9 +2,17 @@
  * 음성 STT 스모크 (t_1c7be18c): 앱 음성 발화 → 로컬 faster-whisper v3-turbo 실전사 검증.
  * mock 고정 문장("안녕하세요, 오늘 할 일을 정리해 주세요.")이 나오면 FAIL.
  *
+ * [7] 언어 힌트 픽스 (t_827dcbcc 'is' 오전사, 카드 시나리오 2): 실 사이드카 대상 —
+ *   7a 한국어 PCM + client 미지정 → 서버가 세션 locale(ko 기본) 확정힌트 전송,
+ *      transcript.draft.language='ko' + 한국어 키워드 전사 ('is' 오인 소멸 실측).
+ *   7b 영어 PCM + client config.language='en' → ko locale 덮어쓰기 우선순위, 영어 키워드 전사.
+ *   (draft:true 라운드 — 비영속: user 행 0·run 0, 스모크 DB 오염 없음.)
+ *
  * 사용법:
  *   PORT=3100 STANDALONE=true STT_SIDECAR_URL=http://127.0.0.1:9833 ./node_modules/.bin/tsx src/index.ts
  *   node tests/smoke_voice_stt.mjs http://localhost:3100 <pcm 파일> "<기대 문장 키워드>"
+ *   # [7]은 fixture 자동 탐색(없으면 SKIP): ../apps/mobile/MyAgentTalk/tests/e2e/fixtures/voice_fixture_{ko,en}_short.pcm
+ *   #   (EN fixture 생성: apps/mobile/MyAgentTalk/tests/e2e/fixtures/make_voice_fixture_en_short.py)
  */
 const BASE = process.argv[2] || 'http://localhost:3100';
 const PCM = process.argv[3];
@@ -161,6 +169,54 @@ async function main() {
     check('user 행 1개만 (선영속 재사용, 중복 영속 금지)', userRows.length === 1 && userRows[0].id === transcript.message_id, `rows=${userRows.length}`);
     check('음성 턴 empathy 저장 행 없음', !(Array.isArray(msgs) ? msgs : []).some((m) => m.source_neuron === 'empathy'));
   }
+  // [7] 언어 힌트 픽스 회귀 (t_827dcbcc, 카드 시나리오 2) — 실 사이드카 대상 draft 라운드(비영속).
+  // 사이드카 미설정 백엔드(예: DEV mock)에서 실행 시 SKIP: service='local'일 때만 단정한다.
+  const FX = '../../apps/mobile/MyAgentTalk/tests/e2e/fixtures/';
+  const fxKo = FX + 'voice_fixture_ko_short.pcm', fxEn = FX + 'voice_fixture_en_short.pcm';
+  const draftRound = ({ pcmFile, clientLang, expectLang, keywordRe, label }) => new Promise((resolve) => {
+    let pcm;
+    try { pcm = readFileSync(pcmFile); } catch { skip(`${label} (fixture 없음)`); return resolve(); }
+    req('POST', '/api/ws-ticket', { token, body: {} }).then((tr2) => {
+      const ticket2 = tr2.json?.data?.ticket;
+      if (!ticket2) { check(`${label} ws-ticket`, false, JSON.stringify(tr2.json)); return resolve(); }
+      const wsUrl = `${WS_BASE}/ws?session_id=${sessionId}&ticket=${ticket2}`;
+      const ws = new WebSocket(wsUrl);
+      const t = setTimeout(() => { try { ws.close(); } catch {}; check(`${label} (timeout)`, false, 'no transcript.draft 60s'); resolve(); }, 60000);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'subscribe', session_id: sessionId }));
+        const cfg = { sample_rate: 16000, encoding: 'pcm_s16le', mode: 'ptt', ...(clientLang ? { language: clientLang } : {}) };
+        ws.send(JSON.stringify({ type: 'audio.start', session_id: sessionId, config: cfg }));
+        let i = 0;
+        const tick = () => {
+          if (i < pcm.length) { ws.send(pcm.subarray(i, i + 65536)); i += 65536; setTimeout(tick, 10); }
+          else ws.send(JSON.stringify({ type: 'audio.end', session_id: sessionId, draft: true }));
+        };
+        tick();
+      };
+      ws.onmessage = (m) => {
+        const e = JSON.parse(m.data);
+        if (e.type === 'transcript.draft') {
+          clearTimeout(t); try { ws.close(); } catch {}
+          check(`${label} — draft 회신 text 실전사 (mock 조용폴백 0)`, !!e.text && e.text !== MOCK_PHRASE, `text="${(e.text || '').slice(0, 40)}" lang=${e.language} conf=${e.confidence}`);
+          check(`${label} — wire language 확정 (${expectLang}, 'is'류 오인 0)`, e.language === expectLang, `got=${e.language}`);
+          check(`${label} — 키워드 전사`, keywordRe.test(e.text || ''), e.text);
+          resolve();
+        }
+        if (e.type === 'error') { clearTimeout(t); try { ws.close(); } catch {}; check(`${label}`, false, JSON.stringify(e)); resolve(); }
+      };
+      ws.onerror = () => { clearTimeout(t); skip(`${label} (ws error)`); resolve(); };
+    }, (e) => { check(`${label} (prep)`, false, String(e?.message || e)); resolve(); });
+  });
+  await draftRound({ pcmFile: fxKo, clientLang: null, expectLang: 'ko', keywordRe: /안녕|컨디션/, label: '[7]a ko 발화+무지정→locale ko 힌트' });
+  await draftRound({ pcmFile: fxEn, clientLang: 'en', expectLang: 'en', keywordRe: /hello|how is your day/i, label: '[7]b en 발화+client en 힌트 우선' });
+  // 비영속 확인: [7] draft 라운드가 user 행을 남기지 않는다 (hold-for-edit 계약 관통 회귀).
+  {
+    const mr = await req('GET', `/api/sessions/${sessionId}/messages`, { token });
+    const msgs = mr.json?.data?.messages || mr.json?.data || [];
+    const arr = Array.isArray(msgs) ? msgs : [];
+    check('[7] draft 라운드 user 행 0 (비영속 유지)', arr.filter(m => m.role === 'user' && /컨디션|hello|how is/i.test(m.content || '')).length <= 1, `user_total=${arr.filter(m => m.role === 'user').length}`);
+  }
+
   console.log(`\n=== smoke_voice_stt: ${passed} pass / ${failed} fail / ${skipped} skip ===`);
   process.exit(failed ? 1 : 0);
 }

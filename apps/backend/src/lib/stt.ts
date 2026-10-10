@@ -130,14 +130,30 @@ export interface TranscribeResult {
 export const MOCK_STT_PHRASE = '안녕하세요, 오늘 할 일을 정리해 주세요.';
 
 /**
+ * Whisper 유효 언어 코드 정규화 (t_827dcbcc 'is' 오전사):
+ * client config.language는 'auto'·'ko-KR'류 태그·임의 문자열 가능 — BCP47 1차 서브태그를
+ * 취해 ISO-like 2~3자만 통과시킨다(그 외엔 undefined=자동감지 유지, 하위호환).
+ * 'auto'를 그대로 넘기면 faster-whisper가 ValueError(500)를 던진다(실측).
+ * 우선순위(카드 계약#1): client 명시 힌트 > 세션/요청 locale > config.defaultLocale(기본 ko).
+ */
+export function normalizeSttLanguageHint(language: string | null | undefined): string | undefined {
+  const v = (language || '').trim().toLowerCase().split('-')[0];
+  return /^[a-z]{2,3}$/.test(v) && v !== 'auto' ? v : undefined;
+}
+
+/**
  * 로컬 faster-whisper large-v3-turbo 사이드카 전사 (t_1c7be18c).
  * raw PCM s16le 버퍼를 그대로 POST — 사이드카가 16k mono로 해석한다.
  * 비2xx/네트워크 실패는 STT_SERVICE_UNAVAILABLE로 던진다 (mock 조용 폴백 금지).
+ * languageHint(t_827dcbcc): ?language= 쿼리로 Whisper에 언어 확정 — 미전달은 자동감지(구거동).
  */
-async function transcribeViaSidecar(data: Buffer): Promise<TranscribeResult> {
+async function transcribeViaSidecar(data: Buffer, languageHint?: string): Promise<TranscribeResult> {
   const url = config.sttSidecar.url; // 호출부에서 설정 확인 후 호출
+  // 세션 locale/client 힌트 전파 — 미전달 시 Whisper 자동감지는 짧은 한국어 발화를
+  // 아이슬란드어('is', p=0.92) 등으로 오인한다 (10/10 08:43 실측, message 435f61c3 화면 도달).
+  const endpoint = languageHint ? `${url}/transcribe?language=${languageHint}` : `${url}/transcribe`;
   try {
-    const res = await fetch(`${url}/transcribe`, {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
@@ -178,15 +194,18 @@ function getOpenAI(): any {
  * - 2순위: OpenAI Whisper API (실 키 보유 시)
  * - 키 없고 사이드카도 없는 DEV/mock: 음성 신호 여부 기반 mock 응답 (플로우 검증용)
  * - 사이드카 설정 후 실패 시: mock 고정 문장으로 조용히 대체하지 않고 STT_SERVICE_UNAVAILABLE.
+ * language(t_827dcbcc): 언어 힌트(client config.language > 세션 locale). undefined/'auto'는
+ * 자동감지 유지(하위호환) — 유효 코드는 사이드카 ?language=로 전달해 'is'류 오감지를 차단한다.
  */
-export async function transcribeAudio(data: Buffer): Promise<TranscribeResult> {
+export async function transcribeAudio(data: Buffer, language?: string): Promise<TranscribeResult> {
   const durationMs = (data.length / (config.openai.stt.sampleRate * 2)) * 1000;
   const client = getOpenAI();
+  const hint = normalizeSttLanguageHint(language);
 
   // 1순위: 로컬 v3-turbo 사이드카. 실패는 고정 문장 mock으로 조용히 대체하지 않는다.
   if (config.sttSidecar.url) {
     try {
-      return await transcribeViaSidecar(data);
+      return await transcribeViaSidecar(data, hint);
     } catch (err: any) {
       if (!client) throw err; // 키 없으면 폴백 없음 — 명시 오류
       // 실 OpenAI 키가 있을 때만 클라우드 폴백
@@ -209,11 +228,13 @@ export async function transcribeAudio(data: Buffer): Promise<TranscribeResult> {
       model: config.openai.whisperModel,
       file: { name: 'audio.pcm', data, type: 'audio/pcm' },
       response_format: 'json',
+      // t_827dcbcc: 사이드카와 동일 힌트 정책 — 유효 코드일 때만 language 확정(미지정=자동감지 구거동).
+      ...(hint ? { language: hint } : {}),
     });
     return {
       text: String(response.text || '').trim(),
       confidence: 0.95,
-      language: 'ko',
+      language: hint || 'ko',
       durationMs,
       service: 'openai',
     };

@@ -13,6 +13,8 @@
  *      반대 방향 라벨 미존재. #mat-callout 서브트리 user-select:none 상속 실측.
  *      단, 실행 배선 없는 방향은 arm 배너 억제(t_08d671a8 온보드 갭): →(편집)만 해당 —
  *      인라인 섹터 라벨(의미)은 표시, '놓으면 실행' 배너(약속)는 미표시 (화면-거짓 방지).
+ *      [t_616e9abf 배선 전환] → 편집 = ptt.endHoldDraft(audio.end{draft:true}) 실행 장착 —
+ *      5방향 전부 배선/전부 배너 (④ DIRS·⑥-d 참조).
  *   ⑤ 릴리스 실행 로그 유지 — 센터=audio.start→end(send), ←=audio.cancel, ↑=audio.cancel+B 개방.
  *   ⑥ 실행 배선 (본 카드 후속): ↓=사진첨부·↗=파일첨부 릴리스 시 첨부 스테이지 칩 실물 +
  *      /api/upload POST (라벨의 '놓으면 실행'을 참으로). ←/↑ 기존 실행 회귀 동시 잠금.
@@ -88,12 +90,12 @@ function check(label, pass, info = '') { results.push({ label, pass }); console.
 
     // ④ t_55e92e7e: 5방향 진입 → 대응 라벨 존재 + 반대 라벨 미존재 + 인라인 글자 + arm 배너
     //   t_55e92e7e 실행 배선 후속: '놓으면 실행' 배너(supported 게이트) = 실행 콜백 장착 방향만.
-    //   ↑←↓↗ = 배선됨(키보드/취소/사진/파일) → 배너 존재. → 편집 = 온보드의 intentional 미배선
-    //   (t_08d671a8 후속 결정; 인라인 섹터 라벨=의미는 상시, 배너=약속만 억제) → 배너 미존재.
+    //   t_616e9abf: → 편집 = endHoldDraft(audio.end{draft:true}) 실행 배선 전환 — 5방향 전부
+    //   배선됨(arm 배너 참). 인라인 섹터 라벨(의미)은 상시, 배너(약속)는 실행 존재 시에만.
     const DIRS = [
       { action: 'keyboard', dx: 0, dy: -40, text: '키보드 열기', opposite: 'cancel', wired: true },
       { action: 'file', dx: 23, dy: -33, text: '파일', opposite: 'cancel', wired: true },   // ↗ ~35° (keyboard 30° 초과, file 15~45 내)
-      { action: 'edit', dx: 40, dy: 0, text: '편집', opposite: 'cancel', wired: false },
+      { action: 'edit', dx: 40, dy: 0, text: '편집', opposite: 'cancel', wired: true },     // t_616e9abf 배선 전환: 미배선→endHoldDraft 실행 (arm 배너 참)
       { action: 'photo', dx: 0, dy: 40, text: '사진', opposite: 'keyboard', wired: true },
       { action: 'cancel', dx: -40, dy: 0, text: '취소', opposite: 'edit', wired: true },
     ];
@@ -236,20 +238,33 @@ function check(label, pass, info = '') { results.push({ label, pass }); console.
       const chipsAfter = await page.evaluate(() => document.querySelectorAll('[data-testid^="stage-att-"]').length);
       check('⑥-c ← 회귀 = cancel 실행 (첨부 실행 없음·칩 수 불변)', chipsAfter === chipsBefore, `${chipsBefore}->${chipsAfter}`);
     }
-    // ⑥-d → 편집(미배선) 릴리스 = 폐기(cancel) — send 폴백 금지 계약: 편집 의도 릴리스가
-    //   녹음을 전송하는 비가역 위장 실행이면 안 된다 (arm 배너 미표시와 동일한 화면/실행 일치).
+    // ⑥-d t_616e9abf → 편집 배선 전환: 릴리스 = audio.end{draft:true} 단독 —
+    //   무draft audio.end 병행(위장전송) 금지 + transcript.draft 회신 전문이 입력창에 채워지고
+    //   B 계층 개방. user 행 영속 0(전송 경로 아님) — message-user 수 불변으로 잠금.
     {
       const pad9 = await page.getByTestId('voice-stage-pad').boundingBox();
       const x9 = pad9.x + pad9.width / 2, y9 = pad9.y + pad9.height / 2;
+      const usersBefore = await page.getByTestId('message-user').count();
       await page.mouse.move(x9, y9);
       await page.mouse.down();
       await page.mouse.move(x9 + 40, y9, { steps: 4 }); // → = edit
       await page.waitForTimeout(150);
+      const armEdit = await page.getByTestId('compass-label-edit').count();
       const frameBase9 = state.frames.length;
       await page.mouse.up();
       await page.waitForTimeout(400);
-      const types9 = state.frames.slice(frameBase9).filter((f) => f && typeof f.type === 'string').map((f) => f.type);
-      check('⑥-d →(편집 미배선) 릴리스 = audio.cancel — audio.end(전송) 위장 없음', types9.includes('audio.cancel') && !types9.includes('audio.end'), types9.join(','));
+      const rel9 = state.frames.slice(frameBase9).filter((f) => f && typeof f.type === 'string');
+      const endFrames = rel9.filter((f) => f.type === 'audio.end');
+      check('⑥-d → arm 배너 노출(배선 참)', armEdit === 1, `arm=${armEdit}`);
+      check('⑥-d → 릴리스 = audio.end{draft:true} 단독 — cancel/무draft 없음', endFrames.length === 1 && endFrames[0].draft === true && !rel9.some((f) => f.type === 'audio.cancel'), rel9.map((f) => JSON.stringify(f)).join(','));
+      // 백엔드(t_8bac5645) 회신 목킹: transcript.draft 전문 → 입력창 채움 + B 계층 자동 개방
+      const DRAFT_TEXT = '수정할 음성 전사 문장';
+      await state.sockets[state.sockets.length - 1].send(JSON.stringify({ type: 'transcript.draft', session_id: 'source', text: DRAFT_TEXT, confidence: 0.9, language: 'ko', duration_ms: 2100 }));
+      await page.waitForTimeout(500);
+      const draftValue = await page.evaluate(() => { const el = document.querySelector('[data-testid="chat-input"]'); return el ? String(el.value) : null; });
+      check('⑥-d transcript.draft 회신 = 입력창 채움+B 개방 (전송 아님)', draftValue === DRAFT_TEXT, `value=${JSON.stringify(draftValue)}`);
+      const usersAfter = await page.getByTestId('message-user').count();
+      check('⑥-d user 행 영속 0 (message-user 수 불변)', usersAfter === usersBefore, `${usersBefore}->${usersAfter}`);
     }
 
     // ③ selectAction 단위 로직 검증 — 브라우저에서 모듈 로드 불가하므로 스킵
