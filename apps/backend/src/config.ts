@@ -15,8 +15,13 @@ export const config = {
   /**
    * 사람 타이핑 감각 딜레이 (t_a654c9ac, 대표님 10/4 "바로 대답하면 너무 빠라. 사람이 직접
    * 타이핑 하든거처럼"): 답변 첫 토큰 전 리드는 발화 길이 비율로 0.8~2.0s 랜덤,
-   * 스트리밍 출력을 모스부호식 즉시-flush가 아니라 타이핑 속도(초당 12~25자, 구간 랜덤,
-   * 문장부호 후 미세 pause)로 의류 보낸다. 기본 ON, HUMAN_TYPING=false로 OFF(기존 즉시 동작).
+   * 스트리밍 출력은 타이핑 속도(구간 랜덤)·버스트 청크·문장부호 pause로 의류 보낸다.
+   * 기본 ON, HUMAN_TYPING=false로 OFF(기존 즉시 동작).
+   * t_883ff7b3 (대표님 10/11 "답변들이 flash인데도 오래걸린다, 체감 5분"): industry(Claude/
+   * Grok/Dot) 출력 체감 120~280자/s 대비 10배 느린 병목 상향 — 기본 12/25→90/140cps,
+   * pause 상한 350→150(감성은 유지·크기만 업계 정합), 장문(>600자)은 pacing 완전 bypass.
+   * 즉시 롤백은 env 재지정(TYPING_CPS_MIN=12 TYPING_CPS_MAX=25 TYPING_SENTENCE_PAUSE_MS=350
+   * TYPING_LONG_BYPASS_CHARS=0) — 코드는 env 경로만 유지한다.
    * 단위 테스트는 HUMAN_TYPING=false로 봉인 — 리듬 검증은 전용 단위 + 실WS 스모크가 담당.
    */
   humanTyping: {
@@ -24,11 +29,19 @@ export const config = {
     /** 답변 첫 토큰 전 사람 리드타임 범위(ms) — 발화 길이 ×50ms 곡선으로 보간, ±15% 지터. */
     leadMinMs: parseInt(process.env.TYPING_LEAD_MIN_MS || '800', 10),
     leadMaxMs: parseInt(process.env.TYPING_LEAD_MAX_MS || '2000', 10),
-    /** 타이핑 속도 범위(자/초). */
-    cpsMin: parseInt(process.env.TYPING_CPS_MIN || '12', 10),
-    cpsMax: parseInt(process.env.TYPING_CPS_MAX || '25', 10),
-    /** 문장부호(.!?。newline) 뒤 미세 pause(ms 상한, 균등 랜덤). */
-    sentencePauseMs: parseInt(process.env.TYPING_SENTENCE_PAUSE_MS || '350', 10),
+    /** 타이핑 속도 범위(자/초) — t_883ff7b3 industry 하~중간값(12~25→90~140). */
+    cpsMin: parseInt(process.env.TYPING_CPS_MIN || '90', 10),
+    cpsMax: parseInt(process.env.TYPING_CPS_MAX || '140', 10),
+    /** 문장부호(.!?。newline) 뒤 미세 pause(ms 상한, 균등 랜덤). t_883ff7b3: 350→150 —
+     *  감성 장치는 유지하되 체감 CPS 게이트(front median ≥80자/s)를 침범하지 않는 크기로. */
+    sentencePauseMs: parseInt(process.env.TYPING_SENTENCE_PAUSE_MS || '150', 10),
+    /**
+     * 장문 패스 임계(자, t_883ff7b3 대표님 10/11): 스트림 누적 답변이 이 크기를 넘치는
+     * 순간 사람 타이핑 연출을 접고 잔여 전량 즉시 flush, 이후 delta는 도착 즉시 전달
+     * (LLM 스트림 속도 = 노출 속도). 2,000자 답변의 100초+ 연주가 '즉시 패스'로 사라진다.
+     * 0이면 비활성화(전 구간 pacing 유지). 짧은 답변만연출 리듬 유지.
+     */
+    longBypassChars: parseInt(process.env.TYPING_LONG_BYPASS_CHARS || '600', 10),
     /** 취소·타임아웃 방패: 이 pacing으로 스트리밍이 늘어질 때 답변 전체 추가 지연 상한(ms). */
     maxTotalDelayMs: parseInt(process.env.TYPING_MAX_TOTAL_DELAY_MS || '8000', 10),
     /** 재질문 카드가 뜬 턴의 자동예 진행 플로어(ms) — 프론트 예/아니오 칩 창(2.5s) 소진 보장. */
