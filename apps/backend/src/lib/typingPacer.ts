@@ -6,6 +6,9 @@
  * 설계 계약:
  *  - feed(접수)는 즉시, 출력(sink)만 지연시킨다. LLM 생성 속도가 타이핑을 앞서면
  *    백로그 비율만큼 속도를 조인다 (최대 6배 — '로딩 멈춤' 오해 방지, 카드 요구).
+ *  - 장문 패스 (t_883ff7b3, 대표님 10/11): 누적 답변이 longBypassChars를 넘치는 순간
+ *    연출을 완전 접는다 — 잔여 전량 즉시 flush 후 이후 delta는 도착 즉시 sink로
+ *    전달(스트림 속도 = 노출 속도). 짧은 답변만 타이핑 리듬이 남는다. 0=비활성.
  *  - 첫 feed 후 maxTotalDelayMs를 넘기면 잔여 전량 즉시 flush — 지연 상한 방패.
  *  - 취소(cancel) 시 타이머 정리 후 잔여 폐기 — run.cancelled의 partial_text(호출부가
  *    raw 누적 소유)가 미노출 분문을 보존하므로 delta 재스트림은 중복이다.
@@ -58,6 +61,10 @@ export function createTypingPacer(opts: TypingPacerOptions): TypingPacer | null 
   let settleResolve: (() => void) | null = null;
   let draining = false;
   let startedAt: number | null = null; // 첫 feed 시점 — 파이프라인(LLM) 대기 시간을 지연 예산에 섞지 않는다.
+  // 장문 패스 (t_883ff7b3): 누적 접수 글자수와 연출 접기 여부. 임계 초과 순간 bypassed=true가
+  // 되면 스케줄/백로그는 사라지고 이후 feed는 동기 sink로 곧장 나간다 (스트림 속도=노출 속도).
+  let fedTotal = 0;
+  let bypassed = false;
 
   const randInt = (min: number, max: number) => min + Math.floor(rng() * Math.max(1, max - min + 1));
 
@@ -98,7 +105,19 @@ export function createTypingPacer(opts: TypingPacerOptions): TypingPacer | null 
     feed(delta: string) {
       if (dead || !delta) return;
       if (startedAt === null) startedAt = now();
+      fedTotal += delta.length;
+      if (bypassed) { sink(delta); return; } // 장문 패스 확정 — 이후 도착 즉시 노출.
       pending += delta;
+      // 장문 패스 판정 (t_883ff7b3): 누적 답변이 임계 초과 → 연출 접기. 예약된 스텝이
+      // 있어도 cancel하지 않는다 — pending이 비어 있어 step은 finishIfIdle만 타고 종료.
+      const bypassAt = config.humanTyping.longBypassChars;
+      if (bypassAt > 0 && fedTotal > bypassAt) {
+        bypassed = true;
+        const rest = pending; pending = '';
+        sink(rest);
+        finishIfIdle();
+        return;
+      }
       if (timer === null) timer = setT(step, 0);
     },
     drain() {

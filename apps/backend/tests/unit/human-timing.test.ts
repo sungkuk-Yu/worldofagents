@@ -258,6 +258,57 @@ describe('타이핑 pacer (t_a654c9ac 요구2)', () => {
     expect(chunks.filter(c => c.length > 50).length).toBeLessThanOrEqual(1);
   }));
 
+  it('장문 패스 (t_883ff7b3): 임계 초과 순간 연출 완전 bypass — 잔여 즉시 flush + 이후 스트림 도착 즉시 노출', onPacer(clock => {
+    vi.spyOn(config.humanTyping, 'cpsMin', 'get').mockReturnValue(90);
+    vi.spyOn(config.humanTyping, 'cpsMax', 'get').mockReturnValue(90);
+    vi.spyOn(config.humanTyping, 'sentencePauseMs', 'get').mockReturnValue(150);
+    vi.spyOn(config.humanTyping, 'longBypassChars', 'get').mockReturnValue(100);
+    const chunks: string[] = [];
+    const p = createTypingPacer({ sink: c => chunks.push(c), rng: () => 0.5, now: clock.now, setTimeoutFn: clock.set, clearTimeoutFn: clock.clear })!;
+    const first = '가'.repeat(60); // 임계(100) 이하 — pacing 구간
+    p.feed(first);
+    clock.advance(1200);
+    const paced = chunks.length;
+    expect(paced).toBeGreaterThan(1);                       // 버스트로 펼쳐진다(통째 flush 아님)
+    expect(chunks.every(c => c.length <= 7)).toBe(true);    // 리듬 유지
+    const before2 = chunks.length;
+    p.feed('나'.repeat(60));                                // 누적 120 > 100 → bypass 발동
+    const flushChunk = chunks[chunks.length - 1];
+    expect(chunks.length).toBe(before2 + 1);                // 예약 타이머待ち 없이 즉시 잔여 전량
+    expect(flushChunk.length).toBeGreaterThan(50);          // 임계 잔여가 한 번에
+    const before3 = chunks.length;
+    p.feed('다'.repeat(30));                                // 이후 delta는 동기 즉시 노출
+    expect(chunks.length).toBe(before3 + 1);
+    expect(chunks[chunks.length - 1]).toBe('다'.repeat(30)); // clock.advance 없이 sink
+    clock.advance(60000);
+    expect(chunks.join('')).toBe(first + '나'.repeat(60) + '다'.repeat(30)); // 재조립 원문 동일
+    expect(clock.pending()).toBe(0);
+  }));
+
+  it('장문 패스 비활성(=0)이면 전 구간 pacing 유지 — env 롤백 경로 봉인 (t_883ff7b3)', onPacer(clock => {
+    vi.spyOn(config.humanTyping, 'cpsMin', 'get').mockReturnValue(12);
+    vi.spyOn(config.humanTyping, 'cpsMax', 'get').mockReturnValue(12);
+    vi.spyOn(config.humanTyping, 'longBypassChars', 'get').mockReturnValue(0);
+    vi.spyOn(config.humanTyping, 'maxTotalDelayMs', 'get').mockReturnValue(8000);
+    const chunks: string[] = [];
+    const p = createTypingPacer({ sink: c => chunks.push(c), rng: () => 0.5, now: clock.now, setTimeoutFn: clock.set, clearTimeoutFn: clock.clear })!;
+    p.feed('가'.repeat(300));
+    clock.advance(100); // early: 방패(maxTotalDelayMs) 미도달 — bypass면 즉시 통째 flush였을 창
+    expect(chunks.every(c => c.length <= 7)).toBe(true);    // 여백 없이 리듬 유지
+    clock.advance(30000);
+    expect(chunks.join('')).toBe('가'.repeat(300));
+  }));
+
+  it('t_883ff7b3 기본값 봉인: cps 90/140 · pause 150 · longBypass 600 (env 미지정 시)', () => {
+    // vitest env는 TYPING_*를 주입하지 않는다 — config 모듈의 파싱 결과 = 배포 기본값.
+    expect(config.humanTyping.cpsMin).toBe(90);
+    expect(config.humanTyping.cpsMax).toBe(140);
+    expect(config.humanTyping.sentencePauseMs).toBe(150);
+    expect(config.humanTyping.longBypassChars).toBe(600);
+    expect(config.humanTyping.chipFloorMs).toBe(2500); // 게이트1(자동예 ≤2.6s) 불변
+    expect(config.humanTyping.chipJitterMs).toBe(100);
+  });
+
   it('cancel: 잔여 폐기·타이머 정리·이후 feed/output 금지 (partial_text 위임 계약)', onPacer(clock => {
     vi.spyOn(config.humanTyping, 'cpsMin', 'get').mockReturnValue(12);
     vi.spyOn(config.humanTyping, 'cpsMax', 'get').mockReturnValue(12);
