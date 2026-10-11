@@ -66,6 +66,14 @@ export interface ChatOptions {
    * depth lane은 미전송(현행 = 프로바이더 품질 우선).
    */
   enableThinking?: boolean | null;
+  /**
+   * t_1b2974b4: 스트리밍 first-token 데드라인(ms) — 호출 시작부터 첫 SSE delta까지의 상한.
+   * 초과 시 abort → emitted=false이므로 LlmError retryable → 다음 프로바이더(비상전원)로 자동 전환.
+   * 첫 delta가 이미 나간 뒤에는 이 데드라인이 적용되지 않는다(현행 규칙 유지: partial 후 재시도 금지).
+   * undefined/null/0 = 미적용(전체 호출 캡 timeoutMs만 유효). non-streaming에는 무관.
+   * 적용 범위는 호출부 결정 — front lane만 전달, deep lane(품질 우선)은 미전달.
+   */
+  firstTokenMs?: number | null;
 }
 
 export interface ChatResult {
@@ -198,6 +206,16 @@ async function attemptProvider(provider: LlmProvider, opts: ChatOptions): Promis
   const timeoutMs = opts.timeoutMs ?? provider.timeoutMs;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // t_1b2974b4: 스트리밍 first-token 데드라인 — 호출 시작(연결+헤더+첫 delta)까지의 상한.
+  // 첫 delta가 나가면 즉시 해제(이후 지체는 전체 캡 timeoutMs만 적용, 현행 규칙 유지).
+  const firstTokenMs = stream && typeof opts.firstTokenMs === 'number' && opts.firstTokenMs > 0
+    ? opts.firstTokenMs
+    : null;
+  let firstTokenTimedOut = false;
+  let firstTokenTimer: ReturnType<typeof setTimeout> | null = null;
+  if (firstTokenMs !== null) {
+    firstTokenTimer = setTimeout(() => { firstTokenTimedOut = true; controller.abort(); }, firstTokenMs);
+  }
   // 외부 signal과 연계 — 이미 취소된 요청은 프로바이더 없이 즉시 전파(폴백 대상 아님)
   if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const onExternalAbort = () => controller.abort();
@@ -241,6 +259,8 @@ async function attemptProvider(provider: LlmProvider, opts: ChatOptions): Promis
     const handle = {
       onDelta: (d: string) => {
         emitted = true;
+        // t_1b2974b4: 첫 delta 도착 — first-token 데드라인 해제. 이후 지체는 전체 캡만 적용.
+        if (firstTokenTimer !== null) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
         text += d;
         opts.onDelta?.(d);
       },
@@ -280,6 +300,13 @@ async function attemptProvider(provider: LlmProvider, opts: ChatOptions): Promis
     if (err?.name === 'AbortError') {
       // 사용자가 직접 취소한 것은 폴백 없이 전파 (재시도 의미가 없다)
       if (opts.signal?.aborted) throw err;
+      // t_1b2974b4: first-token 데드라인 초과 — 아직 delta가 안 나갔으므로 retryable
+      // (chatCompletion이 다음 프로바이더로 자동 전환). 첫 delta 후 지체는 emitted=true → 기존 규칙 유지.
+      if (firstTokenTimedOut && !emitted) {
+        const e = new LlmError('LLM_TIMEOUT', `[${provider.id}] first-token 데드라인 초과 (${firstTokenMs}ms 내 첫 delta 없음)`);
+        e.retryable = true;
+        throw e;
+      }
       const e = new LlmError('LLM_TIMEOUT', `[${provider.id}] 응답 타임아웃 (${timeoutMs}ms)`);
       e.retryable = !emitted;
       throw e;
@@ -290,6 +317,7 @@ async function attemptProvider(provider: LlmProvider, opts: ChatOptions): Promis
     throw e;
   } finally {
     clearTimeout(timer);
+    if (firstTokenTimer !== null) clearTimeout(firstTokenTimer);
     if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort);
   }
 }

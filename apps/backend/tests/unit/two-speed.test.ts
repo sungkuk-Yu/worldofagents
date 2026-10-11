@@ -278,3 +278,13 @@ describe('⑥ t_baee5c42 Stage2 분류 선(先)발사 — ack→첫글자 직렬
     expect(calls.filter(c => !c.stream && c.system.includes('classify the user'))).toHaveLength(0);
   });
 });
+
+describe('⑦ t_1b2974b4 first-token 데드라인 config — front lane 전용 배선', () => {
+  it('CHAT_LLM_FIRST_TOKEN_MS 미설정 기본 3000 (10/11 실측 tf→첫 delta med 1803ms 대비 안전)', async () => {
+    vi.resetModules();
+    vi.stubEnv('CHAT_LLM_FIRST_TOKEN_MS', '');
+    const fresh = (await import('../../src/config')).config;
+    expect(fresh.chatLlm.firstTokenMs).toBe(3000);
+    vi.unstubAllEnvs();
+  });
+});

@@ -161,6 +161,13 @@ export const config = {
     deepModel: process.env.CHAT_LLM_DEEP_MODEL || '',
     maxTokens: parseInt(process.env.CHAT_LLM_MAX_TOKENS || '1024', 10),
     timeoutMs: parseInt(process.env.CHAT_LLM_TIMEOUT_MS || '60000', 10),
+    /**
+     * t_1b2974b4: front lane 스트리밍 first-token 데드라인(ms) — 첫 SSE delta까지의 상한.
+     * 초과 시 abort → retryable → chatCompletion이 비상전원으로 자동 전환.
+     * 0/미설정=기본 3000 안팎 권장(10/11 실측 TTFT med 583ms·tf→첫 delta med 1803ms 기준), 0 이하 설정 시 미적용.
+     * deep lane(thinking ON, 품질 우선)에는 미적용.
+     */
+    firstTokenMs: parseInt(process.env.CHAT_LLM_FIRST_TOKEN_MS || '3000', 10),
     temperature: process.env.CHAT_LLM_TEMPERATURE ? parseFloat(process.env.CHAT_LLM_TEMPERATURE) : 0.8,
     enableThinking: process.env.CHAT_LLM_ENABLE_THINKING === 'true' ? true : process.env.CHAT_LLM_ENABLE_THINKING === 'false' ? false : null,
     historyTurns: parseInt(process.env.CHAT_LLM_HISTORY_TURNS || '20', 10),

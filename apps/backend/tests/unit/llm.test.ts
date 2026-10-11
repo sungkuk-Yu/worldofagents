@@ -239,3 +239,95 @@ describe('프로바이더 풀 — DashScope 장애 시 Anthropic 자동 전환 (
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('first-token 데드라인 → 비상전원 전환 (t_1b2974b4)', () => {
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockReset();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('① firstTokenMs 내 첫 delta 없음 → abort(retryable) → 비상전원 자동 전환 성공', async () => {
+    fetchMock
+      .mockImplementationOnce((_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        }))
+      .mockResolvedValueOnce(sseResponse([
+        '{"model":"claude-test","choices":[{"delta":{"content":"비상"}}]}',
+      ]));
+    const seen: string[] = [];
+    const r = await chatCompletion({
+      messages: [{ role: 'user', content: 'hi' }],
+      onDelta: d => seen.push(d),
+      firstTokenMs: 50,
+    });
+    expect(seen).toEqual(['비상']); // 전원에서 나간 delta 0 — 전환 시 중복 출력 없음
+    expect(r.provider).toBe('fallback');
+    expect(r.fallback).toBe(true);
+    expect(r.streamed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  }, 10000);
+
+  it('①b 전원·비상 모두 첫 token 침묵 → LLM_TIMEOUT (메시지=first-token 데드라인, retryable)', async () => {
+    fetchMock.mockImplementation((_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }));
+    const err = await chatCompletion({
+      messages: [{ role: 'user', content: 'hi' }],
+      onDelta: () => undefined,
+      firstTokenMs: 40,
+    }).catch((e: unknown) => e as LlmError);
+    expect(err).toBeInstanceOf(LlmError);
+    expect((err as LlmError).code).toBe('LLM_TIMEOUT');
+    expect((err as LlmError).message).toContain('first-token');
+    expect((err as LlmError).retryable).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 풀 소진까지 순회
+  }, 10000);
+
+  it('② 첫 delta 도착 시 데드라인 해제 — 데드라인 초과 지연 스트림도 정상 완료·오전환 금지', async () => {
+    // (첫 delta "후" 지체의 재시도/폴백 금지는 기존 LLM_STREAM_TRUNCATED 테스트가 봉인)
+    let started = false;
+    const body = new ReadableStream({
+      async pull(c) {
+        if (started) return;
+        started = true;
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"첫"}}]}\n\n'));
+        await new Promise(res => setTimeout(res, 80)); // second segment past firstTokenMs(30) — 해제됐으면 abort 없음
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"둘"}}]}\n\n'));
+        c.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        c.close();
+      },
+    });
+    fetchMock.mockResolvedValueOnce(new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+    const seen: string[] = [];
+    const r = await chatCompletion({
+      messages: [{ role: 'user', content: 'hi' }],
+      onDelta: d => seen.push(d),
+      firstTokenMs: 30,
+      timeoutMs: 5000,
+    });
+    expect(seen).toEqual(['첫', '둘']);
+    expect(r.text).toBe('첫둘');
+    expect(r.provider).toBe('primary');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  }, 10000);
+
+  it('③ firstTokenMs 미전달(deep lane 계약) → 데드라인 미장착 — 침묵은 전체 캡만 소진', async () => {
+    fetchMock.mockImplementation((_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }));
+    const err = await chatCompletion({
+      messages: [{ role: 'user', content: 'hi' }],
+      onDelta: () => undefined,
+      firstTokenMs: undefined, // deep lane: graph가 undefined 전달
+      timeoutMs: 60,
+    }).catch((e: unknown) => e as LlmError);
+    expect((err as LlmError).code).toBe('LLM_TIMEOUT');
+    expect((err as LlmError).message).not.toContain('first-token'); // 미장착 증거
+    expect((err as LlmError).message).toContain('응답 타임아웃');
+  }, 10000);
+});
