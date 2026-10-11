@@ -583,6 +583,9 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
       const result = await chatCompletion({
         model: answerModel,
         enableThinking: answerModel === undefined ? false : undefined,
+        // t_1b2974b4: front lane만 first-token 데드라인 — 첫 delta 전 provider 침묵(10/10 실측 11~12s)에서
+        // abort → retryable → 비상전원 자동 전환. deep lane은 품질 우선 미적용(미전달).
+        firstTokenMs: answerModel === undefined ? config.chatLlm.firstTokenMs : undefined,
         messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: state.userMessage }],
         onDelta: d => ctx.onDelta?.(d),
         signal: ctx.signal,
@@ -614,6 +617,8 @@ async function answerNode(state: NeuronState, ctx: NodeContext): Promise<Partial
           model: answerModel,
           // t_baee5c42: 재생성도 같은 lane thinking 정책 (front=false 강제, deep=미전송).
           enableThinking: answerModel === undefined ? false : undefined,
+          // t_1b2974b4: 재생성도 같은 lane first-token 정책 (front만 데드라인, deep 미적용).
+          firstTokenMs: answerModel === undefined ? config.chatLlm.firstTokenMs : undefined,
           messages: [
             { role: 'system', content: systemPrompt + `\n\n[ANTI-ECHO] ${state.locale === 'en' ? 'Your previous answer was: ' : '네 직전 답변: '}${prevAnswer.slice(0, 600)}\n${NO_REPEAT_INSTRUCTION[state.locale]}` },
             ...history,
