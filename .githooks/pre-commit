@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# pre-commit hook — preflight.sh 호출 (소프트런: 항상 exit 0)
+exec "$(git rev-parse --show-toplevel)/scripts/preflight.sh"
