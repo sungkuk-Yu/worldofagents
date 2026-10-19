@@ -6,6 +6,8 @@ export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   host: process.env.HOST || '0.0.0.0',
   defaultLocale: process.env.DEFAULT_LOCALE === 'en' ? 'en' as const : 'ko' as const,
+  /** 사용자당 에이전트 생성 한도 (api-design.md §6). DEV_MODE에서는 무제한. */
+  maxAgentsPerUser: parseInt(process.env.MAX_AGENTS_PER_USER || '10', 10),
   // 처리 지연이 이 시간을 넘으면 단계 진행도 quip을 이어 붙인다 (t_b2b86cd6).
   quipPatienceMs: parseInt(process.env.QUIP_PATIENCE_MS || '15000', 10),
   // 공감 확인음 노출 후 답변 스트리밍 시작 전 체감 공백 (t_344e047a, 대표님 9/28). 0이면 즉시 시작.

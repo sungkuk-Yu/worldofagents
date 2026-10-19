@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { config } from '../config';
 import { requireAuth } from '../lib/auth';
 import { ok, ApiError, ERROR_CODES, badRequest } from '../lib/errors';
 import { getOwnedAgent, createDefaultPersona } from '../lib/helpers';
@@ -35,10 +36,10 @@ export async function agentRoutes(app: FastifyInstance) {
     if (!body.name?.trim()) throw badRequest('에이전트 이름(name)은 필수입니다.');
     if (body.agent_type && !(AGENT_TYPES as readonly string[]).includes(body.agent_type)) throw badRequest(`agent_type은 ${AGENT_TYPES.join('/')} 중 하나여야 합니다.`);
 
-    // 무료 계정 에이전트 한도 (api-design.md §6 — 3개) — DEV_MODE에서는 해제
+    // 무료 계정 에이전트 한도 (api-design.md §6) — DEV_MODE에서는 해제
     const { data: countData } = await request.db.from('agents').select('id').eq('owner_id', request.userId).eq('is_active', true);
-    if ((countData as any[] || []).length >= 3 && !(process.env.DEV_MODE === 'true')) {
-      throw new ApiError(ERROR_CODES.AGENT_LIMIT_EXCEEDED, '에이전트 생성 한도(3개)를 초과했습니다.');
+    if ((countData as any[] || []).length >= config.maxAgentsPerUser && !(process.env.DEV_MODE === 'true')) {
+      throw new ApiError(ERROR_CODES.AGENT_LIMIT_EXCEEDED, `에이전트 생성 한도(${config.maxAgentsPerUser}개)를 초과했습니다.`);
     }
 
     const { data, error } = await request.db
