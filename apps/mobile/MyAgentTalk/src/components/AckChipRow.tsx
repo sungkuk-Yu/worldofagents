@@ -7,21 +7,29 @@
 // 라벨 (t_1b123e59 원문② "맞아요가 아니고 예/아니요 로만 해야되"): 템플릿 바인딩(t_c62a2eb7 #4) 폐기 —
 //   template_id 무관 고정 chat.ackYes/ackNo('예'/'아니요', en 'Yes'/'No'). 라벨과 탭 payload가 같은
 //   i18n 키에서 파생되어 발화=문구 불일치 원천 차단. 두 발화 모두 백엔드 게이트 집합 등재 (t_135a19b5).
+// t_b13756a9: 2.5초 카운트다운 표시 + 무응답 시 자동 "예" 전송 (대표님 요청)
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
+import { ACK_AUTO_PROCEED_MS } from '../lib/ackChips';
 
 interface Props {
   /** 탭 시 전송 문장 확정 콜백 — 화면(send)으로 전달 */
   onPressAck: (text: string) => void;
+  /** 남은 시간 (ms) — 카운트다운 표시용 (t_b13756a9) */
+  remainingMs?: number;
 }
 
-export default function AckChipRow({ onPressAck }: Props) {
+export default function AckChipRow({ onPressAck, remainingMs }: Props) {
   const { t } = useTranslation();
   const yes = t('chat.ackYes');
   const no = t('chat.ackNo');
+  // 카운트다운 프로그레스: 남은 비율 (0~1)
+  const progress = remainingMs != null ? Math.max(0, Math.min(1, remainingMs / ACK_AUTO_PROCEED_MS)) : 1;
+  // 초 단위 표시 (소수점 1자리)
+  const secondsLeft = remainingMs != null ? Math.max(0, remainingMs / 1000).toFixed(1) : null;
   return (
     <View style={styles.row} testID="ack-chips">
       <Pressable
@@ -30,7 +38,12 @@ export default function AckChipRow({ onPressAck }: Props) {
         testID="ack-chip-yes"
         style={({ pressed }) => [styles.button, styles.buttonYes, pressed && { opacity: 0.85 }]}
       >
-        <Text style={styles.yesText}>{yes}</Text>
+        {/* 카운트다운 프로그레스 바 (예 버튼 하단) */}
+        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
+        <View style={styles.yesContent}>
+          <Text style={styles.yesText}>{yes}</Text>
+          {secondsLeft != null && <Text style={styles.countdown}>{secondsLeft}s</Text>}
+        </View>
       </Pressable>
       <Pressable
         accessibilityRole="button"
@@ -62,11 +75,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.sp2,
+    position: 'relative',
   },
   // affirmative 강조: 초록 채움은 좌측 '예'만 + 우측 1px 구분선 (텔레그램 키보드 규약)
   buttonYes: { backgroundColor: colors.accent, borderRightWidth: 1, borderRightColor: colors.border },
   // 극회색 테두리형 (무채색 유지 — 채움은 affirmative만)
   buttonNo: { backgroundColor: colors.surface },
+  yesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   yesText: { ...typography.bodyBold, color: colors.onPrimary },
   noText: { ...typography.bodyBold, color: colors.text2 },
+  // 카운트다운 프로그레스 바 (t_b13756a9)
+  progressBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+  },
+  // 카운트다운 초 표시
+  countdown: { ...typography.caption, color: colors.onPrimary, opacity: 0.8 },
 });

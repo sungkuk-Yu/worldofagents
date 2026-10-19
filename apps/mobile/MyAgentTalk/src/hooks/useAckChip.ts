@@ -12,8 +12,16 @@
 //   세션 전환/언마운트 = 훅 재생성 → Map 자연 폐기. 히스토리 재현(배치 GET 미도장+created 경화)은
 //   후보 게이트에서 배제 → 각인도 뷰도 생기지 않는다(재진입 재점등 금지, smoke ⑦/verify ④ 회귀 가드).
 import { useEffect, useRef, useState } from 'react';
-import { ackChipCandidateId, visibleAckChip } from '../lib/ackChips';
+import { ackChipCandidateId, visibleAckChip, ACK_AUTO_PROCEED_MS } from '../lib/ackChips';
 import type { ChatMessage } from '../lib/chatLogic';
+
+export interface AckChipState {
+  id: string;
+  /** 남은 시간 (ms) — 카운트다운 표시용 */
+  remainingMs: number;
+  /** 노출 시작 시각 (ms) — 자동 예 전송 판정용 */
+  exposureStartMs: number;
+}
 
 const TICK_MS = 200;
 
