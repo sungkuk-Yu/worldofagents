@@ -35,7 +35,12 @@ beforeEach(() => {
   db = createDevClient(store) as DbClient;
   vi.spyOn(config.chatLlm, 'enabled', 'get').mockReturnValue(true);
   vi.spyOn(config.chatLlm, 'apiKey', 'get').mockReturnValue('test-key');
-  vi.spyOn(config.secretaryBridge, 'endpoint', 'get').mockReturnValue(''); // 브리지 OFF (별도 describe에서 켠다)
+  // 신규 agentBridges 레이어: 기본은 빈 agents로 브리지 OFF (별도 describe에서 켠다)
+  vi.spyOn(config, 'agentBridges', 'get').mockReturnValue({
+    agents: {},
+    timeoutMs: 180000,
+    maxTurns: 15,
+  });
   vi.spyOn(config.suggestedQuestions, 'enabled', 'get').mockReturnValue(false);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -147,9 +152,18 @@ describe('② PersonaVoice 단일 줄 수렴', () => {
 
 describe('③ 김비서 화법 톤 키트 — 새 컨텍스트에만 주입', () => {
   const withBridge = () => {
-    vi.spyOn(config.secretaryBridge, 'endpoint', 'get').mockReturnValue('http://127.0.0.1:9902');
-    vi.spyOn(config.secretaryBridge, 'timeoutMs', 'get').mockReturnValue(5000);
-    vi.spyOn(config.secretaryBridge, 'maxTurns', 'get').mockReturnValue(15);
+    vi.spyOn(config, 'agentBridges', 'get').mockReturnValue({
+      agents: {
+        '김비서': {
+          profile: 'kimsecretary',
+          port: 9902,
+          endpoint: 'http://127.0.0.1:9902',
+          adapter: 'hermes-a2a' as const,
+        },
+      },
+      timeoutMs: 5000,
+      maxTurns: 15,
+    });
   };
   const a2aOk = (contextId: string) => new Response(JSON.stringify({
     jsonrpc: '2.0', id: 'x',
@@ -175,7 +189,7 @@ describe('③ 김비서 화법 톤 키트 — 새 컨텍스트에만 주입', ()
     const f1 = vi.fn(async () => a2aOk('ctx-1'));
     vi.stubGlobal('fetch', f1);
     await sendTurnToSecretary(db, 'session', '첫 발화');
-    await vi.waitFor(() => expect(store.tables.context_patches.filter(p => p.key === 'secretary.bridge').length).toBe(1));
+    await vi.waitFor(() => expect(store.tables.context_patches.filter(p => p.key === 'agent.bridge.kimsecretary').length).toBe(1));
     const f2 = vi.fn(async () => a2aOk('ctx-1'));
     vi.stubGlobal('fetch', f2);
     await sendTurnToSecretary(db, 'session', '두 번째 발화');
