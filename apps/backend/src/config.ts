@@ -263,16 +263,55 @@ export const config = {
   },
 
   /**
-   * 앱 속 실 김비서 브리지 (t_620d5549, 대표님 9/28 "텔레그램 대신 저거로 김비서를 쓸 수 있게")
-   * - endpoint: Hermes kimsecretary 게이트웨이의 A2A 수신 URL. 미설정(기본) 시 브리지 OFF —
-   *   김비서 room도 기존 로컬 파이프라인과 1:1 동일 동작. skyserver 내부 루프(127.0.0.1)만 허용.
-   * - timeoutMs: 김비서 응답 대기 상한. 초과 시 조용한 폴백(원인 문장 답변 + 로컬 흐름 계속).
-   * - maxTurns: A2A 컨텍스트당 소프트 자전 임계 (서버 안티루프 하드캡 20보다 낮게).
+   * 에이전트 브리지 (t_620d5549→t_d6578eb6, 대표님 10/19 "나중엔 다른 나라로 분리시킬 수 있게")
+   *
+   * 설계 원칙:
+   * - 에이전트↔나라(유저 공간) 소속과 에이전트↔세션 어댑터 분리
+   * - 브리지는 어댑터 레이어 — 같은 에이전트가 텔레그램 없이 다른 나라에 재소속 가능
+   * - 현행(텔레그램/Hermes A2A 연동)은 유지, 확장만 열어둠
+   *
+   * agents: 에이전트 이름 → Hermes 프로필 매핑. ENV로 오버라이드 가능.
+   *   AGENT_BRIDGES="김비서:kimsecretary:9902,내보좌관:leejungjae:9901,내변호사:hammurabi:9900"
+   *   형식: "표시이름:프로필:포트,..." (쉼표 구분). 미설정 시 기본 세 에이전트 매핑.
+   * timeoutMs: 에이전트 응답 대기 상한.
+   * maxTurns: A2A 컨텍스트당 소프트 자전 임계 (서버 안티루프 하드캡 20보다 낮게).
+   *
+   * 하위호환: SECRETARY_BRIDGE_ENDPOINT가 설정되면 김비서 단독 구버전 모드 동작.
    */
-  secretaryBridge: {
-    endpoint: process.env.SECRETARY_BRIDGE_ENDPOINT || '',
-    timeoutMs: parseInt(process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
-    maxTurns: parseInt(process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+  agentBridges: (() => {
+    // 하위호환: 구 env가 있으면 김비서 전용 모드
+    const legacyEndpoint = process.env.SECRETARY_BRIDGE_ENDPOINT || '';
+    if (legacyEndpoint) {
+      return {
+        agents: { '김비서': { profile: 'kimsecretary', port: 9902, endpoint: legacyEndpoint, adapter: 'hermes-a2a' as const } },
+        timeoutMs: parseInt(process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
+        maxTurns: parseInt(process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+      };
+    }
+    // 새 매핑: AGENT_BRIDGES env 또는 기본값
+    const raw = process.env.AGENT_BRIDGES || '김비서:kimsecretary:9902,내보좌관:leejungjae:9901,내변호사:hammurabi:9900';
+    const agents: Record<string, { profile: string; port: number; endpoint: string; adapter: 'hermes-a2a' }> = {};
+    for (const entry of raw.split(',').map(s => s.trim()).filter(Boolean)) {
+      const [name, profile, portStr] = entry.split(':');
+      if (name && profile && portStr) {
+        const port = parseInt(portStr, 10);
+        agents[name] = { profile, port, endpoint: `http://127.0.0.1:${port}/`, adapter: 'hermes-a2a' };
+      }
+    }
+    return {
+      agents,
+      timeoutMs: parseInt(process.env.AGENT_BRIDGE_TIMEOUT_MS || process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
+      maxTurns: parseInt(process.env.AGENT_BRIDGE_MAX_TURNS || process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+    };
+  })(),
+  // 하위호환 alias — 기존 config.secretaryBridge 참조 코드가 깨지지 않도록
+  get secretaryBridge() {
+    const kim = this.agentBridges.agents['김비서'];
+    return {
+      endpoint: kim?.endpoint || '',
+      timeoutMs: this.agentBridges.timeoutMs,
+      maxTurns: this.agentBridges.maxTurns,
+    };
   },
 
   /**

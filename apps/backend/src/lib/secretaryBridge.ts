@@ -1,21 +1,19 @@
 /**
- * 앱 속 실 김비서 브리지 (t_620d5549, 대표님 9/28: "이제 내가 좀 텔레그램 대신해서
- * 김비서 너를 저거로 쓸 수 있도록 해줘")
+ * 에이전트 브리지 어댑터 레이어 (t_620d5549→t_d6578eb6, 대표님 10/19 설계 제약)
  *
- * MyAgentTalk의 '김비서' room 턴을 실제 Hermes kimsecretary 프로필로 왕복 연결한다.
- * - skyserver 내부 루프만 사용: Hermes 게이트웨이가 이미 노출한 A2A 수신 엔드
- *   (기본 http://127.0.0.1:9902)에 localhost로 POST. 신규 외부 서비스·신규 데몬 없음.
- * - 세션 연속: A2A contextId를 세션 컨텍스트('secretary.bridge')에 저장해 재사용한다
- *   → 김비서 쪽 헤르메스 세션이 앱 room과 1:1로 이어지고, 앱 히스토리가 브리지 기록이 된다.
- * - 안티루프 대응: A2A는 컨텍스트당 최대 20턴(하드캡) 후 REJECTED한다. 브리지는
- *   config.secretaryBridge.maxTurns(기본 15) 도달 시 컨텍스트를 자전하고 직전 대화
- *   다이제스트를 첨부해 김비서가 끊김 없이 이어받게 한다. REJECTED 응답을 받으면
- *   새 컨텍스트로 1회 재시도한다.
- * - 실패 정책(조용한 폴백): transport/타임아웃/빈 응답은 원인을 한 문장으로 알려주는
- *   답변으로 전환하고 턴을 사망시키지 않는다. 로컬 폴백 LLM은 쓰지 않는다 — 앱의
- *   김비서 room에 가짜 김비서 답변이 뜨는 것보다 정직한 실패 문장이 낫다(대표님 지시 취지).
- * - 김비서 답변은 로컬 LLM을 재통과하지 않는다(원문 보존). 게이트웨이 display가 병합한
- *   reasoning 블록(💭 **Reasoning:** …```)만 회신에서 제거한다.
+ * 설계 원칙:
+ * - 에이전트↔나라(유저 공간) 소속과 에이전트↔세션 어댑터 분리
+ * - 브리지는 어댑터 레이어 — 같은 에이전트가 텔레그램 없이 다른 나라에 재소속 가능
+ * - 현행(텔레그램/Hermes A2A 연동)은 유지, 확장만 열어둠
+ *
+ * 지원 에이전트 (config.agentBridges.agents):
+ * - 김비서 → kimsecretary (9902)
+ * - 내보좌관 → leejungjae (9901)
+ * - 내변호사 → hammurabi (9900)
+ *
+ * 어댑터 타입:
+ * - hermes-a2a: Hermes 게이트웨이 A2A 프로토콜 (현재 유일 구현)
+ * - (미래): 나라 내부 세션 어댑터
  */
 import { randomUUID } from 'node:crypto';
 import { config } from '../config';
@@ -23,9 +21,33 @@ import { DbClient } from './supabase';
 import { readContextValue, writeContextPatch } from './contextSync';
 import { Locale } from './locale';
 
-/** 브리지 활성 판정 — endpoint가 명시된 세션에서만 켜진다(기본 OFF = 기존 동작 1:1). */
+/** 브리지 활성 판정 — endpoint가 하나라도 설정된 경우 켜진다(기본 OFF = 기존 동작 1:1). */
 export function isBridgeConfigured(): boolean {
-  return Boolean(config.secretaryBridge.endpoint);
+  return Object.keys(config.agentBridges.agents).length > 0 &&
+    Object.values(config.agentBridges.agents).some(a => Boolean(a.endpoint));
+}
+
+/** 에이전트 브리지 설정 타입 */
+export interface AgentBridgeConfig {
+  profile: string;
+  port: number;
+  endpoint: string;
+  adapter: 'hermes-a2a';
+}
+
+/**
+ * 에이전트 이름으로 브리지 설정 조회. 매핑에 없으면 null.
+ * 이 함수로 브리지 대상 여부와 어댑터 설정을 동시에 확인한다.
+ */
+export function resolveAgentBridge(agentName: unknown): AgentBridgeConfig | null {
+  if (typeof agentName !== 'string') return null;
+  const name = agentName.trim();
+  return config.agentBridges.agents[name] || null;
+}
+
+/** 브리지 대상 에이전트인지 판정 — config.agentBridges.agents에 매핑이 있으면 true. */
+export function isBridgedAgent(agentName: unknown): boolean {
+  return resolveAgentBridge(agentName) !== null;
 }
 
 /**
@@ -53,7 +75,7 @@ export function applyToneKit(message: string): string {
 }
 
 /** 김비서 room 여부: 에이전트 행의 이름이 '김비서'와 정확히 일치할 때만 브리지한다.
- * ( 대표님 스펙 원문 기준. 그 외 room·테스트 에이전트는 절대 브리지 경로를 타지 않는다.)
+ * @deprecated isBridgedAgent()를 사용하세요. 하위호환용 alias.
  */
 export function isKimSecretaryAgent(agentName: unknown): boolean {
   return typeof agentName === 'string' && agentName.trim() === '김비서';
@@ -133,19 +155,23 @@ export function buildContextDigest(history: { role: string; content: unknown }[]
 }
 
 /**
- * 김비서에게 한 턴을 보낸다. 성공 시 { text, contextId, state, turns } —
- * state가 INPUT_REQUIRED면 김비서의 추가 확인 요구(그냥 답변 텍스트로 노출).
+ * 브리지 에이전트에게 한 턴을 보낸다. 성공 시 { text, contextId, state, turns } —
+ * state가 INPUT_REQUIRED면 에이전트의 추가 확인 요구(그냥 답변 텍스트로 노출).
  * transport/타임아웃/빈 본문은 BridgeError로 던진다(호출자가 폴백 문장으로 전환).
  * history는 컨텍스트 자전 시 다이제스트 생성에 쓰인다(없으면 생략).
  */
-export async function sendTurnToSecretary(
+export async function sendTurnToAgent(
   db: DbClient,
   sessionId: string,
+  agentName: string,
   userMessage: string,
   history?: { role: string; content: unknown }[],
 ): Promise<{ text: string; contextId: string; state: string; turns: number }> {
-  const cfg = config.secretaryBridge;
-  const prior = parseBridgeCtx(await readContextValue(db, sessionId, 'secretary.bridge').catch(() => null));
+  const bridgeCfg = resolveAgentBridge(agentName);
+  if (!bridgeCfg) throw new BridgeError('rpc', `에이전트 '${agentName}'의 브리지 매핑 없음`);
+  const cfg = { endpoint: bridgeCfg.endpoint, timeoutMs: config.agentBridges.timeoutMs, maxTurns: config.agentBridges.maxTurns };
+  const ctxKey = `agent.bridge.${bridgeCfg.profile}`; // 에이전트별 컨텍스트 키
+  const prior = parseBridgeCtx(await readContextValue(db, sessionId, ctxKey).catch(() => null));
 
   // 소프트 자전: 안티루프 하드캡(20) 도달 전에 새 컨텍스트 + 인계 다이제스트.
   let contextId = prior && prior.turns < cfg.maxTurns ? prior.contextId : '';
@@ -162,7 +188,7 @@ export async function sendTurnToSecretary(
   if (isAntiLoopRejection(task)) {
     const retry = await postMessage(cfg, applyToneKit(buildContextDigest(history || [], userMessage)), '');
     // 재시도는 새 컨텍스트(무-contextId 발송) — 카운트 1부터 다시 센다.
-    return persist(db, sessionId, retry.task, 1);
+    return persist(db, sessionId, ctxKey, retry.task, 1);
   }
 
   const state = task.status?.state || '';
@@ -173,7 +199,20 @@ export async function sendTurnToSecretary(
   // 카운트는 '현재 컨텍스트에서 몇 번째 발화' — 무-contextId 발송(자전/첫 턴)은 1,
   // 이어받기는 prior+1. 이 값으로 다음 자전 임계를 판정한다.
   const turns = contextId && prior ? prior.turns + 1 : 1;
-  return persist(db, sessionId, task, turns);
+  return persist(db, sessionId, ctxKey, task, turns);
+}
+
+/**
+ * 김비서에게 한 턴을 보낸다. 하위호환 alias — sendTurnToAgent('김비서', ...) 래퍼.
+ * @deprecated sendTurnToAgent()를 직접 사용하세요.
+ */
+export async function sendTurnToSecretary(
+  db: DbClient,
+  sessionId: string,
+  userMessage: string,
+  history?: { role: string; content: unknown }[],
+): Promise<{ text: string; contextId: string; state: string; turns: number }> {
+  return sendTurnToAgent(db, sessionId, '김비서', userMessage, history);
 }
 
 async function postMessage(
@@ -223,13 +262,13 @@ async function postMessage(
 }
 
 /** 성공 회신의 컨텍스트·턴 수를 세션 컨텍스트에 고정 (영속 실패는 비차단). */
-function persist(db: DbClient, sessionId: string, task: A2ATask, turns: number) {
+function persist(db: DbClient, sessionId: string, ctxKey: string, task: A2ATask, turns: number) {
   const contextId = task.contextId || '';
   const state = task.status?.state || '';
   const text = stripReasoningBlock(extractReplyText(task));
   if (!text) throw new BridgeError('empty', '응답 본문이 비어 있음');
   if (contextId) {
-    writeContextPatch(db, sessionId, 'secretary.bridge', { operation: 'set', value: { contextId, turns }, source: 'bridge' })
+    writeContextPatch(db, sessionId, ctxKey, { operation: 'set', value: { contextId, turns }, source: 'bridge' })
       .catch(() => { /* 다음 턴에 재시도 — 답변을 죽이지 않는다 */ });
   }
   return { text, contextId, state, turns };
