@@ -45,6 +45,10 @@ export function isEmpathyEchoMessage(m: ChatMessage): boolean {
 
 export interface AckChipView {
   id: string;
+  /** 남은 시간 (ms) — 카운트다운 표시용 */
+  remainingMs: number;
+  /** 노출 시작 시각 (ms) — 자동 예 전송 판정용 */
+  exposureStartMs: number;
 }
 
 /** ① 후보 게이트 (창 길이 무관) — 마지막 공감 행을 리턴, 대상 아니면 null.
@@ -89,7 +93,8 @@ export function visibleAckChip(messages: ChatMessage[], now: number, autoProceed
   if (!last) return null;
   const anchor = anchorMs(last, exposureStartMs);
   if (!Number.isFinite(anchor) || now - anchor > Math.min(autoProceedMs, ACK_LIVE_STALE_MS)) return null;
-  return { id: last.id };
+  const remainingMs = Math.max(0, autoProceedMs - (now - anchor));
+  return { id: last.id, remainingMs, exposureStartMs: anchor };
 }
 
 /**

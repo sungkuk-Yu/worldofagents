@@ -938,6 +938,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           timeLabel={times.get(item.key)}
           highlightId={highlightId}
           ackChipId={ackChip?.id ?? null}
+          ackRemainingMs={ackChip?.remainingMs ?? null}
           hiddenAckIds={hiddenAckIds}
           confirmView={confirmView}
           onJump={requestJump}
