@@ -119,7 +119,7 @@ describe('② PersonaVoice 단일 줄 수렴', () => {
     const line = personaLine('research', 'ko', { pending: 2 });
     expect(line).toContain(queueJoinLine(2, 'ko'));
     expect(queueJoinLine(0, 'ko')).toBe(''); // 대기 없으면 합류 문장 없음
-    expect(queueJoinLine(3, 'en')).toMatch(/3 questions ahead/);
+    expect(queueJoinLine(3, 'en')).toMatch(/2 more ahead/); // pending-1 = 2
     for (const s of [line, queueJoinLine(2, 'ko')]) {
       expect(s).not.toMatch(/분 후|초 후|seconds? later|minutes? later/); // 감소하는 위치만, ETA 금지
     }
