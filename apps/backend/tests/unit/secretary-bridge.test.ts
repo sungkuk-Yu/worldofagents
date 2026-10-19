@@ -23,14 +23,22 @@ let db: DbClient;
 beforeEach(() => {
   store = createStore();
   db = createDevClient(store) as DbClient;
+  // 신규 agentBridges 레이어: 기본은 빈 agents로 브리지 OFF (isBridgeConfigured() = false)
+  vi.spyOn(config, 'agentBridges', 'get').mockReturnValue({
+    agents: {},
+    timeoutMs: 180000,
+    maxTurns: 15,
+  });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-/** endpoint를 getter 스파이로 켠다 (vitest env는 기본 봉인 — config.perplexity 컨벤션 동일). */
-function withBridge(endpoint = 'http://127.0.0.1:9902', timeoutMs = 5000, maxTurns = 15) {
-  vi.spyOn(config.secretaryBridge, 'endpoint', 'get').mockReturnValue(endpoint);
-  vi.spyOn(config.secretaryBridge, 'timeoutMs', 'get').mockReturnValue(timeoutMs);
-  vi.spyOn(config.secretaryBridge, 'maxTurns', 'get').mockReturnValue(maxTurns);
+/** agentBridges.agents에 김비서 매핑을 설정하여 브리지 ON (신규 sendTurnToAgent 레이어 대응). */
+function withBridge(endpoint = 'http://127.0.0.1:9902/', timeoutMs = 5000, maxTurns = 15) {
+  vi.spyOn(config, 'agentBridges', 'get').mockReturnValue({
+    agents: endpoint ? { '김비서': { profile: 'kimsecretary', port: 9902, endpoint, adapter: 'hermes-a2a' as const } } : {},
+    timeoutMs,
+    maxTurns,
+  });
 }
 
 function a2aResult(text: string, opts: { contextId?: string; state?: string } = {}) {
@@ -118,7 +126,7 @@ describe('② 왕복·연속성', () => {
     expect(r.contextId).toBe('ctx-abc');
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://127.0.0.1:9902');
+    expect(url).toBe('http://127.0.0.1:9902/');
     const body = JSON.parse(String(init.body));
     expect(body.method).toBe('message/send');
     expect(body.params.message.role).toBe('ROLE_USER');
@@ -130,7 +138,7 @@ describe('② 왕복·연속성', () => {
     expect(body.params.message.contextId).toBeUndefined(); // 첫 턴은 컨텍스트 없음
 
     await vi.waitFor(async () => {
-      const ctx = store.tables.context_patches.filter(p => p.key === 'secretary.bridge');
+      const ctx = store.tables.context_patches.filter(p => p.key === 'agent.bridge.kimsecretary');
       expect(ctx.length).toBe(1);
       expect((ctx[0].delta as any).value.contextId).toBe('ctx-abc');
     });
@@ -151,16 +159,16 @@ describe('② 왕복·연속성', () => {
     const r = await sendTurnToSecretary(db, SESSION, '두 번째 발화');
     expect(r.turns).toBe(2);
     await vi.waitFor(async () => {
-      const rows = store.tables.context_patches.filter(p => p.key === 'secretary.bridge');
+      const rows = store.tables.context_patches.filter(p => p.key === 'agent.bridge.kimsecretary');
       expect((rows.at(-1)!.delta as any).value.turns).toBe(2);
     });
   });
 
   it('maxTurns 도달 시 컨텍스트 자전: 새 contextId(없음) + 이전 발화 다이제스트 첨부', async () => {
-    withBridge('http://127.0.0.1:9902', 5000, 2);
+    withBridge('http://127.0.0.1:9902/', 5000, 2);
     // 사전 상태: ctx-old가 이미 2턴 소비
     store.tables.context_patches.push({
-      session_id: SESSION, key: 'secretary.bridge', operation: 'set',
+      session_id: SESSION, key: 'agent.bridge.kimsecretary', operation: 'set',
       delta: { value: { contextId: 'ctx-old', turns: 2 } }, source_neuron: 'bridge',
     });
     vi.stubGlobal('fetch', vi.fn(async (_u: any, init: any) => {
@@ -180,7 +188,7 @@ describe('② 왕복·연속성', () => {
   it('구버전 문자열 컨텍스트 값도 읽는다 (형상 마이그레이션 내성)', async () => {
     withBridge();
     store.tables.context_patches.push({
-      session_id: SESSION, key: 'secretary.bridge', operation: 'set',
+      session_id: SESSION, key: 'agent.bridge.kimsecretary', operation: 'set',
       delta: { value: 'ctx-legacy' }, source_neuron: 'bridge',
     });
     const mock = vi.fn(async (_u: any, init: any) => {
@@ -237,7 +245,7 @@ describe('③ 실패 정책', () => {
   it('안티루프 REJECTED → 새 컨텍스트로 1회 재시도 성공 시 답변 복귀', async () => {
     withBridge();
     store.tables.context_patches.push({
-      session_id: SESSION, key: 'secretary.bridge', operation: 'set',
+      session_id: SESSION, key: 'agent.bridge.kimsecretary', operation: 'set',
       delta: { value: { contextId: 'ctx-hot', turns: 1 } }, source_neuron: 'bridge',
     });
     let call = 0;
