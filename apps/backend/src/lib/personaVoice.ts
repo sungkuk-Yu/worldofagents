@@ -34,12 +34,15 @@ const RELAY_LINES: Record<RelayStage, Record<Locale, string>> = {
   done: { ko: '정리 끝났어요', en: 'All set.' },
 };
 
-/** 대기 중 발화가 있을 때 같은 라인이 합류 안내를 잇는다 (9/29 보강 3항). */
+/** 끼어들기 질문 수신 시 즉시 응답 — 수신 인지 + 큐 상태 안내 (t_500b674d, 대표님 10/19 ①).
+ *  pending=1: 방금 들어온 것만 대기 → 앞 질문(현재 답변 중) 완료 후 바로 처리
+ *  pending>1: 앞에 대기 중인 것들도 있음 → 개수 고지 */
 export function queueJoinLine(pending: number, locale: Locale): string {
   if (pending <= 0) return '';
+  const extra = pending > 1 ? (locale === 'en' ? ` (${pending - 1} more ahead)` : ` (앞에 ${pending - 1}개 더 대기 중)`) : '';
   return locale === 'en'
-    ? `There ${pending === 1 ? 'is' : 'are'} ${pending} question${pending === 1 ? '' : 's'} ahead — I'll answer them in order.`
-    : `앞에 질문 ${pending}개도 이어서 처리할게요.`;
+    ? `Got it — I'm still answering the previous question. I'll get to yours right after${extra}.`
+    : `네, 접수했어요. 지금 앞 질문 답변 중이라 주신 질문은 그 다음 순서로 답해드릴게요${extra}.`;
 }
 
 export function personaLine(stage: RelayStage, locale: Locale, opts: { pending?: number } = {}): string {

@@ -37,14 +37,15 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('A. 규칙 폴백 풀 비복창 봉인 (t_51f9fd01 요구3)', () => {
-  it('4템플릿 어떤 ko/en에도 "이거 맞" 복창 서식 없음 — 전부 의문문, {요약} 슬롯 보존', () => {
+  it('4템플릿 어떤 ko/en에도 "이거 맞" 복창 서식 없음 — 의문문 OR 해석 진술, {요약} 슬롯 보존', () => {
     expect(EMPATHY_REQUESTION_TEMPLATES).toHaveLength(4);
     for (const t of EMPATHY_REQUESTION_TEMPLATES) {
       expect(t.ko).not.toMatch(/이\s*거\s*맞/);
       expect(t.en.toLowerCase()).not.toMatch(/is this right|quick check/);
       expect(t.ko).toContain('{요약}');
-      expect(t.ko.endsWith('?')).toBe(true);   // 분석형 재해석 의문문 계약
-      expect(t.en.trim().endsWith('?')).toBe(true);
+      // 의문문(?) 또는 해석 진술형(.) 모두 허용 (t_500b674d 신계약)
+      expect(t.ko.endsWith('?') || t.ko.endsWith('.')).toBe(true);
+      expect(t.en.trim().endsWith('?') || t.en.trim().endsWith('.')).toBe(true);
     }
     // eq_confirm 서식 교체 실증: 대표님 폐기 지시 원문은 어디에도 없다.
     expect(EMPATHY_REQUESTION_TEMPLATES.map(t => t.ko + t.en).join()).not.toContain('이거 맞죠');
@@ -58,7 +59,8 @@ describe('A. 규칙 폴백 풀 비복창 봉인 (t_51f9fd01 요구3)', () => {
       const r = buildEmpathyRequestion(utter, prev, 'ko');
       expect(r.text).not.toMatch(/이\s*거\s*맞/);
       expect(textSimilarity(r.text, utter)).toBeLessThan(0.8);
-      expect(r.text.endsWith('?')).toBe(true); // 폴백도 존댓말 의문문 (10/4 어미 계약 유지)
+      // 폴백도 의문문(?) 또는 해석 진술(.) 허용 (t_500b674d 신계약)
+      expect(r.text.endsWith('?') || r.text.endsWith('.')).toBe(true);
     }
   });
 });
@@ -86,11 +88,11 @@ describe('B. LLM 출력 복창 게이트 (t_51f9fd01 요구1)', () => {
     expect(parseEmpathyRequest('트래커 상태가 궁금하신건가요?')).toBe('트래커 상태가 궁금하신건가요?');
   });
 
-  it('기존 형식 계약不回退: 비의문문/빈 출력/90자 초과/null은 계속 null', () => {
+  it('기존 형식 계약不回退: 마침표·물음표 아닌 어미/빈 출력/120자 초과/null은 계속 null', () => {
     expect(parseEmpathyRequest('네 알겠습니다', U)).toBeNull();
     expect(parseEmpathyRequest('', U)).toBeNull();
     expect(parseEmpathyRequest(null, U)).toBeNull();
-    expect(parseEmpathyRequest('긴'.repeat(200) + '?', U)).toBeNull();
+    expect(parseEmpathyRequest('긴'.repeat(200) + '?', U)).toBeNull(); // 120자 초과
   });
 });
 
