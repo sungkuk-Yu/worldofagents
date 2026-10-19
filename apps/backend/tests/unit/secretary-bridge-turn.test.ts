@@ -28,13 +28,21 @@ beforeEach(() => {
   // 로컬 LLM은 실 키 없이 fetch 모크로 동작 — ack-queue-suggest와 동일한 열기 방식.
   vi.spyOn(config.chatLlm, 'enabled', 'get').mockReturnValue(true);
   vi.spyOn(config.chatLlm, 'apiKey', 'get').mockReturnValue('test-key');
+  // 신규 agentBridges 레이어: 기본은 빈 agents로 브리지 OFF
+  vi.spyOn(config, 'agentBridges', 'get').mockReturnValue({
+    agents: {},
+    timeoutMs: 180000,
+    maxTurns: 15,
+  });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function withBridge(endpoint: string) {
-  vi.spyOn(config.secretaryBridge, 'endpoint', 'get').mockReturnValue(endpoint);
-  vi.spyOn(config.secretaryBridge, 'timeoutMs', 'get').mockReturnValue(5000);
-  vi.spyOn(config.secretaryBridge, 'maxTurns', 'get').mockReturnValue(15);
+  vi.spyOn(config, 'agentBridges', 'get').mockReturnValue({
+    agents: endpoint ? { '김비서': { profile: 'kimsecretary', port: 9902, endpoint, adapter: 'hermes-a2a' as const } } : {},
+    timeoutMs: 5000,
+    maxTurns: 15,
+  });
 }
 
 /** fetch 모크: 127.0.0.1 A2A 엔드는 브리지 응답, 나머지는 로컬 LLM(스트림) 응답. */
@@ -56,7 +64,7 @@ function bridgeFetch(reply: string, contextId = 'ctx-1') {
 
 describe('runTextTurn × 김비서 브리지 (t_620d5549)', () => {
   it('김비서 room + endpoint 설정: 답변 행은 브리지 원문(reasoning 제거), 채팅 LLM 미경유, provider 표기', async () => {
-    withBridge('http://127.0.0.1:9902');
+    withBridge('http://127.0.0.1:9902/');
     const fetchMock = bridgeFetch('네, 바로 처리할게요.');
     vi.stubGlobal('fetch', fetchMock);
     const events: TurnEmitEvent[] = [];
@@ -77,7 +85,7 @@ describe('runTextTurn × 김비서 브리지 (t_620d5549)', () => {
     // 브리지 뉴런 이벤트가 진행·완료가 보인다(체감: 뉴런 상태 표시 계약).
     expect(events.some(e => e.type === 'neuron.status' && (e as any).neuron.slug === 'bridge')).toBe(true);
     // 연속성 컨텍스트 영속.
-    expect(store.tables.context_patches.some(p => p.key === 'secretary.bridge')).toBe(true);
+    expect(store.tables.context_patches.some(p => p.key === 'agent.bridge.kimsecretary')).toBe(true);
     // run.completed는 마지막 이벤트 — 기존 계약 유지.
     expect(events.at(-1)!.type).toBe('run.completed');
   });
@@ -99,7 +107,7 @@ describe('runTextTurn × 김비서 브리지 (t_620d5549)', () => {
   });
 
   it('비(非)김비서 room: endpoint가 켜져 있어도 기존 로컬 LLM 경로 1:1 (브리지 0호출)', async () => {
-    withBridge('http://127.0.0.1:9902');
+    withBridge('http://127.0.0.1:9902/');
     store.tables.sessions.length = 0;
     store.tables.sessions.push(session('lawyer'));
     const fetchMock = bridgeFetch('不该出现');
