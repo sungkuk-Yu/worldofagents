@@ -4,14 +4,104 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.config = void 0;
+exports.validateConfig = validateConfig;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 exports.config = {
     port: parseInt(process.env.PORT || '3000', 10),
     host: process.env.HOST || '0.0.0.0',
-    devMode: process.env.DEV_MODE === 'true' || !process.env.SUPABASE_URL,
+    defaultLocale: process.env.DEFAULT_LOCALE === 'en' ? 'en' : 'ko',
+    /** 사용자당 에이전트 생성 한도 (api-design.md §6). DEV_MODE에서는 무제한. */
+    maxAgentsPerUser: parseInt(process.env.MAX_AGENTS_PER_USER || '10', 10),
+    // 처리 지연이 이 시간을 넘으면 단계 진행도 quip을 이어 붙인다 (t_b2b86cd6).
+    quipPatienceMs: parseInt(process.env.QUIP_PATIENCE_MS || '15000', 10),
+    // 공감 확인음 노출 후 답변 스트리밍 시작 전 체감 공백 (t_344e047a, 대표님 9/28). 0이면 즉시 시작.
+    // t_a654c9ac (대표님 10/4): empathy 재질문 카드가 뜬 턴에서는 사람이 '예/아니오'를 읽을
+    // 최소 창(2.5s)을 보장한다 — 재질문 노출부터 자동예 진행까지 ≥2.5s ( 카드 게이트).
+    answerLeadMs: parseInt(process.env.ANSWER_LEAD_MS || '3000', 10),
+    /**
+     * 사람 타이핑 감각 딜레이 (t_a654c9ac, 대표님 10/4 "바로 대답하면 너무 빠라. 사람이 직접
+     * 타이핑 하든거처럼"): 답변 첫 토큰 전 리드는 발화 길이 비율로 0.8~2.0s 랜덤,
+     * 스트리밍 출력은 타이핑 속도(구간 랜덤)·버스트 청크·문장부호 pause로 의류 보낸다.
+     * 기본 ON, HUMAN_TYPING=false로 OFF(기존 즉시 동작).
+     * t_883ff7b3 (대표님 10/11 "답변들이 flash인데도 오래걸린다, 체감 5분"): industry(Claude/
+     * Grok/Dot) 출력 체감 120~280자/s 대비 10배 느린 병목 상향 — 기본 12/25→90/140cps,
+     * pause 상한 350→150(감성은 유지·크기만 업계 정합), 장문(>600자)은 pacing 완전 bypass.
+     * 즉시 롤백은 env 재지정(TYPING_CPS_MIN=12 TYPING_CPS_MAX=25 TYPING_SENTENCE_PAUSE_MS=350
+     * TYPING_LONG_BYPASS_CHARS=0) — 코드는 env 경로만 유지한다.
+     * 단위 테스트는 HUMAN_TYPING=false로 봉인 — 리듬 검증은 전용 단위 + 실WS 스모크가 담당.
+     */
+    humanTyping: {
+        enabled: process.env.HUMAN_TYPING !== 'false',
+        /** 답변 첫 토큰 전 사람 리드타임 범위(ms) — 발화 길이 ×50ms 곡선으로 보간, ±15% 지터. */
+        leadMinMs: parseInt(process.env.TYPING_LEAD_MIN_MS || '800', 10),
+        leadMaxMs: parseInt(process.env.TYPING_LEAD_MAX_MS || '2000', 10),
+        /** 타이핑 속도 범위(자/초) — t_883ff7b3 industry 하~중간값(12~25→90~140). */
+        cpsMin: parseInt(process.env.TYPING_CPS_MIN || '90', 10),
+        cpsMax: parseInt(process.env.TYPING_CPS_MAX || '140', 10),
+        /** 문장부호(.!?。newline) 뒤 미세 pause(ms 상한, 균등 랜덤). t_883ff7b3: 350→150 —
+         *  감성 장치는 유지하되 체감 CPS 게이트(front median ≥80자/s)를 침범하지 않는 크기로. */
+        sentencePauseMs: parseInt(process.env.TYPING_SENTENCE_PAUSE_MS || '150', 10),
+        /**
+         * 장문 패스 임계(자, t_883ff7b3 대표님 10/11): 스트림 누적 답변이 이 크기를 넘치는
+         * 순간 사람 타이핑 연출을 접고 잔여 전량 즉시 flush, 이후 delta는 도착 즉시 전달
+         * (LLM 스트림 속도 = 노출 속도). 2,000자 답변의 100초+ 연주가 '즉시 패스'로 사라진다.
+         * 0이면 비활성화(전 구간 pacing 유지). 짧은 답변만연출 리듬 유지.
+         */
+        longBypassChars: parseInt(process.env.TYPING_LONG_BYPASS_CHARS || '600', 10),
+        /** 취소·타임아웃 방패: 이 pacing으로 스트리밍이 늘어질 때 답변 전체 추가 지연 상한(ms). */
+        maxTotalDelayMs: parseInt(process.env.TYPING_MAX_TOTAL_DELAY_MS || '8000', 10),
+        /** 재질문 카드가 뜬 턴의 자동예 진행 플로어(ms) — 프론트 예/아니오 칩 창(2.5s) 소진 보장. */
+        chipFloorMs: parseInt(process.env.TYPING_CHIP_FLOOR_MS || '2500', 10),
+        /** 플로어 위에 얹는 랜덤 지터 상한(ms) — 게이트 계약 '자동예 진행 ≤2.6s' = floor+jitter. */
+        chipJitterMs: parseInt(process.env.TYPING_CHIP_JITTER_MS || '100', 10),
+    },
+    /**
+     * 공감 재질문 LLM 재해석 (t_a654c9ac, 대표님 10/4 추가 판정): 재질문 문구는 LLM으로
+     * 자연스러운 한국어 의문문('궁금하신거죠?' 계열)을 생성하되, 결정성 계약은 '문구 고정'이
+     * 아니라 '항상 재질문이 존재' — 실패/타임아웃/비결정 시에만 기존 4템플릿 규칙 폴백.
+     */
+    empathyRequestLlm: {
+        enabled: process.env.EMPATHY_REQUEST_LLM !== 'false',
+        timeoutMs: parseInt(process.env.EMPATHY_REQUEST_LLM_TIMEOUT_MS || '1500', 10),
+    },
+    /**
+     * 로컬 front desk (t_82cc0d99): 공감/ack 앞단 처리를 로컬 ollama로 우선 수행,
+     * 실패/타임아웃 시 cloud LLM으로 폴백. 기본 OFF (ENABLED=true로 활성화).
+     */
+    localFrontDesk: {
+        enabled: process.env.LOCAL_FRONT_DESK_ENABLED === 'true',
+        baseUrl: process.env.LOCAL_FRONT_DESK_OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
+        model: process.env.LOCAL_FRONT_DESK_OLLAMA_MODEL || 'qwen2.5:3b',
+        timeoutMs: parseInt(process.env.LOCAL_FRONT_DESK_TIMEOUT_MS || '800', 10),
+    },
+    /** 후속 예상 질문 2~3개 생성 (t_344e047a ③) — answer 완료 후 비동 보강. 실패 시 조용히 생략. */
+    suggestedQuestions: {
+        enabled: process.env.SUGGEST_QUESTIONS_DISABLED !== 'true',
+        timeoutMs: parseInt(process.env.SUGGEST_QUESTIONS_TIMEOUT_MS || '6000', 10),
+    },
+    /** 질문 큐 (t_344e047a): 실행 중 끼어든 발화의 유실 방지 — 세션 대기 상한/워커 라운드캡. */
+    questionQueue: {
+        maxPending: parseInt(process.env.QUEUE_MAX_PENDING || '20', 10),
+        /** 워커 1라운드에서 순차 처리할 최대 항목 (나머지는 다음 라운드). */
+        maxBatch: parseInt(process.env.QUEUE_MAX_BATCH || '5', 10),
+    },
+    // MVP는 보존 정책만 선언한다. 자동 삭제 크론은 Phase 3, 탈퇴 시에는 즉시 파기한다.
+    retention: { rawTranscriptDays: Number(process.env.RAW_TRANSCRIPT_RETENTION_DAYS || 180) },
+    devMode: process.env.DEV_MODE === 'true',
+    /** 대화 유형 판별 (t_56498848) — Stage 2 LLM 분류·Stage 4 REST 엔드 여부. Stage1/3 규칙은 상시.
+     *  테스트 토글: vi.spyOn(config.classification, 'llmEnabled', 'get') — config.perplexity 컨벤션 동일. */
+    classification: {
+        llmEnabled: process.env.CLASSIFY_LLM_DISABLED !== 'true',
+        timeoutMs: parseInt(process.env.CLASSIFY_LLM_TIMEOUT_MS || '1500', 10),
+        /** 분류 전용 저비용 모델 (미설정 시 chatLlm.model 상속). */
+        model: process.env.CLASSIFY_LLM_MODEL || '',
+        /** Stage 4 REST 엔드(POST /api/classify) — OFF 시 404. 기본 켬(인증 필요, 무료). */
+        endpointEnabled: process.env.CLASSIFY_ENDPOINT_DISABLED !== 'true',
+    },
     cors: {
-        origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081', 'http://localhost:5173'],
+        // t_d75ca81c: 프로덕션 웹(app.myagenttalk.com)을 기본 허용 — 모바일/PC 웹이 같은 API·DB를 연속 사용.
+        origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8081', 'http://localhost:5173', 'https://app.myagenttalk.com', 'https://myagenttalk.com', 'https://www.myagenttalk.com'],
     },
     supabase: {
         url: process.env.SUPABASE_URL || 'http://localhost:54321',
@@ -34,9 +124,235 @@ exports.config = {
             partialIntervalMs: 500,
         },
     },
+    /**
+     * 로컬 faster-whisper large-v3-turbo 사이드카 (t_1c7be18c, 대표님 9/29: "모든 STT = v3 turbo").
+     * - url 설정 시 1순위 전사 경로. scripts/stt_sidecar.py(FastAPI, 127.0.0.1:9833)가 raw PCM을 받는다.
+     * - 미설정(기본)이면 기존 OpenAI→mock 경로 — 단위 테스트·키 없는 DEV는 동작 불변.
+     * - 사이드카 실패 시: 실 OpenAI 키 있으면 폴백, 없으면 STT_SERVICE_UNAVAILABLE.
+     *   mock 고정 문장으로 조용히 내려가지 않는다 (같은 문장 반복 사고의 근원 차단).
+     */
+    sttSidecar: {
+        url: (process.env.STT_SIDECAR_URL || '').replace(/\/+$/, ''),
+        timeoutMs: parseInt(process.env.STT_SIDECAR_TIMEOUT_MS || '20000', 10),
+    },
+    /**
+     * 볼트 도서관 (t_d469fac3, 대표님 9/30 "Spotify 도서관" 지시) — GET /api/vault/library.
+     * 로컬 사이드카(scripts/vault_sidecar.py, 127.0.0.1:9834)의 BM25+임베딩 하이브리드 인덱스를
+     * 관리자 토큰(x-vault-key)으로 게이트한다. url·adminToken 미설정(기본) 시 엔드 404 —
+     * 단위 테스트·키 없는 DEV는 동작 불변. 볼트는 에이전트 공용 인프라라 앱 사용자 JWT와
+     * 레인을 분리한다(vault_notes의 /api/vault/search와 무관).
+     */
+    vaultLibrary: {
+        url: (process.env.VAULT_SIDECAR_URL || '').replace(/\/+$/, ''),
+        adminToken: process.env.VAULT_ADMIN_TOKEN || '',
+        timeoutMs: parseInt(process.env.VAULT_SIDECAR_TIMEOUT_MS || '8000', 10),
+    },
+    /**
+     * 채팅 답변 생성 LLM (DashScope OpenAI 호환 모드).
+     * - apiKey: *** 우선, 없으면 DASHSCOPE_API_KEY
+     * - baseUrl/model: 환경변수로 오버라이드 가능.
+     * - t_20746efa two-speed (대표님 10/10 확정 계약): 기본 모델 = front desk —
+     *   항상 가볍게 도는 qwen3.8-flash 무검색 즉시 응대선. 예전 기본 qwen3-max는
+     *   평상 답변까지 고모델로 끌어 지연시킨 실측의 주범이라 강등한다.
+     * - deepModel: back stage — 라우터가 '깊이 필요'(법률/세무/시사)로 판정한 턴만
+     *   이 모델로 승격(빈 값=승격 없음, front 모델 유지). 미지정 모델명 400 방지를
+     *   위해 코드 기본값은 없다 — 게이트웨이에서 실증된 모델명만 .env로 주입.
+     * - enableThinking: qwen3 하이브리드 모델의 reasoning 모드 (미설정 시 파라미터 전송 안 함).
+     *   t_baee5c42: 전역 스위치로 누르면 depth lane까지 thinking OFF — 게이트1 FAIL은
+     *   answerNode의 lane별 opts.enableThinking 강제(front=false 강제 전송, deep=미전송
+     *   현행 유지)로 교정한다. 이 값은 callChat 미지정 호출(보조 경로)의 기본.
+     */
+    chatLlm: {
+        enabled: process.env.CHAT_LLM_DISABLED !== 'true',
+        apiKey: process.env.CHAT_LLM_API_KEY || process.env.DASHSCOPE_API_KEY || '',
+        baseUrl: process.env.CHAT_LLM_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+        model: process.env.CHAT_LLM_MODEL || 'qwen3.8-flash',
+        deepModel: process.env.CHAT_LLM_DEEP_MODEL || '',
+        maxTokens: parseInt(process.env.CHAT_LLM_MAX_TOKENS || '1024', 10),
+        timeoutMs: parseInt(process.env.CHAT_LLM_TIMEOUT_MS || '60000', 10),
+        /**
+         * t_1b2974b4: front lane 스트리밍 first-token 데드라인(ms) — 첫 SSE delta까지의 상한.
+         * 초과 시 abort → retryable → chatCompletion이 비상전원으로 자동 전환.
+         * 0/미설정=기본 3000 안팎 권장(10/11 실측 TTFT med 583ms·tf→첫 delta med 1803ms 기준), 0 이하 설정 시 미적용.
+         * deep lane(thinking ON, 품질 우선)에는 미적용.
+         */
+        firstTokenMs: parseInt(process.env.CHAT_LLM_FIRST_TOKEN_MS || '3000', 10),
+        temperature: process.env.CHAT_LLM_TEMPERATURE ? parseFloat(process.env.CHAT_LLM_TEMPERATURE) : 0.8,
+        enableThinking: process.env.CHAT_LLM_ENABLE_THINKING === 'true' ? true : process.env.CHAT_LLM_ENABLE_THINKING === 'false' ? false : null,
+        historyTurns: parseInt(process.env.CHAT_LLM_HISTORY_TURNS || '20', 10),
+    },
+    /**
+     * Perplexity Sonar 검색 그라운딩 (t_d54bc456) — t_20746efa(대표님 10/10 two-speed 확정):
+     * **기본 OFF**. 매 턴 선행검색 영구 폐기 — 평상 답변은 front desk(flash·무검색)가 즉시 답하고,
+     * 라우터가 '깊이 필요'(법률/세무/시사)로 판정한 턴만 back stage가 이 엔진으로 근거 초안을 만든다.
+     * opt-in: PERPLEXITY_ENABLED=true + 키. 종량제 비용 게이트는 그대로.
+     */
+    /**
+     * LLM 비상전원 (t_67eaf475) — DashScope 장애 시 자동 전환되는 Anthropic 호환 폴백.
+     * /v1/chat/completions 규격 공통 엔드포인트라 llm.ts는 프로바이더 분기 없이 풀 순회만 한다.
+     * 키: CHAT_LLM_FB_KEY (백엔드 .env). 미설정 시 폴백 미구성 = 기존 동작과 동일.
+     * 기본 모델 claude-opus-4-5.
+     */
+    chatLlmFallback: {
+        disabled: process.env.CHAT_LLM_FB_DISABLED === 'true',
+        apiKey: process.env.CHAT_LLM_FB_KEY || '',
+        baseUrl: process.env.CHAT_LLM_FB_BASE_URL || 'https://api.anthropic.com/v1',
+        model: process.env.CHAT_LLM_FB_MODEL || 'claude-opus-4-5',
+        timeoutMs: parseInt(process.env.CHAT_LLM_FB_TIMEOUT_MS || '60000', 10),
+    },
+    perplexity: {
+        // t_20746efa: 기본 OFF(opt-in PERPLEXITY_ENABLED=true) — 매 턴 선행검색 영구 폐기.
+        // depth lane(라우터가 '깊이 필요' 판정)이면서 키 설정된 경우에만 발동한다.
+        enabled: process.env.PERPLEXITY_ENABLED === 'true',
+        apiKey: process.env.PERPLEXITY_API_KEY || '',
+        baseUrl: process.env.PERPLEXITY_BASE_URL || 'https://api.perplexity.ai',
+        model: process.env.PERPLEXITY_MODEL || 'sonar-pro',
+        timeoutMs: parseInt(process.env.PERPLEXITY_TIMEOUT_MS || '20000', 10),
+        searchContextSize: (process.env.PERPLEXITY_SEARCH_CONTEXT || 'medium'),
+        maxSources: parseInt(process.env.PERPLEXITY_MAX_SOURCES || '3', 10),
+    },
+    /**
+     * 나라맞춤법(PNU) 후처리 게이트 (t_45256c7a) — ko 답변 최종 텍스트 교정.
+     * 기본 OFF: speller-api는 LICENSE 파일 없음(9/30 GitHub API 확인) — 나라 인포테크 위탁 서비스의 상업 이용 조건 확인 후 deploy.env에서 켠다.
+     * URL은 나라 스펠러 신엔드(/api/check, 9/30 실측) 또는 jhaemin/speller-api 이식
+     * 서버 어느 쪽이라도 — 파서가 {suggestions:[{start,end,text,candidates[]}}(speller-api)와
+     * {errInfo:[{start,end,orgStr,candWord|구분}]}(nara 직접) 두 규격을 모두 흡수한다.
+     * 실패 정책: 타임아웃/비200/파싱오류 = 원문 유지(턴 사망 금지, perplexity 컨벤션 동일).
+     */
+    naraSpeller: {
+        enabled: process.env.NARA_SPELLER_ENABLED === 'true',
+        url: process.env.NARA_SPELLER_URL || 'https://nara-speller.co.kr/api/check',
+        timeoutMs: parseInt(process.env.NARA_SPELLER_TIMEOUT_MS || '2500', 10),
+        strict: process.env.NARA_SPELLER_STRICT === 'true',
+        /** 봇월 시 http2 폴백 (9/30 실측: nara는 h2만 통과). 단위 테스트는 'false' 봉인. */
+        h2: process.env.NARA_SPELLER_H2 !== 'false',
+        /** t_f5a9b570 — 운영(전역) 고유명사 보호 사전, 콤마 구분. 코드 기본값과 합산된다. */
+        protectedTerms: (process.env.NARA_SPELLER_PROTECTED_TERMS || '').split(',').map(s => s.trim()).filter(Boolean),
+    },
     jwt: {
         secret: process.env.JWT_SECRET || 'agenttalk-dev-secret-change-in-production',
         expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    },
+    /**
+     * 첨부 업로드 (t_401c5bd1, 카드 B안) — POST /api/upload → Storage 버킷 attachments.
+     * - maxBytes: 파일당 상한 20MB (multipart fileSizeLimit와 동일 값 — 초과 스트림 413)
+     * - maxPerDay: 사용자당 UTC 일일 카운터 (upload_quota_daily 테이블, 라우트 UPSERT)
+     * - allowedMimes: allowlist (image/* 프리픽스 매칭 + 정확매칭 PDF)
+     */
+    upload: {
+        maxBytes: parseInt(process.env.UPLOAD_MAX_BYTES || String(20 * 1024 * 1024), 10),
+        maxPerDay: parseInt(process.env.UPLOAD_MAX_PER_DAY || '50', 10),
+        bucket: process.env.UPLOAD_BUCKET || 'attachments',
+        allowedMimes: (process.env.UPLOAD_ALLOWED_MIMES || 'image/*,application/pdf')
+            .split(',').map(s => s.trim()).filter(Boolean),
+    },
+    /**
+     * context_patches 콜드 아카이브 잡 (t_848d0c3b, 설계: 볼트 10-01 §3).
+     * - enabled: 실DB 쓰기 게이트 — **기본 false**. systemd timer 설치 + env 켬 + 김비서
+     *   배치 승인(카드 ④: 첫 배치 DELETE 예외 결재)이 모두 있어야 원본에 손댄다.
+     *   꺼져 있으면 잡은 아무것도 하지 않고 종료한다(감사 로그만).
+     * - hotWindowDays: 이 창을 지난 패치가 cold 후보 (CONTEXT_PATCH_HOT_DAYS, 설계 기본 90).
+     * - safetyLagHours: 어제의 경계도 흔들리지 않게 최신 24h은 무조건 hot (설계 SAFETY_LAG).
+     * - bucket: private Storage 버킷명. anon/authenticated 정책 없음 — service_role 전용.
+     */
+    contextArchive: {
+        enabled: process.env.CONTEXT_ARCHIVE_ENABLED === 'true',
+        hotWindowDays: parseInt(process.env.CONTEXT_PATCH_HOT_DAYS || '90', 10),
+        safetyLagHours: parseInt(process.env.CONTEXT_ARCHIVE_SAFETY_LAG_HOURS || '24', 10),
+        bucket: process.env.CONTEXT_ARCHIVE_BUCKET || 'context-archive',
+        /** 1회 실행에서 처리할 (session×월) 배치 상한 — 첫 실행 폭주 방지. */
+        maxBatchesPerRun: parseInt(process.env.CONTEXT_ARCHIVE_MAX_BATCHES || '50', 10),
+    },
+    /**
+     * 에이전트 브리지 (t_620d5549→t_d6578eb6, 대표님 10/19 "나중엔 다른 나라로 분리시킬 수 있게")
+     *
+     * 설계 원칙:
+     * - 에이전트↔나라(유저 공간) 소속과 에이전트↔세션 어댑터 분리
+     * - 브리지는 어댑터 레이어 — 같은 에이전트가 텔레그램 없이 다른 나라에 재소속 가능
+     * - 현행(텔레그램/Hermes A2A 연동)은 유지, 확장만 열어둠
+     *
+     * agents: 에이전트 이름 → Hermes 프로필 매핑. ENV로 오버라이드 가능.
+     *   AGENT_BRIDGES="김비서:kimsecretary:9902,내보좌관:leejungjae:9901,내변호사:hammurabi:9900"
+     *   형식: "표시이름:프로필:포트,..." (쉼표 구분). 미설정 시 기본 세 에이전트 매핑.
+     * timeoutMs: 에이전트 응답 대기 상한.
+     * maxTurns: A2A 컨텍스트당 소프트 자전 임계 (서버 안티루프 하드캡 20보다 낮게).
+     *
+     * 하위호환: SECRETARY_BRIDGE_ENDPOINT가 설정되면 김비서 단독 구버전 모드 동작.
+     */
+    agentBridges: (() => {
+        // 하위호환: 구 env가 있으면 김비서 전용 모드
+        const legacyEndpoint = process.env.SECRETARY_BRIDGE_ENDPOINT || '';
+        if (legacyEndpoint) {
+            return {
+                agents: { '김비서': { profile: 'kimsecretary', port: 9902, endpoint: legacyEndpoint, adapter: 'hermes-a2a' } },
+                timeoutMs: parseInt(process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
+                maxTurns: parseInt(process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+            };
+        }
+        // 새 매핑: AGENT_BRIDGES env 또는 기본값
+        const raw = process.env.AGENT_BRIDGES || '김비서:kimsecretary:9902,내보좌관:leejungjae:9901,내변호사:hammurabi:9900';
+        const agents = {};
+        for (const entry of raw.split(',').map(s => s.trim()).filter(Boolean)) {
+            const [name, profile, portStr] = entry.split(':');
+            if (name && profile && portStr) {
+                const port = parseInt(portStr, 10);
+                agents[name] = { profile, port, endpoint: `http://127.0.0.1:${port}/`, adapter: 'hermes-a2a' };
+            }
+        }
+        return {
+            agents,
+            timeoutMs: parseInt(process.env.AGENT_BRIDGE_TIMEOUT_MS || process.env.SECRETARY_BRIDGE_TIMEOUT_MS || '180000', 10),
+            maxTurns: parseInt(process.env.AGENT_BRIDGE_MAX_TURNS || process.env.SECRETARY_BRIDGE_MAX_TURNS || '15', 10),
+        };
+    })(),
+    // 하위호환 alias — 기존 config.secretaryBridge 참조 코드가 깨지지 않도록
+    get secretaryBridge() {
+        const kim = this.agentBridges.agents['김비서'];
+        return {
+            endpoint: kim?.endpoint || '',
+            timeoutMs: this.agentBridges.timeoutMs,
+            maxTurns: this.agentBridges.maxTurns,
+        };
+    },
+    /**
+     * 메시지 프로토콜 (t_3486b1d7, 대표님 9/29 텔레그램标准 이식 + 김비서 4턴 A2A 확정 필드 계약).
+     * 롤백 게이트: 각 기능 env 플래그로 독립 온/오프 — off 시 484eec2f 베이스 동작과 1:1 동일.
+     * - idempotency (DELTA… 생략, MESSAGE_IDEMPOTENCY_DISABLED): send 프레임 client_req_id 멱등
+     *   (random_id 상당). 013 미적용 실DB는 래치로 컬럼 생략 폴백 (008/011 관례).
+     * - userCardFirst (USER_CARD_FIRST=false로 off): user 카드(message.new)가 run.started보다 먼저,
+     *   run.started에 user_message_id·persona line(run.progress)에 source_message_id 태움.
+     * - deltaBatchMs/deltaBatchChars (DELTA_BATCH_MS, DELTA_BATCH_CHARS): answer.delta 백프레셔 —
+     *   whichever-first 배칭. MS=0이면 비배칭(구동작).
+     * - seqDiffSync (EVENT_SYNC_DISABLED=true로 off): GET /:id/events?after_seq (getDifferences 상당)
+     *   + subscribed/events의 seq_epoch (서버 재기동 시 버퍼 에포크 교체 → 클라이언트 전량 캐치업 신호).
+     */
+    protocol: {
+        idempotency: process.env.MESSAGE_IDEMPOTENCY_DISABLED !== 'true',
+        userCardFirst: process.env.USER_CARD_FIRST !== 'false',
+        // 공감 재질문 선(先)영속·선노출 (t_f46d1d7a, 김비서 9/29 flake 판정): empathy 행을
+        // 런 종료 후가 아니라 user 카드·run.started 직후(파이프라인 실행 전)에 저장·message.new
+        // 발행. 칩 창(서버 created_at 기준 2.5s)이 답변 LLM/브리지 지연(15~186s 실측) 전에 열림.
+        // ★ 기본 ON 전환 (9/30 t_fa37420e, frontdev A/B 재측 게이트 충족 t_08fa1d5d): 이전
+        // F 구간 결정적 FAIL은 created_at 앵커 하네스 소유 — 노출각/수신각 앵커 전환
+        // (ee39fdb7 t_b2004d50, main 병합 실측)에서 ON 팔 smoke_t64e3 3연속 19/19 PASS
+        // (empathy 도착 508ms vs run.completed 3517ms 선발행 실증), 동소스·플래그 OFF
+        // control도 3연속 19/19 PASS. 옵트아웃: EMPATHY_EARLY=false 시에만 런 종료 시
+        // 저장·발행 구동작 1:1 복귀.
+        empathyEarly: process.env.EMPATHY_EARLY !== 'false',
+        // t_20746efa (대표님 10/10 two-speed 게이트 3): front desk 단순 발화의 ack→첫 글자
+        // ≤1.5s — 연출 리드 상한 = SLA − TTFT 예산. 0 이하이면 리드 전면 생략.
+        // t_baee5c42 예산 재산정 (실발화 프롬프트 라이브 실측 n=5, live_ttft_gate1_1010.mts):
+        // thinking=false 강제 시 front 답변 flash 스트리밍 TTFT median 626ms / worst 1085ms
+        // (미전송=프로바이더 기본 ON이면 median 4.7s worst 8.5s — 게이트1 FAIL 원인 확정).
+        // 기존 700ms는 max_tokens=8 초단명 조건 근거 과소평가(대표님 10/10 지적) →
+        // worst+여유 1100. 리드컷 = 1500−1100 = 400ms (lead+TTFT worst ≤1485 = 계약 유지).
+        // 참고: Stage2 분류(~1s)가 같은 창에 직렬로 앉는 발화는 여전히 초과 — 병렬화/앵커
+        // 결정은 김비서 판단 사항(후속 카드).
+        frontDeskFirstTokenMs: parseInt(process.env.FRONT_DESK_FIRST_TOKEN_MS || '1500', 10),
+        frontDeskTtftBudgetMs: parseInt(process.env.FRONT_DESK_TTFT_BUDGET_MS || '1100', 10),
+        deltaBatchMs: parseInt(process.env.DELTA_BATCH_MS || '300', 10),
+        deltaBatchChars: parseInt(process.env.DELTA_BATCH_CHARS || '150', 10),
+        seqDiffSync: process.env.EVENT_SYNC_DISABLED !== 'true',
     },
     /**
      * 뉴런 오케스트레이션 엔진 선택:
@@ -44,11 +360,48 @@ exports.config = {
      * - 'simple'   : 동일 노드 로직을 순차 파이프라인으로 실행 (폴백)
      */
     neuronEngine: process.env.NEURON_ENGINE || 'langgraph',
+    /**
+     * 내구성 실행 (t_7182aa8f, 자비스 오케스트레이션 [4]) — LangGraph 체크포인터 + 런 저널.
+     * - LANGGRAPH_CHECKPOINT=true: run 단위 스레드(thread_id=run_id)로 슈퍼스텝마다 상태를
+     *   graph_checkpoints에 직렬화하고, graph_runs 레시피로 재시작 후 미완 run을 resume한다.
+     * - 기본 false: 현행 무영속 경로와 1:1 동일 (롤백 게이트 — 대표님 9/29 전보드 지시).
+     * 014 미적용 실DB는 첫 조회 실패(PGRST205)에서 래치되어 조용히 꺼진다 (008 관례).
+     */
+    runCheckpoint: {
+        enabled: process.env.LANGGRAPH_CHECKPOINT === 'true',
+        /** 부팅 resume 스캔 캡 — 한 번에 되살릴 최대 미완 run ( 폭주 방패 ). */
+        maxResumePerBoot: parseInt(process.env.LANGGRAPH_CHECKPOINT_MAX_RESUME || '10', 10),
+        /** resume 대상 최소 경과(ms) — 크래시로 막 죽은 run만 대상 (정상 진행과의 레이스 회피). */
+        resumeMinAgeMs: parseInt(process.env.LANGGRAPH_CHECKPOINT_RESUME_MIN_AGE_MS || '5000', 10),
+    },
     ws: {
         pingIntervalMs: 30000,
         pongTimeoutMs: 60000,
         // 오디오 세션당 최대 청크 버퍼 (10초 ≈ 320KB @16kHz/16bit)
         maxAudioBufferMs: 10000,
     },
+    /**
+     * Push-to-Talk (t_d75ca81c) — PTT는 기존 audio.start/end 캐리어 위 상태머신.
+     * 릴리스 이벤트가 도달하지 않는 runaway 세션의 서버측 안전망 두 개:
+     *  - silenceTimeoutMs: 이 시간 동안 무음이면 세그먼트 종료 판단 (기본 30s)
+     *  - maxHoldMs: 홀드 상한. buffer 순환과 무관하게 세그먼트를 강제 종료 (기본 5분)
+     */
+    pushToTalk: {
+        silenceTimeoutMs: parseInt(process.env.PTT_SILENCE_TIMEOUT_MS || '30000', 10),
+        maxHoldMs: parseInt(process.env.PTT_MAX_HOLD_MS || '300000', 10),
+    },
 };
+/** 운영 필수 설정 누락 시 서버 기동을 중단한다. */
+function validateConfig() {
+    if (exports.config.devMode)
+        return;
+    if (!process.env.SUPABASE_URL?.trim())
+        throw new Error('SUPABASE_URL이 필요합니다.');
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!key || key.startsWith('mock'))
+        throw new Error('유효한 SUPABASE_SERVICE_ROLE_KEY가 필요합니다.');
+    const secret = process.env.JWT_SECRET?.trim();
+    if (!secret || secret === 'agenttalk-dev-secret-change-in-production')
+        throw new Error('운영용 JWT_SECRET이 필요합니다.');
+}
 //# sourceMappingURL=config.js.map

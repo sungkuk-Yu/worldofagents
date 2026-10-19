@@ -14,6 +14,7 @@
  */
 import { config } from '../config';
 import { chatCompletion, isLlmConfigured, LlmError } from './llm';
+import { ollamaChat, type OllamaError } from './ollama';
 import { textSimilarity } from './textSimilarity';
 import type { Locale } from './locale';
 import { logger } from '../utils/logger';
@@ -95,6 +96,8 @@ export function parseEmpathyRequest(raw: string | null | undefined, userMessage?
 /**
  * 자연 재질문 생성. 실패는 전부 null — 호출부(processTurn)가 규칙 템플릿으로 내린다.
  * signal: 런 취소 전파. templateId: 회전 규칙이 고정한 풀 id — 말투 힌트로만 사용.
+ *
+ * t_82cc0d99: 로컬 ollama 우선 시도 → 실패 시 cloud 폴백.
  */
 export async function generateEmpathyRequest(
   userMessage: string,
@@ -103,14 +106,44 @@ export async function generateEmpathyRequest(
   opts: { signal?: AbortSignal } = {}
 ): Promise<string | null> {
   const ht = config.empathyRequestLlm;
-  if (!ht.enabled || !isLlmConfigured() || !userMessage.trim() || opts.signal?.aborted) return null;
+  if (!ht.enabled || opts.signal?.aborted) return null;
+  if (!userMessage.trim()) return null;
+
+  const hint = STYLE_HINT[templateId]?.[locale] ?? '';
+  const system = SYSTEM_PROMPT[locale] + (hint ? `\n이번 문장 톤: ${hint}` : '');
+  const userContent = `${locale === 'ko' ? '발화' : 'Utterance'}: ${userMessage.slice(0, 300)}`;
+
+  // ① 로컬 ollama 우선 시도 (활성화 시)
+  if (config.localFrontDesk.enabled) {
+    try {
+      const ollamaResult = await ollamaChat({
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.9,
+        signal: opts.signal,
+      });
+      const text = parseEmpathyRequest(ollamaResult.text, userMessage);
+      if (text) {
+        logger.debug?.({ text, durationMs: ollamaResult.durationMs }, 'empathy ollama 성공');
+        return text;
+      }
+      logger.debug?.({ raw: ollamaResult.text.slice(0, 60) }, 'ollama 형식 실패 → cloud 폴백');
+    } catch (err) {
+      const code = (err as OllamaError).code;
+      logger.debug?.({ code }, 'ollama 장애 → cloud 폴백');
+      // ollama 실패 시 아래 cloud 폴백으로 진행
+    }
+  }
+
+  // ② cloud LLM 폴백 (기존 로직)
+  if (!isLlmConfigured()) return null;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), ht.timeoutMs);
   const onOuterAbort = () => abort.abort();
   opts.signal?.addEventListener('abort', onOuterAbort, { once: true });
   try {
-    const hint = STYLE_HINT[templateId]?.[locale] ?? '';
-    const system = SYSTEM_PROMPT[locale] + (hint ? `\n이번 문장 톤: ${hint}` : '');
     const result = await chatCompletion({
       // 분류·후속 질문과 같은 저비용 전용 모델 우선 (미설정 시 chatLlm.model 상속).
       model: config.classification.model || undefined,
@@ -120,7 +153,7 @@ export async function generateEmpathyRequest(
       signal: abort.signal,
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: `${locale === 'ko' ? '발화' : 'Utterance'}: ${userMessage.slice(0, 300)}` },
+        { role: 'user', content: userContent },
       ],
     });
     const text = parseEmpathyRequest(result.text, userMessage);

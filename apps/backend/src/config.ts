@@ -60,6 +60,16 @@ export const config = {
     enabled: process.env.EMPATHY_REQUEST_LLM !== 'false',
     timeoutMs: parseInt(process.env.EMPATHY_REQUEST_LLM_TIMEOUT_MS || '1500', 10),
   },
+  /**
+   * 로컬 front desk (t_82cc0d99): 공감/ack 앞단 처리를 로컬 ollama로 우선 수행,
+   * 실패/타임아웃 시 cloud LLM으로 폴백. 기본 OFF (ENABLED=true로 활성화).
+   */
+  localFrontDesk: {
+    enabled: process.env.LOCAL_FRONT_DESK_ENABLED === 'true',
+    baseUrl: process.env.LOCAL_FRONT_DESK_OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
+    model: process.env.LOCAL_FRONT_DESK_OLLAMA_MODEL || 'qwen2.5:3b',
+    timeoutMs: parseInt(process.env.LOCAL_FRONT_DESK_TIMEOUT_MS || '800', 10),
+  },
   /** 후속 예상 질문 2~3개 생성 (t_344e047a ③) — answer 완료 후 비동 보강. 실패 시 조용히 생략. */
   suggestedQuestions: {
     enabled: process.env.SUGGEST_QUESTIONS_DISABLED !== 'true',
