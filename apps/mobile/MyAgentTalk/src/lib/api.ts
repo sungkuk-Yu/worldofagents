@@ -511,6 +511,15 @@ export const api = {
   /** 카드 삭제 — DELETE /api/cards/:cardId */
   deleteCard: (cardId: string) =>
     request<ApiEnvelope<{ deleted: boolean; id: string }>>(`/api/cards/${encodeURIComponent(cardId)}`, { method: 'DELETE' }),
+
+  // ── 결정 인박스 (Decision Inbox, t_2de069f3 / 백엔드 t_6d208fb5) ──
+  /** 결정 항목 목록 — GET /api/sessions/:threadId/decisions (pending 우선 정렬) */
+  getDecisions: (threadId: string) =>
+    request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(threadId)}/decisions`),
+
+  /** 결정 답변/보류/해제 — PATCH /api/decisions/:id (status='answered'는 answer 필수) */
+  updateDecision: (id: string, body: { status: 'answered' | 'deferred' | 'dismissed'; answer?: string }) =>
+    request<ApiEnvelope<unknown>>(`/api/decisions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };
 
 // ── 볼트/보드 DTO (백엔드 types/db.ts와 동일 셸) ────────

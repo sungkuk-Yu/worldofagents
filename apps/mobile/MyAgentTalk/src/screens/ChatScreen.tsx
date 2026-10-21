@@ -18,6 +18,7 @@ import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
 import { QuestionTrackerModal } from '../components/QuestionTracker';
 import { QueueBacklogModal } from '../components/QueueBacklog';
+import { DecisionInbox } from '../components/DecisionInbox';
 import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
@@ -119,6 +120,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
     queueView,
     pendingReplies, applyPendingSnapshot, firstOutputArrived,
+    decisions, updateDecision,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -1054,6 +1056,14 @@ export default function ChatScreen({ navigation, route }: Props) {
           열었을 때만 나타나는 2차 UI. PC/네이티브/데모는 기존 입력창 상시. */}
       {/* 답글 발송 대기 인용 바 (t_62897e88 백로그④) — 입력 콘솔 바로 위, ✕로 취소(발행 중단) */}
       {draftQuote && <ReplyDraftBar quote={draftQuote} onCancel={() => setDraftQuote(null)} />}
+      {/* 결정 인박스 (t_2de069f3) — 에이전트 결정 요청 스트립: 입력 콘솔 위, 질문 탭=원본 점프 */}
+      {decisions.length > 0 && !isDemo && (
+        <DecisionInbox
+          decisions={decisions}
+          onUpdate={updateDecision}
+          onJump={requestJump}
+        />
+      )}
       <ChatInputConsole
         value={input}
         onChangeText={setInput}

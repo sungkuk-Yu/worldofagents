@@ -6,6 +6,8 @@ import type { DecisionItem } from '../lib/chatLogic';
 interface DecisionInboxProps {
   decisions: DecisionItem[];
   onUpdate: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => void;
+  /** 원본 메시지 점프 (t_2de069f3) — sourceMessageId가 있는 카드만 탭 가능 */
+  onJump?: (sourceMessageId: string) => void;
 }
 
 /**
@@ -13,7 +15,7 @@ interface DecisionInboxProps {
  * - decisions 배열 렌더 (pending 우선 정렬)
  * - 빈 배열이면 렌더 없음 (호출자가 decisions.length 체크)
  */
-export function DecisionInbox({ decisions, onUpdate }: DecisionInboxProps) {
+export function DecisionInbox({ decisions, onUpdate, onJump }: DecisionInboxProps) {
   // pending 우선 정렬
   const sorted = [...decisions].sort((a, b) => {
     if (a.status === 'pending' && b.status !== 'pending') return -1;
@@ -37,7 +39,12 @@ export function DecisionInbox({ decisions, onUpdate }: DecisionInboxProps) {
         showsVerticalScrollIndicator={false}
       >
         {sorted.map((item) => (
-          <DecisionCard key={item.id} item={item} onUpdate={onUpdate} />
+          <DecisionCard
+            key={item.id}
+            item={item}
+            onUpdate={onUpdate}
+            onJump={onJump && item.sourceMessageId ? () => onJump(item.sourceMessageId!) : undefined}
+          />
         ))}
       </ScrollView>
     </View>

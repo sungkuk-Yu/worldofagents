@@ -5,6 +5,8 @@ import type { DecisionItem } from '../lib/chatLogic';
 interface DecisionCardProps {
   item: DecisionItem;
   onUpdate: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => void;
+  /** 원본 메시지 점프 (t_2de069f3) — 질문 탭 시 발화 위치로 스크롤 */
+  onJump?: () => void;
 }
 
 /**
@@ -12,7 +14,7 @@ interface DecisionCardProps {
  * - pending 항목: 질문 + 답변 입력창 + 답변/보류/해제 버튼
  * - answered/deferred/dismissed: 읽기 전용 표시
  */
-export function DecisionCard({ item, onUpdate }: DecisionCardProps) {
+export function DecisionCard({ item, onUpdate, onJump }: DecisionCardProps) {
   const [answer, setAnswer] = useState(item.answer ?? '');
 
   const isPending = item.status === 'pending';
@@ -20,8 +22,14 @@ export function DecisionCard({ item, onUpdate }: DecisionCardProps) {
 
   return (
     <View style={[styles.card, { backgroundColor: bgColor }]}>
-      {/* 에이전트 질문 */}
-      <Text style={styles.question}>{item.question}</Text>
+      {/* 에이전트 질문 — onJump 있으면 탭해 원본 메시지로 점프 */}
+      {onJump ? (
+        <Pressable onPress={onJump}>
+          <Text style={styles.question}>{item.question}</Text>
+        </Pressable>
+      ) : (
+        <Text style={styles.question}>{item.question}</Text>
+      )}
       
       {/* 답변 입력 (pending만) */}
       {isPending && (

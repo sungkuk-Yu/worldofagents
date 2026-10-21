@@ -938,6 +938,33 @@ export function normalizeSuggestedQuestions(value: unknown): SuggestedQuestion[]
 export const EMPTY_QUEUE: QueueItem[] = [];
 export const EMPTY_THREADS: ThreadIndexEntry[] = [];
 
+// ── 결정 인박스 (Decision Inbox, t_2de069f3) ─────────────────────────────
+// 에이전트→유저 결정 요청 사항을 별도 관리. GET /api/sessions/:threadId/decisions 응답 정규화.
+import type { DecisionItem } from '../types';
+export { DecisionItem };
+export const EMPTY_DECISIONS: DecisionItem[] = [];
+
+export function normalizeDecisionItems(value: unknown): DecisionItem[] {
+  if (!Array.isArray(value)) return [];
+  const out: DecisionItem[] = [];
+  for (const r of value) {
+    if (!isRecord(r) || typeof r.id !== 'string' || typeof r.question !== 'string') continue;
+    out.push({
+      id: r.id,
+      threadId: typeof r.thread_id === 'string' ? r.thread_id : '',
+      sourceMessageId: typeof r.source_message_id === 'string' ? r.source_message_id : '',
+      agentId: typeof r.agent_id === 'string' ? r.agent_id : undefined,
+      question: r.question,
+      options: Array.isArray(r.options) ? r.options.filter((x) => typeof x === 'string') : undefined,
+      status: typeof r.status === 'string' && ['pending', 'answered', 'deferred', 'dismissed'].includes(r.status) ? r.status as DecisionItem['status'] : 'pending',
+      answer: typeof r.answer === 'string' ? r.answer : undefined,
+      createdAt: typeof r.created_at === 'string' ? r.created_at : new Date().toISOString(),
+      resolvedAt: typeof r.resolved_at === 'string' ? r.resolved_at : undefined,
+    });
+  }
+  return out;
+}
+
 /** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
 export function restoreFailedDraft(current: string, failed: string): string {
   return !current || current === failed ? failed : `${current}\n${failed}`;
