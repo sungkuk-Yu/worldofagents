@@ -219,3 +219,23 @@ export interface ForkOrigin {
   message_id?: string;
   title?: string;
 }
+
+// ── 결정 인박스 (Decision Inbox, t_2de069f3) ──────────
+/** 결정 항목 상태 */
+export type DecisionStatus = 'pending' | 'answered' | 'deferred' | 'dismissed';
+
+/** 결정 인박스 항목 — 에이전트→유저 결정 요청 (백엔드 decision_items) */
+export interface DecisionItem {
+  id: string;
+  threadId: string;
+  sourceMessageId: string;
+  agentId?: string;
+  question: string;
+  /** 선택지 배열 (없으면 자유 응답) */
+  options?: string[];
+  status: DecisionStatus;
+  /** 유저 답변 (answered 상태에서 존재) */
+  answer?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}

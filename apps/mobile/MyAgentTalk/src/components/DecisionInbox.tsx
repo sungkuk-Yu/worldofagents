@@ -1,235 +1,93 @@
-// DecisionInbox.tsx — 결정 대기 목록 (t_2de069f3)
-// QueueBacklog 패턴 재사용: 패널 섹션 + 모달 상세
-
-import React, { useState, useCallback } from 'react';
-import { View, TouchableOpacity, Modal, ScrollView, TextInput, Platform, StyleSheet, Pressable } from 'react-native';
-import { Text } from 'react-native-paper';
-import { useTranslation } from 'react-i18next';
-import type { DecisionItem } from '../lib/api';
-import { api } from '../lib/api';
-import { colors, radii, spacing, typography } from '../theme';
+import React from 'react';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { DecisionCard } from './DecisionCard';
+import type { DecisionItem } from '../lib/chatLogic';
 
 interface DecisionInboxProps {
-  sessionId: string;
   decisions: DecisionItem[];
-  /** 원본 메시지 점프 콜백 */
-  onJumpToMessage?: (turnIndex: number) => void;
-  /** 답변 제출 성공 후 부모 상태 갱신 (useChatSession decisions 단일 원천) */
-  onAnswered: (decisionId: string) => void;
+  onUpdate: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => void;
+  /** 원본 메시지 점프 (t_2de069f3) — sourceMessageId가 있는 카드만 탭 가능 */
+  onJump?: (sourceMessageId: string) => void;
 }
 
-export function DecisionInbox({ sessionId, decisions, onJumpToMessage, onAnswered }: DecisionInboxProps) {
-  const { t } = useTranslation();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [answer, setAnswer] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const pending = decisions.filter((d) => d.status === 'pending');
-  const selected = pending.find((d) => d.id === selectedId);
-
-  const handleSubmit = useCallback(async () => {
-    if (!selectedId || !answer.trim()) return;
-    setSubmitting(true);
-    try {
-      await api.answerDecision(selectedId, answer.trim());
-      onAnswered(selectedId);
-      setSelectedId(null);
-      setAnswer('');
-    } catch (err) {
-      console.error('결정 답변 실패', err);
-      // TODO: 에러 토스트
-    } finally {
-      setSubmitting(false);
-    }
-  }, [selectedId, answer, sessionId, onAnswered]);
-
-  const handleJump = useCallback(() => {
-    if (selected?.source_turn_index !== undefined) {
-      onJumpToMessage?.(selected.source_turn_index);
-      setSelectedId(null);
-    }
-  }, [selected, onJumpToMessage]);
-
-  if (pending.length === 0) {
-    return (
-      <View style={styles.empty}>
-        <Text variant="bodyMedium" style={{ color: colors.text2 }}>
-          {t('decisions.empty')}
-        </Text>
-      </View>
-    );
-  }
+/**
+ * 결정 인박스 스트립 (t_2de069f3)
+ * - decisions 배열 렌더 (pending 우선 정렬)
+ * - 빈 배열이면 렌더 없음 (호출자가 decisions.length 체크)
+ */
+export function DecisionInbox({ decisions, onUpdate, onJump }: DecisionInboxProps) {
+  // pending 우선 정렬
+  const sorted = [...decisions].sort((a, b) => {
+    if (a.status === 'pending' && b.status !== 'pending') return -1;
+    if (a.status !== 'pending' && b.status === 'pending') return 1;
+    return 0;
+  });
 
   return (
-    <View>
-      {pending.map((item, idx) => (
-        <Pressable
-          key={item.id}
-          onPress={() => setSelectedId(item.id)}
-          style={[
-            styles.item,
-            idx < pending.length - 1 && styles.itemBorder,
-          ]}
-        >
-          <Text variant="bodyMedium" numberOfLines={2} style={styles.question}>
-            {item.question}
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>결정 요청</Text>
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>
+            {decisions.filter((d) => d.status === 'pending').length}
           </Text>
-          <Text variant="bodySmall" style={styles.timestamp}>
-            {new Date(item.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        </Pressable>
-      ))}
-
-      <Modal
-        visible={!!selectedId}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSelectedId(null)}
+        </View>
+      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
       >
-        <Pressable
-          onPress={() => setSelectedId(null)}
-          style={styles.overlay}
-        >
-          <Pressable onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalContainer}>
-              <View style={styles.modalHeader}>
-                <Text variant="titleMedium" style={styles.modalTitle}>
-                  {t('decisions.title')}
-                </Text>
-                <Pressable onPress={() => setSelectedId(null)}>
-                  <Text variant="bodyLarge" style={{ color: colors.accent }}>
-                    {t('common.close')}
-                  </Text>
-                </Pressable>
-              </View>
-
-              <ScrollView style={styles.modalBody}>
-                <Text variant="bodyMedium" style={styles.modalQuestion}>
-                  {selected?.question}
-                </Text>
-
-                {selected?.source_turn_index !== undefined && (
-                  <Pressable onPress={handleJump} style={styles.jumpButton}>
-                    <Text variant="bodyMedium" style={{ color: colors.accent }}>
-                      {t('decisions.jumpToOriginal')}
-                    </Text>
-                  </Pressable>
-                )}
-
-                <TextInput
-                  value={answer}
-                  onChangeText={setAnswer}
-                  placeholder={t('decisions.answerPlaceholder')}
-                  placeholderTextColor={colors.text2}
-                  multiline
-                  numberOfLines={4}
-                  style={styles.input}
-                />
-
-                <Pressable
-                  onPress={handleSubmit}
-                  disabled={!answer.trim() || submitting}
-                  style={[
-                    styles.submitButton,
-                    (!answer.trim() || submitting) && styles.submitButtonDisabled,
-                  ]}
-                >
-                  <Text variant="bodyLarge" style={styles.submitText}>
-                    {submitting ? t('common.submitting') : t('decisions.submit')}
-                  </Text>
-                </Pressable>
-              </ScrollView>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        {sorted.map((item) => (
+          <DecisionCard
+            key={item.id}
+            item={item}
+            onUpdate={onUpdate}
+            onJump={onJump && item.sourceMessageId ? () => onJump(item.sourceMessageId!) : undefined}
+          />
+        ))}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  empty: {
-    paddingHorizontal: spacing.sp4,
-    paddingVertical: spacing.sp3,
+  container: {
+    backgroundColor: '#f9f9f9',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingTop: 12,
   },
-  item: {
-    paddingHorizontal: spacing.sp4,
-    paddingVertical: spacing.sp3,
-  },
-  itemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  question: {
-    color: colors.text1,
-  },
-  timestamp: {
-    color: colors.text2,
-    marginTop: spacing.sp1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    paddingHorizontal: spacing.sp4,
-    paddingVertical: spacing.sp3,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginRight: 8,
+  },
+  badge: {
+    backgroundColor: '#ff5722',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 24,
     alignItems: 'center',
   },
-  modalTitle: {
-    color: colors.text1,
+  badgeText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
-  modalBody: {
-    paddingHorizontal: spacing.sp4,
-    paddingVertical: spacing.sp3,
+  scroll: {
+    maxHeight: 400,
   },
-  modalQuestion: {
-    color: colors.text1,
-    marginBottom: spacing.sp4,
-  },
-  jumpButton: {
-    paddingVertical: spacing.sp2,
-    paddingHorizontal: spacing.sp3,
-    backgroundColor: colors.surfaceRaise,
-    borderRadius: radii.sm,
-    marginBottom: spacing.sp4,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sp3,
-    paddingVertical: spacing.sp2,
-    fontSize: typography.body.fontSize,
-    color: colors.text1,
-    backgroundColor: colors.bg,
-    minHeight: Platform.OS === 'web' ? 80 : undefined,
-    maxHeight: 200,
-    textAlignVertical: 'top',
-  },
-  submitButton: {
-    marginTop: spacing.sp3,
-    paddingVertical: spacing.sp3,
-    backgroundColor: colors.accent,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-  },
-  submitButtonDisabled: {
-    backgroundColor: colors.border,
-  },
-  submitText: {
-    color: colors.onPrimary,
-    fontWeight: '600',
+  content: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
 });

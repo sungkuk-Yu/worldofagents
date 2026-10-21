@@ -14,8 +14,8 @@ async function main() {
   // 2) 최근 세션 1건 (user_id 포함)
   const s = await supabaseAdmin
     .from('sessions')
-    .select('id, user_id, agent_id, updated_at')
-    .order('updated_at', { ascending: false })
+    .select('id, user_id, agent_id, last_activity_at')
+    .order('last_activity_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (s.error || !s.data) {
