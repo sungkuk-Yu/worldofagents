@@ -1,15 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PersonaGuard = void 0;
+exports.DISCLAIMERS = exports.PersonaGuard = void 0;
 exports.rowToPersonaConfig = rowToPersonaConfig;
 exports.getActivePersona = getActivePersona;
 exports.buildPersonaPrompt = buildPersonaPrompt;
 exports.buildConversationHistory = buildConversationHistory;
+exports.classifyExpertise = classifyExpertise;
 const DEFAULT_TONE = { formality: 'friendly', emoji_usage: 'rare', sentence_length: 'medium', honorific_level: 3 };
 function rowToPersonaConfig(row, overrides) {
     const style = (row.style_guide || {});
     const tone = { ...DEFAULT_TONE, ...(row.tone_config || {}) };
     return {
+        system_prompt: typeof row.style_guide?.system_prompt === 'string' ? row.style_guide.system_prompt : undefined,
+        tags: Array.isArray(row.style_guide?.tags) ? row.style_guide.tags : [],
         persona_id: row.id,
         name: row.name,
         voice: (row.voice_config || {}),
@@ -50,6 +53,8 @@ async function getActivePersona(db, agentId) {
 function buildPersonaPrompt(config, neuronType) {
     const override = config.neuron_overrides[neuronType];
     const lines = [];
+    if (config.system_prompt)
+        lines.push(config.system_prompt);
     lines.push(`당신은 "${config.name}"입니다. 사용자와 대화하는 하나의 일관된 인격입니다.`);
     lines.push('');
     lines.push('[말투 규칙]');
@@ -147,5 +152,31 @@ exports.PersonaGuard = PersonaGuard;
 /** 시스템 프롬프트에 주입할 대화 히스토리 구성 */
 function buildConversationHistory(history, maxTurns = 20) {
     return history.slice(-maxTurns);
+}
+exports.DISCLAIMERS = {
+    legal: { ko: '※ 본 응답은 AI가 생성한 정보이며 정식 법률 자문이 아닙니다.', en: '※ This response is AI-generated information and is not professional legal advice.' },
+    accounting: { ko: '※ 본 응답은 AI가 생성한 정보이며 정식 세무·회계 자문이 아닙니다.', en: '※ This response is AI-generated information and is not professional tax or accounting advice.' },
+    medical: { ko: '※ 본 응답은 AI가 생성한 정보이며 전문 의료진의 진단이나 진료를 대신하지 않습니다.', en: '※ This response is AI-generated information and does not replace professional medical diagnosis or care.' },
+    // t_20746efa — 시사/뉴스 depth lane(대표님 10/10 2안): 최신 사실 확인이 필요한 카테고리.
+    current: { ko: '※ 본 응답은 AI가 생성한 정보이며 최신 보도는 출처와 함께 확인이 필요합니다.', en: '※ This response is AI-generated information; please verify latest reports against their sources.' },
+    general: { ko: '※ 본 응답은 AI가 생성한 정보입니다.', en: '※ This response is AI-generated information.' },
+};
+/** 스키마에 category가 없으면 config.category 및 페르소나 이름/프롬프트/태그로 판정한다. */
+function classifyExpertise(...values) {
+    const text = values.map(v => typeof v === 'string' ? v : JSON.stringify(v) || '').join(' ');
+    if (/법률|변호|legal|lawyer/i.test(text))
+        return 'legal';
+    // t_a546fb54 — 세목 파생어 보강 (대표님 10/10 두배속 실측: '상속세 신고 기한이 언제야'
+    // 가 (세무|회계|tax|account)에만 걸려 미판정 → 승격 누락). precision-first:
+    // '○○세' 전용 세목 명사만 — 오탐 비용은 백스테이지 지연뿐, 단독 '세/세금'은 미포함.
+    if (/세무|회계|tax|account|상속세|증여세|부가가치세|양도세|종합소득세|부가세|capital\s*gains|inheritance\s*tax|estate\s*tax/i.test(text))
+        return 'accounting';
+    if (/의료|의사|진료|medical|doctor/i.test(text))
+        return 'medical';
+    // t_20746efa: 시사(current affairs) — depth lane 판정용 발화 텍스트 분류.
+    // 오탐 비용은 '검색 한 번 더'지만 precision-first: 뉴스/시사 고유 키워드만 잡는다.
+    if (/시사|뉴스|정국|선거|국회|latest\s*news|current\s*affairs|breaking\s*news/i.test(text))
+        return 'current';
+    return 'general';
 }
 //# sourceMappingURL=persona.js.map

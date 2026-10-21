@@ -23,6 +23,38 @@ async function getOwnedDecision(db: any, userId: string, decisionId: string) {
 }
 
 export async function decisionRoutes(app: FastifyInstance) {
+  // POST /api/decisions/:id/answer — 인라인 답변 제출 (t_2de069f3 프론트 계약)
+  // PATCH /:id와 동일 상태 전이지만 status='answered' 고정·answer 필수. UX 전용 얇은 래퍼.
+  app.post('/:id/answer', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { answer?: unknown } | null;
+
+    if (typeof body?.answer !== 'string' || body.answer.trim().length === 0) {
+      throw badRequest('answer는 필수입니다.');
+    }
+
+    // 소유권 검증
+    const decision = await getOwnedDecision(request.db, request.userId, id);
+
+    // 상태 갱신 (answered 확정)
+    const updated = await updateDecisionStatus(request.db, id, 'answered', body.answer);
+
+    // WS decision.updated 브로드캐스트 (PATCH와 동일 패턴)
+    const sessionId = (decision as any).session_id;
+    const items = await listDecisions(request.db, sessionId);
+    const pending_count = items.filter(i => i.status === 'pending').length;
+
+    broadcastToSession(sessionId, {
+      type: 'decision.updated',
+      session_id: sessionId,
+      decision_id: id,
+      status: updated.status,
+      pending_count,
+    });
+
+    return ok(updated);
+  });
+
   // PATCH /api/decisions/:id — 결정 상태 전이 (t_6d208fb5)
   // 상태: pending → answered / deferred / dismissed
   // answered일 때 answer 필수

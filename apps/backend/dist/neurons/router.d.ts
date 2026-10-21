@@ -1,15 +1,19 @@
 /**
  * 뉴런 활성화 판단 로직 (Router) — neuron-architecture-spec §3.3
  * 규칙 기반 판별 + 키워드 분류 + 커스텀 뉴런 트리거 스캔.
- * Phase 2 계획: LLM 기반 분류 폴백.
+ * Stage 1/3 판별은 프론트와 공유하는 단일 패턴 표(dialogPatterns.json)로 수행한다 (t_56498848).
+ * Stage 2(LLM)는 graph.ts routerNode가 async로 보강 — 여기는 동기 경로만.
  */
 import { DialogueType } from '../types/db';
 export interface ActivationPlan {
     activate: string[];
     dialogueType: DialogueType;
     reason: string;
+    /** 판별 단계 (1=패턴 확정, 3=규칙 폴백) — Stage2 인용 시 graph가 2로 갱신해 전달. */
+    dialogueStage: 1 | 2 | 3;
+    confidence: number;
 }
-/** 대화 유형 분류 — 기존 classifyDialogueType 확장 (MVP 패턴 매칭) */
+/** 대화 유형 분류 — 공유 패턴 표 Stage 1 + 의문/명령 폴백 (호환 유지용 동기 API) */
 export declare function classifyDialogueType(text: string): DialogueType;
 export interface RouterContext {
     hasActiveTask: boolean;

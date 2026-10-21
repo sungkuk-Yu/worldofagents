@@ -7,6 +7,11 @@ export interface DevStore {
         user: DevRow;
     }>;
     sequences: Record<string, number>;
+    /** DEV_MODE 첨부 바이트 스토어 (object_path → bytes) — lib/storage.ts dev 경로 + GET /api/attachments/object/* 가 독점. */
+    blobs: Map<string, {
+        bytes: Buffer;
+        mime: string;
+    }>;
 }
 export declare const emptyStore: () => DevStore;
 export declare function createStore(): DevStore;
@@ -32,7 +37,8 @@ interface SelectOp {
     orderBy: {
         field: string;
         ascending: boolean;
-    } | null;
+    }[];
+    offset: number | null;
     limit: number | null;
     single: boolean;
     maybeSingle: boolean;
@@ -72,11 +78,16 @@ export declare class DevQueryBuilder implements PromiseLike<QueryResult> {
     lt(field: string, value: unknown): DevQueryBuilder;
     lte(field: string, value: unknown): DevQueryBuilder;
     in(field: string, values: unknown[]): DevQueryBuilder;
+    /** PostgREST .is(col, value) — NULL/동등 매칭 (t_401c5bd1 첨부 링크 조건부 UPDATE).
+     *  컬럼 미설정(undefined)도 SQL NULL로 취급 — insert에서 생략된 컬럼의 실DB 기본값(NULL)과 동일. */
+    is(field: string, value: unknown): DevQueryBuilder;
     private addFilter;
     order(field: string, opts?: {
         ascending?: boolean;
     }): DevQueryBuilder;
     limit(n: number): DevQueryBuilder;
+    /** PostgREST range(from, to) — 양끝 포함 오프셋 페이지네이션 (limit/offset parity). */
+    range(from: number, to: number): DevQueryBuilder;
     single(): DevQueryBuilder;
     maybeSingle(): DevQueryBuilder;
     insert(values: DevRow | DevRow[]): DevQueryBuilder;
@@ -135,5 +146,7 @@ export interface DevClient {
     };
 }
 export declare function createDevClient(store: DevStore): DevClient;
+/** auth.users 삭제의 FK cascade를 재현한다. 공유 뉴런과 다른 사용자 데이터는 보존한다. */
+export declare function deleteDevUser(store: DevStore, userId: string): void;
 export {};
 //# sourceMappingURL=devstore.d.ts.map

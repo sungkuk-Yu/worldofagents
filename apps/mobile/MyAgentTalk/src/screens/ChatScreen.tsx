@@ -9,6 +9,7 @@ import { useChatSelection } from '../hooks/useChatSelection';
 import { styles } from './chatScreenStyles';
 import ContextPanel from '../components/ContextPanel';
 import SideChainPanel from '../components/SideChainPanel';
+import { DecisionInbox } from '../components/DecisionInbox';
 import { chainArchive } from '../lib/chainArchive';
 import { useCardActions } from '../hooks/useCardActions';
 import { usePushToTalk } from '../hooks/usePushToTalk';
@@ -55,13 +56,14 @@ import {
   NativeSyntheticEvent, NativeScrollEvent,
   TouchableOpacity,
   View,
+  Modal,
 } from 'react-native';
 import {
   Button,
   Text,
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
-import { colors, webScreenMotion } from '../theme';
+import { colors, webScreenMotion, spacing, radii } from '../theme';
 import { ChatMessage, TurnGroup, FeedItem, groupByTurn, insertDateSeparators, isDateSeparator, buildTimeGroups, buildSenderGroups, streamingHeaderAfter, validateMessageInput, restoreFailedDraft, SuggestedQuestion, canReplyTo, localReplyQuote } from '../lib/chatLogic';
 import DateSeparatorRow from '../components/chat/DateSeparatorRow';
 import DatePinnedHeader, { DatePinnedHandle, SepMetric } from '../components/chat/DatePinnedHeader';
@@ -119,6 +121,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
     queueView,
     pendingReplies, applyPendingSnapshot, firstOutputArrived,
+    decisions, applyDecisionSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -440,6 +443,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   }, [wide]);
   // 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크도 라우트 push 대신 동일 모달.
   const [favoritesOpen, setFavoritesOpen] = useState(false);
+  // 결정 인박스 (t_2de069f3) — 모바일/좁은 화면 스트립 탭 시 하단시트 오픈
+  const [decisionsOpen, setDecisionsOpen] = useState(false);
   // 트래커 행 재발화 — 실패 user 카드 재전송 (ChatTurnRow onResend와 동일 경로: restoreFailedDraft 폴백 불요,
   // 재발화 버튼은 실패 행 전용이며 실패 시 입력창 복구는 화면 상단 error-bar가 담당).
   const retryFromTracker = useCallback((messageId: string) => {
@@ -472,6 +477,15 @@ export default function ChatScreen({ navigation, route }: Props) {
   // freeform 행 탭 = 카드 점프 + 입력창 개방 (키보드 계층 신호는 콘솔이 소유, nonce로 재요청 가능)
   const [composeNonce, setComposeNonce] = useState(0);
   const requestJump = strip.requestJump; // 안정 ref — memo deps는 개별 함수로 (t_70cbbd6b 관례)
+  // 결정 인박스 (t_2de069f3) — 원본 점프: source_turn_index → 메시지 id 변환 (requestJump 계약)
+  const jumpToDecisionSource = useCallback((turnIdx: number) => {
+    const msg = messages.find((m) => m.turnIndex === turnIdx);
+    if (msg) requestJump(msg.id);
+  }, [messages, requestJump]);
+  // 답변 제출 성공 → 로컬 즉시 제거 (WS decision.updated GET 폴백 전 UX 즉각성)
+  const onDecisionAnswered = useCallback((id: string) => {
+    applyDecisionSnapshot(decisions.filter((d) => d.id !== id));
+  }, [decisions, applyDecisionSnapshot]);
   // ── 답글/인용 배선 (t_62897e88 백로그④) ─────────────────────────
   // 롱프레스(모바일)/홀드(웹 마우스 450ms, rnw PressResponder) → 액션 시트.
   // 미전송/실패 행은 답글 대상 불가(서버 FK 될 수 없음) + 데모 세션은 시트 자체를 열지 않는다.
@@ -1054,6 +1068,24 @@ export default function ChatScreen({ navigation, route }: Props) {
           열었을 때만 나타나는 2차 UI. PC/네이티브/데모는 기존 입력창 상시. */}
       {/* 답글 발송 대기 인용 바 (t_62897e88 백로그④) — 입력 콘솔 바로 위, ✕로 취소(발행 중단) */}
       {draftQuote && <ReplyDraftBar quote={draftQuote} onCancel={() => setDraftQuote(null)} />}
+      {/* 결정 스트립 (t_2de069f3) — 모바일/좁은 화면: pending 있을 때 입력 콘솔 위 1줄, 탭=인박스 하단시트 */}
+      {!wide && decisions.length > 0 && (
+        <TouchableOpacity
+          onPress={() => setDecisionsOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="결정 대기 열기"
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: spacing.sp1,
+            paddingHorizontal: spacing.sp4, paddingVertical: spacing.sp2,
+            backgroundColor: colors.surfaceRaise, borderTopWidth: 1, borderTopColor: colors.border,
+          }}
+        >
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent }} />
+          <Text variant="bodyMedium" style={{ color: colors.text2 }}>
+            결정 대기 {decisions.length}건 — 탭해서 답변
+          </Text>
+        </TouchableOpacity>
+      )}
       <ChatInputConsole
         value={input}
         onChangeText={setInput}
@@ -1117,6 +1149,18 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
       {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점 */}
       <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
+    {/* 결정 인박스 하단시트 (t_2de069f3) — 모바일/좁은 화면 스트립 탭 진입 */}
+    <Modal visible={decisionsOpen} transparent animationType="slide" onRequestClose={() => setDecisionsOpen(false)}>
+      <TouchableOpacity style={{ flex: 1, backgroundColor: colors.overlay }} activeOpacity={1} onPress={() => setDecisionsOpen(false)} />
+      <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radii.lg, borderTopRightRadius: radii.lg, maxHeight: '70%', paddingBottom: spacing.sp6 }}>
+        <DecisionInbox
+          sessionId={sessionId ?? ''}
+          decisions={decisions}
+          onJumpToMessage={(turnIdx) => { setDecisionsOpen(false); jumpToDecisionSource(turnIdx); }}
+          onAnswered={onDecisionAnswered}
+        />
+      </View>
+    </Modal>
       {/* 사진 편집기 시트 (t_4497cfce P0-1) — 첨부 선택 후 자동 오픈, 저장 시 스테이지 교체 */}
       <PhotoEditorSheet visible={!!editing} source={editing?.source ?? null} onClose={() => setEditing(null)} onSave={onEditSave} />
     </KeyboardAvoidingView>
@@ -1124,6 +1168,15 @@ export default function ChatScreen({ navigation, route }: Props) {
         대표님 10/4: "오른쪽 창 = 쓰레드 카드 리스트의 진행 상태… 쓰레드를 클릭하면 그 쓰레드만
         오른쪽 창에 보이고, 그 창 안에서 닫을 수도 다른 쓰레드로 옮겨 갈 수도 있다."
         모바일/768~1023에서는 렌더 제외(현황 시트·답글 목록 경로 유지). */}
+    {/* 결정 인박스 (t_2de069f3) — PC wide 웹: 사이드체인 위 결정 패널. pending 있을 때만 등장(클릭 최소·한 화면 한 목적). */}
+    {wide && Platform.OS === 'web' && decisions.length > 0 && (
+      <DecisionInbox
+        sessionId={sessionId ?? ''}
+        decisions={decisions}
+        onJumpToMessage={jumpToDecisionSource}
+        onAnswered={onDecisionAnswered}
+      />
+    )}
     {wide && Platform.OS === 'web' && (
       <SideChainPanel
         messages={messages}

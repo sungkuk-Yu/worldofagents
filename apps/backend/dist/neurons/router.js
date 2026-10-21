@@ -2,25 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.classifyDialogue = exports.NeuronRouter = void 0;
 exports.classifyDialogueType = classifyDialogueType;
-/** 대화 유형 분류 — 기존 classifyDialogueType 확장 (MVP 패턴 매칭) */
+const dialogClassifier_1 = require("./dialogClassifier");
+/** 대화 유형 분류 — 공유 패턴 표 Stage 1 + 의문/명령 폴백 (호환 유지용 동기 API) */
 function classifyDialogueType(text) {
-    // 주의: 배열 순서 = 우선순위. 구체적인 명사 키워드(file)를 일반 동사 키워드(data)보다 먼저 검사한다.
+    // 주의: 표 배열 순서 = 우선순위. 구체적인 명사 키워드(file)를 일반 동사 키워드(data)보다 먼저 검사한다.
     // 예) 'PDF 파일 정리해줘' → file (data의 '정리해줘'에 먼저 걸리면 안 됨)
-    const patterns = [
-        { type: 'file', keywords: ['파일', 'pdf', '이미지', '문서', '다운로드', '업로드', '첨부'] },
-        { type: 'data', keywords: ['스프레드시트', '표로', '표를', '데이터', '차트', '그래프', '계산', '분석해', '정리해줘'] },
-        { type: 'task', keywords: ['작업', '실행', '예약', '알림', '설정', '삭제', '추가', '보고서', '작성해', '보내줘', '만들어줘'] },
-        { type: 'multi', keywords: ['여러', '함께', '협업', '다른 에이전트', '비교'] },
-    ];
-    for (const p of patterns) {
-        if (p.keywords.some((kw) => text.includes(kw)))
-            return p.type;
-    }
-    if (/[?？]|어떻게|뭐|왜|언제|누구|무엇|인지|알려줘|알려주/.test(text))
-        return 'question';
-    if (/해줘|해주|~해라|시켜|요청|부탁/.test(text))
-        return 'command';
-    return 'information';
+    return (0, dialogClassifier_1.classifyByRulesSync)(text).type;
 }
 /**
  * 뉴런 라우터 — 사용자 입력을 분석해 필요한 뉴런 조합 결정.
@@ -32,15 +19,16 @@ function classifyDialogueType(text) {
  */
 class NeuronRouter {
     static plan(text, ctx, installedCustomSlugs = []) {
-        const dialogueType = classifyDialogueType(text);
+        const rules = (0, dialogClassifier_1.classifyByRulesSync)(text);
+        const dialogueType = rules.type;
         const activate = new Set(['empathy']);
         const reasons = ['empathy=always'];
-        const hasRequest = dialogueType === 'question' || dialogueType === 'command' || dialogueType === 'data' || dialogueType === 'file' || dialogueType === 'task';
+        const hasRequest = dialogueType === 'question' || dialogueType === 'command' || dialogueType === 'data' || dialogueType === 'file' || dialogueType === 'task' || dialogueType === 'multi';
         if (hasRequest) {
             activate.add('answer');
             reasons.push('answer=request_detected');
         }
-        if (dialogueType === 'data' || /차트|그래프|표로|시각화|인포그래픽/.test(text)) {
+        if (dialogueType === 'data' || /차트|그래프|표로|시각화|인포그래픽|\bchart|graph|visuali[sz]e\b/i.test(text)) {
             activate.add('visual');
             reasons.push('visual=visual_output_needed');
         }
@@ -63,7 +51,7 @@ class NeuronRouter {
                 reasons.push(`${slug}=custom_trigger`);
             }
         }
-        return { activate: [...activate], dialogueType, reason: reasons.join(', ') };
+        return { activate: [...activate], dialogueType, reason: reasons.join(', '), dialogueStage: rules.stage, confidence: rules.confidence };
     }
 }
 exports.NeuronRouter = NeuronRouter;

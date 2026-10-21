@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.agentRoutes = agentRoutes;
+const config_1 = require("../config");
 const auth_1 = require("../lib/auth");
 const errors_1 = require("../lib/errors");
 const helpers_1 = require("../lib/helpers");
@@ -36,10 +37,10 @@ async function agentRoutes(app) {
             throw (0, errors_1.badRequest)('에이전트 이름(name)은 필수입니다.');
         if (body.agent_type && !AGENT_TYPES.includes(body.agent_type))
             throw (0, errors_1.badRequest)(`agent_type은 ${AGENT_TYPES.join('/')} 중 하나여야 합니다.`);
-        // 무료 계정 에이전트 한도 (api-design.md §6 — 3개) — DEV_MODE에서는 해제
+        // 무료 계정 에이전트 한도 (api-design.md §6) — DEV_MODE에서는 해제
         const { data: countData } = await request.db.from('agents').select('id').eq('owner_id', request.userId).eq('is_active', true);
-        if ((countData || []).length >= 3 && !(process.env.DEV_MODE === 'true')) {
-            throw new errors_1.ApiError(errors_1.ERROR_CODES.AGENT_LIMIT_EXCEEDED, '에이전트 생성 한도(3개)를 초과했습니다.');
+        if ((countData || []).length >= config_1.config.maxAgentsPerUser && !(process.env.DEV_MODE === 'true')) {
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.AGENT_LIMIT_EXCEEDED, `에이전트 생성 한도(${config_1.config.maxAgentsPerUser}개)를 초과했습니다.`);
         }
         const { data, error } = await request.db
             .from('agents')
@@ -128,7 +129,12 @@ async function agentRoutes(app) {
         const agent = await (0, helpers_1.getOwnedAgent)(request.db, request.userId, request.params.id);
         const body = request.body;
         const { data: maxVersion } = await request.db.from('personas').select('version').eq('agent_id', agent.id).order('version', { ascending: false }).limit(1).maybeSingle();
-        const version = body.version ?? (maxVersion?.version ?? 0) + 1;
+        // 수치 경계 가드 (t_e1334cee P1-2, 볼트 numbers-boundary-감사 §2): prev 오염 시 0 폴백,
+        // body.version은 클라이언트 임의 값 — 정수>0만 채택(문자열 "2"/NaN/banana/0/음수 거부 → 자동 채번).
+        const prev = Number(maxVersion?.version ?? 0);
+        const base = Number.isFinite(prev) ? prev : 0;
+        const reqVer = body.version !== undefined ? Number(body.version) : NaN;
+        const version = (body.version !== undefined && Number.isInteger(reqVer) && reqVer > 0) ? reqVer : base + 1;
         // 동일 버전 충돌 검사
         const { data: conflict } = await request.db.from('personas').select('id').eq('agent_id', agent.id).eq('version', version).maybeSingle();
         if (conflict)
@@ -161,8 +167,17 @@ async function agentRoutes(app) {
         if (!current)
             throw new errors_1.ApiError(errors_1.ERROR_CODES.NOT_FOUND, '페르소나를 찾을 수 없습니다.');
         const body = request.body;
+        // body.version이 아래 spread로 계산값을 덮어쓰는 경로 — POST과 동일 계약:
+        // 정수>0만 채택, 그 외(문자열/NaN/banana/0/음수)는 삭제해 자동 채번으로 회수 (t_e1334cee P1-2).
+        if ('version' in body) {
+            const reqVer = Number(body.version);
+            if (!(Number.isInteger(reqVer) && reqVer > 0))
+                delete body.version;
+        }
         const { data: maxVersion } = await request.db.from('personas').select('version').eq('agent_id', agent.id).order('version', { ascending: false }).limit(1).maybeSingle();
-        const version = (maxVersion?.version ?? 0) + 1;
+        // prev 수치 가드 (t_e1334cee P1-2): 오염된 version은 0 폴백 — "5"+1="51" 문자 연결 차단.
+        const prev = Number(maxVersion?.version ?? 0);
+        const version = (Number.isFinite(prev) ? prev : 0) + 1;
         await request.db.from('personas').update({ is_active: false }).eq('agent_id', agent.id);
         const { data, error } = await request.db
             .from('personas')

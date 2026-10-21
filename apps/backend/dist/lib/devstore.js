@@ -8,6 +8,7 @@ exports.createStore = createStore;
 exports.getStore = getStore;
 exports.resetStore = resetStore;
 exports.createDevClient = createDevClient;
+exports.deleteDevUser = deleteDevUser;
 /**
  * DEV_MODE용 인메모리 데이터 스토어.
  * Supabase/PostgREST 클라이언트와 동일한 체이닝 API를 제공해
@@ -21,6 +22,7 @@ function randomUUID() {
 const emptyStore = () => ({
     tables: {
         users: [],
+        consents: [],
         agents: [],
         personas: [],
         sessions: [],
@@ -35,9 +37,25 @@ const emptyStore = () => ({
         skills: [],
         skill_installations: [],
         context_patches: [],
+        session_read_state: [],
+        vault_notes: [],
+        boards: [],
+        board_cards: [],
+        messages_attachments: [],
+        upload_quota_daily: [],
+        message_queue: [],
+        // 내구성 실행 (t_7182aa8f, 마이그레이션 014) — saver/저널이 이 3테이블만 접촉.
+        graph_runs: [],
+        graph_checkpoints: [],
+        graph_checkpoint_writes: [],
+        // context_patches 콜드 아카이브 인덱스 (t_848d0c3b, 마이그레이션 016).
+        context_patch_archives: [],
+        // OAuth 신원 매핑 (t_7e25c65b, 마이그레이션 018 초안) — (provider, provider_user_id) UNIQUE.
+        oauth_identities: [],
     },
     usersByEmail: new Map(),
     sequences: {},
+    blobs: new Map(),
 });
 exports.emptyStore = emptyStore;
 /** 기본 뉴런 4종 + 커스텀 1종 (seed.sql과 동일한 데이터) */
@@ -48,10 +66,14 @@ const DEFAULT_NEURONS = [
     { name: '비주얼 에이뉴런', slug: 'visual', description: '표, 차트, 인포그래픽 등 시각 산출물 생성.', category: 'core', version: '1.0.0', author: 'agenttalk', capabilities: ['chart_generation', 'infographic', 'table_rendering', 'svg_output'], trigger_conditions: ['visual_output_needed', 'chart_request', 'data_visualization'], resource_requirements: { cpu: '1.0', memory: '1GB', gpu: false, model: 'gpt-4o' }, dependencies: [], persona_compatible: true, status: 'active', always_active: false, usage_count: 0, success_count: 0, failure_count: 0, satisfaction_sum: 0, satisfaction_count: 0 },
     { name: '번역 에이뉴런', slug: 'translation', description: '다국어 입력 감지 시 실시간 번역 제공.', category: 'custom', version: '1.0.0', author: 'agenttalk-official', capabilities: ['translation', 'language_detection'], trigger_conditions: ['multilingual_input', 'explicit_translation_request'], resource_requirements: { cpu: '0.5', memory: '256MB', gpu: false, model: 'nllb-200-distilled-600M' }, dependencies: [], persona_compatible: true, status: 'active', always_active: false, usage_count: 0, success_count: 0, failure_count: 0, satisfaction_sum: 0, satisfaction_count: 0 },
 ];
+// 공식 카탈로그 4종 — supabase/migrations/010_seed_convergence.sql §2(=006 §3)와 1:1 대칭 (t_cc52fd4f ②).
+// 편차 유지 금지: devstore에만 있고 실DB에 없는 슬러그(calendar-magic/chart-generator)는 006 감사에서
+// 확인된 devstore/live divergence의 근원이었다 — 카탈로그 변경은 양쪽을 동시에 고친다.
 const DEFAULT_SKILLS = [
-    { name: '캘린더 마법사', slug: 'calendar-magic', description: '일정 생성·관리 자동화 스킬', category: 'productivity', version: '1.0.0', author_id: null, author_name: 'agenttalk', content: { prompt: '일정을 관리해주세요' }, icon_url: null, price: 0, status: 'published', security_scan: {}, install_count: 12, usage_count: 30, satisfaction_sum: 24, satisfaction_count: 6 },
-    { name: '이메일 비서', slug: 'email-assistant', description: '이메일 작성·정리 자동화 스킬', category: 'productivity', version: '1.0.0', author_id: null, author_name: 'agenttalk', content: { prompt: '이메일을 작성해주세요' }, icon_url: null, price: 0, status: 'published', security_scan: {}, install_count: 8, usage_count: 20, satisfaction_sum: 18, satisfaction_count: 5 },
-    { name: '차트 생성기', slug: 'chart-generator', description: '데이터에서 차트·그래프 생성', category: 'analysis', version: '1.0.0', author_id: null, author_name: 'agenttalk', content: { prompt: '차트를 만들어주세요' }, icon_url: null, price: 100, status: 'published', security_scan: {}, install_count: 5, usage_count: 10, satisfaction_sum: 10, satisfaction_count: 3 },
+    { name: '캘린더 동기화', slug: 'calendar-sync', description: 'Google Calendar, Outlook 캘린더를 에이전트와 자동 동기화. 일정 추천 및 충돌 감지.', category: 'productivity', version: '2.1.0', author_id: null, author_name: 'agenttalk-official', content: { integration: 'google_calendar,outlook', sync_interval_min: 5, scopes: ['calendar.read', 'calendar.write'] }, icon_url: null, price: 0, status: 'published', security_scan: {}, install_count: 0, usage_count: 0, satisfaction_sum: 0, satisfaction_count: 0 },
+    { name: '이메일 어시스턴트', slug: 'email-assistant', description: 'Gmail/Outlook 이메일 자동 분류, 우선순위 설정, 답장 초안 생성.', category: 'communication', version: '1.5.2', author_id: null, author_name: 'agenttalk-official', content: { providers: ['gmail', 'outlook'], auto_classify: true, draft_style: 'matching_persona' }, icon_url: null, price: 5000, status: 'published', security_scan: {}, install_count: 0, usage_count: 0, satisfaction_sum: 0, satisfaction_count: 0 },
+    { name: '실시간 번역 뉴런', slug: 'translation-neuron', description: '다국어 대화 실시간 번역. 뉴런으로 등록되어 자동 활성화.', category: 'neuron', version: '1.0.0', author_id: null, author_name: 'agenttalk-official', content: { neuron_slug: 'translation', supported_languages: 50, model: 'nllb-200-distilled-600M' }, icon_url: null, price: 0, status: 'published', security_scan: {}, install_count: 0, usage_count: 0, satisfaction_sum: 0, satisfaction_count: 0 },
+    { name: '데이터 분석', slug: 'data-analysis', description: 'CSV/Excel 파일 업로드 시 자동 분석 및 인사이트 도출.', category: 'analysis', version: '1.2.0', author_id: null, author_name: 'agenttalk-official', content: { supported_formats: ['csv', 'xlsx'], max_size_mb: 100, auto_chart: true }, icon_url: null, price: 10000, status: 'published', security_scan: {}, install_count: 0, usage_count: 0, satisfaction_sum: 0, satisfaction_count: 0 },
 ];
 function seedStore(store) {
     const now = new Date().toISOString();
@@ -75,11 +97,21 @@ function getStore() {
     return exports.__devStore.store;
 }
 function resetStore() {
-    exports.__devStore.store = null;
-    return getStore();
+    if (!exports.__devStore.store)
+        exports.__devStore.store = createStore();
+    // ⚠️ 새 객체로 교체하지 말 것 (t_401c5bd1에서 노출된 잠재인 버그): lib/supabase.ts의
+    // supabaseAdmin/dev 클라이언트는 모듈 임포트 시점의 스토어 객체 참조를 캡처한다.
+    // 객체를 교체하면 캡처된 참조가 고아 구스토어를 가리켜 reset 이후 모든 HTTP 쓰기가
+    // 테스트가 읽는 getStore()와 다른 저장소에 쌓인다. 필드만 in-place 스왑한다.
+    const fresh = createStore();
+    exports.__devStore.store.tables = fresh.tables;
+    exports.__devStore.store.usersByEmail = fresh.usersByEmail;
+    exports.__devStore.store.sequences = fresh.sequences;
+    exports.__devStore.store.blobs = fresh.blobs;
+    return exports.__devStore.store;
 }
 function freshSelect() {
-    return { kind: 'select', filters: [], orderBy: null, limit: null, single: false, maybeSingle: false, columns: '*' };
+    return { kind: 'select', filters: [], orderBy: [], offset: null, limit: null, single: false, maybeSingle: false, columns: '*' };
 }
 function cloneSelect(op) {
     return op ? { ...op, filters: [...op.filters] } : null;
@@ -127,6 +159,13 @@ class DevQueryBuilder {
     in(field, values) {
         return this.addFilter(field, (v) => values.includes(v));
     }
+    /** PostgREST .is(col, value) — NULL/동등 매칭 (t_401c5bd1 첨부 링크 조건부 UPDATE).
+     *  컬럼 미설정(undefined)도 SQL NULL로 취급 — insert에서 생략된 컬럼의 실DB 기본값(NULL)과 동일. */
+    is(field, value) {
+        if (value === null)
+            return this.addFilter(field, (v) => v === null || v === undefined);
+        return this.addFilter(field, (v) => v === value);
+    }
     addFilter(field, predicate) {
         const op = this.op;
         if (op.kind === 'select') {
@@ -143,10 +182,10 @@ class DevQueryBuilder {
         const op = this.op;
         const orderBy = { field, ascending: opts?.ascending ?? true };
         if (op.kind === 'select') {
-            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', orderBy });
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', orderBy: [...op.orderBy, orderBy] });
         }
         const then = cloneSelect(op.then) ?? freshSelect();
-        then.orderBy = orderBy;
+        then.orderBy = [...then.orderBy, orderBy];
         return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     limit(n) {
@@ -156,6 +195,19 @@ class DevQueryBuilder {
         }
         const then = cloneSelect(op.then) ?? freshSelect();
         then.limit = n;
+        return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
+    }
+    /** PostgREST range(from, to) — 양끝 포함 오프셋 페이지네이션 (limit/offset parity). */
+    range(from, to) {
+        const offset = Math.max(from, 0);
+        const count = Math.max(to - offset + 1, 0);
+        const op = this.op;
+        if (op.kind === 'select') {
+            return new DevQueryBuilder(this.store, this.table, { ...op, kind: 'select', offset, limit: count });
+        }
+        const then = cloneSelect(op.then) ?? freshSelect();
+        then.offset = offset;
+        then.limit = count;
         return new DevQueryBuilder(this.store, this.table, mutationWith(op, { then }));
     }
     single() {
@@ -181,13 +233,16 @@ class DevQueryBuilder {
     insert(values) {
         const rows = Array.isArray(values) ? values : [values];
         const now = new Date().toISOString();
-        const normalized = rows.map((r) => ({ ...r, id: r.id ?? randomUUID(), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+        // reply_to_id 기본 null = 실DB 012 ADD COLUMN DEFAULT NULL (t_02f58030) — insert 생략 행도
+        // 컬럼을 가져 serializeMessage의 ?? null 정규화와 일치한다 (awaiting_reply 동일 관례).
+        // client_req_id 기본 null = 실DB 013 ADD COLUMN (t_3486b1d7 ①②) — 같은 관례.
+        const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, reply_to_id: null, client_req_id: null, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
         return new DevQueryBuilder(this.store, this.table, { kind: 'insert', rows: normalized, conflictKey: null, filters: [], then: null });
     }
     upsert(values, opts) {
         const rows = Array.isArray(values) ? values : [values];
         const now = new Date().toISOString();
-        const normalized = rows.map((r) => ({ ...r, id: r.id ?? randomUUID(), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
+        const normalized = rows.map((r) => ({ ...(this.table === 'messages' ? { awaiting_reply: false, reply_to_id: null, client_req_id: null, locale: 'ko', favorite: false, ai_generated: r.source_neuron != null || r.role === 'agent' || r.role === 'assistant' } : {}), ...r, id: r.id ?? (this.table === 'context_patches' ? (this.store.sequences[this.table] = (this.store.sequences[this.table] || 0) + 1) : randomUUID()), created_at: r.created_at ?? now, updated_at: r.updated_at ?? now }));
         return new DevQueryBuilder(this.store, this.table, { kind: 'upsert', rows: normalized, conflictKey: opts?.onConflict || 'id', filters: [], then: null });
     }
     update(values) {
@@ -218,10 +273,11 @@ class DevQueryBuilder {
         }
         if (this.op.kind === 'upsert') {
             const table = this.store.tables[this.table] || (this.store.tables[this.table] = []);
-            const conflictKey = this.op.conflictKey || 'id';
+            // onConflict는 PostgREST 규약대로 쉼표 복합키 허용 (t_401c5bd1 upload_quota_daily 'user_id,day').
+            const conflictKeys = (this.op.conflictKey || 'id').split(',').map(k => k.trim());
             const result = [];
             for (const row of this.op.rows) {
-                const existing = table.find((r) => r[conflictKey] === row[conflictKey]);
+                const existing = table.find((r) => conflictKeys.every(k => String(r[k]) === String(row[k])));
                 if (existing) {
                     Object.assign(existing, row);
                     result.push(existing);
@@ -297,20 +353,26 @@ class DevQueryBuilder {
         let rows = [...table];
         for (const f of op.filters)
             rows = rows.filter((r) => f.predicate(r[f.field]));
-        if (op.orderBy) {
-            const { field, ascending } = op.orderBy;
+        if (op.orderBy.length) {
             rows.sort((a, b) => {
-                const va = a[field];
-                const vb = b[field];
-                if (va == null && vb == null)
-                    return 0;
-                if (va == null)
-                    return 1;
-                if (vb == null)
-                    return -1;
-                return ascending ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+                for (const { field, ascending } of op.orderBy) {
+                    const va = a[field];
+                    const vb = b[field];
+                    if (va == null && vb == null)
+                        continue;
+                    if (va == null)
+                        return 1;
+                    if (vb == null)
+                        return -1;
+                    const compared = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+                    if (compared)
+                        return ascending ? compared : -compared;
+                }
+                return 0;
             });
         }
+        if (op.offset != null)
+            rows = rows.slice(op.offset);
         if (op.limit != null)
             rows = rows.slice(0, op.limit);
         return rows;
@@ -346,10 +408,42 @@ function createDevClient(store) {
                 }
                 return { data: null, error: null };
             }
+            // install_count 원자 증감 (t_e1334cee P1-3, 마이그레이션 017) — 실DB semantics:
+            // DB 저장값 기준 + delta, GREATEST 하한 0. Number() 가드로 문자열/NaN 주입도 봉인.
+            if (fn === 'bump_skill_install_count') {
+                const skill = store.tables.skills.find((s) => s.id === args.p_skill_id);
+                if (!skill)
+                    return { data: null, error: { message: 'skill not found' } };
+                const cur = Number(skill.install_count);
+                const delta = Number(args.p_delta);
+                skill.install_count = Math.max(0, (Number.isFinite(cur) ? cur : 0) + (Number.isFinite(delta) ? delta : 0));
+                return { data: skill.install_count, error: null };
+            }
+            // 첨부 쿼터 (t_401c5bd1) — 실DB bump_upload_quota(007)의 원자적 증가/-1 센티넬 시맨틱 재현.
+            if (fn === 'bump_upload_quota') {
+                const userId = args.p_user;
+                const day = args.p_day;
+                const limit = Number(args.p_limit ?? 0);
+                const table = store.tables.upload_quota_daily;
+                const row = table.find(r => r.user_id === userId && r.day === day);
+                if (!row) {
+                    table.push({ user_id: userId, day, used: 1, updated_at: new Date().toISOString() });
+                    return { data: 1, error: null };
+                }
+                if (row.used >= limit)
+                    return { data: -1, error: null };
+                row.used += 1;
+                row.updated_at = new Date().toISOString();
+                return { data: row.used, error: null };
+            }
             return { data: null, error: { message: `Unknown RPC: ${fn}` } };
         },
         auth: {
             admin: {
+                deleteUser: async (id) => {
+                    deleteDevUser(store, id);
+                    return { data: null, error: null };
+                },
                 createUser: async ({ email, password, user_metadata, email_confirm: _email_confirm }) => {
                     if (store.usersByEmail.has(email)) {
                         return { data: null, error: { message: 'User already registered' } };
@@ -394,5 +488,30 @@ function createDevClient(store) {
         },
     };
     return client;
+}
+/** auth.users 삭제의 FK cascade를 재현한다. 공유 뉴런과 다른 사용자 데이터는 보존한다. */
+function deleteDevUser(store, userId) {
+    const ids = (table, predicate) => new Set(store.tables[table].filter(predicate).map(r => r.id));
+    const agents = ids('agents', r => r.owner_id === userId);
+    const sessions = ids('sessions', r => r.user_id === userId || agents.has(r.agent_id));
+    const tasks = ids('tasks', r => sessions.has(r.session_id));
+    const skills = ids('skills', r => r.author_id === userId);
+    // board_cards는 user_id가 없고 boards.id 경유 cascade다 (마이그레이션 004).
+    const boards = ids('boards', r => r.user_id === userId);
+    // 첨부(t_401c5bd1): 실DB와 동일 계약 — uploader_id FK CASCADE로 즉시 파기(dev는 바이트까지 동시).
+    // 실DB Storage 바이트는 /api/me가 deleteUser 전에 select해 deleteFromAttachmentsBucket으로 찍는다.
+    const mineAttachments = store.tables.messages_attachments.filter(r => r.uploader_id === userId);
+    for (const a of mineAttachments)
+        store.blobs.delete(String(a.object_path));
+    for (const [table, rows] of Object.entries(store.tables)) {
+        store.tables[table] = rows.filter(r => !((table === 'users' && r.id === userId) || r.user_id === userId || r.owner_id === userId
+            || agents.has(r.agent_id) || sessions.has(r.session_id) || tasks.has(r.task_id)
+            || (table === 'skills' && skills.has(r.id)) || (table === 'skill_installations' && skills.has(r.skill_id))
+            || (table === 'board_cards' && boards.has(r.board_id))
+            || (table === 'messages_attachments' && r.uploader_id === userId)));
+    }
+    for (const [email, entry] of store.usersByEmail)
+        if (entry.user.id === userId)
+            store.usersByEmail.delete(email);
 }
 //# sourceMappingURL=devstore.js.map

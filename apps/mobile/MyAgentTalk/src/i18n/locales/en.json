@@ -18,7 +18,8 @@
     "close": "Close",
     "settingsIcon": "⚙",
     "backIcon": "←",
-    "forwardIcon": "→"
+    "forwardIcon": "→",
+    "submitting": "Sending…"
   },
   "chat": {
     "me": "You",
@@ -408,7 +409,12 @@
     "create": "Create",
     "empty": "No boards yet",
     "emptyHint": "Create your first board with 'New board' (top right).",
-    "col": { "todo": "To do", "doing": "In progress", "review": "Review", "done": "Done" },
+    "col": {
+      "todo": "To do",
+      "doing": "In progress",
+      "review": "Review",
+      "done": "Done"
+    },
     "addCard": "+ Card",
     "newCardTitle": "New card",
     "cardTitle": "Card title",
@@ -624,8 +630,16 @@
   },
   "photoEditor": {
     "title": "Edit photo",
-    "tools": { "crop": "Crop", "arrow": "Arrow", "pin": "Pin", "text": "Text" },
-    "note": { "placeholder": "Note (optional)", "add": "Add note" },
+    "tools": {
+      "crop": "Crop",
+      "arrow": "Arrow",
+      "pin": "Pin",
+      "text": "Text"
+    },
+    "note": {
+      "placeholder": "Note (optional)",
+      "add": "Add note"
+    },
     "presets": "Ratio",
     "freeRatio": "Free",
     "reset": "Reset",
@@ -650,7 +664,11 @@
   },
   "feed": {
     "title": "Feed",
-    "segments": { "all": "All", "photo": "Photos", "media": "Media" },
+    "segments": {
+      "all": "All",
+      "photo": "Photos",
+      "media": "Media"
+    },
     "empty": "Favorited photos and cards show up here.",
     "editBadge": "Edited",
     "save": "Save image",
@@ -681,5 +699,12 @@
     "pdfMissing": "The server has no PDF engine. Export HTML and print/save it from your browser.",
     "offline": "Not connected. Check your network and try again.",
     "failed": "Export failed. Please try again shortly."
+  },
+  "decisions": {
+    "empty": "No pending decisions",
+    "title": "Pending decisions",
+    "jumpToOriginal": "Jump to original",
+    "answerPlaceholder": "Type your answer",
+    "submit": "Send answer"
   }
 }

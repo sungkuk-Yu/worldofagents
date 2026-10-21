@@ -194,6 +194,21 @@ export interface EventSyncBody {
   truncated?: boolean;
 }
 
+/** 결정 대기 항목 (t_2de069f3) — 백엔드가 에이전트 판단 중 사용자 의사결정이 필요할 때 발행 */
+export interface DecisionItem {
+  id: string;
+  session_id: string;
+  question: string;
+  /** 원본 발화 메시지 ID — 점프 대상 */
+  source_message_id?: string;
+  /** 원본 발화 턴 인덱스 — 점프 대상 */
+  source_turn_index?: number;
+  status: 'pending' | 'answered' | 'expired';
+  created_at: string;
+  answered_at?: string;
+  answer?: string;
+}
+
 /** POST /api/sessions/:id/messages 동기 응답 (api-design.md §3.4) */
 export interface SendMessageResult {
   /** 백엔드 ingress 드롭 (t_c31e3f45 요구①): 3초 창 동일 content 재접수 시 { deduped:true, message } 만 내려온다. */
@@ -330,6 +345,20 @@ export const api = {
    *  계약: {count, items:[{message_id,turn_index,excerpt,reply_kind}]} (normalizeReplyPending). 011 미적용 강등은 빈 스냅샷. */
   getPendingReplies: (sessionId: string) =>
     request<ApiEnvelope<unknown>>(`/api/sessions/${encodeURIComponent(sessionId)}/pending`),
+
+  /** 결정 대기 목록 — GET /api/sessions/:id/decisions (t_2de069f3)
+   *  WS decision.updated 미수신/재접속 구간의 부트스트랩 폴백.
+   *  계약: {count, items: DecisionItem[]} */
+  getDecisions: (sessionId: string) =>
+    request<ApiEnvelope<{ count: number; items: DecisionItem[] }>>(`/api/sessions/${encodeURIComponent(sessionId)}/decisions`),
+
+  /** 결정 답변 제출 — POST /api/decisions/:id/answer (t_2de069f3)
+   *  답변 제출 후 백엔드가 decision.updated WS 이벤트 발행 + 턴 재개 */
+  answerDecision: (decisionId: string, answer: string) =>
+    request<ApiEnvelope<DecisionItem>>(`/api/decisions/${encodeURIComponent(decisionId)}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    }),
 
   /** seq diff sync catch-up — GET /api/sessions/:id/events?after_seq (t_17edbc88 ③ / 백엔드 t_3486b1d7 ③)
    *  텔레그램 getDifferences 상당: WS 재연결 후 서버 이벤트 버퍼(500-캡)의 갭을 원래 seq 순서로.

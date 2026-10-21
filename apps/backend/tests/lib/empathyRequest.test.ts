@@ -1,106 +1,113 @@
 /**
  * empathyRequest 로컬 ollama + cloud 폴백 테스트 (t_82cc0d99)
+ * 모킹은 vi.mock 모듈 패턴 사용 — ESM namespace spy는 인터셉트가 불안정 (10/19 실측)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateEmpathyRequest, parseEmpathyRequest } from './empathyRequest';
-import * as ollama from './ollama';
-import * as llm from './llm';
-import { config } from '../config';
 
-describe('empathyRequest - local ollama + cloud fallback', () => {
-  const originalLocalFrontDesk = { ...config.localFrontDesk };
-  const originalIsLlmConfigured = llm.isLlmConfigured;
+vi.mock('../../src/lib/ollama', () => ({
+  ollamaChat: vi.fn(),
+  OllamaError: class OllamaError extends Error {
+    code: string;
+    constructor(message: string, code: string) {
+      super(message);
+      this.code = code;
+    }
+  },
+}));
+
+vi.mock('../../src/lib/llm', () => ({
+  chatCompletion: vi.fn(),
+  isLlmConfigured: vi.fn(),
+  LlmError: class LlmError extends Error {
+    code?: string;
+  },
+}));
+
+import { generateEmpathyRequest, parseEmpathyRequest } from '../../src/lib/empathyRequest';
+import { ollamaChat } from '../../src/lib/ollama';
+import { chatCompletion, isLlmConfigured } from '../../src/lib/llm';
+import { config } from '../../src/config';
+
+const mockOllamaChat = vi.mocked(ollamaChat);
+const mockChatCompletion = vi.mocked(chatCompletion);
+const mockIsLlmConfigured = vi.mocked(isLlmConfigured);
+
+const CLOUD_RESULT = {
+  text: '제가 지금 누구랑 연결되어 있는지 궁금하신거죠?',
+  model: 'qwen-flash',
+  usage: { total_tokens: 20 },
+  streamed: false,
+  durationMs: 100,
+  provider: 'primary',
+  fallback: false,
+};
+
+describe('generateEmpathyRequest - 로컬 우선 + cloud 폴백', () => {
+  const origEmpathyLlm = { ...config.empathyRequestLlm };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    config.empathyRequestLlm.enabled = true; // 상단 게이트 통과 필수
+    config.empathyRequestLlm.timeoutMs = 4000;
   });
 
   afterEach(() => {
-    Object.assign(config.localFrontDesk, originalLocalFrontDesk);
-    (llm as any).isLlmConfigured = originalIsLlmConfigured;
+    config.localFrontDesk.enabled = false;
+    Object.assign(config.empathyRequestLlm, origEmpathyLlm);
   });
 
   it('로컬 ollama 성공 시 cloud 호출 안함', async () => {
     config.localFrontDesk.enabled = true;
-    const ollamaChatSpy = vi.spyOn(ollama, 'ollamaChat').mockResolvedValue({
+    mockOllamaChat.mockResolvedValue({
       text: '제가 지금 누구랑 연결되어 있는지 궁금하신거죠?',
       durationMs: 150,
     });
-    const chatCompletionSpy = vi.spyOn(llm, 'chatCompletion');
 
     const result = await generateEmpathyRequest('내가 너 지금 누구랑 연결되어 있어?', 'eq_confirm', 'ko');
 
-    expect(ollamaChatSpy).toHaveBeenCalledOnce();
-    expect(chatCompletionSpy).not.toHaveBeenCalled();
+    expect(mockOllamaChat).toHaveBeenCalledOnce();
+    expect(mockChatCompletion).not.toHaveBeenCalled();
     expect(result).toBe('제가 지금 누구랑 연결되어 있는지 궁금하신거죠?');
   });
 
   it('로컬 ollama 실패 시 cloud 폴백', async () => {
     config.localFrontDesk.enabled = true;
-    vi.spyOn(llm, 'isLlmConfigured').mockReturnValue(true);
-    const ollamaChatSpy = vi.spyOn(ollama, 'ollamaChat').mockRejectedValue({
-      code: 'TIMEOUT',
-      message: 'ollama timeout',
-    } as ollama.OllamaError);
-    const chatCompletionSpy = vi.spyOn(llm, 'chatCompletion').mockResolvedValue({
-      text: '제가 지금 누구랑 연결되어 있는지 궁금하신거죠?',
-      model: 'qwen-flash',
-      usage: { total_tokens: 20 },
-      streamed: false,
-      durationMs: 100,
-      provider: 'primary',
-      fallback: false,
-    });
+    mockIsLlmConfigured.mockReturnValue(true);
+    mockOllamaChat.mockRejectedValue(Object.assign(new Error('ollama timeout'), { code: 'TIMEOUT' }));
+    mockChatCompletion.mockResolvedValue(CLOUD_RESULT);
 
     const result = await generateEmpathyRequest('내가 너 지금 누구랑 연결되어 있어?', 'eq_confirm', 'ko');
 
-    expect(ollamaChatSpy).toHaveBeenCalledOnce();
-    expect(chatCompletionSpy).toHaveBeenCalledOnce();
+    expect(mockOllamaChat).toHaveBeenCalledOnce();
+    expect(mockChatCompletion).toHaveBeenCalledOnce();
     expect(result).toBe('제가 지금 누구랑 연결되어 있는지 궁금하신거죠?');
   });
 
   it('로컬 ollama 형식 실패 시 cloud 폴백', async () => {
     config.localFrontDesk.enabled = true;
-    vi.spyOn(llm, 'isLlmConfigured').mockReturnValue(true);
-    const ollamaChatSpy = vi.spyOn(ollama, 'ollamaChat').mockResolvedValue({
+    mockIsLlmConfigured.mockReturnValue(true);
+    mockOllamaChat.mockResolvedValue({
       text: '이거 맞죠?', // 금지된 복창형
       durationMs: 100,
     });
-    const chatCompletionSpy = vi.spyOn(llm, 'chatCompletion').mockResolvedValue({
-      text: '제가 지금 누구랑 연결되어 있는지 궁금하신거죠?',
-      model: 'qwen-flash',
-      usage: { total_tokens: 20 },
-      streamed: false,
-      durationMs: 100,
-      provider: 'primary',
-      fallback: false,
-    });
+    mockChatCompletion.mockResolvedValue(CLOUD_RESULT);
 
     const result = await generateEmpathyRequest('내가 너 지금 누구랑 연결되어 있어?', 'eq_confirm', 'ko');
 
-    expect(ollamaChatSpy).toHaveBeenCalledOnce();
-    expect(chatCompletionSpy).toHaveBeenCalledOnce();
+    expect(mockOllamaChat).toHaveBeenCalledOnce();
+    expect(mockChatCompletion).toHaveBeenCalledOnce();
     expect(result).toBe('제가 지금 누구랑 연결되어 있는지 궁금하신거죠?');
   });
 
   it('로컬 비활성화 시 cloud만 호출', async () => {
     config.localFrontDesk.enabled = false;
-    vi.spyOn(llm, 'isLlmConfigured').mockReturnValue(true);
-    const ollamaChatSpy = vi.spyOn(ollama, 'ollamaChat');
-    const chatCompletionSpy = vi.spyOn(llm, 'chatCompletion').mockResolvedValue({
-      text: '제가 지금 누구랑 연결되어 있는지 궁금하신거죠?',
-      model: 'qwen-flash',
-      usage: { total_tokens: 20 },
-      streamed: false,
-      durationMs: 100,
-      provider: 'primary',
-      fallback: false,
-    });
+    mockIsLlmConfigured.mockReturnValue(true);
+    mockChatCompletion.mockResolvedValue(CLOUD_RESULT);
 
     const result = await generateEmpathyRequest('내가 너 지금 누구랑 연결되어 있어?', 'eq_confirm', 'ko');
 
-    expect(ollamaChatSpy).not.toHaveBeenCalled();
-    expect(chatCompletionSpy).toHaveBeenCalledOnce();
+    expect(mockOllamaChat).not.toHaveBeenCalled();
+    expect(mockChatCompletion).toHaveBeenCalledOnce();
     expect(result).toBe('제가 지금 누구랑 연결되어 있는지 궁금하신거죠?');
   });
 });

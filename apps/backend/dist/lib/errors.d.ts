@@ -1,12 +1,17 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ApiResponse } from '../types/db';
 /**
- * API 에러 코드 — api-design.md §6 매핑.
+ * API/WS 에러 코드 — 프론트는 code로 i18n 번역하고 message는 폴백으로만 사용한다.
+ * 신규 코드는 대문자 스네이크로 아래 목록과 HTTP 매핑에 등록한다.
  */
 export declare const ERROR_CODES: {
+    readonly CONSENT_REQUIRED: "CONSENT_REQUIRED";
+    readonly AGE_CONFIRM_REQUIRED: "AGE_CONFIRM_REQUIRED";
+    readonly RUN_CANCELLED: "RUN_CANCELLED";
     readonly AUTH_REQUIRED: "AUTH_REQUIRED";
     readonly AUTH_EXPIRED: "AUTH_EXPIRED";
     readonly AUTH_INVALID: "AUTH_INVALID";
+    readonly AUTH_SERVICE_UNAVAILABLE: "AUTH_SERVICE_UNAVAILABLE";
     readonly FORBIDDEN: "FORBIDDEN";
     readonly VALIDATION_ERROR: "VALIDATION_ERROR";
     readonly AGENT_NOT_FOUND: "AGENT_NOT_FOUND";
@@ -26,6 +31,13 @@ export declare const ERROR_CODES: {
     readonly STT_SERVICE_UNAVAILABLE: "STT_SERVICE_UNAVAILABLE";
     readonly TEMPORAL_UNAVAILABLE: "TEMPORAL_UNAVAILABLE";
     readonly RATE_LIMIT_EXCEEDED: "RATE_LIMIT_EXCEEDED";
+    readonly EXPORT_FORMAT_UNSUPPORTED: "EXPORT_FORMAT_UNSUPPORTED";
+    readonly EXPORT_PDF_ENGINE_MISSING: "EXPORT_PDF_ENGINE_MISSING";
+    readonly EXPORT_CONTENT_TOO_LARGE: "EXPORT_CONTENT_TOO_LARGE";
+    readonly FILE_TOO_LARGE: "FILE_TOO_LARGE";
+    readonly UNSUPPORTED_MEDIA_TYPE: "UNSUPPORTED_MEDIA_TYPE";
+    readonly UPLOAD_QUOTA_EXCEEDED: "UPLOAD_QUOTA_EXCEEDED";
+    readonly VAULT_LIBRARY_UNAVAILABLE: "VAULT_LIBRARY_UNAVAILABLE";
     readonly NOT_FOUND: "NOT_FOUND";
     readonly CONFLICT: "CONFLICT";
     readonly INTERNAL_ERROR: "INTERNAL_ERROR";

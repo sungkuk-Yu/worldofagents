@@ -1,18 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authRoutes = authRoutes;
+const consents_1 = require("../lib/consents");
 const config_1 = require("../config");
 const supabase_1 = require("../lib/supabase");
 const auth_1 = require("../lib/auth");
+const prefs_1 = require("../lib/prefs");
 const errors_1 = require("../lib/errors");
 /** 프로필 행을 users 테이블에 upsert */
 async function upsertUserProfile(db, user, body) {
-    await db.from('users').upsert({
+    const { error } = await db.from('users').upsert({
         id: user.id,
         display_name: body?.display_name || user.email?.split('@')[0] || '사용자',
         timezone: body?.timezone || 'Asia/Seoul',
         language: body?.language || 'ko',
     });
+    if (error)
+        throw new errors_1.ApiError('INTERNAL_ERROR', '프로필 저장에 실패했습니다.');
 }
 async function authRoutes(app) {
     // POST /api/auth/signup — 회원가입 (api-design.md §3.1)
@@ -24,16 +28,30 @@ async function authRoutes(app) {
         if (body.password.length < 6) {
             throw (0, errors_1.badRequest)('비밀번호는 6자 이상이어야 합니다.');
         }
+        const consents = (0, consents_1.validateSignupConsents)(body, config_1.config.devMode);
         const { data, error } = await supabase_1.supabaseAdmin.auth.admin.createUser({
             email: body.email,
             password: body.password,
             user_metadata: { name: body.display_name },
             email_confirm: true,
         });
-        if (error || !data.user) {
+        if (error || !data?.user) {
             throw new errors_1.ApiError(errors_1.ERROR_CODES.VALIDATION_ERROR, error?.message || '회원가입에 실패했습니다.');
         }
-        await upsertUserProfile(request.db || supabase_1.supabaseAdmin, data.user, body);
+        try {
+            await upsertUserProfile(supabase_1.supabaseAdmin, data.user, body);
+            const { error: consentError } = await supabase_1.supabaseAdmin.from('consents').insert(consents.map(c => ({
+                user_id: data.user.id, consent_type: c.type, version: c.version,
+                consented: c.consented, ip_or_device: request.ip,
+            })));
+            if (consentError)
+                throw new errors_1.ApiError('INTERNAL_ERROR', '동의 기록 저장에 실패했습니다.');
+        }
+        catch (err) {
+            // 동의 기록 없는 계정을 발급하지 않도록 실패한 가입을 정리한다.
+            await supabase_1.supabaseAdmin.auth.admin.deleteUser?.(data.user.id);
+            throw err;
+        }
         // 자체 JWT 발급 (빠른 인증 + 차후 OAuth 계정과 호환)
         const token = app.jwt.sign({ sub: data.user.id, email: body.email }, { expiresIn: config_1.config.jwt.expiresIn });
         return reply.status(201).send((0, errors_1.ok)({
@@ -46,7 +64,12 @@ async function authRoutes(app) {
         const body = _request.body;
         if (!body?.email || !body?.password)
             throw (0, errors_1.badRequest)('email과 password는 필수입니다.');
-        const { data, error } = await supabase_1.supabaseAdmin.auth.signInWithPassword({ email: body.email, password: body.password });
+        // P0(t_486cf23b): 사용자 세션이 생기는 signInWithPassword는 절대 공유 supabaseAdmin에서
+        // 호출하지 않는다. 공유 클라이언트에 세션이 남으면 이후 서버 전체의 DB 요청이
+        // service_role 대신 마지막 로그인 사용자의 JWT로 나가 RLS 쓰기 거부가 발생한다.
+        // 요청마다 일회용 클라이언트를 생성해 사용하고 폐기한다.
+        const ephemeralAuth = (0, supabase_1.createEphemeralAuthClient)();
+        const { data, error } = await ephemeralAuth.signInWithPassword({ email: body.email, password: body.password });
         if (error || !data.session || !data.user) {
             throw new errors_1.ApiError(errors_1.ERROR_CODES.AUTH_INVALID, '이메일 또는 비밀번호가 올바르지 않습니다.');
         }
@@ -62,6 +85,9 @@ async function authRoutes(app) {
         const { refresh_token } = _request.body;
         if (!refresh_token)
             throw (0, errors_1.badRequest)('refresh_token은 필수입니다.');
+        if (!config_1.config.devMode && refresh_token.startsWith('dev-refresh-')) {
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.AUTH_INVALID, '개발용 refresh 토큰은 운영 모드에서 사용할 수 없습니다.');
+        }
         // DEV_MODE: dev-refresh-<userId> 형식에서 사용자 복원
         if (config_1.config.devMode) {
             const userId = refresh_token.startsWith('dev-refresh-') ? refresh_token.replace('dev-refresh-', '') : null;
@@ -77,13 +103,63 @@ async function authRoutes(app) {
     });
     // POST /api/auth/logout — 로그아웃
     app.post('/logout', async (_request, reply) => {
-        try {
-            await supabase_1.supabaseAdmin.auth.signOut?.();
-        }
-        catch {
-            // 무시 — 토큰 폐기 정책은 클라이언트에서
-        }
+        // 자체 JWT는 stateless라 서버 측 세션 저장소가 없다 — 클라이언트가 토큰을 폐기한다.
+        // 공유 admin 클라이언트의 auth 상태를 건드리지 않는다 (P0 t_486cf23b 오염 방지).
         return reply.send((0, errors_1.ok)({ success: true }));
+    });
+    // POST /api/auth/session/exchange — Supabase 세션 → 자체 JWT 전환 (t_7e25c65b)
+    // 프론트가 signInWithOAuth로 얻은 access token을 Bearer로 보내면 requireAuth의 폴백
+    // 경로(GoTrue getUser 검증)가 신원을 확정하고 이 라우트가 자체 JWT를 발급한다. 이후
+    // 요청은 1단계(자체 JWT) 경로를 탄다 — 인증 소스 장애와 무관한 내성 확보.
+    // OAuth 첫 로그인 지원: users 프로필 행이 없으면 생성하고(실DB 001~017에 auth.users
+    // → users 트리거가 없음 — signup 라우트가 수동 upsert하던 것과 동일 방식),
+    // provider가 확인되면 oauth_identities(018 초안)에 (provider, provider_user_id)
+    // → user_id 매핑을 upsert한다. 매핑 실패(018 미적용 환경 PGRST42P01 등)는 치명 아니다
+    // — 세션 발급은 속행하고 경고만 남긴다(중복가입 방지는 018 적용 후부터 완전).
+    app.post('/session/exchange', { preHandler: auth_1.requireAuth }, async (request, reply) => {
+        const userId = request.userId;
+        const sb = request.supabaseAuth;
+        // 자체 JWT로 온 요청은 기존 email 클레임을 보존하고, Supabase 폴백으로 온 요청은
+        // getUser의 email을 클레임에 태운다(프론트가 이후 JWT만 쓰기 때문에 무손상이면 된다).
+        const ownEmail = typeof request.user?.email === 'string'
+            ? (request.user.email)
+            : '';
+        const { data: profile, error: profileError } = await supabase_1.supabaseAdmin
+            .from('users')
+            .select('id,display_name')
+            .eq('id', userId)
+            .maybeSingle();
+        if (profileError)
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, '프로필 조회에 실패했습니다.');
+        if (!profile) {
+            const { error: insertError } = await supabase_1.supabaseAdmin.from('users').insert({
+                id: userId,
+                display_name: (sb?.email || userId).split('@')[0],
+                timezone: 'Asia/Seoul',
+                language: 'ko',
+            });
+            // 동시 첫 exchange 레이스에서 2번째 insert는 PK 충돌(409/23505) — 이미 생성된 행을 쓴다.
+            if (insertError && !/duplicate|already exists|23505/i.test(insertError.message)) {
+                throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, '프로필 저장에 실패했습니다.');
+            }
+        }
+        if (sb?.provider) {
+            try {
+                const { error: mapError } = await supabase_1.supabaseAdmin.from('oauth_identities').upsert({
+                    provider: sb.provider,
+                    provider_user_id: sb.provider_user_id,
+                    user_id: userId,
+                    email: sb.email,
+                }, { onConflict: 'provider,provider_user_id' });
+                if (mapError)
+                    request.log.warn(`oauth_identities 매핑 실패(018 미적용 환경?): ${mapError.message}`);
+            }
+            catch (err) {
+                request.log.warn(`oauth_identities 매핑 예외: ${err.message}`);
+            }
+        }
+        const token = app.jwt.sign({ sub: userId, email: sb?.email || ownEmail }, { expiresIn: config_1.config.jwt.expiresIn });
+        return reply.send((0, errors_1.ok)({ token, user: { id: userId } }));
     });
     // GET /api/auth/me — 내 프로필
     app.get('/me', { preHandler: auth_1.requireAuth }, async (request) => {
@@ -96,9 +172,15 @@ async function authRoutes(app) {
     app.patch('/me', { preHandler: auth_1.requireAuth }, async (request) => {
         const body = request.body;
         const patch = {};
-        for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'preferences', 'profile']) {
+        for (const key of ['display_name', 'avatar_url', 'phone', 'timezone', 'language', 'profile']) {
             if (body[key] !== undefined)
                 patch[key] = body[key];
+        }
+        // preferences는 키 단위 딥 머지 (t_d75ca81c) — 기기별 입력 설정(조이스틱 맵 ↔ PTT 키맵)이
+        // 서로의 통째 replace로 유실되는 것을 서버에서 차단한다.
+        if (body.preferences !== undefined) {
+            const { data: current } = await request.db.from('users').select('preferences').eq('id', request.userId).maybeSingle();
+            patch.preferences = (0, prefs_1.deepMergePreferences)(current?.preferences, body.preferences);
         }
         if (!Object.keys(patch).length)
             return (0, errors_1.ok)((await request.db.from('users').select('*').eq('id', request.userId).maybeSingle()).data);
@@ -143,9 +225,20 @@ async function authRoutes(app) {
                 setup: `OAUTH_${provider.toUpperCase()}_CLIENT_ID / OAUTH_${provider.toUpperCase()}_CLIENT_SECRET 환경변수를 설정하세요.`,
             });
         }
-        // DEV_MODE: 외부 OAuth 흐름 대신 email을 받아 세션 발급
+        // DEV_MODE: 외부 OAuth 흐름 대신 email을 받아 세션 발급 (t_7e25c65b: provider_user_id를
+        // user_metadata에 보존 — 이 계정으로 로그인해 session/exchange 폴백을 타면 018 매핑까지
+        // 검증된다. 실프로바이더 미설정 환경의 통합 테스트용 스텁.)
         if (config_1.config.devMode && email) {
-            const { data, error } = await supabase_1.supabaseAdmin.auth.admin.createUser({ email, password: 'oauth-dev-password', user_metadata: { oauth_provider: provider }, email_confirm: true });
+            const providerUserId = request.body && typeof request.body === 'object'
+                ? request.body.provider_user_id
+                : undefined;
+            const pud = typeof providerUserId === 'string' && providerUserId ? providerUserId : `dev-${provider}-${email}`;
+            const { data, error } = await supabase_1.supabaseAdmin.auth.admin.createUser({
+                email,
+                password: 'oauth-dev-password',
+                user_metadata: { oauth_provider: provider, provider_user_id: pud },
+                email_confirm: true,
+            });
             if (error && !data?.user)
                 throw new errors_1.ApiError(errors_1.ERROR_CODES.AUTH_INVALID, error.message);
             await upsertUserProfile(supabase_1.supabaseAdmin, data.user, { display_name: email.split('@')[0] });

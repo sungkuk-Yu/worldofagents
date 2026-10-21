@@ -5,6 +5,7 @@
  * - Persona Guard: 응답 검증 (금지 표현, 잘못된 자기 참조, 톤 일관성)
  */
 import { PersonasRow, PersonaConfig } from '../types/db';
+import type { Locale } from './locale';
 import { DbClient } from './supabase';
 export declare function rowToPersonaConfig(row: PersonasRow, overrides?: Partial<PersonaConfig>): PersonaConfig;
 /** 에이전트의 현재 활성 페르소나 로드 */
@@ -42,4 +43,7 @@ export declare function buildConversationHistory(history: {
     role: string;
     content: string;
 }[];
+export declare const DISCLAIMERS: Record<'legal' | 'accounting' | 'medical' | 'current' | 'general', Record<Locale, string>>;
+/** 스키마에 category가 없으면 config.category 및 페르소나 이름/프롬프트/태그로 판정한다. */
+export declare function classifyExpertise(...values: unknown[]): keyof typeof DISCLAIMERS;
 //# sourceMappingURL=persona.d.ts.map

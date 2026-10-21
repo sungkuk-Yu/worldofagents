@@ -1,13 +1,38 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseRangeUpper = parseRangeUpper;
 exports.sessionRoutes = sessionRoutes;
+const helpers_1 = require("../lib/helpers");
+const locale_1 = require("../lib/locale");
+const node_crypto_1 = require("node:crypto");
+const turnLock_1 = require("../lib/turnLock");
 const auth_1 = require("../lib/auth");
 const errors_1 = require("../lib/errors");
-const helpers_1 = require("../lib/helpers");
-const graph_1 = require("../neurons/graph");
+const helpers_2 = require("../lib/helpers");
+const chatTurn_1 = require("../lib/chatTurn");
+const attachments_1 = require("../lib/attachments");
+const handler_1 = require("../websocket/handler");
+const eventlog_1 = require("../websocket/eventlog");
+const config_1 = require("../config");
+const questionQueue_1 = require("../lib/questionQueue");
+const personaVoice_1 = require("../lib/personaVoice");
+const awaitingReply_1 = require("../lib/awaitingReply");
+const router_1 = require("../neurons/router");
 const registry_1 = require("../neurons/registry");
 const contextSync_1 = require("../lib/contextSync");
+const contextArchive_1 = require("../lib/contextArchive");
 const tasks_1 = require("./tasks");
+const sessionTitle_1 = require("../lib/sessionTitle");
+/** INT4RANGE 문자열과 기존 개발 저장소 객체를 함께 읽는다. */
+function parseRangeUpper(v) {
+    const raw = typeof v === 'string' ? /^\[\s*-?\d+\s*,\s*(-?\d+)\s*\)$/.exec(v)?.[1]
+        : v && typeof v === 'object' && 'upper' in v ? v.upper : undefined;
+    if (typeof raw !== 'number' && typeof raw !== 'string')
+        return null;
+    const upper = Number(raw);
+    return Number.isFinite(upper) ? upper : null;
+}
+// 세션 제목 캐논 규칙(006: title 컬럼 우선 → metadata.title 폴백)은 lib/sessionTitle.ts 단일 소스 (t_cc52fd4f).
 const SESSION_STATUSES = ['active', 'suspended', 'archived'];
 async function sessionRoutes(app) {
     // POST /api/sessions/ensure — 세션 조회(또는 자동 생성) (api-design.md §3.4)
@@ -15,7 +40,7 @@ async function sessionRoutes(app) {
         const { agent_id } = request.body;
         if (!agent_id)
             throw (0, errors_1.badRequest)('agent_id는 필수입니다.');
-        const session = await (0, helpers_1.ensureSession)(request.db, request.userId, agent_id);
+        const session = await (0, helpers_2.ensureSession)(request.db, request.userId, agent_id);
         return reply.status(201).send((0, errors_1.ok)(session));
     });
     // GET /api/sessions — 세션 목록
@@ -31,7 +56,7 @@ async function sessionRoutes(app) {
     });
     // GET /api/sessions/:id — 세션 상세
     app.get('/:id', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { data: messages } = await request.db
             .from('messages')
             .select('*')
@@ -40,9 +65,212 @@ async function sessionRoutes(app) {
             .limit(200);
         return (0, errors_1.ok)({ ...session, messages: messages || [] });
     });
+    // ── 크로스 디바이스 이어보기 (t_d75ca81c — 마이그레이션 005) ──
+    // PUT /api/sessions/:id/read-state — 읽기 커서 갱신 (UPSERT, 멱등)
+    // 프론트는 세션 화면에 메시지를 보일 때마다(디바운스) 마지막 열람 turn_index를 올린다.
+    // 커서는 감소하지 않는다 (max 병합) — 탭 두 개가 교차 갱신해도 되감기 없음.
+    app.put('/:id/read-state', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const body = request.body;
+        if (typeof body?.last_read_turn_index !== 'number' || !Number.isInteger(body.last_read_turn_index) || body.last_read_turn_index < -1) {
+            throw (0, errors_1.badRequest)('last_read_turn_index는 -1 이상의 정수여야 합니다.');
+        }
+        const device = typeof body.device === 'string' && body.device.trim() ? body.device.trim().toLowerCase() : null;
+        const { data: existing } = await request.db.from('session_read_state').select('*').eq('session_id', session.id).maybeSingle();
+        const nextTurn = Math.max(body.last_read_turn_index, existing?.last_read_turn_index ?? -1);
+        const row = {
+            session_id: session.id,
+            last_read_turn_index: nextTurn,
+            last_device: device ?? existing?.last_device ?? null,
+            updated_at: new Date().toISOString(),
+        };
+        const { data, error } = await request.db.from('session_read_state').upsert(row, { onConflict: 'session_id' }).select().single();
+        if (error || !data)
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error?.message || '읽기 상태 저장에 실패했습니다.');
+        return (0, errors_1.ok)(data);
+    });
+    // GET /api/sessions/:id/read-state — 커서 조회 (없으면 -1)
+    app.get('/:id/read-state', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const { data } = await request.db.from('session_read_state').select('*').eq('session_id', session.id).maybeSingle();
+        return (0, errors_1.ok)({
+            session_id: session.id,
+            last_read_turn_index: data?.last_read_turn_index ?? -1,
+            last_device: data?.last_device ?? null,
+            updated_at: data?.updated_at ?? null,
+        });
+    });
+    // GET /api/sessions/resume — 기기 간 "이어볼 세션" 추천 목록.
+    // 모바일에서 PC로(또는 그 반대) 넘어온 사용자가 어디서 끊겼는지 즉시 찾는다:
+    //   활성 세션 중 최근 활동 순으로, 세션별 읽지 않은 메시지 수(first_unread_turn 포함)와
+    //   현재 실시간 접속 디바이스(presence)를 곁들여 반환. has_unread가 가장 최근 것을 read_on_this_device=false와 함께 추천 대상으로 표시한다.
+    // last_read 갱신 시점이 아니라 조회 시점의 presence를 붙이므로 PC 웹에서 "모바일이 이어서 열려 있음"을 UX에 반영할 수 있다.
+    app.get('/resume', { preHandler: auth_1.requireAuth }, async (request) => {
+        const { limit = '10' } = request.query;
+        const max = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+        const { data: sessions, error } = await request.db
+            .from('sessions')
+            .select('*')
+            .eq('user_id', request.userId)
+            .neq('status', 'archived')
+            .order('last_activity_at', { ascending: false })
+            .limit(max);
+        if (error)
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error.message);
+        const sessionRows = sessions || [];
+        const agentIds = [...new Set(sessionRows.map(s => s.agent_id))];
+        const agents = agentIds.length
+            ? (await request.db.from('agents').select('*').in('id', agentIds)).data || []
+            : [];
+        const agentNameById = new Map(agents.map(a => [a.id, a.name]));
+        const items = [];
+        for (const session of sessionRows) {
+            const { data: cursor } = await request.db.from('session_read_state').select('*').eq('session_id', session.id).maybeSingle();
+            const lastRead = cursor?.last_read_turn_index ?? -1;
+            const { data: messages } = await request.db
+                .from('messages')
+                .select('*')
+                .eq('session_id', session.id)
+                .order('turn_index', { ascending: true });
+            const rows = messages || [];
+            const unread = rows.filter(m => m.turn_index > lastRead);
+            const latest = rows.at(-1);
+            items.push({
+                session_id: session.id,
+                agent_id: session.agent_id,
+                agent_name: agentNameById.get(session.agent_id) ?? null,
+                title: (0, sessionTitle_1.sessionTitleOf)(session),
+                status: session.status,
+                last_activity_at: session.last_activity_at,
+                last_read_turn_index: lastRead,
+                latest_turn_index: latest?.turn_index ?? null,
+                latest_message_at: latest?.created_at ?? null,
+                unread_count: unread.length,
+                first_unread_turn_index: unread.length ? unread[0].turn_index : null,
+                live_devices: (0, handler_1.sessionPresence)(session.id),
+            });
+        }
+        // 추천: 미읽음이 있는 것 중 최근 활동, 없으면 최근 활동 그 자체 (이미 정렬 유지).
+        const recommended = items.find(i => i.unread_count > 0) || items[0] || null;
+        return (0, errors_1.ok)({ items, recommended_session_id: recommended ? recommended.session_id : null, total: items.length });
+    });
+    // POST /api/sessions/:id/fork — 포크 지점까지 복제하고 원본은 유지한다.
+    app.post('/:id/fork', { preHandler: auth_1.requireAuth }, async (request, reply) => {
+        const original = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const body = request.body;
+        if (typeof body?.from_message_id !== 'string' || !body.from_message_id.trim())
+            throw (0, errors_1.badRequest)('from_message_id는 필수입니다.');
+        if (body.new_session_title !== undefined && (typeof body.new_session_title !== 'string' || !body.new_session_title.trim())) {
+            throw (0, errors_1.badRequest)('new_session_title은 비어 있지 않은 문자열이어야 합니다.');
+        }
+        const result = await (0, turnLock_1.withSessionLock)(original.id, async () => {
+            const { data: point, error } = await request.db.from('messages').select('*')
+                .eq('session_id', original.id).eq('id', body.from_message_id).maybeSingle();
+            if (error || !point)
+                throw new errors_1.ApiError(errors_1.ERROR_CODES.NOT_FOUND, '포크 지점 메시지를 찾을 수 없습니다.');
+            const db = request.db;
+            // 원본 턴 실행과 직렬화하고, 쓰기 전에 복제할 스냅샷을 확정한다.
+            const messages = (await (0, helpers_2.selectAllRows)(db, 'messages', { session_id: original.id }))
+                .filter(row => row.turn_index <= point.turn_index).sort((a, b) => a.turn_index - b.turn_index);
+            const withinPoint = (value) => {
+                const upper = parseRangeUpper(value);
+                return upper !== null && upper <= point.turn_index;
+            };
+            const memories = (await (0, helpers_2.selectAllRows)(db, 'compressed_memories', { session_id: original.id }))
+                .filter(row => withinPoint(row.source_turn_range));
+            const transcripts = (await (0, helpers_2.selectAllRows)(db, 'raw_transcripts', { session_id: original.id }))
+                .filter(row => withinPoint(row.turn_range));
+            const patches = await (0, helpers_2.selectAllRows)(db, 'context_patches', { session_id: original.id });
+            const now = new Date().toISOString();
+            const { data: session, error: createError } = await db.from('sessions').insert({
+                user_id: original.user_id, agent_id: original.agent_id, persona_id: original.persona_id,
+                status: 'active', stream_channel_id: null, created_at: now, last_activity_at: now,
+                // 006(A4): 캐논 title 컬럼 — new_session_title 우선, 없으면 원본 제목 승계 (metadata.title는 하위 호환 유지).
+                // 원본 제목 해석은 세션 목록과 동일 캐논 규칙(sessionTitleOf) 사용 (t_cc52fd4f).
+                title: body.new_session_title?.trim() || (0, sessionTitle_1.sessionTitleOf)(original) || null,
+                metadata: { ...original.metadata,
+                    ...(body.new_session_title ? { title: body.new_session_title.trim() } : {}) },
+                forked_from: { session_id: original.id, message_id: point.id, turn_index: point.turn_index, forked_at: now },
+            }).select().single();
+            if (createError || !session)
+                throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, createError?.message || '포크 세션 생성 실패');
+            try {
+                const ids = new Map(messages.map(row => [row.id, (0, node_crypto_1.randomUUID)()]));
+                const mapped = (id) => {
+                    if (!id)
+                        return null;
+                    const target = ids.get(id);
+                    if (!target)
+                        throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, '복제 범위를 벗어난 메시지 참조입니다.');
+                    return target;
+                };
+                const copies = messages.map(row => ({ ...structuredClone(row), id: ids.get(row.id), session_id: session.id,
+                    parent_message_id: mapped(row.parent_message_id), root_message_id: mapped(row.root_message_id),
+                    // 답글 인용(t_02f58030): 인용 대상도 ID 매핑으로 복제본을 가리킨다. 참조가 복제 범위를
+                    // 벗어나면(FK 23503 위험) 인용만 소멸(SET NULL 계약과 동일 의미) — 발화 행은 보존.
+                    reply_to_id: row.reply_to_id ? (ids.get(row.reply_to_id) ?? null) : row.reply_to_id ?? null }));
+                // 같은 INSERT 문 안에서 메시지 외래 키를 함께 생성한다.
+                if (copies.length) {
+                    const { error: copyError } = await db.from('messages').insert(copies);
+                    if (copyError)
+                        throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, copyError.message);
+                }
+                for (const [table, rows] of [
+                    ['compressed_memories', memories], ['raw_transcripts', transcripts], ['context_patches', patches],
+                ]) {
+                    for (const row of rows) {
+                        const copy = { ...structuredClone(row), session_id: session.id };
+                        // 컨텍스트 패치의 BIGSERIAL을 포함해 각 테이블 기본값으로 새 ID를 발급한다.
+                        delete copy.id;
+                        const { error: copyError } = await db.from(table).insert(copy);
+                        if (copyError)
+                            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, copyError.message);
+                    }
+                }
+                return { session, copied: { messages: messages.length, memories: memories.length,
+                        transcripts: transcripts.length, context_patches: patches.length } };
+            }
+            catch (err) {
+                // devstore도 같은 결과가 되도록 자식 행을 명시적으로 정리한다.
+                for (const table of ['messages', 'compressed_memories', 'raw_transcripts', 'context_patches']) {
+                    const { error: cleanupError } = await db.from(table).delete().eq('session_id', session.id);
+                    if (cleanupError)
+                        throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, '포크 실패 후 정리에 실패했습니다.');
+                }
+                const { error: cleanupError } = await db.from('sessions').delete().eq('id', session.id);
+                if (cleanupError)
+                    throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, '포크 실패 후 세션 정리에 실패했습니다.');
+                throw err;
+            }
+        });
+        return reply.status(201).send((0, errors_1.ok)(result));
+    });
+    // GET /api/sessions/:id/lineage — 소유한 조상과 직계 자식만 반환한다.
+    app.get('/:id/lineage', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const ancestors = [];
+        const visited = new Set([session.id]);
+        let current = session;
+        for (let depth = 0; depth < 50; depth++) {
+            const link = current.forked_from;
+            if (!link || typeof link.session_id !== 'string' || visited.has(link.session_id))
+                break;
+            const { data: parent, error } = await request.db.from('sessions').select('*')
+                .eq('id', link.session_id).eq('user_id', request.userId).maybeSingle();
+            if (error)
+                throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error.message);
+            if (!parent)
+                break;
+            ancestors.push({ session_id: link.session_id, message_id: link.message_id, turn_index: link.turn_index, forked_at: link.forked_at });
+            visited.add(link.session_id);
+            current = parent;
+        }
+        const rows = await (0, helpers_2.selectAllRows)(request.db, 'sessions', { user_id: request.userId });
+        return (0, errors_1.ok)({ ancestors, forks: rows.filter(row => row.forked_from?.session_id === session.id) });
+    });
     // PATCH /api/sessions/:id — 세션 상태 변경
     app.patch('/:id', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { status } = request.body;
         if (!status || !SESSION_STATUSES.includes(status)) {
             throw (0, errors_1.badRequest)(`status는 ${SESSION_STATUSES.join('/')} 중 하나여야 합니다.`);
@@ -52,63 +280,171 @@ async function sessionRoutes(app) {
             throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error.message);
         return (0, errors_1.ok)(data);
     });
-    // POST /api/sessions/:id/archive — 세션 아카이브
-    app.post('/:id/archive', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
-        const { data, error } = await request.db.from('sessions').update({ status: 'archived' }).eq('id', session.id).select().single();
+    // PATCH /api/sessions/:id/title — 세션 제목 수동 수정 (t_95c5498e, 대표님 10/4 "대화 제목 수정" 지시)
+    // 프론트 계약: api.renameSession → PATCH {title} → ok(updated session) (SessionTitleDialog t_8917ca0d).
+    // 검증: trim 후 1~120자(코드포인트) — 80자 초안은 김비서 경주 지시로 120자 상향(프론트 maxLength 200 →
+    //       프론트 후속에서 120 정합, 이번 머지엔 폴백 안내 문구로 400 견딜 때까지가 원칙).
+    // last_activity_at 무변경: 제목 수정은 '활동'이 아니다 — 고치자마자 세션 목록 상단으로 점프하면
+    //       최근 대화 순서 의미가 무너진다(목록은 last_activity_at 정렬). updated_at만 스탬프(006 스키마 triggers).
+    // metadata.title 미갱신: 캐논은 title 컬럼 우선(sessionTitleOf) — 폴백 키에 구제목을 남겨두면
+    //       이후 폴백 경로가 옛 제목으로 되돌아오는 역전 버그. 컬럼만 갱신하고 metadata는 불변 유지.
+    app.patch('/:id/title', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const { title } = request.body;
+        if (typeof title !== 'string')
+            throw (0, errors_1.badRequest)('title은 문자열이어야 합니다.');
+        const trimmed = title.trim();
+        if (!trimmed)
+            throw (0, errors_1.badRequest)('제목은 비워둘 수 없습니다.');
+        if ([...trimmed].length > sessionTitle_1.SESSION_TITLE_EDIT_MAX) {
+            throw (0, errors_1.badRequest)(`제목은 ${sessionTitle_1.SESSION_TITLE_EDIT_MAX}자 이하여야 합니다.`);
+        }
+        const { data, error } = await request.db
+            .from('sessions')
+            .update({ title: trimmed })
+            .eq('id', session.id)
+            .select()
+            .single();
         if (error)
             throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error.message);
         return (0, errors_1.ok)(data);
     });
+    // POST /api/sessions/:id/archive — 세션 아카이브
+    app.post('/:id/archive', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const { data, error } = await request.db.from('sessions').update({ status: 'archived' }).eq('id', session.id).select().single();
+        if (error)
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error.message);
+        // ② (t_344e047a) 아카이브로 미답변 큐 행이 영구 대기하지 않게 skipped로 마감 — 체크포인트에 보인다.
+        // 큐 마감 실패가 아카이브 자체를 막지 않게 한다(마이그레이션 008 미적용 환경 등 — degrade).
+        try {
+            await (0, questionQueue_1.skipAllPending)(request.db, session.id);
+            (0, handler_1.broadcastToSession)(session.id, { type: 'queue.updated', session_id: session.id, ...(0, questionQueue_1.queueSnapshot)(await (0, questionQueue_1.listQueue)(request.db, session.id)) });
+        }
+        catch (err) {
+            request.log.warn({ err }, 'queue skipAllPending failed (archive continues)');
+        }
+        // 답변 대기 (t_811e176c) — 아카이브 세션은 회신 발화가 불가능하므로 미해소 배지를 마감한다
+        // (대기 항목 영구 누적 방지). 011 미적용 환경은 no-op 강등.
+        try {
+            const closed = await (0, awaitingReply_1.resolvePendingReplies)(request.db, session.id);
+            if (closed > 0) {
+                const snap = await (0, awaitingReply_1.replyPendingSnapshot)(request.db, session.id);
+                if (snap)
+                    (0, handler_1.broadcastToSession)(session.id, { type: 'reply.pending.updated', session_id: session.id, ...snap });
+            }
+        }
+        catch (err) {
+            request.log.warn({ err }, 'reply pending close failed (archive continues)');
+        }
+        return (0, errors_1.ok)(data);
+    });
+    // GET /api/sessions/:id/queue — 질문 큐 체크포인트 행 목록 (t_344e047a ②)
+    // 프론트(t_2f45ccb1 normalizeQueueItems)는 data 배열을 그대로 읽는다: {id,content,status,position}[].
+    // WS queue.updated는 스냅샷 객체({pending_count, items}) — 프론트가 raw.items로 동일 처리.
+    app.get('/:id/queue', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const snap = (0, questionQueue_1.queueSnapshot)(await (0, questionQueue_1.listQueue)(request.db, session.id));
+        return (0, errors_1.ok)(snap.items, { total: snap.pending_count });
+    });
+    // GET /api/sessions/:id/pending — 답변 대기 체크포인트 (t_811e176c ④)
+    // 프론트 부트스트랩 폴백(WS 무신뢰 환경·재접속): { count, items:[{message_id, excerpt, reply_kind, turn_index}] }.
+    // 011 미적용 환경(래치)은 빈 스냅샷 — 배지 0으로 강등, 대화 경로는 무영향.
+    app.get('/:id/pending', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const snap = (await (0, awaitingReply_1.replyPendingSnapshot)(request.db, session.id)) ?? { count: 0, items: [] };
+        return (0, errors_1.ok)(snap, { total: snap.count });
+    });
     // GET /api/sessions/:id/messages — 메시지 히스토리 (cursor는 turn_index 기반)
     app.get('/:id/messages', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { before, after, role, limit = '50' } = request.query;
         const max = Math.min(parseInt(limit, 10) || 50, 200);
         let query = request.db.from('messages').select('*').eq('session_id', session.id);
         if (role && ['user', 'agent', 'system'].includes(role))
             query = query.eq('role', role);
-        if (after)
-            query = query.gt('turn_index', parseInt(after, 10) || 0 - 1);
-        if (before)
-            query = query.lt('turn_index', parseInt(before, 10) || 0);
+        const afterIdx = Number.parseInt(after || '', 10);
+        const beforeIdx = Number.parseInt(before || '', 10);
+        if (Number.isFinite(afterIdx))
+            query = query.gt('turn_index', afterIdx);
+        if (Number.isFinite(beforeIdx))
+            query = query.lt('turn_index', beforeIdx);
         query = query.order('turn_index', { ascending: false }).limit(max);
         const { data } = await query;
         const rows = (data || []).sort((a, b) => a.turn_index - b.turn_index);
-        return (0, errors_1.ok)(rows, { has_more: rows.length === max, total: rows.length });
+        return (0, errors_1.ok)(rows.map(row => ({
+            ...(0, helpers_1.serializeMessage)(row), dialogue_type: row.dialogue_type ?? null,
+            router_dialogue_type: row.role === 'user' ? (0, router_1.classifyDialogueType)(row.content) : null,
+            structured_payload: row.structured_payload ?? {},
+        })), { has_more: rows.length === max, total: rows.length });
+    });
+    // GET /api/sessions/:id/events?after_seq= — seq diff sync catch-up (t_3486b1d7 ③)
+    // 텔레그램 pts/getDifferences 이식: WS 재연결 후 클라이언트가 보관한 lastSeq 이후의
+    // 서버 이벤트 버퍼(500-캡)를 원래 seq 순서로 반환. truncated=true면 버퍼 캡으로 옛 이벤트가
+    // 밀려난 것 — 클라이언트는 GET /messages 전량 캐치업으로 전환한다. current_seq와 seq_epoch로
+    // 서버 재기동(에포크 교체)도 감지한다. EVENT_SYNC_DISABLED=true 시 404 (롤백 게이트).
+    app.get('/:id/events', { preHandler: auth_1.requireAuth }, async (request) => {
+        if (!config_1.config.protocol.seqDiffSync)
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.NOT_FOUND, '이벤트 동기화 엔드포인트가 비활성화되었습니다.');
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const { after_seq } = request.query;
+        const lastSeq = Number.parseInt(after_seq ?? '', 10);
+        if (!Number.isFinite(lastSeq) || lastSeq < 0)
+            throw (0, errors_1.badRequest)('after_seq은 0 이상의 정수여야 합니다.');
+        return (0, errors_1.ok)((0, eventlog_1.eventSyncState)(session.id, lastSeq));
     });
     // POST /api/sessions/:id/messages — 텍스트 메시지 전송 (뉴런 파이프라인 실행)
     app.post('/:id/messages', { preHandler: auth_1.requireAuth }, async (request, reply) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         if (session.status === 'archived')
             throw new errors_1.ApiError(errors_1.ERROR_CODES.SESSION_ARCHIVED, '아카이브된 세션에는 메시지를 보낼 수 없습니다.');
         const body = request.body;
         const content = (body.content || '').trim();
         if (!content)
             throw (0, errors_1.badRequest)('메시지 내용(content)은 필수입니다.');
-        // 활성 페르소나 로드
-        const { data: persona } = await request.db.from('personas').select('*').eq('id', session.persona_id).maybeSingle();
-        const { rowToPersonaConfig } = await import('../lib/persona.js');
-        const personaConfig = persona ? rowToPersonaConfig(persona) : null;
-        const result = await (0, graph_1.processTurn)(request.db, session.id, request.userId, session.agent_id, personaConfig, content, {
+        const attachmentIds = (0, attachments_1.parseAttachmentIds)(body);
+        // random_id 멱등 (t_3486b1d7 ①): send 프레임/REST body의 client_req_id로 재전송 중복 생성 차단.
+        const clientReqId = typeof body.client_req_id === 'string' && body.client_req_id ? body.client_req_id : null;
+        // 요구① (t_c31e3f45): Enter+전송 버튼 동시 탭 등 짧은 창 동일 content 재발송 드롭 —
+        // 재현 실측(9/29): 100ms 간격 동일 POST 2회 → 1개는 실행 중 끼어들기로 큐 적재,
+        // 드레인이 다시 execute해 user 행 2·answer 행 2로 영속됐다. 메인 발화만(첨부 없음) 대상.
+        if (!attachmentIds.length && (0, eventlog_1.isDuplicateIngress)(session.id, content)) {
+            return reply.status(200).send((0, errors_1.ok)({ deduped: true, message: '동일 발화가 방금 접수되었습니다.' }));
+        }
+        // ② 질문 큐 (t_344e047a): 실행 중 메인 발화는 message_queue에 적재 후 202로 알린다.
+        // 체크포인트는 GET /:id/queue 또는 WS queue.updated로 확인; 답변은 run 완료 후 워커가 순차 처리.
+        // 008 미적용 환경(래치)은 폴백 — 아래 runTextTurn이 세션 락으로 기존처럼 직렬 실행한다.
+        // 답글 인용 발화(t_02f58030)는 큐 우회 — message_queue는 메인 발화 전용이라 reply_to가
+        // 드레인에서 소멸한다(WS message.send의 동일 판정과 대칭). null/비문자열은 무인용 = 큐 유지.
+        const hasQuote = typeof body.reply_to_id === 'string' && !!body.reply_to_id.trim();
+        if (!attachmentIds.length && !hasQuote && (0, eventlog_1.hasActiveRun)(session.id)) {
+            const item = await (0, questionQueue_1.enqueueQuestion)(request.db, { sessionId: session.id, userId: request.userId, content, locale: (0, locale_1.parseAcceptLanguage)(request.headers['accept-language']) });
+            if (item) {
+                const snap = (0, questionQueue_1.queueSnapshot)(await (0, questionQueue_1.listQueue)(request.db, session.id));
+                (0, handler_1.broadcastToSession)(session.id, { type: 'queue.updated', session_id: session.id, ...snap });
+                // busy 입력 합류 고지 (t_5cba9ebb 5항) — WS 경로와 동일 계약: 큐 뉴런 1인칭 한 줄.
+                const join = (0, personaVoice_1.queueJoinLine)(snap.pending_count, (0, locale_1.parseAcceptLanguage)(request.headers['accept-language']));
+                if (join)
+                    (0, handler_1.broadcastToSession)(session.id, { type: 'persona.line', session_id: session.id, source: 'queue', line: join });
+                return reply.status(202).send((0, errors_1.ok)({ queued: true, queue_item: { id: item.id, status: item.status, position: item.position } }));
+            }
+            if (!(0, questionQueue_1.isQueueKnownUnavailable)()) {
+                throw new errors_1.ApiError(errors_1.ERROR_CODES.RATE_LIMIT_EXCEEDED, '대기 중인 질문이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+            }
+        }
+        const result = await (0, chatTurn_1.runTextTurn)(request.db, session, request.userId, content, {
+            locale: (0, locale_1.parseAcceptLanguage)(request.headers['accept-language']),
             sttMetadata: body.stt_metadata || null,
+            attachmentIds,
+            clientReqId,
+            replyToId: body.reply_to_id,
+            emit: e => (0, handler_1.broadcastToSession)(session.id, e),
         });
-        return reply.status(201).send((0, errors_1.ok)({
-            user_message_id: result.userMessageId,
-            empathy_message_id: result.empathyMessageId,
-            answer_message_id: result.answerMessageId,
-            empathy_response: result.empathyResponse,
-            answer_response: result.answerResponse,
-            dialogue_type: result.dialogueType,
-            activation_plan: result.activationPlan,
-            neuron_events: result.events,
-            persona_guard_passed: result.guardPassed,
-            engine: result.engine,
-        }));
+        return reply.status(201).send((0, errors_1.ok)((0, chatTurn_1.textTurnResponse)(result)));
     });
     // POST /api/sessions/:id/messages/:messageId/feedback — 메시지 피드백
     app.post('/:id/messages/:messageId/feedback', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { feedback, reason } = request.body;
         if (!feedback || !['like', 'dislike'].includes(feedback))
             throw (0, errors_1.badRequest)('feedback은 like/dislike 중 하나여야 합니다.');
@@ -123,13 +459,13 @@ async function sessionRoutes(app) {
     // ── 세션 내 뉴런 인스턴스 (api-design.md §3.5) ──
     // GET /api/sessions/:id/neurons — 활성 뉴런 인스턴스
     app.get('/:id/neurons', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const instances = await (0, registry_1.listActiveInstances)(request.db, session.id);
         return (0, errors_1.ok)(instances);
     });
     // POST /api/sessions/:id/neurons/:neuronId/activate — 뉴런 수동 활성화 (디버그용)
     app.post('/:id/neurons/:neuronId/activate', { preHandler: auth_1.requireAuth }, async (request, reply) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         try {
             const instance = await (0, registry_1.activateNeuronInstance)(request.db, session.id, request.params.neuronId);
             return reply.status(201).send((0, errors_1.ok)(instance));
@@ -142,13 +478,13 @@ async function sessionRoutes(app) {
     });
     // DELETE /api/sessions/:id/neurons/:instanceId — 뉴런 비활성화
     app.delete('/:id/neurons/:instanceId', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         await (0, registry_1.deactivateNeuronInstance)(request.db, session.id, request.params.instanceId, 'manual_deactivate');
         return (0, errors_1.ok)({ success: true });
     });
     // GET /api/sessions/:id/neurons/history — 뉴런 연결 이력
     app.get('/:id/neurons/history', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { limit = '100', event_type } = request.query;
         let query = request.db.from('neuron_connections').select('*').eq('session_id', session.id).order('created_at', { ascending: false }).limit(Math.min(parseInt(limit, 10) || 100, 500));
         if (event_type)
@@ -159,7 +495,7 @@ async function sessionRoutes(app) {
     // ── 기억/컨텍스트 (api-design.md §3.8) ──
     // GET /api/sessions/:id/memories — 압축 기억 목록
     app.get('/:id/memories', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { min_importance, tag, limit = '50' } = request.query;
         let query = request.db.from('compressed_memories').select('*').eq('session_id', session.id).order('importance_score', { ascending: false }).limit(Math.min(parseInt(limit, 10) || 50, 200));
         if (min_importance)
@@ -171,10 +507,12 @@ async function sessionRoutes(app) {
     });
     // POST /api/sessions/:id/memories/compact — 수동 압축 트리거
     app.post('/:id/memories/compact', { preHandler: auth_1.requireAuth }, async (request, reply) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         // 마지막 압축 턴 이후 메시지를 배치로 묶어 요약 생성 (Phase 1: 템플릿 요약)
-        const { data: lastMem } = await request.db.from('compressed_memories').select('*').eq('session_id', session.id).order('importance_score', { ascending: false }).limit(1).maybeSingle();
-        const lastTurn = lastMem?.source_turn_range?.upper ?? -1;
+        const { data: lastMem } = await request.db.from('compressed_memories').select('*').eq('session_id', session.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const upper = parseRangeUpper(lastMem?.source_turn_range);
+        // 신규 문자열은 상한 제외, 기존 객체는 마지막 턴 번호를 저장했다.
+        const lastTurn = upper === null ? -1 : typeof lastMem.source_turn_range === 'string' ? upper - 1 : upper;
         const { data: messages } = await request.db.from('messages').select('*').eq('session_id', session.id).gt('turn_index', lastTurn).order('turn_index', { ascending: true });
         const batch = messages || [];
         if (batch.length === 0)
@@ -192,7 +530,7 @@ async function sessionRoutes(app) {
             tags: ['auto'],
             importance_score: 0.5,
             compaction_criteria: ['automatic'],
-            source_turn_range: { lower: lastTurn + 1, upper: Math.max(...batch.map((m) => m.turn_index)) },
+            source_turn_range: `[${lastTurn + 1},${Math.max(...batch.map((m) => m.turn_index)) + 1})`,
         })
             .select()
             .single();
@@ -202,7 +540,7 @@ async function sessionRoutes(app) {
         await request.db.from('raw_transcripts').insert({
             session_id: session.id,
             batch_id: mem.source_batch_id,
-            turn_range: { lower: lastTurn + 1, upper: Math.max(...batch.map((m) => m.turn_index)) },
+            turn_range: `[${lastTurn + 1},${Math.max(...batch.map((m) => m.turn_index)) + 1})`,
             content: batch.map((m) => ({ role: m.role, content: m.content, turn_index: m.turn_index })),
             is_compacted: true,
             compacted_at: new Date().toISOString(),
@@ -211,19 +549,19 @@ async function sessionRoutes(app) {
     });
     // GET /api/sessions/:id/context — 컨텍스트 스냅샷
     app.get('/:id/context', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const context = await (0, contextSync_1.readFullContext)(request.db, session.id);
         return (0, errors_1.ok)(context);
     });
     // GET /api/sessions/:id/context/:key — 특정 키 조회
     app.get('/:id/context/:key', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const value = await (0, contextSync_1.readContextValue)(request.db, session.id, request.params.key);
         return (0, errors_1.ok)({ key: request.params.key, value });
     });
     // DELETE /api/sessions/:id/context/:key — 컨텍스트 키 삭제 (개인정보 대응)
     app.delete('/:id/context/:key', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         try {
             await (0, contextSync_1.clearContextKey)(request.db, session.id, request.params.key);
         }
@@ -232,9 +570,54 @@ async function sessionRoutes(app) {
         }
         return (0, errors_1.ok)({ success: true });
     });
+    // ── 콜드 아카이브 회수 (t_848d0c3b — 설계 §d: UI '이전 기억 열람'은 이 API 경유만,
+    //    Storage 직접 노출 0. verified_at 없는 배치는 목록에서조차 숨긴다) ──
+    // GET /api/sessions/:id/context/archives — 검증된 cold 배치 목록
+    // (static route 우선 — Fastify는 /context/archives를 /context/:key보다 먼저 매치)
+    app.get('/:id/context/archives', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const archives = await (0, contextArchive_1.listArchives)(request.db, session.id);
+        // 버킷 내부 구조(object_path)는 노출하지 않는다 — 사용자 계약은 period, 경로는 서버가 재구성.
+        return (0, errors_1.ok)({
+            archives: archives.map((a) => ({
+                period: a.period,
+                patch_count: a.patch_count,
+                min_created_at: a.min_created_at,
+                max_created_at: a.max_created_at,
+                bytes_compressed: a.bytes_compressed,
+                archived_at: a.archived_at,
+                verified_at: a.verified_at,
+            })),
+        });
+    });
+    // POST /api/sessions/:id/context/archives/restore — cold 객체를 hot으로 복원 (멱등)
+    app.post('/:id/context/archives/restore', { preHandler: auth_1.requireAuth }, async (request) => {
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
+        const { period } = request.body;
+        if (typeof period !== 'string' || !/^\d{4}-\d{2}$/.test(period)) {
+            throw (0, errors_1.badRequest)("period는 'YYYY-MM' 형식이어야 합니다.");
+        }
+        // 소유권: 조회가 session_id AND object_path 동시 조건 — path는 서버가 세션에서 유도하므로
+        // 남의 세션 경로 위조가 구조적으로 불가능하다.
+        try {
+            const result = await (0, contextArchive_1.restoreArchive)(request.db, session.id, (0, contextArchive_1.objectPathOf)(session.id, period));
+            // object_path 등 버킷 내부 구조는 응답에 싣지 않는다 (period만 사용자 계약).
+            return (0, errors_1.ok)({ period, restored: result.restored, skipped_existing: result.skipped_existing, patch_count: result.patch_count });
+        }
+        catch (err) {
+            const msg = err.message;
+            if (msg === 'NOT_FOUND')
+                throw new errors_1.ApiError('NOT_FOUND', '이 세션의 검증된 아카이브 배치가 아닙니다.');
+            if (msg === 'UNVERIFIED')
+                throw (0, errors_1.badRequest)('검증 미완료 배치입니다 — 복원할 수 없습니다.');
+            if (msg === 'INTEGRITY')
+                throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, '아카이브 무결성 검증 실패 — 복원을 중단했습니다.');
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, msg);
+        }
+    });
     // GET /api/sessions/:id/transcripts — 원본 트랜스크립트 (압축 후에도 유지)
     app.get('/:id/transcripts', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const { format = 'json' } = request.query;
         const { data: rawBatches } = await request.db.from('raw_transcripts').select('*').eq('session_id', session.id).order('created_at', { ascending: true });
         const transcripts = (rawBatches || []).map((b) => ({
@@ -252,11 +635,11 @@ async function sessionRoutes(app) {
     });
     // ── 세션 내 작업 (api-design.md §3.6 — 일부 서브라우트) ──
     app.get('/:id/tasks', { preHandler: auth_1.requireAuth }, async (request) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         return (0, errors_1.ok)(await (0, tasks_1.listTasksBySession)(request.db, session.id, request.query.status));
     });
     app.post('/:id/tasks', { preHandler: auth_1.requireAuth }, async (request, reply) => {
-        const session = await (0, helpers_1.getOwnedSession)(request.db, request.userId, request.params.id);
+        const session = await (0, helpers_2.getOwnedSession)(request.db, request.userId, request.params.id);
         const task = await (0, tasks_1.createTaskInSession)(request.db, session.id, request.body);
         return reply.status(201).send((0, errors_1.ok)(task));
     });

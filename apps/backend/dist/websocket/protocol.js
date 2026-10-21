@@ -1,8 +1,4 @@
 "use strict";
-/**
- * WebSocket 프로토콜 정의 — api-design.md §4
- * 서버→클라이언트 이벤트 빌더 및 타입.
- */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NEURON_NAMES = void 0;
 exports.sendJson = sendJson;
@@ -12,6 +8,8 @@ exports.NEURON_NAMES = {
     queue: '큐 에이뉴런',
     visual: '비주얼 에이뉴런',
     router: '라우터',
+    grounding: '검색그라운딩',
+    bridge: '비서실 브리지',
 };
 function sendJson(socket, message) {
     try {

@@ -1,12 +1,38 @@
+import type { Locale } from '../lib/locale';
+import type { DialogueCardType, DialogueType, MessagesRow, ReplyKind } from '../types/db';
+import type { GroundingSummary } from '../lib/perplexity';
+import type { PttMode } from '../lib/pushToTalk';
+import type { RelayStage } from '../lib/relay';
+export type SavedMessage = MessagesRow;
 /**
  * WebSocket 프로토콜 정의 — api-design.md §4
  * 서버→클라이언트 이벤트 빌더 및 타입.
  */
 export type WSChannel = 'audio' | 'transcript' | 'neuron_status' | 'task';
+/** 세션에 동시 접속한 디바이스 항목 (presence.update) — t_d75ca81c 크로스 디바이스 연속성. */
+export interface PresenceDevice {
+    device: string;
+    since: number;
+}
 export type ClientMessage = {
+    type: 'message.send';
+    session_id: string;
+    content: string;
+    parent_message_id?: string;
+    attachment_ids?: string[];
+    reply_to_id?: string;
+    client_req_id?: string;
+} | {
     type: 'subscribe';
+    locale?: Locale;
     session_id: string;
     channels?: WSChannel[];
+    last_seq?: number;
+    device?: string;
+} | {
+    type: 'run.cancel';
+    session_id: string;
+    run_id?: string;
 } | {
     type: 'audio.start';
     session_id: string;
@@ -14,10 +40,14 @@ export type ClientMessage = {
         sample_rate?: number;
         encoding?: string;
         language?: string;
+        mode?: PttMode;
+        device?: string;
     };
 } | {
     type: 'audio.end';
     session_id: string;
+    client_req_id?: string;
+    draft?: true;
 } | {
     type: 'audio.cancel';
     session_id: string;
@@ -26,6 +56,7 @@ export type ClientMessage = {
     text: string;
     session_id: string;
     is_final?: boolean;
+    client_req_id?: string;
 } | {
     type: 'ping';
     ts?: number;
@@ -34,13 +65,105 @@ export type ClientMessage = {
     ts?: number;
 };
 export type ServerMessage = {
+    type: 'message.new';
+    seq?: number;
+    run_id: string;
+    session_id: string;
+    message: SavedMessage;
+    user_message_id?: string;
+    source_message_id?: string | null;
+    deduped?: boolean;
+} | {
+    type: 'run.started';
+    session_id: string;
+    run_id: string;
+    seq?: number;
+    quip: string;
+} | {
+    type: 'run.progress';
+    session_id: string;
+    run_id: string;
+    seq?: number;
+    stage: 'thinking' | 'organizing' | 'finalizing' | 'rendering';
+    quip: string;
+} | {
+    type: 'run.completed';
+    structured?: {
+        dialogue_type: DialogueCardType;
+        structured_payload: Record<string, unknown>;
+    };
+    classifier?: {
+        type: DialogueType;
+        stage: 1 | 2 | 3;
+        confidence: number;
+    };
+    session_id: string;
+    run_id: string;
+    seq?: number;
+    message_ids: {
+        user: string;
+        empathy: string | null;
+        answer: string | null;
+    };
+    llm: {
+        used: boolean;
+        model: string | null;
+        fallback: boolean;
+    };
+    grounding?: GroundingSummary | null;
+} | {
+    type: 'run.failed';
+    session_id: string;
+    run_id: string;
+    seq?: number;
+    error: {
+        code: string;
+        message: string;
+    };
+} | {
+    type: 'run.cancelled';
+    session_id: string;
+    run_id: string;
+    seq?: number;
+    partial_text: string;
+} | {
+    type: 'answer.delta';
+    seq?: number;
+    session_id: string;
+    run_id: string;
+    delta: string;
+    index: number;
+} | {
+    type: 'answer.done';
+    ai_generated: true;
+    locale: Locale;
+    seq?: number;
+    session_id: string;
+    run_id: string;
+    text: string;
+    message_id: string | null;
+    llm: {
+        used: boolean;
+        model: string | null;
+        fallback: boolean;
+        usage: unknown | null;
+    };
+    grounding?: GroundingSummary | null;
+} | {
     type: 'connected';
     session_id: string | null;
     timestamp: string;
-} | {
+}
+/** current_seq/seq_epoch (t_3486b1d7 ③): last_seq 미전송 접속(초 구독)에서는 서버 버퍼가
+ *  이 지점부터의 diff 기준점이다. 에포크가 이전 관측값과 다르면(재기동) 클라이언트는
+ *  GET /messages 전량 캐치업으로 전환. */
+ | {
     type: 'subscribed';
+    current_seq?: number;
+    seq_epoch?: string;
     session_id: string;
     channels: WSChannel[];
+    devices?: PresenceDevice[];
 } | {
     type: 'error';
     code: string;
@@ -58,13 +181,32 @@ export type ServerMessage = {
     session_id: string;
     active: boolean;
 } | {
+    type: 'presence.update';
+    session_id: string;
+    devices: PresenceDevice[];
+} | {
     type: 'transcript.partial';
+    seq?: number;
     session_id: string;
     text: string;
     confidence: number;
     language: string;
+}
+/** 음성 hold-for-edit 브리지 (t_8bac5645, 대표님 10/4 '수정(녹음 완료하나 전송 전 텍스트 편집)'):
+ *  audio.end{draft:true}의 전사 회신 — 비영속 전문(全文). user 행 영속·런 실행·transcript.final
+ *  없음. sendJson 발화 소켓 회신 전용: seq 미채번·eventlog 미기록 — last_seq diff 리플레이에
+ *  구 draft가 재폭주하지 않는다 (favorite.updated 선행례; 휘발성 연출). 무음 릴리스는 text:''
+ *  (프론트 no-op) — 기존 '' final 경로와 대칭. */
+ | {
+    type: 'transcript.draft';
+    session_id: string;
+    text: string;
+    confidence: number;
+    language: string;
+    duration_ms: number;
 } | {
     type: 'transcript.final';
+    seq?: number;
     session_id: string;
     turn_index: number;
     text: string;
@@ -74,6 +216,7 @@ export type ServerMessage = {
     message_id: string | null;
 } | {
     type: 'neuron.status';
+    seq?: number;
     session_id: string;
     neuron: {
         slug: string;
@@ -89,12 +232,70 @@ export type ServerMessage = {
     status: string;
     progress: number;
     message: string;
+}
+/** 즐겨찾기 토글 → 세션 허브 알림 (t_b89df485 김비서 지시). seq 미채번·eventlog 미기록 — 재접속 동기화는 GET /api/favorites. */
+ | {
+    type: 'favorite.updated';
+    session_id: string;
+    message_id: string;
+    favorite: boolean;
 } | {
     type: 'queue.update';
+    seq?: number;
     session_id: string;
     pending_count: number;
     current_task: string | null;
     next_tasks: string[];
+}
+/** 질문 큐 체크포인트 (t_344e047a) — 메시지 유실 방지 대기열 스냅샷. status는 언어중립 코드,
+ *  화면 문구는 프론트 i18n t() 키(pending→빈 원 / answered→초록 체크 / skipped→회색 대시). */
+ | {
+    type: 'queue.updated';
+    seq?: number;
+    session_id: string;
+    pending_count: number;
+    items: Array<{
+        id: string;
+        content: string;
+        status: 'pending' | 'answered' | 'skipped';
+        position: number;
+    }>;
+}
+/** 비서실 백스테이지 릴레이 자막 (t_583d9fed 案1) — 비서 페르소나 턴에서만 발행되는 휘발성 연출 이벤트.
+ *  stage는 언어중립 코드, 화면 문구는 quip(폴백) 또는 프론트 i18n(relay.<stage>). 최종 답변은 기존 run.completed의 통합 메시지(B1). */
+ | {
+    type: 'relay.updated';
+    seq?: number;
+    session_id: string;
+    run_id: string;
+    stage: RelayStage;
+    quip: string;
+}
+/** 답변 대기 (t_811e176c) — 회신 필요 메시지 스냅샷 (queue.updated 관례 동일 계약).
+ *  사용자 발화 해소·답변 감지 시 발행. 011 미적용 환경(래치)은 items 빈 배열. */
+ | {
+    type: 'reply.pending.updated';
+    seq?: number;
+    session_id: string;
+    count: number;
+    items: Array<{
+        message_id: string;
+        turn_index: number;
+        excerpt: string;
+        reply_kind: ReplyKind;
+    }>;
+}
+/** 단일 페르소나 보이스 채널 (t_5cba9ebb, 대표님 9/29 "여러 개의 동시 출력 창이 제거 대상") —
+ *  뉴런 출력(릴레이 진행·큐 대기·patience quip)을 한 시점 한 줄의 대화체 문장으로 수렴한다.
+ *  기존 run.progress/neuron.status/relay.updated는 하위 호환으로 그대로 발행되지만
+ *  프론트는 line만 렌더한다. 답변 스트리밍(answer.delta) 시작 시 이 줄은 자동 소멸(프론트). */
+ | {
+    type: 'persona.line';
+    seq?: number;
+    session_id: string;
+    run_id?: string;
+    line: string;
+    source: 'ack' | 'progress' | 'queue' | 'relay';
 } | {
     type: 'session.archived';
     session_id: string;

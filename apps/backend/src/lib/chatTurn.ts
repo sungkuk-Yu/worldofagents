@@ -14,10 +14,12 @@ import { ApiError } from './errors';
 import { serializeMessage, nextTurnFromLast, sanitizeSttMetadata } from './helpers';
 import { ServerMessage, NEURON_NAMES } from '../websocket/protocol';
 import { listQueue, markQueueStatus, queueSnapshot, skipAllPending } from './questionQueue';
+import { registerDecision, listDecisions, decisionSnapshot } from './decisionItems';
 import { clientReqColumns, findExistingByClientReqId, isClientReqConflict, isMissingClientReqColumn, markIdempotencyColumnMissing, normalizeClientReqId } from './idempotency';
 import { resolvePendingReplies, replyPendingSnapshot } from './awaitingReply';
 import { createTypingPacer } from './typingPacer';
 import { deriveSessionTitle, sessionTitleOf, setSessionTitleIfEmpty } from './sessionTitle';
+import { broadcastToSession } from '../websocket/handler';
 import type { JournalRow } from './runCheckpoint';
 
 export type TurnEmitEvent = Extract<ServerMessage, { type: 'message.new' | 'run.started' | 'run.progress' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'answer.delta' | 'answer.done' | 'neuron.status' | 'transcript.final' | 'queue.updated' | 'relay.updated' | 'reply.pending.updated' | 'persona.line' }>;
@@ -412,6 +414,35 @@ export async function runTextTurn(
     emitRelay('wrapping');
     opts.emit({ type: 'answer.done', ...base, ai_generated: true, locale, text: result.answerResponse || '', message_id: result.answerMessageId,
       llm: { ...result.llm, usage: result.llm.usage ?? null }, grounding: result.grounding });
+    // 구조화 결정카드 자동 등록 (t_6d208fb5 R1): agent 응답 content에서 decision_request 감지 →
+    // decision_items 질문별 항목 생성 + WS decision.updated 브로드캐스트.
+    if (result.answerResponse) {
+      try {
+        const parsed = JSON.parse(result.answerResponse);
+        if (parsed && parsed.type === 'decision_request') {
+          const agentId = session.agent_id || 'unknown';
+          const items: Array<{ question: string; options: string[] | Record<string, unknown> }> = [];
+          
+          if (parsed.questions && Array.isArray(parsed.questions)) {
+            items.push(...parsed.questions);
+          } else if (parsed.question) {
+            items.push({ question: parsed.question, options: parsed.options || [] });
+          }
+          
+          for (const item of items) {
+            await registerDecision(db, session.id, userId, agentId, item.question, item.options, result.answerMessageId ?? undefined);
+          }
+          
+          if (items.length > 0) {
+            const decisions = await listDecisions(db, session.id);
+            const snap = decisionSnapshot(decisions);
+            broadcastToSession(session.id, { type: 'decision.updated', session_id: session.id, ...snap });
+          }
+        }
+      } catch {
+        // JSON 파싱 실패 시 무시
+      }
+    }
     // 답변 대기 (t_811e176c) — 해소/감지 전이가 있었을 때만 스냅샷 발행(매 턴 노이즈 금지).
     // run.completed 뒤에 내지 않는 이유: events.at(-1)=run.completed 계약이 기존 단위테스트
     // ·프론트 종료 처리가 의존한다. 프론트는 이벤트 순서 무관(전용 리스너).

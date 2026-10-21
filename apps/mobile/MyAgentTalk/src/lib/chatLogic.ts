@@ -789,6 +789,28 @@ export function normalizeQueueItems(raw: unknown): QueueItem[] {
   return out.sort((a, b) => a.position - b.position);
 }
 
+/** 결정 대기 항목 정규화 (t_2de069f3) — decision.updated WS / GET /api/sessions/:id/decisions */
+export function normalizeDecisions(raw: unknown): import('../lib/api').DecisionItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: import('../lib/api').DecisionItem[] = [];
+  for (const r of raw) {
+    if (!isRecord(r) || typeof r.id !== 'string' || typeof r.question !== 'string') continue;
+    const status = ['pending', 'answered', 'expired'].includes(r.status as string) ? (r.status as 'pending' | 'answered' | 'expired') : 'pending';
+    out.push({
+      id: r.id,
+      session_id: typeof r.session_id === 'string' ? r.session_id : '',
+      question: r.question,
+      source_message_id: typeof r.source_message_id === 'string' ? r.source_message_id : undefined,
+      source_turn_index: typeof r.source_turn_index === 'number' && Number.isFinite(r.source_turn_index) ? r.source_turn_index : undefined,
+      status,
+      created_at: typeof r.created_at === 'string' ? r.created_at : new Date().toISOString(),
+      answered_at: typeof r.answered_at === 'string' ? r.answered_at : undefined,
+      answer: typeof r.answer === 'string' ? r.answer : undefined,
+    });
+  }
+  return out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
 /** user 메시지 → 큐 항목 매칭. message_id 우선, 없으면 공백 정규화 content 대조(미전송 낙관 행 포함). */
 export function queueItemForMessage(queue: QueueItem[], message: ChatMessage): QueueItem | undefined {
   const byId = queue.find((q) => q.messageId === message.id);
@@ -937,6 +959,7 @@ export function normalizeSuggestedQuestions(value: unknown): SuggestedQuestion[]
 /** 큐/칩 상태가 화면에 남지 않도록 세션 전환 시 함께 초기화할 빈 참조 */
 export const EMPTY_QUEUE: QueueItem[] = [];
 export const EMPTY_THREADS: ThreadIndexEntry[] = [];
+export const EMPTY_DECISIONS: import('../lib/api').DecisionItem[] = [];
 
 /** 새로 작성 중인 초안도 보존하면서 실패한 원문을 입력창으로 돌려준다. */
 export function restoreFailedDraft(current: string, failed: string): string {

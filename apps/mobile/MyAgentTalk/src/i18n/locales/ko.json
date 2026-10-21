@@ -18,7 +18,8 @@
     "close": "닫기",
     "settingsIcon": "⚙",
     "backIcon": "←",
-    "forwardIcon": "→"
+    "forwardIcon": "→",
+    "submitting": "전송 중…"
   },
   "chat": {
     "me": "나",
@@ -408,7 +409,12 @@
     "create": "만들기",
     "empty": "보드가 없습니다",
     "emptyHint": "오른쪽 위 '새 보드'로 첫 보드를 만세요.",
-    "col": { "todo": "할 일", "doing": "진행 중", "review": "리뷰", "done": "완료" },
+    "col": {
+      "todo": "할 일",
+      "doing": "진행 중",
+      "review": "리뷰",
+      "done": "완료"
+    },
     "addCard": "+ 카드",
     "newCardTitle": "새 카드",
     "cardTitle": "카드 제목",
@@ -624,8 +630,16 @@
   },
   "photoEditor": {
     "title": "사진 편집",
-    "tools": { "crop": "크롭", "arrow": "화살표", "pin": "핀", "text": "텍스트" },
-    "note": { "placeholder": "메모 (선택)", "add": "메모 달기" },
+    "tools": {
+      "crop": "크롭",
+      "arrow": "화살표",
+      "pin": "핀",
+      "text": "텍스트"
+    },
+    "note": {
+      "placeholder": "메모 (선택)",
+      "add": "메모 달기"
+    },
     "presets": "비율",
     "freeRatio": "자유",
     "reset": "초기화",
@@ -650,7 +664,11 @@
   },
   "feed": {
     "title": "피드",
-    "segments": { "all": "전체", "photo": "사진", "media": "미디어" },
+    "segments": {
+      "all": "전체",
+      "photo": "사진",
+      "media": "미디어"
+    },
     "empty": "즐겨찾기한 사진·카드가 여기에 표시됩니다.",
     "editBadge": "편집",
     "save": "이미지 저장",
@@ -681,5 +699,12 @@
     "pdfMissing": "서버에 PDF 변환 엔진이 없어요. HTML 내보내기를 브라우저에서 인쇄/저장해 주세요.",
     "offline": "연결이 안 돼요. 네트워크를 확인한 뒤 다시 시도해 주세요.",
     "failed": "내보내기에 실패했어요. 잠시 후 다시 시도해 주세요."
+  },
+  "decisions": {
+    "empty": "결정 대기 없음",
+    "title": "결정 대기",
+    "jumpToOriginal": "원본 메시지로 이동",
+    "answerPlaceholder": "답변을 입력하세요",
+    "submit": "답변 보내기"
   }
 }

@@ -5,7 +5,12 @@ exports.agentExists = agentExists;
 exports.createDefaultPersona = createDefaultPersona;
 exports.ensureSession = ensureSession;
 exports.getOwnedSession = getOwnedSession;
+exports.nextTurnFromLast = nextTurnFromLast;
 exports.nextTurnIndex = nextTurnIndex;
+exports.sanitizeSttMetadata = sanitizeSttMetadata;
+exports.selectAllRows = selectAllRows;
+exports.getOwnedMessage = getOwnedMessage;
+exports.serializeMessage = serializeMessage;
 const errors_1 = require("./errors");
 /** 에이전트가 특정 사용자 소유인지 확인하고 반환 (없으면 404) */
 async function getOwnedAgent(db, userId, agentId) {
@@ -64,12 +69,8 @@ async function ensureSession(db, userId, agentId) {
         .maybeSingle();
     if (!persona)
         throw new errors_1.ApiError(errors_1.ERROR_CODES.NOT_FOUND, '에이전트에 활성 페르소나가 없습니다.');
-    const { data: existing } = await db
-        .from('sessions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('agent_id', agentId)
-        .maybeSingle();
+    const rows = await selectAllRows(db, 'sessions', { user_id: userId, agent_id: agentId });
+    const existing = rows.find(row => !row.forked_from?.session_id);
     if (existing)
         return existing;
     const { data, error } = await db
@@ -81,6 +82,7 @@ async function ensureSession(db, userId, agentId) {
         status: 'active',
         stream_channel_id: null,
         metadata: {},
+        forked_from: {},
     })
         .select()
         .single();
@@ -95,9 +97,88 @@ async function getOwnedSession(db, userId, sessionId) {
         throw new errors_1.ApiError(errors_1.ERROR_CODES.SESSION_NOT_FOUND, '세션을 찾을 수 없습니다.', { session_id: sessionId });
     return data;
 }
+/**
+ * turn_index 오염 가드 (t_e1334cee P1-1, 볼트 numbers-boundary-감사 §1):
+ * max+1 시퀀스 계산의 외부 소스(DB JSONB 타입 드리프트) 수치 경계.
+ * - null/undefined(빈 세션) → 0 (기존 `-1 + 1` 의미 그대로)
+ * - 문자열 숫자("5") → Number() 복원 (6) — additive, 정상 동작 불변
+ * - 그 외 가비지("banana"/NaN/객체) → ApiError로 insert 차단 (침투 시 정렬/커서 연쇄 파괴)
+ */
+function nextTurnFromLast(raw) {
+    if (raw === null || raw === undefined)
+        return 0;
+    const n = Number(raw);
+    if (!Number.isFinite(n))
+        throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, `turn_index 오염 감지: ${String(raw)}`);
+    return n + 1;
+}
 /** 다음 turn_index 계산 */
 async function nextTurnIndex(db, sessionId) {
     const { data } = await db.from('messages').select('turn_index').eq('session_id', sessionId).order('turn_index', { ascending: false }).limit(1).maybeSingle();
-    return (data?.turn_index ?? -1) + 1;
+    return nextTurnFromLast(data?.turn_index);
+}
+/**
+ * stt_metadata 수치 필드 정화 (t_e1334cee P1-4, 볼트 numbers-boundary-감사 §4):
+ * REST body·resume 저널 등 외부 소스의 JSONB를 영속하기 직전에 스캔 —
+ * confidence/duration_ms는 Number 복원(불가 시 기본값), language는 문자열만 허용.
+ * 정상(서버 계산) 값은 그대로 통과 — 동작 불변. 비객체 입력('banana' 문자열 등)은 null.
+ * 멱등: 재스캔해도 같은 결과 (WS early-persist → runTextTurn 이중 호출 안전).
+ */
+function sanitizeSttMetadata(m) {
+    if (!m || typeof m !== 'object')
+        return null;
+    const num = (v, dflt) => { const n = Number(v); return Number.isFinite(n) ? n : dflt; };
+    return {
+        ...m,
+        confidence: num(m.confidence, 0.95),
+        duration_ms: Math.max(0, num(m.duration_ms, 0)),
+        language: typeof m.language === 'string' ? m.language : undefined,
+    };
+}
+/** ID 커서로 전체 행을 읽어 PostgREST의 응답 행 제한을 피한다. */
+async function selectAllRows(db, table, filters) {
+    const rows = [];
+    let cursor;
+    for (;;) {
+        let query = db.from(table).select('*');
+        for (const [key, value] of Object.entries(filters))
+            query = query.eq(key, value);
+        if (cursor)
+            query = query.gt('id', cursor);
+        const { data, error } = await query.order('id', { ascending: true }).limit(500);
+        if (error)
+            throw new errors_1.ApiError(errors_1.ERROR_CODES.INTERNAL_ERROR, error.message);
+        if (!data?.length)
+            return rows;
+        rows.push(...data);
+        cursor = data[data.length - 1].id;
+    }
+}
+/** 메시지와 소속 세션의 소유권을 확인하며 실패 이유는 모두 404로 숨긴다. */
+async function getOwnedMessage(db, userId, messageId, sessionId) {
+    const { data: message, error } = await db.from('messages').select('*').eq('id', messageId).maybeSingle();
+    if (error || !message || (sessionId && message.session_id !== sessionId)) {
+        throw new errors_1.ApiError(errors_1.ERROR_CODES.NOT_FOUND, '메시지를 찾을 수 없습니다.');
+    }
+    const { data: session, error: sessionError } = await db.from('sessions').select('*')
+        .eq('id', message.session_id).eq('user_id', userId).maybeSingle();
+    if (sessionError || !session)
+        throw new errors_1.ApiError(errors_1.ERROR_CODES.NOT_FOUND, '메시지를 찾을 수 없습니다.');
+    return { message, session };
+}
+/** 이전 메시지도 기본 로케일/AI 표시/즐겨찾기 필드를 포함해 직렬화한다. */
+function serializeMessage(row) {
+    return { ...row, locale: row.locale ?? 'ko', ai_generated: row.ai_generated ?? (row.source_neuron != null || row.role === 'agent'),
+        favorite: row.favorite ?? false,
+        // 답변 대기 (t_811e176c) — 011 미적용/dev 행은 false 정규화 (프론트 배지 판정 안정).
+        awaiting_reply: row.awaiting_reply ?? false,
+        // 답글 인용 (t_02f58030) — 012 미적용/dev는 null 정규화(devstore 기본 null, 실DB DEFAULT NULL).
+        // 요약 스냅샷은 structured_payload.reply_to에 유지 — 최상위 승격 없음: raw insert echo와
+        // serialize가 같은 형태여야 하는 toEqual 계약(thread-fork)과 실DB 컬럼 형상을 보존한다.
+        reply_to_id: row.reply_to_id ?? null,
+        // random_id 멱등 (t_3486b1d7 ①②) — 013 미적용/dev는 null 정규화. 프론트 reconcile은
+        // message.client_req_id로 optimistic 카드와 병합하므로 raw insert echo와 같은 형태가 필요하다.
+        client_req_id: row.client_req_id ?? null,
+        dialogue_type: row.dialogue_type ?? null, structured_payload: row.structured_payload ?? {} };
 }
 //# sourceMappingURL=helpers.js.map

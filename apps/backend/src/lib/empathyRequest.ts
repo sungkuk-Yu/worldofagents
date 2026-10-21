@@ -13,8 +13,8 @@
  * 힌트로 준다. 프론트 버튼 바인딩(t_44f8896c)이 template_id를 계속 유효 키로 받는다.
  */
 import { config } from '../config';
-import { chatCompletion, isLlmConfigured, LlmError } from './llm';
-import { ollamaChat, type OllamaError } from './ollama';
+import * as llm from './llm';
+import * as ollama from './ollama';
 import { textSimilarity } from './textSimilarity';
 import type { Locale } from './locale';
 import { logger } from '../utils/logger';
@@ -116,7 +116,7 @@ export async function generateEmpathyRequest(
   // ① 로컬 ollama 우선 시도 (활성화 시)
   if (config.localFrontDesk.enabled) {
     try {
-      const ollamaResult = await ollamaChat({
+      const ollamaResult = await ollama.ollamaChat({
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: userContent },
@@ -131,20 +131,20 @@ export async function generateEmpathyRequest(
       }
       logger.debug?.({ raw: ollamaResult.text.slice(0, 60) }, 'ollama 형식 실패 → cloud 폴백');
     } catch (err) {
-      const code = (err as OllamaError).code;
+      const code = (err as ollama.OllamaError).code;
       logger.debug?.({ code }, 'ollama 장애 → cloud 폴백');
       // ollama 실패 시 아래 cloud 폴백으로 진행
     }
   }
 
   // ② cloud LLM 폴백 (기존 로직)
-  if (!isLlmConfigured()) return null;
+  if (!llm.isLlmConfigured()) return null;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), ht.timeoutMs);
   const onOuterAbort = () => abort.abort();
   opts.signal?.addEventListener('abort', onOuterAbort, { once: true });
   try {
-    const result = await chatCompletion({
+    const result = await llm.chatCompletion({
       // 분류·후속 질문과 같은 저비용 전용 모델 우선 (미설정 시 chatLlm.model 상속).
       model: config.classification.model || undefined,
       temperature: 0.9,
@@ -163,7 +163,7 @@ export async function generateEmpathyRequest(
     }
     return text;
   } catch (err) {
-    logger.debug?.({ err: err instanceof LlmError ? err.code : String((err as Error)?.message || err) }, 'generateEmpathyRequest 장애 → 규칙 폴백');
+    logger.debug?.({ err: err instanceof llm.LlmError ? err.code : String((err as Error)?.message || err) }, 'generateEmpathyRequest 장애 → 규칙 폴백');
     return null;
   } finally {
     clearTimeout(timer);

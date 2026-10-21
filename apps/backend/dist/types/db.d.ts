@@ -40,6 +40,7 @@ export interface PersonasRow {
     created_at: string;
 }
 export interface SessionsRow {
+    forked_from: Json;
     id: string;
     user_id: string;
     agent_id: string;
@@ -47,6 +48,7 @@ export interface SessionsRow {
     status: 'active' | 'suspended' | 'archived';
     stream_channel_id: string | null;
     metadata: Json;
+    title?: string | null;
     created_at: string;
     last_activity_at: string;
 }
@@ -85,7 +87,14 @@ export interface NeuronInstancesRow {
     deactivated_at: string | null;
     created_at: string;
 }
+export type DialogueCardType = 'text' | 'info_card' | 'spreadsheet' | 'file' | 'task_flow' | 'multi_agent' | 'photo_edit';
+/** 답변 대기 회신 형식 (t_811e176c, 마이그레이션 011) — yesno=예/아니오, freeform=주관식, both=둘 다. */
+export type ReplyKind = 'yesno' | 'freeform' | 'both';
 export interface MessagesRow {
+    locale: 'ko' | 'en';
+    ai_generated: boolean;
+    parent_message_id: string | null;
+    root_message_id: string | null;
     id: string;
     session_id: string;
     stream_message_id: string | null;
@@ -93,11 +102,25 @@ export interface MessagesRow {
     role: 'user' | 'agent' | 'system';
     message_type: 'text' | 'voice' | 'image' | 'file' | 'card' | 'system';
     content: string;
+    dialogue_type?: DialogueCardType | null;
+    structured_payload: Json;
     stt_metadata: Json | null;
     source_neuron: string | null;
     attachments: Json;
     persona_guard: Json;
     user_feedback: 'like' | 'dislike' | null;
+    /** 즐겨찾기(⭐) 영속화 — 마이그레이션 003. 개인 상태이며 재접속 시 GET /api/favorites로 동기화. */
+    favorite: boolean;
+    /** 답변 대기(t_811e176c) — 마이그레이션 011. 회신 필요 표시, 사용자 발화로 해소. 011 미적용 환경은 undefined. */
+    awaiting_reply?: boolean;
+    reply_kind?: ReplyKind | null;
+    /** 답글 인용 원문 ID(t_02f58030) — 마이그레이션 012. 같은 세션 참조, 원문 삭제 시 null. 012 미적용 환경은 undefined.
+     *  인용 요약 스냅샷은 structured_payload.reply_to = { message_id, by, text } (프론트 인용바 소스). */
+    reply_to_id?: string | null;
+    /** random_id 멱등 식별자(t_3486b1d7①) — 마이그레이션 013. user 행만 보유, agent 행 null.
+     *  013 미적용 환경은 undefined. 프론트 ② reconcile: optimistic 카드 client_req_id와 message.new의
+     *  message.client_req_id가 같으면 같은 message_id 재이벤트로 in-place replace(이중 렌더 금지). */
+    client_req_id?: string | null;
     created_at: string;
 }
 export interface TasksRow {
@@ -165,6 +188,11 @@ export interface ApiResponse<T = unknown> {
         cursor?: string;
         has_more?: boolean;
         total?: number;
+        /** offset 기반 페이지네이션 에코 (GET /api/favorites — 마이그레이션 003) */
+        limit?: number;
+        offset?: number;
+        /** 응답 출처 라우트 표기 (GET /api/vault/library — t_d469fac3, 'vault-library') */
+        source?: string;
     };
 }
 export interface ApiErrorResponse {
@@ -176,6 +204,8 @@ export interface ApiErrorResponse {
     };
 }
 export interface PersonaConfig {
+    system_prompt?: string;
+    tags?: string[];
     persona_id: string;
     name: string;
     voice: Record<string, unknown>;
@@ -184,6 +214,8 @@ export interface PersonaConfig {
         emoji_usage: 'never' | 'rare' | 'frequent' | string;
         sentence_length: 'short' | 'medium' | 'long' | string;
         honorific_level: number;
+        /** 처리 중 문구(quip) 톤: warm | brisk | playful, 또는 캐릭터 전용 풀 noir | adjutant | sf (t_80f0d396; 미설정 시 formality에서 추론) */
+        quip_tone?: 'warm' | 'brisk' | 'playful' | 'noir' | 'adjutant' | 'sf' | string;
     };
     style_guide: {
         personality_traits: string[];
@@ -207,4 +239,66 @@ export interface PersonaConfig {
 }
 export type DialogueType = 'information' | 'data' | 'file' | 'task' | 'multi' | 'question' | 'command';
 export type NeuronStage = 'thinking' | 'organizing' | 'finalizing' | 'rendering';
+export type ConsentType = 'terms' | 'privacy' | 'voice_recording' | 'overseas_transfer' | 'marketing';
+export interface ConsentsRow {
+    id: string;
+    user_id: string;
+    consent_type: ConsentType;
+    version: string;
+    consented: boolean;
+    ip_or_device: string | null;
+    created_at: string;
+}
+/** 옵시디언식 노트 볼트 행 — user_id 직접 소유 */
+export interface VaultNotesRow {
+    id: string;
+    user_id: string;
+    title: string;
+    /** 마크다운 원문 ([[wikilink]] 해석은 프론트 담당 — 백엔드는 원문 보존) */
+    content: string;
+    /** 폴더 경로 (항상 '/'로 시작, 루트는 '/') */
+    folder: string;
+    tags: string[];
+    /** 백링크 저장소 — 프론트가 계산해 PATCH로 동기화 가능 */
+    backlinks: Json;
+    /** 대화→노트 저장 시 역참조 (FK 없음 — 원본 삭제되어도 노트 유지) */
+    source_session_id: string | null;
+    source_message_id: string | null;
+    created_at: string;
+    updated_at: string;
+}
+/** 사용자 개인 칸반 보드 행 */
+export interface BoardsRow {
+    id: string;
+    user_id: string;
+    name: string;
+    description: string | null;
+    created_at: string;
+    updated_at: string;
+}
+export type BoardCardStatus = 'todo' | 'doing' | 'review' | 'done';
+/** 보드 카드 행 — 소유권은 board_id → boards.user_id로 결정 */
+export interface BoardCardsRow {
+    id: string;
+    board_id: string;
+    title: string;
+    body: string;
+    status: BoardCardStatus;
+    priority: number;
+    /** 컬럼 내 카드 순서 (드래그 이동 시 앞뒤 카드 사이 값으로 갱신) */
+    position: number;
+    /** 담당 에이전트 이름 (users FK 아님 — 자유 텍스트) */
+    assignee: string | null;
+    labels: string[];
+    source_message_id: string | null;
+    created_at: string;
+    updated_at: string;
+}
+/** GET /api/vault/tree 노드 */
+export interface VaultTreeNode {
+    name: string;
+    path: string;
+    note_count: number;
+    children: VaultTreeNode[];
+}
 //# sourceMappingURL=db.d.ts.map

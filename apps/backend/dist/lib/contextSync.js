@@ -6,6 +6,8 @@ exports.readContextValue = readContextValue;
 exports.readFullContext = readFullContext;
 exports.clearContextKey = clearContextKey;
 exports.updateTaskContext = updateTaskContext;
+const contextArchive_1 = require("./contextArchive");
+const logger_1 = require("../utils/logger");
 const JSON_PATH_RE = /^([a-z]+\.[a-zA-Z0-9_.-]+)$/;
 function assertValidKey(key) {
     if (!JSON_PATH_RE.test(key)) {
@@ -50,18 +52,47 @@ function applyOps(current, ops) {
     }
     return acc;
 }
-/** 특정 키의 현재 컨텍스트 값 재구성 (캐시 대신 DB에서 항상 재구성) */
-async function readContextValue(db, sessionId, key) {
-    assertValidKey(key);
+/** 컨텍스트 패치 행 로더 — hot 전량 + (존재 시) 검증된 cold 객체 병합.
+ *  t_848d0c3b 콜드 아카이브 폴백: cold는 **verified_at 있는 배치만** 사용(설계 §3),
+ *  hot 행과 id가 겹치면 hot 우선(이관 후 복원/부분 실패 창에서 원본 진실 = hot).
+ *  순서는 readContextValue/readFullContext 계약대로 (created_at, id) 오름차순. */
+async function loadPatchesWithCold(db, sessionId) {
     const { data, error } = await db
         .from('context_patches')
         .select('*')
         .eq('session_id', sessionId)
-        .eq('key', key)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
     if (error)
+        throw error;
+    const hot = data || [];
+    let cold;
+    try {
+        cold = await (0, contextArchive_1.fetchVerifiedPatches)(db, sessionId);
+    }
+    catch (err) {
+        // cold 폴백 실패는 hot 답변을 막지 않는다 — 설계 §(d) '조용히 hot만 계속'.
+        logger_1.logger.warn(`context cold 폴백 실패(hot만 사용): session=${sessionId} — ${err.message}`);
+        cold = [];
+    }
+    if (!cold.length)
+        return hot;
+    const hotIds = new Set(hot.map((p) => String(p.id)));
+    const merged = [...hot, ...cold.filter((p) => !hotIds.has(String(p.id)))];
+    merged.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id));
+    return merged;
+}
+/** 특정 키의 현재 컨텍스트 값 재구성 (캐시 대신 DB에서 항상 재구성) */
+async function readContextValue(db, sessionId, key) {
+    assertValidKey(key);
+    let rows;
+    try {
+        rows = await loadPatchesWithCold(db, sessionId);
+    }
+    catch {
         return null;
-    const ops = (data || []).map((p) => ({
+    }
+    const ops = rows.filter((p) => p.key === key).map((p) => ({
         operation: p.operation,
         value: p.delta?.value,
     }));
@@ -69,13 +100,13 @@ async function readContextValue(db, sessionId, key) {
 }
 /** 세션 전체 컨텍스트 스냅샷 (키별 최신 값) */
 async function readFullContext(db, sessionId) {
-    const { data, error } = await db
-        .from('context_patches')
-        .select('*')
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
-    if (error)
+    let data;
+    try {
+        data = await loadPatchesWithCold(db, sessionId);
+    }
+    catch {
         return {};
+    }
     const byKey = new Map();
     for (const p of data || []) {
         if (!byKey.has(p.key) || p.created_at >= byKey.get(p.key).created_at) {

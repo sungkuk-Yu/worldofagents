@@ -15,13 +15,22 @@ export interface WSSocket {
     terminate?: () => void;
     readyState?: number;
 }
+/** 외부(REST /resume)에서 조회 — 이 세션에 실시간 접속 중인 디바이스 라벨 목록. */
+export declare function sessionPresence(sessionId: string): string[];
 export declare function registerConnection(sessionId: string, socket: WSSocket): void;
 export declare function unregisterConnection(sessionId: string, socket: WSSocket): void;
 export declare function broadcastToSession(sessionId: string, message: ServerMessage): void;
+/** 테스트 훅 (t_5cba9ebb 드레인 순서 회귀) — 실 소켓 대신 plain object로 큐를 채운다. */
+export declare const __ingressTestHooks: {
+    queue: (socket: object, raw: string) => void;
+    drain: (socket: object, deliver: (raw: Buffer | string, isBinary?: boolean) => Promise<unknown> | void) => Promise<void>;
+};
 export declare function websocketHandler(connection: any, request: FastifyRequest): Promise<void>;
 /** 테스트용 — 허브 상태 검사 */
 export declare function __hubInfo(): {
     sessions: number;
     connections: number;
 };
+/** 탈퇴한 세션의 기존 소켓도 종료한다. */
+export declare function closeSessionConnections(sessionId: string): void;
 //# sourceMappingURL=handler.d.ts.map
