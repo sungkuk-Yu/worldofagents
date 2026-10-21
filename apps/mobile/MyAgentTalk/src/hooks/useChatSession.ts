@@ -20,6 +20,7 @@ import {
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
   newClientReqId, reconcilePendingUserEcho, planEventSyncReplay,
   streamCardId, isStreamCard,
+  normalizeDecisionItems, DecisionItem, EMPTY_DECISIONS,
 } from '../lib/chatLogic';
 import type { ReplyQuote } from '../types';
 import { renderFlags } from '../lib/renderFlags';
@@ -78,6 +79,12 @@ export interface UseChatSessionReturn {
   queue: QueueItem[];
   /** 비서실 릴레이 자막 (t_961ca593 Phase B): relay.updated 최신 1줄 — 이벤트 0건(비서 외 페르소나)이면 null → 렌더 없음 */
   relay: RelayCaption | null;
+  /** 결정 인박스 (t_2de069f3): 에이전트→유저 결정 요청 항목 — pending 우선 정렬, 빈 배열이면 렌더 없음 */
+  decisions: DecisionItem[];
+  /** 결정 항목 답변/보류/해제 (낙관 업데이트 후 서버 반영) */
+  updateDecision: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => Promise<void>;
+  /** 결정 스냅샷 적용기 (WS/폴링) */
+  applyDecisionsSnapshot: (items: DecisionItem[]) => void;
   /** GET /queue 보조 폴링이 쓰는 queue 스냅샷 적용기 (안정 ref, t_91cb659c 스트립 훅 응집) */
   applyQueueSnapshot: (items: QueueItem[]) => void;
   // 답변 대기 (t_363c0faa / 백엔드 t_811e176c): 회신 필요 메시지 스냅샷 — 빈 배열이면 배지/칩 렌더 없음
@@ -181,6 +188,8 @@ export function useChatSession(
   const [suggested, setSuggested] = useState<SuggestedQuestion[]>([]);
   // 비서실 릴레이 자막 (t_961ca593 Phase B) — 최신 1줄 휘발성 연출. 이벤트 0건(비서 외 페르소나)이면 항상 null → 렌더 없음.
   const [relay, setRelay] = useState<RelayCaption | null>(null);
+  // 결정 인박스 (t_2de069f3) — WS decision.updated + GET /decisions 스냅샷. pending 우선 정렬. [] → 렌더 없음.
+  const [decisions, setDecisions] = useState<DecisionItem[]>(EMPTY_DECISIONS);
   // 디바이스 라벨은 첫 감지값으로 고정(연결 유지 중 라벨이 바뀌면 presence가 요동침).
   // 화면이 opts.device를 주면 그 값을 쓰고, 없으면 창 폭/navigator 기반 순수 감지(RN import 없음).
   const deviceRef = useRef(opts.device ?? detectDeviceLabel(
@@ -247,6 +256,21 @@ export function useChatSession(
   useEffect(() => { if (!rootMessageId) queueStore.set(queueView); }, [rootMessageId, queueView]);
   // 답변 대기 스냅샷 적용기 (t_363c0faa) — WS reply.pending.updated 우선, GET /pending은 부트스트랩/보조.
   const applyPendingSnapshot = useCallback((items: PendingReplyItem[]) => setPendingReplies(items), []);
+  // 결정 인박스 스냅샷 적용기 (t_2de069f3) — WS decision.updated 우선, GET /decisions는 부트스트랩.
+  const applyDecisionsSnapshot = useCallback((items: DecisionItem[]) => setDecisions(items), []);
+
+  // 결정 항목 업데이트 (낙관 갱신 후 서버 반영) — PATCH /api/decisions/:id 호출
+  const updateDecision = useCallback(async (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => {
+    if (!sessionId) return;
+    // 낙관 갱신: 상태 즉시 변경 (서버 왕복 전)
+    setDecisions((prev: DecisionItem[]) => prev.map((item: DecisionItem) => item.id === id ? { ...item, status, answer } : item));
+    try {
+      await api.updateDecision(id, { status, answer });
+    } catch (err) {
+      console.error('[useChatSession] updateDecision failed:', err);
+      // 실패 시 롤백은 WS decision.updated 재수신 의존 (또는 폴링 복구)
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -418,6 +442,19 @@ export function useChatSession(
       // 체크포인트 표시가 유지된다. 필드 없으면 조용히 스킵(WS queue.updated만으로도 동작).
       const queueSnap = normalizeQueueItems((env as unknown as { queue?: unknown }).queue);
       if (queueSnap.length) setQueue(queueSnap);
+      // 결정 인박스 복원 (t_2de069f3): GET /messages에 decisions 배열이 있으면 부트스트랩. 없으면 별도 GET /decisions 폴백.
+      const decisionsSnap = normalizeDecisionItems((env as unknown as { decisions?: unknown }).decisions);
+      if (decisionsSnap.length) {
+        setDecisions(decisionsSnap);
+      } else if (initial) {
+        // 별도 API 호출 (GET /api/sessions/:threadId/decisions)
+        try {
+          const decisionsResp = await api.getDecisions(sid);
+          if (decisionsResp.ok && decisionsResp.data) setDecisions(normalizeDecisionItems(decisionsResp.data));
+        } catch (err) {
+          console.warn('[useChatSession] getDecisions failed:', err);
+        }
+      }
       // 답변 대기 GET /pending 부트스트랩은 usePendingReplies(보조 폴링 훅)이 소유 (t_363c0faa) —
       // 이 훅은 WS reply.pending.updated 단일 상태원천만 유지 (useQueueStrip/applyQueueSnapshot 대칭).
       // 후속 질문 복원 (t_1797f432 ③): 마지막 에이전트 행 payload의 suggested_questions 세트 (없으면 빈 배열).
@@ -524,6 +561,12 @@ export function useChatSession(
             // queue.updated와 동일 원칙 — 허브 로그 미채번일 수 있어 seq 필터 앞에서 처리.
             if (type === 'reply.pending.updated') {
               setPendingReplies(normalizeReplyPending(raw));
+              return;
+            }
+            // 결정 인박스 (t_2de069f3 / 백엔드 R2): decision.updated = 결정 항목 전체 교체.
+            // queue.updated와 동일 원칙 — 허브 로그 미채번일 수 있어 seq 필터 앞에서 처리.
+            if (type === 'decision.updated') {
+              setDecisions(normalizeDecisionItems(raw.items ?? raw.decisions ?? []));
               return;
             }
             // 릴레이 자막 (t_961ca593 Phase B): 휘발성 연출 — seq 필터 앞의 전용 onRelay 경로에서만 처리한다.
@@ -998,6 +1041,10 @@ export function useChatSession(
     queue, suggested,
     // 비서실 릴레이 자막 (t_961ca593 Phase B) — 이벤트 없으면 null (렌더 없음)
     relay,
+    // 결정 인박스 (t_2de069f3) — decision.updated 단일 상태원천 + GET /decisions 부트스트랩
+    decisions,
+    updateDecision,
+    applyDecisionsSnapshot,
     /** 스트립 보조 폴링의 단일 queue 상태 적용기 (t_91cb659c) — useQueueStrip에 전달 */
     applyQueueSnapshot,
     // 답변 대기 (t_363c0faa) — reply.pending.updated 단일 상태원천 + GET /pending 보조 적용기
