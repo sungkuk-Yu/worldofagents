@@ -11,6 +11,7 @@ import { agentRoutes } from './routes/agents';
 import { messageRoutes } from './routes/messages';
 import { favoriteRoutes } from './routes/favorites';
 import { sessionRoutes } from './routes/sessions';
+import { decisionRoutes } from './routes/decisions';
 import { taskRoutes } from './routes/tasks';
 import { skillRoutes } from './routes/skills';
 import { neuronRoutes } from './routes/neurons';
@@ -74,6 +75,7 @@ export async function build() {
   await app.register(messageRoutes, { prefix: '/api/messages' });
   await app.register(favoriteRoutes, { prefix: '/api/favorites' });
   await app.register(sessionRoutes, { prefix: '/api/sessions' });
+  await app.register(decisionRoutes, { prefix: '/api/decisions' });
   await app.register(taskRoutes, { prefix: '/api/tasks' });
   await app.register(skillRoutes, { prefix: '/api/skills' });
   await app.register(neuronRoutes, { prefix: '/api/neurons' });

@@ -13,6 +13,7 @@ import { broadcastToSession, sessionPresence } from '../websocket/handler';
 import { hasActiveRun, isDuplicateIngress, eventSyncState } from '../websocket/eventlog';
 import { config } from '../config';
 import { listQueue, queueSnapshot, enqueueQuestion, skipAllPending, isQueueKnownUnavailable } from '../lib/questionQueue';
+import { listDecisions, decisionSnapshot, registerDecision } from '../lib/decisionItems';
 import { queueJoinLine } from '../lib/personaVoice';
 import { resolvePendingReplies, replyPendingSnapshot } from '../lib/awaitingReply';
 import { classifyDialogueType } from '../neurons/router';
@@ -335,6 +336,16 @@ export async function sessionRoutes(app: FastifyInstance) {
     return ok(snap.items, { total: snap.pending_count });
   });
 
+  // GET /api/sessions/:id/decisions — 결정 인박스 항목 목록 (t_6d208fb5)
+  // 프론트는 data 배열을 읽는다: {id,question,options,status,created_at}[].
+  // WS decision.updated는 스냅샷 객체({pending_count, items}).
+  app.get('/:id/decisions', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    const items = await listDecisions(request.db, session.id);
+    const snap = decisionSnapshot(items);
+    return ok(snap.items, { total: snap.pending_count });
+  });
+
   // GET /api/sessions/:id/pending — 답변 대기 체크포인트 (t_811e176c ④)
   // 프론트 부트스트랩 폴백(WS 무신뢰 환경·재접속): { count, items:[{message_id, excerpt, reply_kind, turn_index}] }.
   // 011 미적용 환경(래치)은 빈 스냅샷 — 배지 0으로 강등, 대화 경로는 무영향.
@@ -392,6 +403,35 @@ export async function sessionRoutes(app: FastifyInstance) {
     const attachmentIds = parseAttachmentIds(body);
     // random_id 멱등 (t_3486b1d7 ①): send 프레임/REST body의 client_req_id로 재전송 중복 생성 차단.
     const clientReqId = typeof body.client_req_id === 'string' && body.client_req_id ? body.client_req_id : null;
+
+    // ③ 구조화 결정카드 자동 등록 (t_6d208fb5): {type:"decision_request", question, options} →
+    // decision_items 질문별 항목 생성 + WS decision.updated 브로드캐스트.
+    // 단일 질문 {question, options} 또는 복수 질문 {questions: [{question, options}, ...]} 지원.
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed && parsed.type === 'decision_request') {
+        const agentId = session.agent_id || 'unknown';
+        const items: Array<{ question: string; options: string[] | Record<string, unknown> }> = [];
+        
+        if (parsed.questions && Array.isArray(parsed.questions)) {
+          items.push(...parsed.questions);
+        } else if (parsed.question) {
+          items.push({ question: parsed.question, options: parsed.options || [] });
+        }
+        
+        for (const item of items) {
+          await registerDecision(request.db, session.id, request.userId, agentId, item.question, item.options);
+        }
+        
+        if (items.length > 0) {
+          const decisions = await listDecisions(request.db, session.id);
+          const snap = decisionSnapshot(decisions);
+          broadcastToSession(session.id, { type: 'decision.updated', session_id: session.id, ...snap });
+        }
+      }
+    } catch {
+      // JSON 파싱 실패 또는 구조 불일치 시 평문으로 처리 (기존 플로우 유지)
+    }
 
     // 요구① (t_c31e3f45): Enter+전송 버튼 동시 탭 등 짧은 창 동일 content 재발송 드롭 —
     // 재현 실측(9/29): 100ms 간격 동일 POST 2회 → 1개는 실행 중 끼어들기로 큐 적재,
