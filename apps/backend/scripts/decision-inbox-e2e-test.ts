@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
 const API_BASE = 'http://localhost:3000/api';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -24,7 +25,12 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});
 
 interface TestContext {
   userId: string;
@@ -62,8 +68,12 @@ async function createTestUser(): Promise<{ userId: string; email: string; access
     }
   }
   
-  // Sign in to get access token
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+  // Sign in to get access token (별도 클라이언트 사용)
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  
+  const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword({
     email,
     password,
   });
@@ -106,8 +116,14 @@ async function createTestSession(userId: string, accessToken: string): Promise<s
 
 async function simulateDecisionRequest(
   sessionId: string,
-  userId: string
+  userId: string,
+  accessToken: string
 ): Promise<string[]> {
+  // 인증된 클라이언트 생성 (RLS 통과용)
+  const authedClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+  
   // 에이전트 메시지에 구조화 결정카드 포함 (chatTurn.ts가 감지)
   const decisionPayload = {
     type: 'decision_request',
@@ -128,14 +144,24 @@ async function simulateDecisionRequest(
   };
   
   // DB에 직접 에이전트 메시지 삽입 (실제로는 chatTurn이 처리)
+  // turn_index 계산: 해당 세션의 최대 turn_index + 1
+  const { data: lastMsg } = await authedClient
+    .from('messages')
+    .select('turn_index')
+    .eq('session_id', sessionId)
+    .order('turn_index', { ascending: false })
+    .limit(1)
+    .single();
+  
+  const nextTurnIndex = (lastMsg?.turn_index ?? -1) + 1;
+  
   const agentMessageId = randomUUID();
   const { error: msgError } = await supabase.from('messages').insert({
     id: agentMessageId,
     session_id: sessionId,
-    user_id: userId,
-    sender: 'agent',
+    role: 'agent',
+    turn_index: nextTurnIndex,
     content: JSON.stringify(decisionPayload),
-    ai_generated: true,
     created_at: new Date().toISOString(),
   });
   
@@ -277,7 +303,7 @@ async function verifyStateTransitions(sessionId: string): Promise<void> {
   // 채팅 기록 확인
   const { data: messages, error: msgError } = await supabase
     .from('messages')
-    .select('id, sender, ai_generated')
+    .select('id, role, message_type')
     .eq('session_id', sessionId)
     .order('created_at', { ascending: false });
   
@@ -333,7 +359,7 @@ async function main() {
     ctx = { userId, sessionId, accessToken, decisionIds: [] };
     
     // 3. 구조화 결정카드 전송 → 자동 등록
-    ctx.decisionIds = await simulateDecisionRequest(sessionId, userId);
+    ctx.decisionIds = await simulateDecisionRequest(sessionId, userId, accessToken);
     
     // 4. decision_items 확인
     await verifyDecisionItems(sessionId);
