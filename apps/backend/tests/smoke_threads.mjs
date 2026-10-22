@@ -3,7 +3,7 @@
  * 020 마이그레이션 적용 전 flag OFF 상태 검증
  */
 import { ok } from 'node:assert/strict';
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before } from 'node:test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
 
@@ -11,7 +11,7 @@ describe('Threads (flag OFF)', () => {
   let token, sessionId;
 
   before(async () => {
-    // 회원가입 및 세션 생성
+    // 회원가입
     const signupRes = await fetch(`${BASE}/api/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -19,17 +19,31 @@ describe('Threads (flag OFF)', () => {
         email: `thread-test-${Date.now()}@test.io`,
         password: 'password123',
         display_name: 'Thread Tester',
+        age_confirmed: true,
+        consents: ['terms', 'privacy', 'voice_recording', 'overseas_transfer'].map(type => ({ type, version: '1.0', consented: true })),
       }),
     });
     const signup = await signupRes.json();
+    if (!signup.ok) throw new Error(`Signup failed: ${JSON.stringify(signup)}`);
     token = signup.data.token;
 
+    // 에이전트 생성
+    const agentRes = await fetch(`${BASE}/api/agents`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Thread Test Agent', agent_type: 'shadow' }),
+    });
+    const agent = await agentRes.json();
+    if (!agent.ok) throw new Error(`Agent creation failed: ${JSON.stringify(agent)}`);
+
+    // 세션 생성
     const sessionRes = await fetch(`${BASE}/api/sessions/ensure`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_id: 'default' }),
+      body: JSON.stringify({ agent_id: agent.data.id }),
     });
     const session = await sessionRes.json();
+    if (!session.ok) throw new Error(`Session ensure failed: ${JSON.stringify(session)}`);
     sessionId = session.data.id;
   });
 
