@@ -6,11 +6,13 @@
 BEGIN;
 
 -- messages 테이블에 스레드 관련 컬럼 추가
+-- IF NOT EXISTS: 기존 parent_message_id와 충돌 방지
+-- ON DELETE SET NULL: 부모 메시지 삭제 시 스레드 원문 보존 (고아 스레드로 전환)
 ALTER TABLE messages
-    ADD COLUMN parent_message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
-    ADD COLUMN merged_summary TEXT,
-    ADD COLUMN is_merged_to_parent BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN send_to_main BOOLEAN NOT NULL DEFAULT false;
+    ADD COLUMN IF NOT EXISTS parent_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS merged_summary TEXT,
+    ADD COLUMN IF NOT EXISTS is_merged_to_parent BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS send_to_main BOOLEAN NOT NULL DEFAULT false;
 
 -- parent_message_id 인덱스 (스레드 조회 성능)
 CREATE INDEX idx_messages_parent_message_id ON messages(parent_message_id)
