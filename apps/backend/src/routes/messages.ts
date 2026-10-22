@@ -69,4 +69,41 @@ export async function messageRoutes(app: FastifyInstance) {
     return reply.status(201).send(ok({ ...textTurnResponse(result),
       thread: { root_message_id: rootId, parent_message_id: message.id, reply_count: thread.reply_count } }));
   });
+
+  // POST /:id/merge-thread — 스레드 본문에 녹이기 (t_8fbe4328)
+  // 스레드 답글을 볼트 파일로 요약→원 메시지의 merged_summary에 저장
+  app.post('/:id/merge-thread', { preHandler: requireAuth }, async request => {
+    const { message } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
+    const rootId = message.root_message_id || message.id;
+    if (rootId !== message.id) throw badRequest('루트 메시지에서만 병합할 수 있습니다.');
+    
+    const thread = await readThread(request.db, message);
+    if (thread.reply_count === 0) throw badRequest('병합할 답글이 없습니다.');
+    
+    // TODO: 볼트 파일 생성 및 요약 (향후 구현)
+    const summary = `스레드 답글 ${thread.reply_count}개 병합됨`;
+    
+    const { data, error } = await request.db.from('messages')
+      .update({ merged_summary: summary }).eq('id', message.id).select().single();
+    if (error || !data) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error?.message || '병합에 실패했습니다.');
+    
+    broadcastToSession(message.session_id, { type: 'thread.merged', session_id: message.session_id, message_id: message.id, summary });
+    return ok({ ...serializeMessage(data as MessagesRow), merged: true });
+  });
+
+  // PATCH /:id/send-to-main — 메인 대화로 보내기 토글 (t_8fbe4328, Slack 참고)
+  app.patch('/:id/send-to-main', { preHandler: requireAuth }, async request => {
+    const { message } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
+    if (!message.root_message_id) throw badRequest('스레드 답글에서만 사용할 수 있습니다.');
+    
+    const body = request.body as { send_to_main?: unknown } | null;
+    if (typeof body?.send_to_main !== 'boolean') throw badRequest('send_to_main은 boolean이어야 합니다.');
+    
+    const { data, error } = await request.db.from('messages')
+      .update({ send_to_main: body.send_to_main }).eq('id', message.id).select().single();
+    if (error || !data) throw new ApiError(ERROR_CODES.INTERNAL_ERROR, error?.message || '설정 변경에 실패했습니다.');
+    
+    broadcastToSession(message.session_id, { type: 'thread.send_to_main_changed', session_id: message.session_id, message_id: message.id, send_to_main: body.send_to_main });
+    return ok(serializeMessage(data as MessagesRow));
+  });
 }

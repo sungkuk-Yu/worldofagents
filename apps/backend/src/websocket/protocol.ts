@@ -85,6 +85,8 @@ export type ServerMessage =
    *  기존 run.progress/neuron.status/relay.updated는 하위 호환으로 그대로 발행되지만
    *  프론트는 line만 렌더한다. 답변 스트리밍(answer.delta) 시작 시 이 줄은 자동 소멸(프론트). */
   | { type: 'persona.line'; seq?: number; session_id: string; run_id?: string; line: string; source: 'ack' | 'progress' | 'queue' | 'relay' }
+  | { type: 'thread.merged'; session_id: string; message_id: string; summary: string }
+  | { type: 'thread.send_to_main_changed'; session_id: string; message_id: string; send_to_main: boolean }
   | { type: 'session.archived'; session_id: string }
   | { type: 'session.error'; code: string; message: string }
   | { type: 'pong'; ts: number }

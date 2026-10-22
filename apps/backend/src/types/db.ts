@@ -135,6 +135,10 @@ export interface MessagesRow {
    *  013 미적용 환경은 undefined. 프론트 ② reconcile: optimistic 카드 client_req_id와 message.new의
    *  message.client_req_id가 같으면 같은 message_id 재이벤트로 in-place replace(이중 렌더 금지). */
   client_req_id?: string | null;
+  /** 본문에 녹인 스레드 요약(t_8fbe4328) — 마이그레이션 020. 스레드 내용을 원 메시지에 병합한 텍스트. NULL = 병합 안 됨. */
+  merged_summary?: string | null;
+  /** 메인 대화로 보내기(t_8fbe4328, Slack 참고) — 마이그레이션 020. 스레드 답글을 메인 타임라인에도 표시할지 여부. */
+  send_to_main?: boolean;
   created_at: string;
 }
 

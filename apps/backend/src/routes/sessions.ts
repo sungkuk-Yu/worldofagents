@@ -361,7 +361,8 @@ export async function sessionRoutes(app: FastifyInstance) {
     const { before, after, role, limit = '50' } = request.query as { before?: string; after?: string; role?: string; limit?: string };
     const max = Math.min(parseInt(limit, 10) || 50, 200);
 
-    let query = request.db.from('messages').select('*').eq('session_id', session.id);
+    let query = request.db.from('messages').select('*').eq('session_id', session.id)
+      .is('parent_message_id', null);  // 메인 대화만 (스레드 답글 제외, t_8fbe4328)
     if (role && ['user', 'agent', 'system'].includes(role)) query = query.eq('role', role);
     const afterIdx = Number.parseInt(after || '', 10);
     const beforeIdx = Number.parseInt(before || '', 10);
@@ -376,6 +377,51 @@ export async function sessionRoutes(app: FastifyInstance) {
       router_dialogue_type: row.role === 'user' ? classifyDialogueType(row.content) : null,
       structured_payload: row.structured_payload ?? {},
     })), { has_more: rows.length === max, total: rows.length });
+  });
+
+  // GET /api/sessions/:id/threads — 스레드 목록 (t_8fbe4328)
+  // parent_message_id가 있는 메시지들을 그룹화하여 스레드 메타데이터와 함께 반환
+  app.get('/:id/threads', { preHandler: requireAuth }, async (request) => {
+    const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
+    
+    // parent_message_id가 있는 메시지(스레드 답글) 조회
+    const { data: threads } = await request.db.from('messages')
+      .select('parent_message_id, id, content, created_at, role')
+      .eq('session_id', session.id)
+      .not('parent_message_id', 'is', null)
+      .order('created_at', { ascending: false });
+    
+    if (!threads || threads.length === 0) return ok([], { total: 0 });
+    
+    // parent_message_id별로 그룹화
+    const grouped = new Map<string, any[]>();
+    for (const msg of threads) {
+      const parent = msg.parent_message_id;
+      if (!grouped.has(parent)) grouped.set(parent, []);
+      grouped.get(parent)!.push(msg);
+    }
+    
+    // 부모 메시지 정보 조회
+    const parentIds = Array.from(grouped.keys());
+    const { data: parents } = await request.db.from('messages')
+      .select('*').in('id', parentIds);
+    
+    const result = (parents || []).map((parent: any) => {
+      const replies = grouped.get(parent.id) || [];
+      return {
+        parent_message: serializeMessage(parent),
+        reply_count: replies.length,
+        last_reply_at: replies[0]?.created_at || null,
+        preview: replies.slice(0, 3).map((r: any) => ({
+          id: r.id,
+          role: r.role,
+          content: r.content.slice(0, 100),
+          created_at: r.created_at,
+        })),
+      };
+    });
+    
+    return ok(result, { total: result.length });
   });
 
   // GET /api/sessions/:id/events?after_seq= — seq diff sync catch-up (t_3486b1d7 ③)
