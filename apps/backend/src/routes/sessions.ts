@@ -382,6 +382,11 @@ export async function sessionRoutes(app: FastifyInstance) {
   // GET /api/sessions/:id/threads — 스레드 목록 (t_8fbe4328)
   // parent_message_id가 있는 메시지들을 그룹화하여 스레드 메타데이터와 함께 반환
   app.get('/:id/threads', { preHandler: requireAuth }, async (request) => {
+    // Feature flag 체크
+    if (process.env.ENABLE_MESSAGE_THREADS !== 'true') {
+      throw new ApiError(ERROR_CODES.NOT_FOUND, '스레드 기능이 비활성화되었습니다.');
+    }
+    
     const session = await getOwnedSession(request.db, request.userId, (request.params as Record<string, string>).id);
     
     // parent_message_id가 있는 메시지(스레드 답글) 조회

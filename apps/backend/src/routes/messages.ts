@@ -13,9 +13,15 @@ import { MessagesRow } from '../types/db';
 /** 답글 ID로 조회해도 같은 루트와 전체 답글을 반환한다. */
 async function readThread(db: DbClient, message: MessagesRow) {
   const rootId = message.root_message_id || message.id;
-  const { data: root, error } = await db.from('messages').select('*')
-    .eq('session_id', message.session_id).eq('id', rootId).maybeSingle();
-  if (error || !root) throw new ApiError('NOT_FOUND', '스레드를 찾을 수 없습니다.');
+  // root_message_id가 없으면 message 자신이 root (별도 조회 불필요)
+  let root: MessagesRow;
+  if (message.root_message_id) {
+    const { data, error } = await db.from('messages').select('*').eq('id', rootId).maybeSingle();
+    if (error || !data) throw new ApiError('NOT_FOUND', '스레드를 찾을 수 없습니다.');
+    root = data;
+  } else {
+    root = message;
+  }
   const replies = await selectAllRows(db, 'messages', { session_id: message.session_id, root_message_id: rootId });
   replies.sort((a, b) => a.turn_index - b.turn_index);
   return { root: serializeMessage(root), replies: replies.map(serializeMessage), reply_count: replies.length };
@@ -73,9 +79,14 @@ export async function messageRoutes(app: FastifyInstance) {
   // POST /:id/merge-thread — 스레드 본문에 녹이기 (t_8fbe4328)
   // 스레드 답글을 볼트 파일로 요약→원 메시지의 merged_summary에 저장
   app.post('/:id/merge-thread', { preHandler: requireAuth }, async request => {
+    // Feature flag 체크
+    if (process.env.ENABLE_MESSAGE_THREADS !== 'true') {
+      throw new ApiError(ERROR_CODES.NOT_FOUND, '스레드 기능이 비활성화되었습니다.');
+    }
+    
     const { message } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
-    const rootId = message.root_message_id || message.id;
-    if (rootId !== message.id) throw badRequest('루트 메시지에서만 병합할 수 있습니다.');
+    // parent_message_id가 없는 메시지(루트 메시지)에서만 병합 가능
+    if (message.parent_message_id) throw badRequest('루트 메시지에서만 병합할 수 있습니다.');
     
     const thread = await readThread(request.db, message);
     if (thread.reply_count === 0) throw badRequest('병합할 답글이 없습니다.');
@@ -93,6 +104,11 @@ export async function messageRoutes(app: FastifyInstance) {
 
   // PATCH /:id/send-to-main — 메인 대화로 보내기 토글 (t_8fbe4328, Slack 참고)
   app.patch('/:id/send-to-main', { preHandler: requireAuth }, async request => {
+    // Feature flag 체크
+    if (process.env.ENABLE_MESSAGE_THREADS !== 'true') {
+      throw new ApiError(ERROR_CODES.NOT_FOUND, '스레드 기능이 비활성화되었습니다.');
+    }
+    
     const { message } = await getOwnedMessage(request.db, request.userId, (request.params as { id: string }).id);
     if (!message.root_message_id) throw badRequest('스레드 답글에서만 사용할 수 있습니다.');
     
