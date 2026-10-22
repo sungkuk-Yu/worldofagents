@@ -137,9 +137,25 @@ export interface MessagesRow {
   client_req_id?: string | null;
   /** 본문에 녹인 스레드 요약(t_8fbe4328) — 마이그레이션 020. 스레드 내용을 원 메시지에 병합한 텍스트. NULL = 병합 안 됨. */
   merged_summary?: string | null;
+  /** 병합됨 플래그(t_8fbe4328) — 마이그레이션 020. 이 답글이 부모 메시지에 병합되었는지 여부. */
+  is_merged_to_parent?: boolean;
   /** 메인 대화로 보내기(t_8fbe4328, Slack 참고) — 마이그레이션 020. 스레드 답글을 메인 타임라인에도 표시할지 여부. */
   send_to_main?: boolean;
   created_at: string;
+}
+
+/** 스레드 메타데이터 테이블(t_8fbe4328) — 마이그레이션 020. 스레드 검색, 정렬, 상태 관리. */
+export interface MessageThreadsRow {
+  id: string;
+  session_id: string;
+  parent_message_id: string;
+  /** 스레드 제목 (검색용, 원 메시지 일부 또는 사용자 지정) */
+  title: string | null;
+  /** 스레드 상태: active(활성), merged(본문 병합됨), archived(보관) */
+  status: 'active' | 'merged' | 'archived';
+  last_activity_at: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TasksRow {
