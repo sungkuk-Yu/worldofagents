@@ -15,14 +15,14 @@ ALTER TABLE messages
     ADD COLUMN IF NOT EXISTS send_to_main BOOLEAN NOT NULL DEFAULT false;
 
 -- parent_message_id 인덱스 (스레드 조회 성능)
-CREATE INDEX idx_messages_parent_message_id ON messages(parent_message_id)
+CREATE INDEX IF NOT EXISTS idx_messages_parent_message_id ON messages(parent_message_id)
     WHERE parent_message_id IS NOT NULL;
 
 -- 스레드 메타데이터 테이블
 CREATE TABLE message_threads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    parent_message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    parent_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     -- 스레드 제목 (검색용, 원 메시지 일부 또는 사용자 지정)
     title TEXT,
     -- 스레드 상태: active(활성), merged(본문 병합됨), archived(보관)
@@ -36,10 +36,10 @@ CREATE TABLE message_threads (
 );
 
 -- 인덱스: 세션별 스레드 목록 조회
-CREATE INDEX idx_message_threads_session_id ON message_threads(session_id, last_activity_at DESC);
+CREATE INDEX IF NOT EXISTS idx_message_threads_session_id ON message_threads(session_id, last_activity_at DESC);
 
 -- 인덱스: 상태별 필터링
-CREATE INDEX idx_message_threads_status ON message_threads(status)
+CREATE INDEX IF NOT EXISTS idx_message_threads_status ON message_threads(status)
     WHERE status = 'active';
 
 COMMIT;
