@@ -36,7 +36,7 @@ import type { ChatMessage } from './chatLogic';
 export const ACK_LIVE_STALE_MS = 15000;
 
 /** 재질문 버튼 행 자동 소진 (t_64e3edd6 9/29, #321: 3초→2.5초) — 표시 후 미터치면 사라진다 */
-export const ACK_AUTO_PROCEED_MS = 2500;
+export const ACK_AUTO_PROCEED_MS = 3500;
 
 /** 메인 피드 실시간 공감(재질문) 행 판별 */
 export function isEmpathyEchoMessage(m: ChatMessage): boolean {
