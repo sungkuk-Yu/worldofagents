@@ -7,12 +7,12 @@
 // 라벨 계약 (t_1b123e59, 대표님 9/28 원문② "맞아요가 아니고 예/아니요 로만 해야되"):
 //   - 템플릿 바인딩(eq_confirm→'맞아요/아니에오', t_c62a2eb7 #4) 폐기 — template_id 무관 모든
 //     재질문 카드 버튼은 고정 '예'/'아니요'(en 'Yes'/'No'). 두 발화 모두 백엔드 게이트 집합 등재.
-// 노출 계약 (t_c62a2eb7 #2 → t_64e3edd6 9/29 개정):
+// 노출 계약:
 //   - 대표님 9/29 원문: "예 아 니오도 3초 안에 안사라지고 내가 안누르더라도 3초 후에 그냥 바로 답변해야
-//     하는거야" → 3초(→#321 2.5초) 미터치 시 자동 소진(버튼 행 사라짐). 답변은 같은 턴에 이미 파이프라인
+//     하는거야" → 미터치 시 자동 소진(버튼 행 사라짐). 답변은 같은 턴에 이미 파이프라인
 //     진행 중이므로(t_135a19b5: 확인 발화 없으면 empathy 후 answer 직결) 프론트는 소멸만 담당 —
-//     '발화 진행까지 무한 유지'(t_c62a2eb7 #2)는 폐기. ACK_AUTO_PROCEED_MS = 2500.
-//   - 탭 시 즉시 발화('예'/'아니요') 불변. 발화 진행(user 행 발생) 소멸도 여전히 유효(더 늦기 전엔 타이머가 1차).
+//     '발화 진행까지 무한 유지'(t_c62a2eb7 #2)는 폐기. ACK_AUTO_PROCEED_MS = 3500.
+//   - 탭 시 즉시 발화('예'/'아니요') 불변. 발화 진행(user 행 발생) 소멸도 여전히 유효.
 //   - #324/#325: 음성 경로의 전사확인 2.5초 게이트는 폐지 — 예/아니오는 텍스트 입력의 공감 재질문에만.
 //   - 히스토리 재현(새로고침/loadOlder)에는 노출하지 않는다 — t_b2004d50 개정 집행: 대상은
 //     '라이브 경로로 들어온 행'만. transport 도장(arrivedAt)이 없고 created_at이 ACK_LIVE_STALE_MS
@@ -35,8 +35,8 @@ import type { ChatMessage } from './chatLogic';
  *  교체됐지만 가드 값·의미(재현 배제)는 유지 — 김비서 결정 #2. */
 export const ACK_LIVE_STALE_MS = 15000;
 
-/** 재질문 버튼 행 자동 소진 (t_64e3edd6 9/29, #321: 3초→2.5초) — 표시 후 미터치면 사라진다 */
-export const ACK_AUTO_PROCEED_MS = 2500;
+/** 재질문 버튼 행 자동 소진 — 표시 후 미터치면 사라진다 */
+export const ACK_AUTO_PROCEED_MS = 3500;
 
 /** 메인 피드 실시간 공감(재질문) 행 판별 */
 export function isEmpathyEchoMessage(m: ChatMessage): boolean {
@@ -70,7 +70,7 @@ function ackChipCandidate(messages: ChatMessage[], now: number, streaming: boole
 /** ②③ 창 개시 앵커 — t_b2004d50 개정 (김비서 카드: "비교 기준을 created_at→도착시로 같이 교체"):
  *  - 라이브 도장(arrivedAt = WS/POST 최초 수신각) 행만: 노출 가능 첫 관측(exposureStartMs, =
  *    useAckChip Map<id, firstSeenMs> 각인) → 없으면 수신각. created_at의 턴시작 선버링
- *    (+144s 실측, = 이 카드가 교정한 결함)과 무관하게 '도착/노출한 시점'부터 2.5s.
+ *    (+144s 실측, = 이 카드가 교정한 결함)과 무관하게 도착/노출 시점부터 ACK_AUTO_PROCEED_MS.
  *  - 미도장(=배치 GET 히스토리 재현·loadOlder·레거시 unit 호출): created_at 단독 — exposure
  *    주입과 무관하게 적용 불가. 새로고침이 15s 내 재현 행을 '지금 도착'으로 속여 재점등하는
  *    경로를 원천 차단(verify_ack_live ④ / smoke_ack_chips ⑦ 회귀 가드). */
@@ -81,7 +81,7 @@ function anchorMs(last: ChatMessage, exposureStartMs: number | undefined): numbe
 
 /**
  * 현재 버튼 행을 노출할 공감 카드 (없으면 null).
- * 수명 (t_64e3edd6 9/29): 표시 후 autoProceedMs(기본 2.5s) 미터치 → 소멸(자동 진행은 백엔드 파이프라인이
+ * 수명: 표시 후 autoProceedMs(기본 ACK_AUTO_PROCEED_MS) 미터치 → 소멸(자동 진행은 백엔드 파이프라인이
  * 이미 담당). 그 전에 user 발화(탭 낙관 포함)가 오면 소멸. autoProceedMs는 테스트 주입용.
  * streaming (t_cc232982 요구3): 답변 토큰 성장 중이면 억제 — answer.done(확정) 후 표시.
  * t_b2004d50: 5번째 인자 exposureStartMs(=useAckChip의 '노출 가능 첫 관측' Map 값, 브리프의
@@ -98,13 +98,13 @@ export function visibleAckChip(messages: ChatMessage[], now: number, autoProceed
 }
 
 /**
- * 창 개시 각인용 후보 id (t_b2004d50) — visibleAckChip과 동일 후보 게이트를 재사용하되 '2.5s 창
+ * 창 개시 각인용 후보 id (t_b2004d50) — visibleAckChip과 동일 후보 게이트를 재사용하되 제한 시간 창
  * 경과'와 '스트리밍 억제'는 묻지 않는다. (창 판정까지 후보 배제에 섞으면 노출 개시 각인 자체가
  * 불가능해져 개정의 실행 지점이 소실된다.) useAckChip은 이 id의 최초 관측각을 Map에 보존하고
  * visibleAckChip에 exposureStartMs로 주입한다 — WS 재구독 버스트·재전송 응답이 앵커를 리셋하지
  * 못한다(같은 id 최초값). 단, 스트리밍 억제(t_cc232982 요구3) 구간은 앵커를 무효화한다: 억제 중
  * useAckChip이 Map에서 삭제 → done 후 첫 관측이 새 창 개시. OFF 경로(empathy=런 종료 시 도착)는
- * 억제 구간과 무관하게 도착 각인이 살면서 F 구간의 '도착+2.5s' 창을 만든다.
+ * 억제 구간과 무관하게 도착 각인이 살면서 F 구간의 제한 시간 창을 만든다.
  */
 export function ackChipCandidateId(messages: ChatMessage[], now: number): string | null {
   const last = ackChipCandidate(messages, now, false);
