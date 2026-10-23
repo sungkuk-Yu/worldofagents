@@ -9,6 +9,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
+import { useReduceMotion } from '../lib/motion';
 import { formatNumber, formatRelative } from '../i18n/format';
 import type { ThreadIndexEntry } from '../lib/chatLogic';
 
@@ -23,15 +24,16 @@ interface Props {
 
 export default function ThreadListModal({ visible, threads, onClose, onOpenThread }: Props) {
   const { t, i18n } = useTranslation();
+  const reduceMotion = useReduceMotion();
   const [filter, setFilter] = useState<Filter>('active');
   const rows = useMemo(() => (filter === 'all' ? threads : threads.filter((th) => (filter === 'ended' ? th.ended : !th.ended))), [threads, filter]);
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('common.cancel')} testID="threads-backdrop">
+    <Modal visible={visible} transparent animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} testID="threads-backdrop">
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()} accessibilityViewIsModal testID="threads-modal">
           <View style={styles.header}>
             <Text style={styles.title}>{t('queue.threadsTitle')}</Text>
-            <Pressable onPress={onClose} accessibilityLabel={t('common.cancel')} testID="threads-close" style={styles.closeBtn}>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} testID="threads-close" style={styles.closeBtn}>
               <Text style={styles.closeText}>✕</Text>
             </Pressable>
           </View>

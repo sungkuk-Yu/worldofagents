@@ -13,6 +13,7 @@ import { Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { colors, radii, spacing, typography } from '../theme';
 import { formatNumber } from '../i18n/format';
+import { useReduceMotion } from '../lib/motion';
 import { TickFailedIcon, TickSentIcon, TrackerIcon } from './Icon';
 import { buildQuestionTracker, TRACKER_STAGE_COUNT, TrackerRow } from '../lib/questionTracker';
 import type { ChatMessage, PendingReplyItem, QueueItem, StreamingAnswer } from '../lib/chatLogic';
@@ -144,14 +145,15 @@ export function QuestionTrackerPanel(props: DataProps) {
 /** 모바일(390px) 대체 경로 — 앱바 '현황' 버튼 → 하단 시트 (기존 답글/답변대기 모달 규격) */
 export function QuestionTrackerModal({ visible, onClose, ...data }: DataProps & { visible: boolean; onClose: () => void }) {
   const { t } = useTranslation();
+  const reduceMotion = useReduceMotion();
   const { rows, collapsedDone } = useTrackerRows(data);
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('common.close')} testID="tracker-backdrop">
+    <Modal visible={visible} transparent animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} testID="tracker-backdrop">
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()} accessibilityViewIsModal testID={data.testID ?? 'tracker-modal'}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{t('tracker.title')}</Text>
-            <Pressable onPress={onClose} accessibilityLabel={t('common.close')} testID="tracker-close" style={styles.closeBtn}>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} testID="tracker-close" style={styles.closeBtn}>
               <Text style={styles.closeText}>✕</Text>
             </Pressable>
           </View>
