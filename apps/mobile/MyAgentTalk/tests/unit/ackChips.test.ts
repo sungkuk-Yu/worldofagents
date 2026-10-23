@@ -35,16 +35,16 @@ test('isEmpathyEchoMessage — 메인 피드 공감 행만 true', () => {
   assert.equal(isEmpathyEchoMessage(empathy({ id: 'e0', content: '  ' })), false);         // 빈 본문 제외
 });
 
-test('t_64e3edd6: 2.5초 미터치 자동 소진 — 표시 창 내만 노출, 그 후 null (자동 진행은 백엔드 파이프라인)', () => {
+test('t_ca993e76: 3.5초 미터치 자동 소진 — 표시 창 내만 노출, 그 후 null (자동 진행은 백엔드 파이프라인)', () => {
   const m = empathy();
   const list = [msg({ id: 'u1', role: 'user', turnIndex: 1, createdAt: iso(-1000) }), m];
   const first = visibleAckChip(list, T0 + 1000);
   assert.ok(first);
   assert.equal(first!.id, 'e1');
   assert.ok(!('deadline' in first!), 'deadline 제거 — 수명 판정은 visibleAckChip(now) 단일 진입');
-  // 창 경계: 2.5s 이내 유지, 초과 시 소멸
-  assert.ok(visibleAckChip(list, T0 + 2500));
-  assert.equal(visibleAckChip(list, T0 + 2501), null);
+  // 창 경계: 3.5s 이내 유지, 초과 시 소멸
+  assert.ok(visibleAckChip(list, T0 + 3500));
+  assert.equal(visibleAckChip(list, T0 + 3501), null);
   // 오래된 시각(T0+10s)도 소멸 — 무한 유지(t_c62a2eb7 #2)는 9/29 개정으로 폐기
   assert.equal(visibleAckChip(list, T0 + 10000), null);
 });
@@ -104,8 +104,8 @@ test('t_1b123e59 #1: ackChips는 라벨 바인딩을 노출하지 않는다 — 
 
 // ── t_64e3edd6 (9/29): 자동 소진 상수 + ack 결과 카드 숨김 판정 ──
 
-test('t_64e3edd6 ①: ACK_AUTO_PROCEED_MS = 2500 (3초→2.5초, #321)', () => {
-  assert.equal(ACK_AUTO_PROCEED_MS, 2500);
+test('t_ca993e76 ①: ACK_AUTO_PROCEED_MS = 3500 (2.5초→3.5초)', () => {
+  assert.equal(ACK_AUTO_PROCEED_MS, 3500);
 });
 
 test("t_64e3edd6 ②: ackResultCardIds — 재질문 뒤 '예'/'아니요' user 행만 집합, 일반 발화 시 리셋", () => {
@@ -142,8 +142,8 @@ test('t_b2004d50 ①: created_at 선버링(+144s 실측 모드) + 즉각 도착 
   const pre = empathy({ id: 'eL', createdAt: iso(-144000), arrivedAt: T0 });
   const list = [msg({ id: 'u1', role: 'user', turnIndex: 1, createdAt: iso(-145000) }), pre];
   assert.equal(visibleAckChip(list, T0 + 1000)!.id, 'eL', '수신 후 1s = 창 내 (created_at 만료 무관)');
-  assert.equal(visibleAckChip(list, T0 + 2500)!.id, 'eL', '수신 후 정확히 2.5s 경계 = 아직 노출');
-  assert.equal(visibleAckChip(list, T0 + 2501), null, '수신 후 2.5s 초과 = 미터치 소진 유지');
+  assert.equal(visibleAckChip(list, T0 + 3500)!.id, 'eL', '수신 후 정확히 3.5s 경계 = 아직 노출');
+  assert.equal(visibleAckChip(list, T0 + 3501), null, '수신 후 3.5s 초과 = 미터치 소진 유지');
 });
 
 test('t_b2004d50 ②: 히스토리 재현(미도장 + created 경화)은 노출 가능 시각이 있어도 배제 — 무버튼 회귀 유지', () => {
@@ -160,9 +160,9 @@ test('t_b2004d50 ③: 후보 게이트는 스트리밍 억제와 무관(창 개�
   const list = [msg({ id: 'u1', role: 'user', turnIndex: 1, createdAt: iso(-145000) }), live];
   assert.equal(ackChipCandidateId(list, T0 + 1000), 'eS', '억제 중에도 후보 자격 id는 유효(useAckChip이 각인 폐기/재각인으로 처리)');
   assert.equal(visibleAckChip(list, T0 + 1000, undefined, true), null, '스트리밍 중 = 창 미노출(t_cc232982 요구3)');
-  // useAckChip: 억제 중 Map 삭제 → done 후 첫 관측각(T0+4000) 재각인 = 새 창 개시 (해제 후 fresh 2.5s)
+  // useAckChip: 억제 중 Map 삭제 → done 후 첫 관측각(T0+4000) 재각인 = 새 창 개시 (해제 후 fresh 3.5s)
   assert.equal(visibleAckChip(list, T0 + 5000, undefined, false, T0 + 4000)!.id, 'eS');
-  assert.equal(visibleAckChip(list, T0 + 6501, undefined, false, T0 + 4000), null, '해제 후 2.5s 초과 = 소진');
+  assert.equal(visibleAckChip(list, T0 + 7501, undefined, false, T0 + 4000), null, '해제 후 3.5s 초과 = 소진');
   // 각인 미주입 폴백 = 수신각 앵커 — 억제 없이 도착 즉시라면 수신각에서 창
   assert.equal(visibleAckChip(list, T0 + 2000)!.id, 'eS', '미주입도 arrivedAt=T0 기준 창 내');
 });
