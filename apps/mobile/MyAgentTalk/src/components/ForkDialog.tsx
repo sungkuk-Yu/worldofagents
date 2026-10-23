@@ -29,6 +29,7 @@ export default function ForkDialog({ sessionId, messageId, title: sourceTitle, n
       // 햅틱 (#52 규칙 4): 포크 완료 = success notification — 이 3곳 외 남용 금지
       try { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined); } catch { /* web no-op */ }
       // 새 방은 목록과 동등한 진입점이며 뒤로 가기는 원본 대신 목록으로 향한다.
+      Keyboard.dismiss();
       navigation.reset({ index: 1, routes: [
         { name: 'DialogueList' },
         { name: 'Chat', params: { sessionId: session.id, sessionTitle: session.title || title.trim(),
@@ -48,7 +49,7 @@ export default function ForkDialog({ sessionId, messageId, title: sourceTitle, n
               <Text style={styles.closeText}>✕</Text>
             </Pressable>
           </View>
-          <TextInput testID="fork-title" label={t('fork.title')} value={title} onChangeText={setTitle} disabled={busy} maxLength={200} returnKeyType="done" />
+          <TextInput testID="fork-title" label={t('fork.title')} value={title} onChangeText={setTitle} disabled={busy} maxLength={200} returnKeyType="done" onSubmitEditing={() => void submit()} />
           {error && <Text accessibilityRole="alert" style={styles.error}>{t(error)}</Text>}
           <Button disabled={busy} onPress={close} testID="fork-cancel">{t('common.cancel')}</Button>
           <Button testID="fork-submit" loading={busy} disabled={busy || !title.trim()} onPress={() => void submit()}>{t('fork.action')}</Button>
