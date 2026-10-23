@@ -31,8 +31,25 @@ export function DecisionCard({ item, onUpdate, onJump }: DecisionCardProps) {
         <Text style={styles.question}>{item.question}</Text>
       )}
       
-      {/* 답변 입력 (pending만) */}
-      {isPending && (
+      {/* 선택지 버튼 (options 있을 때) */}
+      {isPending && item.options && item.options.length > 0 && (
+        <View style={styles.optionsContainer}>
+          {item.options.map((option, idx) => (
+            <Pressable
+              key={idx}
+              style={[styles.optionBtn, answer === option && styles.optionBtnSelected]}
+              onPress={() => setAnswer(option)}
+            >
+              <Text style={[styles.optionText, answer === option && styles.optionTextSelected]}>
+                {option}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+      
+      {/* 답변 입력 (pending이고 options 없을 때만) */}
+      {isPending && (!item.options || item.options.length === 0) && (
         <TextInput
           style={styles.input}
           value={answer}
@@ -144,5 +161,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     fontWeight: '500',
+  },
+  optionsContainer: {
+    flexDirection: 'column',
+    gap: 8,
+    marginBottom: 12,
+  },
+  optionBtn: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#fff',
+  },
+  optionBtnSelected: {
+    borderColor: '#4caf50',
+    backgroundColor: '#e8f5e9',
+  },
+  optionText: {
+    fontSize: 15,
+    color: '#333',
+  },
+  optionTextSelected: {
+    fontWeight: '600',
+    color: '#4caf50',
   },
 });

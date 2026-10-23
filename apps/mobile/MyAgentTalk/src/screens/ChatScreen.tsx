@@ -886,9 +886,9 @@ export default function ChatScreen({ navigation, route }: Props) {
         showQueueLabel={wide && Platform.OS === 'web'}
         queueBadge={{ pendingCount: queueView.pendingCount, stoppedCount: queueView.stoppedCount, backlogCount: queueView.backlogCount }}
         onBack={() => navigation.goBack()}
-        onOpenThreads={() => setThreadsOpen(true)}
+        onOpenThreads={() => setThreadsOpen(prev => !prev)}
         onOpenPending={() => setPendingOpen(true)}
-        onOpenTracker={() => setTrackerOpen(true)}
+        onOpenTracker={() => setTrackerOpen(prev => !prev)}
         onOpenQueue={openQueueEntry}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
