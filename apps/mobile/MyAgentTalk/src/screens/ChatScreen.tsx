@@ -153,6 +153,8 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
   const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
+  const [forkDialogOpen, setForkDialogOpen] = useState(false);
+  const openForkDialog = useCallback((message: ChatMessage) => { setForkMessage(message); setForkDialogOpen(true); }, []);
   const [origin, setOrigin] = useState<ForkOrigin | undefined>(() => parseForkOrigin(route?.params?.forkedFrom));
   // 제목 수정 (t_8917ca0d ③) — PATCH 성공 시 로컬 낙관 반영(라우트 params는 캐논이 되고 화면 제목만 갱신).
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
@@ -175,7 +177,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     },
     (message) => {
       if (isDemo || !sessionId || message.pending || message.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
-      setForkMessage(message);
+      openForkDialog(message);
     },
     // Wave 1 #1: form 카드 제출 — 데모/미연결에서는 send가 거절되어 false 반환(카드가 잠기지 않음)
     (content) => (isDemo ? Promise.resolve({ ok: false, error: 'errors.unavailableAction' }) : send(content)),
@@ -276,9 +278,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     const lastAgent = [...selectionMessages].reverse().find((m) => m.role === 'agent');
     const target = lastAgent ?? selectionMessages[selectionMessages.length - 1];
     if (!target || isDemo || !sessionId || target.pending || target.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
-    setForkMessage(target);
+    openForkDialog(target);
     exitSelection();
-  }, [selectionMessages, isDemo, sessionId, exitSelection, setForkMessage, setUnavailableError]);
+  }, [selectionMessages, isDemo, sessionId, exitSelection, openForkDialog, setUnavailableError]);
   const [sendFailed, setSendFailed] = useState(false);
   const listRef = useRef<FlatList<FeedItem>>(null);
 
@@ -466,8 +468,8 @@ export default function ChatScreen({ navigation, route }: Props) {
     const m = messages.find((x) => x.id === messageId);
     if (!m) return;
     if (isDemo || !sessionId || m.pending || m.status === 'failed') { setUnavailableError('errors.unavailableAction'); return; }
-    setForkMessage(m);
-  }, [messages, isDemo, sessionId, setForkMessage, setUnavailableError]);
+    openForkDialog(m);
+  }, [messages, isDemo, sessionId, openForkDialog, setUnavailableError]);
   // 점프+큐 폴링 컨트롤러 (t_2f45ccb1 → t_91cb659c 응집 → t_3c882443 스트립 폐기): 칩 행 빌드는 제거,
   // requestJump와 GET /queue 보조 폴링만 useQueueStrip이 소유 (트래커·마커·인용 점프가 소비자).
   const strip = useQueueStrip({ sessionId, live: !isDemo, messages, queue, applyQueueSnapshot });
@@ -928,7 +930,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       {isDemo && <Text testID="demo-badge" style={styles.pendingMark}>{t('chat.demoBadge')}</Text>}
       {origin && <Text style={styles.pendingMark} numberOfLines={1}>{t('fork.lineage', { origin: origin.title || t('fork.original') })}</Text>}
       {(actionError || unavailableError) && <Text accessibilityRole="alert" style={styles.errorText}>{t(actionError || unavailableError!)}</Text>}
-      {forkMessage && sessionId && <ForkDialog sessionId={sessionId} messageId={forkMessage.id} title={sessionTitle} navigation={navigation} onClose={() => setForkMessage(null)} />}
+      {forkMessage && sessionId && <ForkDialog key={`${sessionId}:${forkMessage.id}`} visible={forkDialogOpen} sessionId={sessionId} messageId={forkMessage.id} title={sessionTitle} navigation={navigation} onClose={() => setForkDialogOpen(false)} />}
       {/* 대화 제목 수정 (t_8917ca0d ③) — 헤더 탭 진입. 성공 시 로컬 낙관 반영 + 라우트 params 갱신(재진입 캐논) */}
       {renameOpen && sessionId && <SessionTitleDialog sessionId={sessionId} title={sessionTitle} onClose={() => setRenameOpen(false)}
         onRenamed={(next) => { setTitleOverride(next); try { navigation.setParams({ sessionTitle: next }); } catch { /* 구 라우터 컨텍스트 — override로 충분히 반영 */ } }} />}
