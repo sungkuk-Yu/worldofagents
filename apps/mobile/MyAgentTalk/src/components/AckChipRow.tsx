@@ -7,7 +7,7 @@
 // 라벨 (t_1b123e59 원문② "맞아요가 아니고 예/아니요 로만 해야되"): 템플릿 바인딩(t_c62a2eb7 #4) 폐기 —
 //   template_id 무관 고정 chat.ackYes/ackNo('예'/'아니요', en 'Yes'/'No'). 라벨과 탭 payload가 같은
 //   i18n 키에서 파생되어 발화=문구 불일치 원천 차단. 두 발화 모두 백엔드 게이트 집합 등재 (t_135a19b5).
-// t_b13756a9: 2.5초 카운트다운 표시 + 무응답 시 자동 "예" 전송 (대표님 요청)
+// t_b13756a9: 제한 시간 카운트다운 표시 + 무응답 시 자동 "예" 전송 (대표님 요청)
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
