@@ -153,6 +153,13 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   useEffect(() => { if (route?.params?.demo) enterDemo(); }, [route?.params?.demo, enterDemo]);
   const [forkMessage, setForkMessage] = useState<ChatMessage | null>(null);
+  const toggleFork = useCallback(() => {
+    if (forkMessage) { setForkMessage(null); return; }
+    const lastAgent = [...messages].reverse().find((m) => m.role === 'agent' && !m.pending && m.status !== 'failed' && m.status !== 'streaming');
+    if (!lastAgent) return;
+    if (isDemo || !sessionId) { setUnavailableError('errors.unavailableAction'); return; }
+    setForkMessage(lastAgent);
+  }, [forkMessage, messages, isDemo, sessionId]);
   const [origin, setOrigin] = useState<ForkOrigin | undefined>(() => parseForkOrigin(route?.params?.forkedFrom));
   // 제목 수정 (t_8917ca0d ③) — PATCH 성공 시 로컬 낙관 반영(라우트 params는 캐논이 되고 화면 제목만 갱신).
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
@@ -885,11 +892,13 @@ export default function ChatScreen({ navigation, route }: Props) {
         showTrackerButton={!context || Platform.OS !== 'web'}
         showQueueLabel={wide && Platform.OS === 'web'}
         queueBadge={{ pendingCount: queueView.pendingCount, stoppedCount: queueView.stoppedCount, backlogCount: queueView.backlogCount }}
+        forkDialogOpen={!!forkMessage}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(prev => !prev)}
         onOpenPending={() => setPendingOpen(true)}
         onOpenTracker={() => setTrackerOpen(prev => !prev)}
         onOpenQueue={openQueueEntry}
+        onOpenFork={toggleFork}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />

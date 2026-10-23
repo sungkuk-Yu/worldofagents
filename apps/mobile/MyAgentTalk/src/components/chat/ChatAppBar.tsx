@@ -30,17 +30,20 @@ interface Props {
   queueBadge?: { pendingCount: number; stoppedCount: number; backlogCount: number };
   /** PC wide = '진행 중 질문' 텍스트 라벨(대표님 문구 그대로 노출), 좁은 화면/네이티브 = 아이콘 (t_140ecc15 ②) */
   showQueueLabel?: boolean;
+  /** 새프로젝트 다이얼로그 열림 여부 (t_ca993e76 #1) */
+  forkDialogOpen?: boolean;
   onBack: () => void;
   onOpenThreads: () => void;
   onOpenPending: () => void;
   onOpenTracker?: () => void;
   onOpenQueue?: () => void;
+  onOpenFork?: () => void;
   onBeginSelection: () => void;
   /** 제목 수정 진입 (t_8917ca0d ③ — 헤더 탭). 데모/세션 없음 화면에서는 미전달 = 비활성. */
   onRequestRename?: () => void;
 }
 
-export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, showTrackerButton = false, queueBadge, showQueueLabel = false, onBack, onOpenThreads, onOpenPending, onOpenTracker, onOpenQueue, onBeginSelection, onRequestRename }: Props) {
+export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, connection, activeThreadCount, pendingReplyCount, showTrackerButton = false, queueBadge, showQueueLabel = false, forkDialogOpen = false, onBack, onOpenThreads, onOpenPending, onOpenTracker, onOpenQueue, onOpenFork, onBeginSelection, onRequestRename }: Props) {
   const { t, i18n } = useTranslation();
   // 앱바 서브타이틀 — 에이전트를 "살아있는 존재"로: 처리 중이면 자연어 상태를 그대로 노출
   const connectionColor = connection === 'live' ? colors.accent : connection === 'offline' ? colors.statusErr : colors.statusWarn;
@@ -116,6 +119,11 @@ export default function ChatAppBar({ selection, sessionTitle, isDemo, peers, con
         </TouchableOpacity>
       )}
       {/* 답글 스레드 목록 (t_2f45ccb1 확장 3) — 앱바 우측 버튼, 배지 = 활성 스레드 수, 0이면 배지 없음 */}
+      {!selection.active && onOpenFork && (
+        <TouchableOpacity onPress={onOpenFork} style={styles.backButton} accessibilityLabel={t('fork.short')} testID="fork-open">
+          <Text style={[styles.backText, forkDialogOpen && { fontWeight: 'bold', color: colors.accent }]}>{t('fork.short')}</Text>
+        </TouchableOpacity>
+      )}
       {!selection.active && (
         <TouchableOpacity onPress={onOpenThreads} style={styles.backButton} accessibilityLabel={t('queue.threadsTitle')} testID="threads-open">
           <Text style={styles.backText}>{t('common.thread')}{activeThreadCount > 0 ? ` ${formatNumber(activeThreadCount, i18n.language)}` : ''}</Text>
