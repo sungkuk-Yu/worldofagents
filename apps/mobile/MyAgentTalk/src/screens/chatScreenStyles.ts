@@ -267,6 +267,11 @@ export const styles = StyleSheet.create({
     position: 'absolute', top: -2, right: -6, minWidth: 16, textAlign: 'center',
     fontSize: 10, fontWeight: '700', color: colors.statusWarn,
   },
+  // 쓰레드 배지 (t_ca993e76)
+  threadBadge: {
+    position: 'absolute', top: -2, right: -6, minWidth: 16, textAlign: 'center',
+    fontSize: 10, fontWeight: '700', color: colors.accent,
+  },
   // 진행 중 질문 앱바 버튼 (t_140ecc15 ②) — pending-*=testID 관례 계승: 주황=답변 중+대기, 빨강=멈춤
   queueButtonFace: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
   queueBadge: {

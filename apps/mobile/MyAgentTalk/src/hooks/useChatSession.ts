@@ -27,8 +27,6 @@ import { renderFlags } from '../lib/renderFlags';
 // 사람 타이핑 리빌 ②-프론트 (t_da4f8623): 노출 진도 표시 계층. content(원문)는 불변 — delta 급식(feed)/
 // 확정 행 계승(move)/answer.done(markDone)/라이브 empathy·answer 행(begin)만 이 훅이 소유한다.
 import { revealStore } from '../lib/revealStore';
-// 결정 인박스 (t_2de069f3) — decision.updated WS + GET /decisions 부트스트랩.
-import { normalizeDecisions, EMPTY_DECISIONS } from '../lib/chatLogic';
 
 export const PAGE_SIZE = 30;
 // t_710b5d28 — prefetch 구현은 lib/sessionPrefetch.ts (이 훅을 목록 화면이 import하면 채팅
@@ -81,12 +79,6 @@ export interface UseChatSessionReturn {
   queue: QueueItem[];
   /** 비서실 릴레이 자막 (t_961ca593 Phase B): relay.updated 최신 1줄 — 이벤트 0건(비서 외 페르소나)이면 null → 렌더 없음 */
   relay: RelayCaption | null;
-  /** 결정 인박스 (t_2de069f3): 에이전트→유저 결정 요청 항목 — pending 우선 정렬, 빈 배열이면 렌더 없음 */
-  decisions: DecisionItem[];
-  /** 결정 항목 답변/보류/해제 (낙관 업데이트 후 서버 반영) */
-  updateDecision: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => Promise<void>;
-  /** 결정 스냅샷 적용기 (WS/폴링) */
-  applyDecisionsSnapshot: (items: DecisionItem[]) => void;
   /** GET /queue 보조 폴링이 쓰는 queue 스냅샷 적용기 (안정 ref, t_91cb659c 스트립 훅 응집) */
   applyQueueSnapshot: (items: QueueItem[]) => void;
   // 답변 대기 (t_363c0faa / 백엔드 t_811e176c): 회신 필요 메시지 스냅샷 — 빈 배열이면 배지/칩 렌더 없음
@@ -97,6 +89,8 @@ export interface UseChatSessionReturn {
   applyDecisionSnapshot: (items: import('../lib/api').DecisionItem[]) => void;
   /** 결정 인박스 (t_2de069f3): decision.updated 스냅샷 — 빈 배열이면 패널/배지 렌더 없음 */
   decisions: import('../lib/api').DecisionItem[];
+  /** 결정 항목 답변/보류/해제 (낙관 업데이트 후 서버 반영) */
+  updateDecision: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => Promise<void>;
   /** 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 */
   threads: ThreadIndexEntry[];
   /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
@@ -196,8 +190,6 @@ export function useChatSession(
   const [suggested, setSuggested] = useState<SuggestedQuestion[]>([]);
   // 비서실 릴레이 자막 (t_961ca593 Phase B) — 최신 1줄 휘발성 연출. 이벤트 0건(비서 외 페르소나)이면 항상 null → 렌더 없음.
   const [relay, setRelay] = useState<RelayCaption | null>(null);
-  // 결정 인박스 (t_2de069f3) — WS decision.updated + GET /decisions 스냅샷. pending 우선 정렬. [] → 렌더 없음.
-  const [decisions, setDecisions] = useState<DecisionItem[]>(EMPTY_DECISIONS);
   // 디바이스 라벨은 첫 감지값으로 고정(연결 유지 중 라벨이 바뀌면 presence가 요동침).
   // 화면이 opts.device를 주면 그 값을 쓰고, 없으면 창 폭/navigator 기반 순수 감지(RN import 없음).
   const deviceRef = useRef(opts.device ?? detectDeviceLabel(
@@ -265,7 +257,7 @@ export function useChatSession(
   // 답변 대기 스냅샷 적용기 (t_363c0faa) — WS reply.pending.updated 우선, GET /pending은 부트스트랩/보조.
   const applyPendingSnapshot = useCallback((items: PendingReplyItem[]) => setPendingReplies(items), []);
   // 결정 인박스 스냅샷 적용기 (t_2de069f3) — WS decision.updated 우선, GET /decisions는 부트스트랩.
-  const applyDecisionsSnapshot = useCallback((items: DecisionItem[]) => setDecisions(items), []);
+  const applyDecisionSnapshot = useCallback((items: import('../lib/api').DecisionItem[]) => setDecisions(normalizeDecisionItems(items)), []);
 
   // 결정 항목 업데이트 (낙관 갱신 후 서버 반영) — PATCH /api/decisions/:id 호출
   const updateDecision = useCallback(async (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => {
@@ -477,7 +469,7 @@ export function useChatSession(
           const w = window as unknown as { __dbg?: unknown[] };
           w.__dbg = w.__dbg || [];
           w.__dbg.push({ at: 'decisionsGET', alive: alive(), ok: denv.ok, hasData: !!denv.data, items: denv.data ? (denv.data as { items?: unknown[] }).items?.length ?? -1 : -1 });
-          if (alive() && denv.ok && denv.data) setDecisions(normalizeDecisions(denv.data.items));
+          if (alive() && denv.ok && denv.data) setDecisions(normalizeDecisionItems(denv.data.items));
         }).catch(() => { /* 서버 미배포 — WS decision.updated에 의존 */ });
       }
     }
@@ -1060,15 +1052,12 @@ export function useChatSession(
     // 결정 인박스 (t_2de069f3) — decision.updated 단일 상태원천 + GET /decisions 부트스트랩
     decisions,
     updateDecision,
-    applyDecisionsSnapshot,
+    applyDecisionSnapshot,
     /** 스트립 보조 폴링의 단일 queue 상태 적용기 (t_91cb659c) — useQueueStrip에 전달 */
     applyQueueSnapshot,
     // 답변 대기 (t_363c0faa) — reply.pending.updated 단일 상태원천 + GET /pending 보조 적용기
     pendingReplies,
     applyPendingSnapshot,
-    // 결정 인박스 (t_2de069f3) — decision.updated 단일 상태원천 + GET /decisions 부트스트랩
-    decisions,
-    applyDecisionSnapshot: (items: import('../lib/api').DecisionItem[]) => setDecisions(normalizeDecisions(items)),
     // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 기준
     threads,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,

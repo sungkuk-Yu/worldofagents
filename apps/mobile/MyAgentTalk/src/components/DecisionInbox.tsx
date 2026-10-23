@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { DecisionCard } from './DecisionCard';
-import type { DecisionItem } from '../lib/chatLogic';
+import type { DecisionItem } from '../lib/api';
 
 interface DecisionInboxProps {
   decisions: DecisionItem[];
   onUpdate: (id: string, status: 'answered' | 'deferred' | 'dismissed', answer?: string) => void;
-  /** 원본 메시지 점프 (t_2de069f3) — sourceMessageId가 있는 카드만 탭 가능 */
+  /** 원본 메시지 점프 (t_2de069f3) — source_message_id가 있는 카드만 탭 가능 */
   onJump?: (sourceMessageId: string) => void;
 }
 
@@ -43,7 +43,7 @@ export function DecisionInbox({ decisions, onUpdate, onJump }: DecisionInboxProp
             key={item.id}
             item={item}
             onUpdate={onUpdate}
-            onJump={onJump && item.sourceMessageId ? () => onJump(item.sourceMessageId!) : undefined}
+            onJump={onJump && item.source_message_id ? () => onJump(item.source_message_id!) : undefined}
           />
         ))}
       </ScrollView>

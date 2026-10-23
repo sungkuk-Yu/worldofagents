@@ -17,9 +17,6 @@ import { useLayout } from '../hooks/useLayout';
 import ChatInputConsole from '../components/ChatInputConsole';
 import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
-import { QuestionTrackerModal } from '../components/QuestionTracker';
-import { QueueBacklogModal } from '../components/QueueBacklog';
-import { DecisionInbox } from '../components/DecisionInbox';
 import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
@@ -122,7 +119,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
     queueView,
     pendingReplies, applyPendingSnapshot, firstOutputArrived,
-    decisions, updateDecision,
+    decisions, updateDecision, applyDecisionSnapshot,
   } = useChatSession({
     sessionId: initialSessionId ?? null, agentId: agentId ?? null, deferConnection: !!route?.params?.demo,
     // 즐겨찾기 2탭 실시간 동기화 (t_b89df485): favorite.updated → useCardActions.local 반영.
@@ -882,14 +879,10 @@ export default function ChatScreen({ navigation, route }: Props) {
         connection={connection}
         activeThreadCount={activeThreadCount}
         pendingReplyCount={pendingReplies.length}
-        showTrackerButton={!context || Platform.OS !== 'web'}
-        showQueueLabel={wide && Platform.OS === 'web'}
-        queueBadge={{ pendingCount: queueView.pendingCount, stoppedCount: queueView.stoppedCount, backlogCount: queueView.backlogCount }}
         onBack={() => navigation.goBack()}
         onOpenThreads={() => setThreadsOpen(true)}
+        onOpenFavorites={() => setFavoritesOpen(true)}
         onOpenPending={() => setPendingOpen(true)}
-        onOpenTracker={() => setTrackerOpen(true)}
-        onOpenQueue={openQueueEntry}
         onBeginSelection={() => beginSelection()}
         onRequestRename={isDemo || !sessionId ? undefined : () => setRenameOpen(true)}
       />
@@ -1116,28 +1109,6 @@ export default function ChatScreen({ navigation, route }: Props) {
       />
       {/* #52: 스레드 바텀시트 — 카드 탭 시 디텐트 시트로 열림 (전체 화면 라우트 아님) */}
       <ThreadSheet ref={threadSheet} navigation={navigation} />
-      {/* 내 질문 트래커 모바일 대체 경로 (t_fd869e5b 요구3 확장) — wide 미만(패널 미렌더)에서
-          앱바 '현황' 버튼 → 하단 시트. 행 탭=카드 점프, 답글 칩=스레드 열기, 실패=재발화. */}
-      <QuestionTrackerModal
-        visible={trackerOpen}
-        onClose={() => setTrackerOpen(false)}
-        messages={messages}
-        pendingReplies={pendingReplies}
-        streams={streams}
-        queue={queue}
-        onJump={(id) => { setTrackerOpen(false); requestJump(id); }}
-        onOpenThread={(id) => { setTrackerOpen(false); openThreadOf(id); }}
-        onRetry={retryFromTracker}
-      />
-      {/* 진행 중 질문 전역 큐 입구 시트 (t_140ecc15 ②) — wide 미만(패널 미렌더)에서 앱바
-          '진행 중 질문' → 하단 시트(트래커와 동일 규격). 행 탭=카드 점프, 실패=재발화. */}
-      <QueueBacklogModal
-        visible={queueOpen}
-        onClose={() => setQueueOpen(false)}
-        view={queueView}
-        onJump={(id) => { setQueueOpen(false); requestJump(id); }}
-        onRetry={retryFromTracker}
-      />
       {/* 즐겨찾기 상단 모달 (t_fd869e5b 요구3) — 컨텍스트 패널 '전체' 링크 진입점 */}
       <FavoritesModal visible={favoritesOpen} onClose={() => setFavoritesOpen(false)} navigation={navigation} />
     {/* 결정 인박스 하단시트 (t_2de069f3) — 모바일/좁은 화면 스트립 탭 진입 */}

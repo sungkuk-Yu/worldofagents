@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import type { DecisionItem } from '../lib/chatLogic';
+import type { DecisionItem } from '../lib/api';
 
 interface DecisionCardProps {
   item: DecisionItem;
@@ -15,7 +15,7 @@ interface DecisionCardProps {
  * - answered/deferred/dismissed: 읽기 전용 표시
  */
 export function DecisionCard({ item, onUpdate, onJump }: DecisionCardProps) {
-  const [answer, setAnswer] = useState(item.answer ?? '');
+  const [answer, setAnswer] = useState('');
 
   const isPending = item.status === 'pending';
   const bgColor = item.status === 'answered' ? '#e8f5e9' : item.status === 'dismissed' ? '#f5f5f5' : '#fff3e0';

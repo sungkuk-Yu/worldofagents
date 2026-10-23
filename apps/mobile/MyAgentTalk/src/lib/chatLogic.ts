@@ -961,15 +961,9 @@ export const EMPTY_QUEUE: QueueItem[] = [];
 export const EMPTY_THREADS: ThreadIndexEntry[] = [];
 export const EMPTY_DECISIONS: import('../lib/api').DecisionItem[] = [];
 
-// ── 결정 인박스 (Decision Inbox, t_2de069f3) ─────────────────────────────
-// 에이전트→유저 결정 요청 사항을 별도 관리. GET /api/sessions/:threadId/decisions 응답 정규화.
-import type { DecisionItem } from '../types';
-export { DecisionItem };
-export const EMPTY_DECISIONS: DecisionItem[] = [];
-
-export function normalizeDecisionItems(value: unknown): DecisionItem[] {
+export function normalizeDecisionItems(value: unknown): import('../lib/api').DecisionItem[] {
   if (!Array.isArray(value)) return [];
-  const out: DecisionItem[] = [];
+  const out: import('../lib/api').DecisionItem[] = [];
   for (const r of value) {
     if (!isRecord(r) || typeof r.id !== 'string' || typeof r.question !== 'string') continue;
     out.push({

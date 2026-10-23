@@ -203,7 +203,7 @@ export interface DecisionItem {
   source_message_id?: string;
   /** 원본 발화 턴 인덱스 — 점프 대상 */
   source_turn_index?: number;
-  status: 'pending' | 'answered' | 'expired';
+  status: 'pending' | 'answered' | 'deferred' | 'dismissed' | 'expired';
   created_at: string;
   answered_at?: string;
   answer?: string;
