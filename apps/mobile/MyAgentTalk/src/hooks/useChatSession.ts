@@ -28,7 +28,7 @@ import { renderFlags } from '../lib/renderFlags';
 // 확정 행 계승(move)/answer.done(markDone)/라이브 empathy·answer 행(begin)만 이 훅이 소유한다.
 import { revealStore } from '../lib/revealStore';
 // 결정 인박스 (t_2de069f3) — decision.updated WS + GET /decisions 부트스트랩.
-import { normalizeDecisions, EMPTY_DECISIONS } from '../lib/chatLogic';
+// normalizeDecisions(레거시 GET /decisions 스냅샷)·normalizeDecisionItems(신규 복원 경로) 공존 — 컴파일 중복선언만 해소(t_88154e32 ③).
 
 export const PAGE_SIZE = 30;
 // t_710b5d28 — prefetch 구현은 lib/sessionPrefetch.ts (이 훅을 목록 화면이 import하면 채팅
@@ -93,10 +93,6 @@ export interface UseChatSessionReturn {
   pendingReplies: PendingReplyItem[];
   /** GET /pending 보조 폴링이 쓰는 스냅샷 적용기 (applyQueueSnapshot과 동일 단일 상태원천 원칙) */
   applyPendingSnapshot: (items: PendingReplyItem[]) => void;
-  /** 답변 제출 성공 후 로컬 즉시 제거 (WS decision.updated PATCH 폴백 전 UX 즉각성) */
-  applyDecisionSnapshot: (items: import('../lib/api').DecisionItem[]) => void;
-  /** 결정 인박스 (t_2de069f3): decision.updated 스냅샷 — 빈 배열이면 패널/배지 렌더 없음 */
-  decisions: import('../lib/api').DecisionItem[];
   /** 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 */
   threads: ThreadIndexEntry[];
   /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
@@ -188,8 +184,6 @@ export function useChatSession(
   const [queue, setQueue] = useState<QueueItem[]>(EMPTY_QUEUE);
   // 답변 대기 (t_363c0faa) — reply.pending.updated 스냅샷 그대로 보유. [] → 배지/칩 렌더 없음.
   const [pendingReplies, setPendingReplies] = useState<PendingReplyItem[]>(EMPTY_PENDING_REPLIES);
-  // 결정 인박스 (t_2de069f3) — decision.updated 스냅샷 그대로 보유. [] → 패널/배지 렌더 없음.
-  const [decisions, setDecisions] = useState<import('../lib/api').DecisionItem[]>(EMPTY_DECISIONS);
   // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 서버 로드 범위 내 스레드 목록/종료 배지/정렬.
   const [threads, setThreads] = useState<ThreadIndexEntry[]>(EMPTY_THREADS);
   // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
@@ -458,7 +452,7 @@ export function useChatSession(
         // 별도 API 호출 (GET /api/sessions/:threadId/decisions)
         try {
           const decisionsResp = await api.getDecisions(sid);
-          if (decisionsResp.ok && decisionsResp.data) setDecisions(normalizeDecisionItems(decisionsResp.data));
+          if (decisionsResp.ok && decisionsResp.data) setDecisions(normalizeDecisionItems(decisionsResp.data.items));
         } catch (err) {
           console.warn('[useChatSession] getDecisions failed:', err);
         }
@@ -471,14 +465,6 @@ export function useChatSession(
       if (initial) {
         runtime.historyCursor = oldestCursor(allRows);
         setHasOlder(Boolean(env.meta?.has_more) && allRows.length > 0);
-        // 결정 인박스 부트스트랩 (t_2de069f3): 재접속/부팅 구간의 decision.updated 누락을
-        // GET /decisions 스냅샷으로 복원 — 서버 미배포(404) 시 조용히 스킵.
-        void api.getDecisions(sid).then((denv) => {
-          const w = window as unknown as { __dbg?: unknown[] };
-          w.__dbg = w.__dbg || [];
-          w.__dbg.push({ at: 'decisionsGET', alive: alive(), ok: denv.ok, hasData: !!denv.data, items: denv.data ? (denv.data as { items?: unknown[] }).items?.length ?? -1 : -1 });
-          if (alive() && denv.ok && denv.data) setDecisions(normalizeDecisions(denv.data.items));
-        }).catch(() => { /* 서버 미배포 — WS decision.updated에 의존 */ });
       }
     }
     function connect(sid: string) {
@@ -1066,9 +1052,6 @@ export function useChatSession(
     // 답변 대기 (t_363c0faa) — reply.pending.updated 단일 상태원천 + GET /pending 보조 적용기
     pendingReplies,
     applyPendingSnapshot,
-    // 결정 인박스 (t_2de069f3) — decision.updated 단일 상태원천 + GET /decisions 부트스트랩
-    decisions,
-    applyDecisionSnapshot: (items: import('../lib/api').DecisionItem[]) => setDecisions(normalizeDecisions(items)),
     // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 기준
     threads,
     typingQuip: quip, isDemo: mode === 'demo', error: lastError,

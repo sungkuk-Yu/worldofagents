@@ -959,7 +959,6 @@ export function normalizeSuggestedQuestions(value: unknown): SuggestedQuestion[]
 /** 큐/칩 상태가 화면에 남지 않도록 세션 전환 시 함께 초기화할 빈 참조 */
 export const EMPTY_QUEUE: QueueItem[] = [];
 export const EMPTY_THREADS: ThreadIndexEntry[] = [];
-export const EMPTY_DECISIONS: import('../lib/api').DecisionItem[] = [];
 
 // ── 결정 인박스 (Decision Inbox, t_2de069f3) ─────────────────────────────
 // 에이전트→유저 결정 요청 사항을 별도 관리. GET /api/sessions/:threadId/decisions 응답 정규화.

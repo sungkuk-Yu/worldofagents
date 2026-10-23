@@ -19,7 +19,6 @@ import { useQueueStrip } from '../hooks/useQueueStrip';
 import PendingReplyModal from '../components/PendingReplyModal';
 import { QuestionTrackerModal } from '../components/QuestionTracker';
 import { QueueBacklogModal } from '../components/QueueBacklog';
-import { DecisionInbox } from '../components/DecisionInbox';
 import FavoritesModal from '../components/FavoritesModal';
 import { usePendingReplies } from '../hooks/usePendingReplies';
 import { voiceFirstConsole } from '../lib/layout';
@@ -480,15 +479,6 @@ export default function ChatScreen({ navigation, route }: Props) {
   // freeform 행 탭 = 카드 점프 + 입력창 개방 (키보드 계층 신호는 콘솔이 소유, nonce로 재요청 가능)
   const [composeNonce, setComposeNonce] = useState(0);
   const requestJump = strip.requestJump; // 안정 ref — memo deps는 개별 함수로 (t_70cbbd6b 관례)
-  // 결정 인박스 (t_2de069f3) — 원본 점프: source_turn_index → 메시지 id 변환 (requestJump 계약)
-  const jumpToDecisionSource = useCallback((turnIdx: number) => {
-    const msg = messages.find((m) => m.turnIndex === turnIdx);
-    if (msg) requestJump(msg.id);
-  }, [messages, requestJump]);
-  // 답변 제출 성공 → 로컬 즉시 제거 (WS decision.updated GET 폴백 전 UX 즉각성)
-  const onDecisionAnswered = useCallback((id: string) => {
-    applyDecisionSnapshot(decisions.filter((d) => d.id !== id));
-  }, [decisions, applyDecisionSnapshot]);
   // ── 답글/인용 배선 (t_62897e88 백로그④) ─────────────────────────
   // 롱프레스(모바일)/홀드(웹 마우스 450ms, rnw PressResponder) → 액션 시트.
   // 미전송/실패 행은 답글 대상 불가(서버 FK 될 수 없음) + 데모 세션은 시트 자체를 열지 않는다.
@@ -1148,10 +1138,9 @@ export default function ChatScreen({ navigation, route }: Props) {
       <TouchableOpacity style={{ flex: 1, backgroundColor: colors.overlay }} activeOpacity={1} onPress={() => setDecisionsOpen(false)} />
       <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radii.lg, borderTopRightRadius: radii.lg, maxHeight: '70%', paddingBottom: spacing.sp6 }}>
         <DecisionInbox
-          sessionId={sessionId ?? ''}
           decisions={decisions}
-          onJumpToMessage={(turnIdx) => { setDecisionsOpen(false); jumpToDecisionSource(turnIdx); }}
-          onAnswered={onDecisionAnswered}
+          onUpdate={updateDecision}
+          onJump={(sourceMessageId) => { setDecisionsOpen(false); requestJump(sourceMessageId); }}
         />
       </View>
     </Modal>
@@ -1165,10 +1154,9 @@ export default function ChatScreen({ navigation, route }: Props) {
     {/* 결정 인박스 (t_2de069f3) — PC wide 웹: 사이드체인 위 결정 패널. pending 있을 때만 등장(클릭 최소·한 화면 한 목적). */}
     {wide && Platform.OS === 'web' && decisions.length > 0 && (
       <DecisionInbox
-        sessionId={sessionId ?? ''}
         decisions={decisions}
-        onJumpToMessage={jumpToDecisionSource}
-        onAnswered={onDecisionAnswered}
+        onUpdate={updateDecision}
+        onJump={requestJump}
       />
     )}
     {wide && Platform.OS === 'web' && (
