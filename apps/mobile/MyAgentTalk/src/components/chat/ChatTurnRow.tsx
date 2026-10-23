@@ -29,6 +29,8 @@ interface Props {
   highlightId: string | null;
   /** t_c62a2eb7: 예/아니요 대형 버튼 행이 붙은 공감 재질문 카드 id (없으면 null — 수명 판정은 화면/useAckChip 소유) */
   ackChipId?: string | null;
+  /** 확인 대상 공감 메시지 본문 */
+  decisionText?: string | null;
   /** t_38af80d3: 예/아니요 자동 진행까지 남은 시간(ms) — AckChipRow 카운트다운 표시용 */
   ackRemainingMs?: number | null;
   /** t_64e3edd6 ②: ack 결과(탭/조이스틱 '예'·'아니요' 발화) user 카드 id 집합 — 렌더 제외(전송은 정상 진행) */
@@ -61,7 +63,7 @@ interface Props {
 }
 
 export default function ChatTurnRow({
-  group, timeLabel, highlightId, ackChipId, ackRemainingMs, hiddenAckIds, confirmView, onJump, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
+  group, timeLabel, highlightId, ackChipId, decisionText, ackRemainingMs, hiddenAckIds, confirmView, onJump, onSendAck, decorate, handlers, presetCategory, canFork, agentName,
   senderFlags, sessionTitle, isDemo, queue, selectionActive, selectedIds, onToggleSelect, onResend, onDelete,
   onMessageLongPress, onQuoteJump,
 }: Props) {
@@ -102,7 +104,7 @@ export default function ChatTurnRow({
       if (!frame) {
         return <>
           {card}
-          {!selectionActive && message.role === 'agent' && message.id === ackChipId && onSendAck && <AckChipRow onPressAck={onSendAck} remainingMs={ackRemainingMs ?? undefined} />}
+          {!selectionActive && message.role === 'agent' && message.id === ackChipId && onSendAck && <AckChipRow onPressAck={onSendAck} decisionText={decisionText} remainingMs={ackRemainingMs ?? undefined} />}
         </>;
       }
       return (
@@ -122,7 +124,7 @@ export default function ChatTurnRow({
                 </Pressable>}
               </View>
             ))}
-            {!selectionActive && message.id === ackChipId && onSendAck && <AckChipRow onPressAck={onSendAck} remainingMs={ackRemainingMs ?? undefined} />}
+            {!selectionActive && message.id === ackChipId && onSendAck && <AckChipRow onPressAck={onSendAck} decisionText={decisionText} remainingMs={ackRemainingMs ?? undefined} />}
           </View>
         </View>
       );
@@ -167,7 +169,7 @@ export default function ChatTurnRow({
       )}
     </View>}
     {/* t_c62a2eb7: 예/아니요 칩 — 확인 스레드 프레임 밖(프레임 없는 empathy 강등 시) 기존 위치 유지 */}
-    {!selectionActive && message.role === 'agent' && message.id === ackChipId && onSendAck && !confirmView?.byEmpathy.get(message.id) && <AckChipRow onPressAck={onSendAck} remainingMs={ackRemainingMs ?? undefined} />}
+    {!selectionActive && message.role === 'agent' && message.id === ackChipId && onSendAck && !confirmView?.byEmpathy.get(message.id) && <AckChipRow onPressAck={onSendAck} decisionText={decisionText} remainingMs={ackRemainingMs ?? undefined} />}
     {message.status === 'failed' && <View style={styles.msgHeader}>
       <Button onPress={() => onResend(message)}>{t('chat.resend')}</Button>
       <Button onPress={() => onDelete(message.id)}>{t('chat.delete')}</Button>

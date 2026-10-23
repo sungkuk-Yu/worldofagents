@@ -18,11 +18,13 @@ import { ACK_AUTO_PROCEED_MS } from '../lib/ackChips';
 interface Props {
   /** 탭 시 전송 문장 확정 콜백 — 화면(send)으로 전달 */
   onPressAck: (text: string) => void;
+  /** 확인 대상 공감 메시지의 실제 본문 */
+  decisionText?: string | null;
   /** 남은 시간 (ms) — 카운트다운 표시용 (t_b13756a9) */
   remainingMs?: number;
 }
 
-export default function AckChipRow({ onPressAck, remainingMs }: Props) {
+export default function AckChipRow({ onPressAck, decisionText, remainingMs }: Props) {
   const { t } = useTranslation();
   const yes = t('chat.ackYes');
   const no = t('chat.ackNo');
@@ -31,37 +33,51 @@ export default function AckChipRow({ onPressAck, remainingMs }: Props) {
   // 초 단위 표시 (소수점 1자리)
   const secondsLeft = remainingMs != null ? Math.max(0, remainingMs / 1000).toFixed(1) : null;
   return (
-    <View style={styles.row} testID="ack-chips">
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => onPressAck(yes)}
-        testID="ack-chip-yes"
-        style={({ pressed }) => [styles.button, styles.buttonYes, pressed && { opacity: 0.85 }]}
-      >
-        {/* 카운트다운 프로그레스 바 (예 버튼 하단) */}
-        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-        <View style={styles.yesContent}>
-          <Text style={styles.yesText}>{yes}</Text>
-          {secondsLeft != null && <Text style={styles.countdown}>{secondsLeft}s</Text>}
-        </View>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => onPressAck(no)}
-        testID="ack-chip-no"
-        style={({ pressed }) => [styles.button, styles.buttonNo, pressed && { backgroundColor: colors.surfaceHover }]}
-      >
-        <Text style={styles.noText}>{no}</Text>
-      </Pressable>
+    <View style={styles.container} testID="ack-chips">
+      {!!decisionText?.trim() && <Text style={styles.decisionText} testID="ack-decision-text">{decisionText.trim()}</Text>}
+      <View style={styles.row}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onPressAck(yes)}
+          testID="ack-chip-yes"
+          style={({ pressed }) => [styles.button, styles.buttonYes, pressed && { opacity: 0.85 }]}
+        >
+          {/* 카운트다운 프로그레스 바 (예 버튼 하단) */}
+          <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
+          <View style={styles.yesContent}>
+            <Text style={styles.yesText}>{yes}</Text>
+            {secondsLeft != null && <Text style={styles.countdown}>{secondsLeft}s</Text>}
+          </View>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onPressAck(no)}
+          testID="ack-chip-no"
+          style={({ pressed }) => [styles.button, styles.buttonNo, pressed && { backgroundColor: colors.surfaceHover }]}
+        >
+          <Text style={styles.noText}>{no}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { marginTop: spacing.sp2, gap: spacing.sp2 },
+  decisionText: {
+    ...typography.body,
+    color: colors.text1,
+    flexShrink: 1,
+    lineHeight: 22,
+    paddingHorizontal: spacing.sp2,
+    paddingVertical: spacing.sp1,
+    backgroundColor: colors.surfaceHover,
+    borderRadius: radii.md,
+  },
   // 카드 폭 50/50 분할 행 — 외곽 1px 테두리 + 좌우 버튼 사이 1px 구분선, 라운드 코너는 프레임에
   row: {
     flexDirection: 'row',
-    marginTop: spacing.sp2,
+    marginTop: 0,
     marginHorizontal: spacing.sp1,
     borderWidth: 1,
     borderColor: colors.border,
