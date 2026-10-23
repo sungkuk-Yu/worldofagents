@@ -219,6 +219,8 @@ export interface ConfirmView extends ConfirmFrames {
   acksByEmpathy: Map<string, ChatMessage[]>;
   /** 병합 확인응답 user 행 id 집합 (O(1) 렌더 필터) */
   ackIds: Set<string>;
+  /** Latest empathy message body, selected using the same ACK id → empathy id links. */
+  empathyTextById: Map<string, string>;
 }
 export function buildConfirmView(messages: ChatMessage[]): ConfirmView {
   const links = confirmationLinks(messages);
@@ -228,7 +230,12 @@ export function buildConfirmView(messages: ChatMessage[]): ConfirmView {
     const emp = links.get(m.id);
     if (emp) acksByEmpathy.set(emp, [...(acksByEmpathy.get(emp) ?? []), m]);
   }
-  return { ...frames, acksByEmpathy, ackIds: new Set(links.keys()) };
+  const empathyTextById = new Map<string, string>();
+  for (const empathyId of links.values()) {
+    const empathy = messages.find((message) => message.id === empathyId);
+    if (empathy) empathyTextById.set(empathyId, (empathy.content || '').trim());
+  }
+  return { ...frames, acksByEmpathy, ackIds: new Set(links.keys()), empathyTextById };
 }
 
 /**
