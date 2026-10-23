@@ -5,9 +5,10 @@
  *   ① 발화 후 공감 재질문 카드 하단 버튼 행 노출 — 라벨 고정: 좌 '예'/우 '아니요' (t_1b123e59:
  *      원문① affirmative 좌측 고정 + 원문② "맞아요가 아니고 예/아니요 로만" — template_id 바인딩 폐기),
  *      50/50 폭 분할, 버튼 높이 ≥44px, 구분선 1px, affirmative('예')만 초록 채움
- *   ② 소진 전(≤2.4s) 유지 + 2.5초 경과 미터치 자동 소진(t_64e3edd6 #321 개정 — t_c62a2eb7 '3초+ 무한 유지'
- *      폐기: "안 누르더라도 3초(→2.5s) 후에 그냥 바로 답변"). 실측 소진 2540ms(t_64e3edd6 B2), tick 200ms 유예 포함 3.2s 판정.
- *   ③ '예' 탭 = POST 발화 1회, payload = 라벨과 동일 텍스트(게이트 계약 텍스트) — 2.5s 창 내 재질문 후 즉시 탭
+ *   ② 소진 전(≤3.4s) 유지 + 3.5초 경과 미터치 자동 소진(t_ca993e76 개정 — t_64e3edd6 2.5초→3.5초,
+ *      t_c62a2eb7 '3초+ 무한 유지' 폐기: "안 누르더라도 3초(→2.5→3.5s) 후에 그냥 바로 답변").
+ *      실측 소진 3540ms, tick 200ms 유예 포함 4.4s 판정.
+ *   ③ '예' 탭 = POST 발화 1회, payload = 라벨과 동일 텍스트(게이트 계약 텍스트) — 3.5s 창 내 재질문 후 즉시 탭
  *   ④ 탭 후 해당 버튼 행 소멸(연속 질문 스팸 방지 — 발화 진행이 수명), 다음 턴은 신규 카드에만
  *   ⑤ 재질문 활성 중 ← 방향 이동 = 즉시 아밍 힌트 → 릴리스 = audio.cancel + '예' POST
  *      (t_64e3edd6 0.8s arm 타이머 폐지 — stageReleaseOutcome ackActive 게이트, 소진 창 내 수행)
@@ -108,21 +109,21 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     }
     await page.screenshot({ path: shot('01-buttons-visible') });
 
-    // ── ② 소진 전 유지 + 2.5초 미터치 자동 소진 (t_64e3edd6 #321: '3초+ 무한 유지' 폐기) ──
-    // t0 = 행 노출 확인 시점(생성 시각 이후). 실측 소진 2540ms + tick 200ms 유예 → 3.4s엔 확정 소멸.
+    // ── ② 소진 전 유지 + 3.5초 미터치 자동 소진 (t_ca993e76: 2.5초→3.5초) ──
+    // t0 = 행 노출 확인 시점(생성 시각 이후). 실측 소진 3540ms + tick 200ms 유예 → 4.4s엔 확정 소멸.
     const t0 = Date.now();
-    await page.waitForTimeout(1200); // 소진 창 내 (t0+1.2s < 2.5s)
+    await page.waitForTimeout(1200); // 소진 창 내 (t0+1.2s < 3.5s)
     const aliveBeforeBurn = (await page.getByTestId('ack-chips').count()) === 1;
-    check('② 소진 전(≤2.4s) 버튼 행 유지', aliveBeforeBurn, `elapsed=${Date.now() - t0}ms`);
+    check('② 소진 전(≤3.4s) 버튼 행 유지', aliveBeforeBurn, `elapsed=${Date.now() - t0}ms`);
     await page.screenshot({ path: shot('02-still-alive-before-burn') });
-    await page.waitForTimeout(Math.max(0, 3400 - (Date.now() - t0)));
+    await page.waitForTimeout(Math.max(0, 4400 - (Date.now() - t0)));
     const burned = (await page.getByTestId('ack-chips').count()) === 0;
-    check('② 2.5초 미터치 자동 소진 — 버튼 행 소멸 (3.4s 실측 유예 내)', burned, `elapsed=${Date.now() - t0}ms`);
+    check('② 3.5초 미터치 자동 소진 — 버튼 행 소멸 (4.4s 실측 유예 내)', burned, `elapsed=${Date.now() - t0}ms`);
     const autoAnswer = await page.getByText('Test reply to 내일 출장 일정 잡아줘', { exact: false }).count();
     check('② 소진 후에도 답변 존재(자동 진행 체감 — 답변은 확인 발화 없이 직결)', autoAnswer >= 1);
     await page.screenshot({ path: shot('02b-gone-after-burn') });
 
-    // ── ③④ '예' 탭 = POST 1회 + 해당 행 소멸 — 2.5s 창 내 즉시 탭 (새 턴) ──
+    // ── ③④ '예' 탭 = POST 1회 + 해당 행 소멸 — 3.5s 창 내 즉시 탭 (새 턴) ──
     await page.getByTestId('chat-input').fill('회의실을 잡을까');
     await page.getByTestId('send-button').click();
     const row3 = await page.getByTestId('ack-chips').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
@@ -182,8 +183,8 @@ const sends = (state) => state.calls.filter((c) => c.path.endsWith('/messages') 
     check('⑤ 릴리스 후 아밍 배너 소멸', bannerGone);
 
     // ── ⑥ 소진 후(비활성) 좌 스와이프 = 텍스트 발화 없음 — t_08d671a8 5방향 재매핑: ← = cancel(폐기) ──
-    // ⑤의 '예' 발화가 만든 신규 재질문 행도 2.5s에 소진 → ackActive=false 상태 확보.
-    await page.waitForTimeout(3400);
+    // ⑤의 '예' 발화가 만든 신규 재질문 행도 3.5s에 소진 → ackActive=false 상태 확보.
+    await page.waitForTimeout(4400);
     const preSwipeRow = (await page.getByTestId('ack-chips').count()) === 0;
     check('⑥ 전제: 스와이프 시점 버튼 행 소진(비활성)', preSwipeRow);
     const before5 = sends(state).length;
