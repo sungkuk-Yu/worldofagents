@@ -1,3 +1,5 @@
+import ChoiceBody from '../components/ChoiceBody';
+import { parseChoices } from '../lib/choiceParse';
 import React from 'react';
 import { View } from 'react-native';
 import { Text } from 'react-native-paper';
@@ -16,6 +18,8 @@ export default function TextCard({ message }: CardProps) {
   // contentKey(시스템 안내문 등 로컬 문자열)는 평문 렌더 — 리치텍스트는 에이전트 응답용
   if (message.contentKey) return <Text style={cardStyles.body}>{t(message.contentKey, message.contentParams)}</Text>;
   const links = safePayloadLinks(message.payload?.links);
+  const parts = message.role === 'agent' ? parseChoices(message.content) : [];
+  if (parts.some((part) => part.kind === 'choices')) return <View><ChoiceBody messageId={message.id} parts={parts} />{links.length > 0 && <RichLinks links={links} />}</View>;
   // t_e9480e0f 백로그① — 에이전트 답변만 마크다운 게이트: 볼드/리스트/헤딩/표/hr 등 RichText가
   // 못 그리는 블록 문법이 감지되면 MarkdownView 계보(ChatMarkdown)로 통일 렌더.
   // 평문·링크·인라인코드·인용·코드블록뿐인 응답은 판정이 false → 아래 RichText 경로 = 기존과 100% 동일(회귀 금지).

@@ -1,3 +1,5 @@
+import { ChoiceContext } from '../components/ChoiceBody';
+import { ChoiceState, emptyChoiceState, parseChoices, toggleChoice, choiceSubmission } from '../lib/choiceParse';
 import ForkDialog from '../components/ForkDialog';
 import SessionTitleDialog from '../components/SessionTitleDialog';
 import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
@@ -723,13 +725,14 @@ export default function ChatScreen({ navigation, route }: Props) {
     previousMessages.current = messages;
     const ids = new Set(previous.map((m) => m.id));
     const tail = previous[previous.length - 1];
-    // ①(t_5c559e85): 인라인 스트림 카드는 확정 행과 같은 자리의 transient — '새 메시지' 카운트 제외(중복 셈).
-    const added = messages.filter((m) => m.status !== 'streaming' && !ids.has(m.id) && (!tail || m.turnIndex >= tail.turnIndex)).length;
-    if (!nearBottom.current && added) {
-      // 목록 변경으로 새 메시지 알림 수를 동기화한다.
-      setUnseen((count) => count + added);
+    // 새 꼬리 메시지에만 이동: 과거 페이지를 앞에 추가할 때는 독서 위치를 유지한다.
+    const added = messages.filter((m) => !ids.has(m.id) && (!tail || m.turnIndex >= tail.turnIndex)).length;
+    if (added) {
+      nearBottom.current = true;
+      setUnseen(0);
+      followTail(3, false);
     }
-  }, [messages]);
+  }, [messages, followTail]);
   const jumpToEnd = useCallback(() => {
     // 배지 탭 = 명시적 하강. animated bottom clamp + 레이아웃 확정 rAF 재시도(정착 확인).
     // 스트리밍 추종과 동일 루프지만 animated — 콘텐츠가 계속 성장해도 각 스텝이 새 타깃으로
@@ -834,6 +837,32 @@ export default function ChatScreen({ navigation, route }: Props) {
     void send(text, undefined, quote);
   }, [isDemo, send, ackChip, messages, agentName]);
 
+  const [choiceStates, setChoiceStates] = useState<Record<string, ChoiceState>>({});
+  const choiceStatesRef = useRef(choiceStates);
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'agent');
+  const assistantIndex = lastAssistant ? messages.indexOf(lastAssistant) : -1;
+  const alreadyReplied = messages.slice(assistantIndex + 1).some((m) => m.role === 'user');
+  const activeChoiceId = !isDemo && !selection.active && !alreadyReplied && lastAssistant?.status !== 'streaming' ? lastAssistant?.id : undefined;
+  const choiceControls = {
+    activeId: activeChoiceId,
+    states: choiceStates,
+    toggle: (id: string, item: number) => {
+      const next = { ...choiceStatesRef.current, [id]: toggleChoice(choiceStatesRef.current[id] ?? emptyChoiceState, item, id === activeChoiceId) };
+      choiceStatesRef.current = next;
+      setChoiceStates(next);
+    },
+    submit: (id: string) => {
+      const message = messages.find((m) => m.id === id);
+      const state = choiceStatesRef.current[id] ?? emptyChoiceState;
+      const text = message && choiceSubmission(parseChoices(message.content), state, id === activeChoiceId);
+      if (!text) return;
+      const next = { ...choiceStatesRef.current, [id]: { ...state, locked: true } };
+      choiceStatesRef.current = next;
+      setChoiceStates(next);
+      void send(text);
+    },
+  };
+
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
     streams={streams}
@@ -933,7 +962,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       <FlatList
         ref={listRef}
         data={feed}
-        renderItem={({ item }) => isDateSeparator(item) ? <DateSeparatorRow separator={item} /> : <ChatTurnRow
+        renderItem={({ item }) => isDateSeparator(item) ? <DateSeparatorRow separator={item} /> : <ChoiceContext.Provider value={choiceControls}><ChatTurnRow
           group={item}
           timeLabel={times.get(item.key)}
           highlightId={highlightId}
@@ -960,7 +989,7 @@ export default function ChatScreen({ navigation, route }: Props) {
           onDelete={deleteMessage}
           onMessageLongPress={openActionSheet}
           onQuoteJump={requestJump}
-        />}
+        /></ChoiceContext.Provider>}
         CellRendererComponent={renderCell}
         onScrollBeginDrag={() => { prependAnchor.current = null; }}
         onScroll={onScroll}

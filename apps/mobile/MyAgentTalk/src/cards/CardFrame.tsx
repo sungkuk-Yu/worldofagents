@@ -1,3 +1,5 @@
+import ChoiceBody from '../components/ChoiceBody';
+import { parseChoices } from '../lib/choiceParse';
 import './defaults';
 import { needsClientDisclaimer } from '../lib/legal';
 import React, { useCallback, useState, useSyncExternalStore } from 'react';
@@ -94,7 +96,9 @@ function FallbackCard({ message, payload }: { message: CardProps['message']; pay
   const { t } = useTranslation();
   const keys = payload ? Object.keys(payload) : [];
   return <View style={s.webTransition}>
-    {!!message.content && <Text style={s.body}>{message.content}</Text>}
+    {!!message.content && (parseChoices(message.content).some((part) => part.kind === 'choices')
+      ? <ChoiceBody messageId={message.id} parts={parseChoices(message.content)} />
+      : <Text style={s.body}>{message.content}</Text>)}
     {!!keys.length && <View style={s.fallbackJson}>
       <Text style={s.micro}>{t('cards.unknownType', { type: message.dialogueType ?? '?' })}</Text>
       {keys.map((key) => {
