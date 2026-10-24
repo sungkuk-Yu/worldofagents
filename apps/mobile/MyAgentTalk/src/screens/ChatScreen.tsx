@@ -1,5 +1,5 @@
 import { ChoiceContext } from '../components/ChoiceBody';
-import { ChoiceState, emptyChoiceState, parseChoices, toggleChoice, choiceSubmission } from '../lib/choiceParse';
+import { ChoiceState, createChoiceState, parseChoices, toggleChoice, choiceSubmission } from '../lib/choiceParse';
 import ForkDialog from '../components/ForkDialog';
 import SessionTitleDialog from '../components/SessionTitleDialog';
 import ThreadSheet, { ThreadSheetHandle } from '../components/ThreadSheet';
@@ -847,13 +847,13 @@ export default function ChatScreen({ navigation, route }: Props) {
     activeId: activeChoiceId,
     states: choiceStates,
     toggle: (id: string, item: number) => {
-      const next = { ...choiceStatesRef.current, [id]: toggleChoice(choiceStatesRef.current[id] ?? emptyChoiceState, item, id === activeChoiceId) };
+      const next = { ...choiceStatesRef.current, [id]: toggleChoice(choiceStatesRef.current[id] ?? createChoiceState(), item, id === activeChoiceId) };
       choiceStatesRef.current = next;
       setChoiceStates(next);
     },
     submit: (id: string) => {
       const message = messages.find((m) => m.id === id);
-      const state = choiceStatesRef.current[id] ?? emptyChoiceState;
+      const state = choiceStatesRef.current[id] ?? createChoiceState();
       const text = message && choiceSubmission(parseChoices(message.content), state, id === activeChoiceId);
       if (!text) return;
       const next = { ...choiceStatesRef.current, [id]: { ...state, locked: true } };

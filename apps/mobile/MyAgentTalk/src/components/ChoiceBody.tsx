@@ -2,7 +2,7 @@ import React, { createContext, useContext } from 'react';
 import { View } from 'react-native';
 import { Button, Checkbox, Text } from 'react-native-paper';
 import ChatMarkdown from './ChatMarkdown';
-import { ChoicePart, ChoiceState, choiceSubmission, emptyChoiceState } from '../lib/choiceParse';
+import { ChoicePart, ChoiceState, choiceSubmission, createChoiceState } from '../lib/choiceParse';
 
 export const ChoiceContext = createContext<{
   activeId?: string;
@@ -13,7 +13,7 @@ export const ChoiceContext = createContext<{
 
 export default function ChoiceBody({ messageId, parts }: { messageId: string; parts: ChoicePart[] }) {
   const controls = useContext(ChoiceContext);
-  const state = controls.states[messageId] ?? emptyChoiceState;
+  const state = controls.states[messageId] ?? createChoiceState();
   const active = controls.activeId === messageId && !state.locked;
   return <View testID={`choices-${messageId}`}>
     {parts.map((part, index) => part.kind === 'text'

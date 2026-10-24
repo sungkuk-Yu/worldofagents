@@ -34,6 +34,9 @@ export function parseChoices(content: string): ChoicePart[] {
 }
 export interface ChoiceState { selected: number[]; locked: boolean }
 export const emptyChoiceState: ChoiceState = { selected: [], locked: false };
+
+/** Return an isolated state value; the shared template must never be mutated. */
+export function createChoiceState(): ChoiceState { return { selected: [], locked: false }; }
 export function toggleChoice(state: ChoiceState, id: number, active: boolean): ChoiceState {
   if (!active || state.locked) return state;
   return { ...state, selected: state.selected.includes(id) ? state.selected.filter((v) => v !== id) : [...state.selected, id] };
