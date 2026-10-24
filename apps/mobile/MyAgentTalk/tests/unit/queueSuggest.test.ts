@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  normalizeQueueItems, queueItemForMessage, normalizeSuggestedQuestions, ChatMessage,
+  normalizeQueueItems, queueItemForMessage, ChatMessage,
 } from '../../src/lib/chatLogic';
 
 const msg = (over: Partial<ChatMessage>): ChatMessage =>
@@ -34,20 +34,3 @@ test('queueItemForMessage — message_id 우선, 없으면 공백 정규화 cont
   assert.equal(queueItemForMessage([], msg({})), undefined);
 });
 
-test('normalizeSuggestedQuestions — 2~3개 계약, text 없는 행 제외, 초과분 절단', () => {
-  const out = normalizeSuggestedQuestions([
-    { id: 's1', text: ' 후속 1 ', locale: 'ko' },
-    { text: 'id 없는 행' },
-    { id: 's2', text: '후속 2' },
-    { id: 's3', text: '후속 3' },
-    { id: 's4', text: '네 번째는 버림' },
-    { id: 's5' }, 42, 'x',
-  ]);
-  assert.deepEqual(out.map((q) => q.text), ['후속 1', 'id 없는 행', '후속 2']);
-  assert.equal(out[0].locale, 'ko');
-  assert.equal(out[1].id, 'sq-1', 'id 없으면 순번 합성');
-});
-
-test('normalizeSuggestedQuestions — 비배열/미배열 payload 모두 [] (생성 실패=체감 0)', () => {
-  for (const bad of [undefined, null, {}, 'x']) assert.deepEqual(normalizeSuggestedQuestions(bad), []);
-});

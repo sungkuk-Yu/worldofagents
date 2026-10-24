@@ -15,7 +15,7 @@ import {
   // t_b2004d50: WS 에코 라이브 수신각 도장 (stampAckArrival 단일 도장, 재구독 리플레이 무해)
   stampAckArrival,
   syncStreamCards, purgeSettledStreamCards, ensureStreamPlaceholder, quipKeyForStage, STREAM_FLUSH_DEBOUNCE_MS,
-  normalizeQueueItems, QueueItem, normalizeSuggestedQuestions, SuggestedQuestion, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
+  normalizeQueueItems, QueueItem, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
   newClientReqId, reconcilePendingUserEcho, planEventSyncReplay,
@@ -95,8 +95,6 @@ export interface UseChatSessionReturn {
   applyPendingSnapshot: (items: PendingReplyItem[]) => void;
   /** 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 현재 서버 로드 범위 */
   threads: ThreadIndexEntry[];
-  /** 후속 질문 (t_1797f432 ③): 최근 run.completed의 suggested_questions (없으면 []) */
-  suggested: SuggestedQuestion[];
   // 기존 화면과 병행 배포를 위한 호환 필드
   typingQuip: string | null;
   isDemo: boolean;
@@ -187,7 +185,6 @@ export function useChatSession(
   // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 서버 로드 범위 내 스레드 목록/종료 배지/정렬.
   const [threads, setThreads] = useState<ThreadIndexEntry[]>(EMPTY_THREADS);
   // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
-  const [suggested, setSuggested] = useState<SuggestedQuestion[]>([]);
   // 비서실 릴레이 자막 (t_961ca593 Phase B) — 최신 1줄 휘발성 연출. 이벤트 0건(비서 외 페르소나)이면 항상 null → 렌더 없음.
   const [relay, setRelay] = useState<RelayCaption | null>(null);
   // 결정 인박스 (t_2de069f3) — WS decision.updated + GET /decisions 스냅샷. pending 우선 정렬. [] → 렌더 없음.
@@ -322,7 +319,6 @@ export function useChatSession(
     setQueue(EMPTY_QUEUE);
     setPendingReplies(EMPTY_PENDING_REPLIES); // 답변 대기 잔상 동일 원칙 (t_363c0faa)
     setThreads(EMPTY_THREADS);
-    setSuggested([]);
     // ── 스트리밍 배칭 발행 (t_2fa10f11 머지 수합) ──
     // 원본 두 경로: t_cc232982 80ms 디바운스(선행+후행) × t_5c559e85 rAF 프레임 배칭.
     // 회피 결정: rAF 배칭이 상위(≤1 re-render/frame, 9/30 DOM 실측 28.1fps) — 80ms 창을 대체한다.
@@ -459,9 +455,6 @@ export function useChatSession(
       }
       // 답변 대기 GET /pending 부트스트랩은 usePendingReplies(보조 폴링 훅)이 소유 (t_363c0faa) —
       // 이 훅은 WS reply.pending.updated 단일 상태원천만 유지 (useQueueStrip/applyQueueSnapshot 대칭).
-      // 후속 질문 복원 (t_1797f432 ③): 마지막 에이전트 행 payload의 suggested_questions 세트 (없으면 빈 배열).
-      const lastAgent = [...allRows].reverse().find((m) => m.role === 'agent' && m.payload?.suggested_questions !== undefined);
-      if (lastAgent) setSuggested(normalizeSuggestedQuestions(lastAgent.payload?.suggested_questions));
       if (initial) {
         runtime.historyCursor = oldestCursor(allRows);
         setHasOlder(Boolean(env.meta?.has_more) && allRows.length > 0);
@@ -729,13 +722,6 @@ export function useChatSession(
                   return clearRelayOnRunEnd(prev, runIdEnd);
                 });
               }
-              // 후속 질문 (t_1797f432 ③): run.completed의 structured_payload.suggested_questions [{id,text,locale}].
-              // 필드 없거나 형태 다르면 [] → 마지막 세트만 유지, 생성 실패는 조용히 무시(사용자 체감 0).
-              if (type === 'run.completed') {
-                const sp = raw.structured_payload ?? (raw.message as ServerMessageRow | undefined)?.structured_payload;
-                const next = normalizeSuggestedQuestions(isRecord(sp) ? sp.suggested_questions : undefined);
-                if (next.length) setSuggested(next);
-              }
               // 큐 상태 전이 반영 대기용: 런이 끝났으면 서버가 발행하는 queue.updated를 우선 쓰지만,
               // 미수신 시에도 마지막 스냅샷을 다시 읽지 않으므로 표시는 이벤트 의존(폴백=보수적 유지).
             }
@@ -859,7 +845,6 @@ export function useChatSession(
     if (guardKey && runtime.inflightSends.has(guardKey)) return { ok: true };
     setLastError(null);
     // 후속 질문 칩은 발화 확정 시 1회 소모 (탭/직접 입력 모두) — 이전 턴의 칩이 남지 않는다.
-    setSuggested([]);
     updateMessages((prev) => appendOptimistic(prev, {
       id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
       clientReqId,
@@ -1040,7 +1025,7 @@ export function useChatSession(
     peers, talking, talk,
     firstOutputArrived,
     // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
-    queue, suggested,
+    queue,
     // 비서실 릴레이 자막 (t_961ca593 Phase B) — 이벤트 없으면 null (렌더 없음)
     relay,
     // 결정 인박스 (t_2de069f3) — decision.updated 단일 상태원천 + GET /decisions 부트스트랩

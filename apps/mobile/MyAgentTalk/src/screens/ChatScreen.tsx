@@ -64,7 +64,7 @@ import {
 } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
 import { colors, webScreenMotion, spacing, radii } from '../theme';
-import { ChatMessage, TurnGroup, FeedItem, groupByTurn, insertDateSeparators, isDateSeparator, buildTimeGroups, buildSenderGroups, streamingHeaderAfter, validateMessageInput, restoreFailedDraft, SuggestedQuestion, canReplyTo, localReplyQuote } from '../lib/chatLogic';
+import { ChatMessage, TurnGroup, FeedItem, groupByTurn, insertDateSeparators, isDateSeparator, buildTimeGroups, buildSenderGroups, streamingHeaderAfter, validateMessageInput, restoreFailedDraft, canReplyTo, localReplyQuote } from '../lib/chatLogic';
 import DateSeparatorRow from '../components/chat/DateSeparatorRow';
 import DatePinnedHeader, { DatePinnedHandle, SepMetric } from '../components/chat/DatePinnedHeader';
 import { formatDateSeparator } from '../i18n/format';
@@ -118,7 +118,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     loadOlder,
     retryLastSend,
     connection, activeCount, streams, retryConnection, retryMessage, deleteMessage,
-    peers, talking, talk, queue, suggested, threads, applyQueueSnapshot, relay,
+    peers, talking, talk, queue, threads, applyQueueSnapshot, relay,
     queueView,
     pendingReplies, applyPendingSnapshot, firstOutputArrived,
     decisions, updateDecision,
@@ -500,8 +500,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const sheetFavorite = useCallback(() => { if (actionTarget) handlers.toggleFavorite(actionTarget); }, [actionTarget, handlers]);
   const sheetFork = useCallback(() => { if (actionTarget) forkOf(actionTarget.id); }, [actionTarget, forkOf]);
   const sheetSelect = useCallback(() => { if (actionTarget) beginSelection(actionTarget.id); }, [actionTarget, beginSelection]);
-  // 예/아니오 빠른 회신 (t_043539ff 조이스틱 대응 — 발화 '예'/'아니오' 동일): suggested 칩(sendSuggested)과
-  // 동일 전송 경로. 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
+  // 예/아니오 빠른 회신 (조이스틱 발화와 동일 전송 경로). 실패 시 원문 복구는 submit과 같은 restoreFailedDraft.
   // t_0e03e405 FINAL SCOPE 1 — 회신 대상 행 ID에 reply_to를 attaches (구조 묶음; 대상이 히스토리 밖이면
   // 서버가 null 강등 후 발화 통과 — invalid-무시 계약, 무해).
   const sendPendingReply = useCallback((messageId: string, utterance: string) => {
@@ -804,12 +803,6 @@ export default function ChatScreen({ navigation, route }: Props) {
     return () => { clearTimeout(retry); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); window.removeEventListener('resize', update); window.removeEventListener('orientationchange', update); document.removeEventListener('focusin', update); document.removeEventListener('focusout', update); };
   }, []);
 
-  // 후속 질문 칩 전송 (t_1797f432 ③): 입력창 경유 없이 곧바로 send — 실패 시 원문 복원/재시도는 performSend 책임.
-  const sendSuggested = useCallback((q: SuggestedQuestion) => {
-    if (isDemo) return;
-    void send(q.text);
-  }, [isDemo, send]);
-
   // 공감 재질문 카드 하단 예/아니요 버튼 행 + 조이스틱 끝방향 ack (t_043539ff → t_c62a2eb7 → t_64e3edd6) —
   // 전송 payload는 백엔드 isConfirmationUtterance 집합과 일치하는 라벨 텍스트('예'/'아니요', en Yes/No) 1회 send.
   // t_64e3edd6: ① 표시 후 2.5초 미터치 자동 소진(useAckChip 타이머) ② ack 결과 user 카드는 렌더 숨김
@@ -843,7 +836,7 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   const renderFooter = useCallback(() => <ChatFeedFooter
     typing={typing} typingQuip={typingQuip} agentName={agentName} activeCount={activeCount}
-    streams={streams} suggested={suggested} isDemo={isDemo} onSendSuggested={sendSuggested}
+    streams={streams}
     hideQuip={!!relay}
     // t_da4f8623 요구1: '입력 중…' dots 버블 = 실행 중(typing)이면서 아직 첫 에이전트 출력 전.
     // 리빌 연출이 켜진 상태에서만 새 라벨(구 동작 = reduced-motion/플래그 OFF 시 라벨 없는 dots 그대로).
@@ -851,7 +844,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     bubble={renderFlags.typewriterReveal && typing && !firstOutputArrived}
     // t_55b7e30c: 목록 꼬리가 에이전트 행이고 60초 창 내면 그룹 지속 → 타이핑/스트리밍 카드 이름 생략
     showSenderName={SENDER_GROUPING ? streamingHeaderAfter(messages[messages.length - 1]) : true}
-  />, [typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, sendSuggested, relay, messages, firstOutputArrived, revealPending, reduceMotion]);
+  />, [typing, typingQuip, agentName, activeCount, streams, relay, messages, firstOutputArrived, revealPending, reduceMotion]);
 
   const renderHeader = useCallback(() => <ChatFeedHeader
     hasMoreHistory={hasMoreHistory} loadingHistory={loadingHistory} isDemo={isDemo} onLoadHistory={() => void loadHistory()}

@@ -941,21 +941,6 @@ export function replyUtterance(kind: 'yes' | 'no', yesText: string, noText: stri
 
 export const EMPTY_PENDING_REPLIES: PendingReplyItem[] = [];
 
-// ── 후속 질문 칩 (t_1797f432 ③ / 백엔드 t_344e047a §3 계약) ─────────────
-// answer 완료 시 run.completed의 structured_payload.suggested_questions: [{id,text,locale}]
-// (또는 메시지 payload 동명의 필드) → 마지막 에이전트 카드 아래 칩으로 렌더, 탭 시 전송.
-// 백엔드 생성 실패 시 필드 자체가 없다 → normalize 결과 [] → 렌더 없음 (사용자 체감 0).
-export interface SuggestedQuestion { id: string; text: string; locale?: string }
-export function normalizeSuggestedQuestions(value: unknown): SuggestedQuestion[] {
-  if (!Array.isArray(value)) return [];
-  const out: SuggestedQuestion[] = [];
-  for (const r of value) {
-    if (!isRecord(r) || typeof r.text !== 'string' || !r.text.trim()) continue;
-    out.push({ id: typeof r.id === 'string' ? r.id : `sq-${out.length}`, text: r.text.trim(), locale: typeof r.locale === 'string' ? r.locale : undefined });
-    if (out.length >= 3) break; // 계약: 2~3개 — 초과분은 버린다
-  }
-  return out;
-}
 /** 큐/칩 상태가 화면에 남지 않도록 세션 전환 시 함께 초기화할 빈 참조 */
 export const EMPTY_QUEUE: QueueItem[] = [];
 export const EMPTY_THREADS: ThreadIndexEntry[] = [];

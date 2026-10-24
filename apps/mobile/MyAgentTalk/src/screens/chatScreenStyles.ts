@@ -182,10 +182,6 @@ export const styles = StyleSheet.create({
   listWrap: { flex: 1, position: 'relative', minHeight: 0 },
   pinnedDateOverlay: { position: 'absolute', left: 0, right: 0, top: 0, zIndex: 12, alignItems: 'center', pointerEvents: 'none' },
   // 후속 질문 칩 (t_1797f432 ③) — 타이핑/스트리밍 종료 후 최종 답변 아래 2~3개, 탭 시 즉시 전송
-  suggestRow: { gap: spacing.sp2, paddingTop: spacing.sp1 },
-  suggestTitle: { ...typography.micro, color: colors.text3 },
-  suggestChip: { alignSelf: 'flex-start', maxWidth: '90%', borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, paddingHorizontal: spacing.sp3, paddingVertical: spacing.sp2, backgroundColor: colors.surface },
-  suggestChipText: { ...typography.caption, color: colors.text1 },
   // AI 상시 고지 바 — 저대비 micro 한 줄, 메시지가 쌓여도 유지 (t_eb7f13e9 항목 2)
   aiDisclosure: {
     ...typography.micro,

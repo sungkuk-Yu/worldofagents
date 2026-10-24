@@ -1,10 +1,10 @@
 // 피드 푸터 (t_70cbbd6b: ChatScreen renderFooter/renderHeader JSX 순수 추출 — 렌더/DOM/testID 1:1)
-// 타이핑 카드 + 스트리밍 답변 + 후속 질문 칩(푸터), 히스토리 이력 로그 + 더 보기 버튼(헤더).
-// sendSuggested/loadHistory 등 상태 전이는 화면 소유 콜백을 그대로 호출한다.
+// 타이핑 카드 + 스트리밍 답변(푸터), 히스토리 이력 로그 + 더 보기 버튼(헤더).
+// loadHistory 등 상태 전이는 화면 소유 콜백을 그대로 호출한다.
 // t_cc232982: 스트리밍 카드는 '성장하는 카드' — delta 누적 본문 + 말미 펄싱 도트(answer.done 정지).
 // 본문은 순수 <Text> 유지: 미닫힌 markdown 파싱 추측 금지 — MarkdownView 결합은 t_e9480e0f 소관(게이트 5 합의).
 import React, { useEffect, useState } from 'react';
-import { Animated, Easing, Pressable, View } from 'react-native';
+import { Animated, Easing, View } from 'react-native';
 import { Button, Surface, Text } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import TypingCard from '../TypingCard';
@@ -14,7 +14,7 @@ import { renderFlags } from '../../lib/renderFlags';
 import { colors, spacing } from '../../theme';
 import { styles } from '../../screens/chatScreenStyles';
 import { QUIET_PROGRESS } from '../../lib/featureFlags';
-import type { SuggestedQuestion, StreamingAnswer } from '../../lib/chatLogic';
+import type { StreamingAnswer } from '../../lib/chatLogic';
 
 /** 스트리밍 꼬리 커서 — ChatGPT식 펄싱 도트(게이트 4택1). done 시 미렌더=정지. 언마운트 시 루프 stop. */
 function StreamingCursor() {
@@ -42,18 +42,15 @@ interface FooterProps {
   agentName: string;
   activeCount: number;
   streams: StreamingAnswer[];
-  suggested: SuggestedQuestion[];
-  isDemo: boolean;
   /** 릴레이 자막(t_961ca593) 활성 시 타이핑 카드 quip 중복 억제 */
   hideQuip?: boolean;
   /** t_55b7e30c 연속 발화 그룹 지속 — 타이핑/스트리밍 카드의 발신자 이름 재출력 생략 (본문 카드 규칙과 동일) */
   showSenderName?: boolean;
   /** t_da4f8623 요구1: '입력 중…' dots 버블 (발화 전송~첫 에이전트 출력). 화면이 실행 생명주기로 판정해서 넘긴다. */
   bubble?: boolean;
-  onSendSuggested: (q: SuggestedQuestion) => void;
 }
 
-export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, suggested, isDemo, hideQuip, showSenderName = true, bubble = false, onSendSuggested }: FooterProps) {
+export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, streams, hideQuip, showSenderName = true, bubble = false }: FooterProps) {
   const { t } = useTranslation();
   return <View>
     {/* t_4af94b1c②: 첫 answer.delta 도착~run.completed 사이 typing과 streams가 중첩되면 같은 quip이
@@ -78,17 +75,7 @@ export function ChatFeedFooter({ typing, typingQuip, agentName, activeCount, str
           비활성 시 기존 줄 복원. AI 고지 배지는 법정 표시라 유지. */}
       {!QUIET_PROGRESS && <Text style={styles.typingQuip}>{t(stream.done ? 'chat.saving' : stream.quip)}</Text>}
     </Surface>)}
-    {/* 후속 질문 칩 (t_1797f432 ③): 백엔드가 run.completed에 생성해 준 예상 질문 2~3개 — 없으면 렌더 없음 */}
-    {!typing && !streams.length && suggested.length > 0 && !isDemo && (
-      <View style={styles.suggestRow} testID="suggested-questions">
-        <Text style={styles.suggestTitle}>{t('chat.suggestTitle')}</Text>
-        {suggested.map((q) => (
-          <Pressable key={q.id} accessibilityRole="button" onPress={() => onSendSuggested(q)} testID={`suggested-${q.id}`} style={({ pressed }) => [styles.suggestChip, pressed && { backgroundColor: colors.surfaceHover }]}>
-            <Text style={styles.suggestChipText} numberOfLines={2}>{q.text}</Text>
-          </Pressable>
-        ))}
-      </View>
-    )}
+
   </View>;
 }
 
