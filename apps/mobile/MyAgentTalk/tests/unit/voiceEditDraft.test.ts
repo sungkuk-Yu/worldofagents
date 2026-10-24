@@ -163,7 +163,15 @@ function sessionHarness(t: TestContext, options: import('../../src/hooks/useChat
     }
   }) as typeof react.useEffect);
   t.mock.method(apiModule.api, 'getMessages', async () => ({ ok: true, data: [] }));
-  t.mock.method(apiModule.api, 'getSessionEvents', async () => { throw new Error('errors.unsupported'); });
+  // refresh()가 init 도중 getDecisions·getThread·putReadState까지 호출한다 — 미스텁 시
+  // LocalizedError(errors.auth)로 init이 catch로 빠져 connect(sid) 미호출 → 소켓 0개.
+  t.mock.method(apiModule.api, 'getDecisions', async () => ({ ok: true, data: [] }));
+  t.mock.method(apiModule.api, 'getThread', async () => ({ ok: true, data: [] }));
+  t.mock.method(apiModule.api, 'putReadState', async () => ({ ok: true, data: {} }));
+  // getSessionEvents는 옵셔널 API — 미지원 에러가 init() 전체를 죽이면 connect(sid)가
+  // 호출되지 않아 소켓(=onStatusChange 대상)이 생성되지 않는다(선존재 실패 3건의 실제 원인).
+  // 실제 백엔드는 지원하므로 빈 이벤트 성공 응답으로 mock을 실인터페이스에 맞춘다.
+  t.mock.method(apiModule.api, 'getSessionEvents', async () => ({ ok: true, data: [] }));
   t.mock.method(apiModule, 'connectVoiceSocket', (_sid: string | null, handlers: VoiceSocketHandlers) => {
     const i = sockets.length;
     sockets.push(handlers); sent.push([]);
