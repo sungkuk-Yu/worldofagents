@@ -253,6 +253,7 @@ export default function JoystickMic({ onGesture, onRelease, onPressStart, onDire
       <Animated.View
         style={[
           styles.button,
+          !isRecording && styles.buttonIdle,
           { transform: [{ scale: scaleAnim }, ...knobAnim.getTranslateTransform()] },
           isRecording && styles.buttonRecording,
           !!activeDirection && styles.buttonArmed,
@@ -334,6 +335,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...shadows.sh1,
   },
+  buttonIdle: { opacity: 0.15 },
   buttonRecording: {
     backgroundColor: colors.accentTint, // 녹음 = 극연그린 밴드 (레드 HUD 금지, 요구 3)
     borderColor: colors.accent,
