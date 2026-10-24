@@ -181,7 +181,6 @@ export const styles = StyleSheet.create({
   // flexGrow:1(commonStyle)을 보존하며 키보드/레이아웃 측정 DOM 위치 불변 (t_dee9e982 앵커 orthogonality).
   listWrap: { flex: 1, position: 'relative', minHeight: 0 },
   pinnedDateOverlay: { position: 'absolute', left: 0, right: 0, top: 0, zIndex: 12, alignItems: 'center', pointerEvents: 'none' },
-  // 후속 질문 칩 (t_1797f432 ③) — 타이핑/스트리밍 종료 후 최종 답변 아래 2~3개, 탭 시 즉시 전송
   // AI 상시 고지 바 — 저대비 micro 한 줄, 메시지가 쌓여도 유지 (t_eb7f13e9 항목 2)
   aiDisclosure: {
     ...typography.micro,

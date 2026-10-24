@@ -533,7 +533,7 @@ export default function VoiceStage({ height, onPressHoldStart, onHoldEnd, onHold
             )}
           </View>
         )}
-        <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp]}>
+        <View testID="voice-stage-mic" style={[styles.micDisc, upTarget && styles.micDiscUp, { opacity: recording && holding ? 1 : 0.15 }]}>
           <MicIcon size={Math.max(16, Math.round(MIC_BUTTON * 0.52))} color={colors.onPrimary} />
         </View>
       </View>

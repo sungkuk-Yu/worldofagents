@@ -1,4 +1,4 @@
-// 질문 큐 체크포인트 / 후속 질문  순수 로직 (t_1797f432 ②③ — 백엔드 t_344e047a 계약)
+// 질문 큐 체크포인트 순수 로직
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {

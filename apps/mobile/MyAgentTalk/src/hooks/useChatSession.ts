@@ -15,7 +15,7 @@ import {
   // t_b2004d50: WS 에코 라이브 수신각 도장 (stampAckArrival 단일 도장, 재구독 리플레이 무해)
   stampAckArrival,
   syncStreamCards, purgeSettledStreamCards, ensureStreamPlaceholder, quipKeyForStage, STREAM_FLUSH_DEBOUNCE_MS,
-  normalizeQueueItems, QueueItem, EMPTY_QUEUE, isRecord, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
+  normalizeQueueItems, QueueItem, EMPTY_QUEUE, buildThreadIndex, mergeThreadIndex, ThreadIndexEntry, EMPTY_THREADS,
   normalizeReplyPending, PendingReplyItem, EMPTY_PENDING_REPLIES,
   RelayCaption, applyRelayEvent, clearRelayOnRunEnd,
   newClientReqId, reconcilePendingUserEcho, planEventSyncReplay,
@@ -184,7 +184,6 @@ export function useChatSession(
   const [pendingReplies, setPendingReplies] = useState<PendingReplyItem[]>(EMPTY_PENDING_REPLIES);
   // 답글 스레드 인덱스 (t_2f45ccb1 확장 3·4) — 서버 로드 범위 내 스레드 목록/종료 배지/정렬.
   const [threads, setThreads] = useState<ThreadIndexEntry[]>(EMPTY_THREADS);
-  // 후속 질문 (t_1797f432 ③) — run.completed의 structured_payload에서 최종 1세트만 유지.
   // 비서실 릴레이 자막 (t_961ca593 Phase B) — 최신 1줄 휘발성 연출. 이벤트 0건(비서 외 페르소나)이면 항상 null → 렌더 없음.
   const [relay, setRelay] = useState<RelayCaption | null>(null);
   // 결정 인박스 (t_2de069f3) — WS decision.updated + GET /decisions 스냅샷. pending 우선 정렬. [] → 렌더 없음.
@@ -315,7 +314,7 @@ export function useChatSession(
     setLoadingOlder(false);
     setReady(false);
     setHasOlder(false);
-    // 세션 전환 시 큐/후속 질문 잔상 제거 (t_1797f432) — 이전 세션 스냅샷이 새 화면에 새면 안 된다.
+    // 세션 전환 시 큐 잔상 제거 (t_1797f432) — 이전 세션 스냅샷이 새 화면에 새면 안 된다.
     setQueue(EMPTY_QUEUE);
     setPendingReplies(EMPTY_PENDING_REPLIES); // 답변 대기 잔상 동일 원칙 (t_363c0faa)
     setThreads(EMPTY_THREADS);
@@ -844,7 +843,6 @@ export function useChatSession(
     const guardKey = attachments?.ids?.length ? null : `${sid ?? ''}\u0000${text}`;
     if (guardKey && runtime.inflightSends.has(guardKey)) return { ok: true };
     setLastError(null);
-    // 후속 질문 칩은 발화 확정 시 1회 소모 (탭/직접 입력 모두) — 이전 턴의 칩이 남지 않는다.
     updateMessages((prev) => appendOptimistic(prev, {
       id: optimisticId, role: 'user', content: text, draft: content, turnIndex: base, parentMessageId: rootMessageId, pending: true, status: 'pending', createdAt: new Date().toISOString(),
       clientReqId,
@@ -1024,7 +1022,7 @@ export function useChatSession(
     send, retryLastSend, loadOlder, enterDemo, clearError,
     peers, talking, talk,
     firstOutputArrived,
-    // 질문 큐 체크포인트 / 후속 질문 칩 (t_1797f432 ②③) — 서버 미배포 시 [] (렌더 없음)
+    // 질문 큐 체크포인트 — 서버 미배포 시 [] (렌더 없음)
     queue,
     // 비서실 릴레이 자막 (t_961ca593 Phase B) — 이벤트 없으면 null (렌더 없음)
     relay,
