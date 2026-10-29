@@ -18,6 +18,13 @@ import { getOwnedMessage } from '../lib/helpers';
 import { getStore } from '../lib/devstore';
 import { config } from '../config';
 import { DbClient } from '../lib/supabase';
+import { Readable, Transform } from 'node:stream';
+
+
+const ATTACHMENT_MIMES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'application/pdf',
+]);
+const ATTACHMENT_CSP = "sandbox; default-src 'none'; frame-ancestors 'none'";
 
 async function listLinked(db: DbClient, uploaderId: string, messageId: string): Promise<AttachmentMetaRow[]> {
   const { data, error } = await db.from('messages_attachments').select('*')
@@ -47,17 +54,68 @@ export async function attachmentRoutes(app: FastifyInstance) {
     return ok(rows.map(r => ({ ...attachmentSummary(r), created_at: r.created_at })));
   });
 
-  // GET /object/* — 첨부 바이트 서빙 (DEV: devstore.blobs / prod: 302 → Supabase 공개 URL).
+  // GET /object/* — 첨부 바이트를 검증된 MIME과 고정 안전 헤더로 서빙.
   // 이 경로 자체는 비인증 공개 엔드포인트지만 내용은 128bit 난수 uuid 경로(capability URL)로만 도달 가능하다.
   app.get('/object/*', async (request, reply) => {
     const objectPath = ((request.params as { '*': string })['*'] || '').replace(/^\/+/, '');
-    if (!config.devMode) {
-      // 프로덕션: 저장본 URL이 이미 Supabase 퍼블릭 경로라 이 경로를 타는 클라이언트는 거의 없다
-      // (레거시/수동 포맷 호환) — 어차피 같은 바이트이므로 302로 위임한다.
-      return reply.redirect(`${config.supabase.url}/storage/v1/object/public/${config.upload.bucket}/${objectPath}`, 302);
+    if (!/^[a-f0-9]{12}\/[a-f0-9-]{36}\.[a-z0-9]{1,8}$/i.test(objectPath)) {
+      throw new ApiError(ERROR_CODES.NOT_FOUND, '첨부 객체를 찾을 수 없습니다.');
     }
-    const blob = getStore().blobs.get(objectPath);
-    if (!blob) throw new ApiError(ERROR_CODES.NOT_FOUND, '첨부 객체를 찾을 수 없습니다.');
-    return reply.header('content-type', blob.mime).header('cache-control', 'private, max-age=86400').send(blob.bytes);
+    let bytes: Buffer | undefined;
+    let mime: string;
+    if (config.devMode) {
+      const blob = getStore().blobs.get(objectPath);
+      if (!blob) throw new ApiError(ERROR_CODES.NOT_FOUND, '첨부 객체를 찾을 수 없습니다.');
+      bytes = blob.bytes;
+      mime = blob.mime.toLowerCase().split(';', 1)[0].trim();
+    } else {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new Error('upstream timeout')), 15_000);
+      let upstream: Response;
+      try {
+        upstream = await fetch(`${config.supabase.url}/storage/v1/object/public/${config.upload.bucket}/${objectPath}`, { signal: controller.signal });
+      } catch {
+        clearTimeout(timeout);
+        throw new ApiError(ERROR_CODES.INTERNAL_ERROR, '첨부 객체를 가져오지 못했습니다.');
+      }
+      if (!upstream.ok || !upstream.body) {
+        clearTimeout(timeout);
+        throw new ApiError(ERROR_CODES.NOT_FOUND, '첨부 객체를 찾을 수 없습니다.');
+      }
+      mime = (upstream.headers.get('content-type') || 'application/octet-stream').toLowerCase().split(';', 1)[0].trim();
+      const maxBytes = config.upload.maxBytes;
+      let total = 0;
+      const limiter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
+        total += chunk.length;
+        if (total > maxBytes) callback(new ApiError(ERROR_CODES.UNSUPPORTED_MEDIA_TYPE, '첨부 객체 크기 제한을 초과했습니다.'));
+        else callback(null, chunk);
+      }});
+      const source = Readable.fromWeb(upstream.body as import('node:stream/web').ReadableStream);
+      const disconnect = () => controller.abort();
+      const onAbort = () => { source.destroy(); limiter.destroy(); };
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      const stream = source.pipe(limiter);
+      reply.raw.once('close', disconnect);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        reply.raw.off('close', disconnect);
+        controller.signal.removeEventListener('abort', onAbort);
+      };
+      stream.once('close', cleanup);
+      stream.once('error', () => controller.abort());
+      mime = ATTACHMENT_MIMES.has(mime) ? mime : 'application/octet-stream';
+      reply.header('content-type', mime)
+        .header('x-content-type-options', 'nosniff')
+        .header('content-security-policy', ATTACHMENT_CSP)
+        .header('cache-control', 'private, no-store, max-age=0');
+      return reply.send(stream);
+    }
+    if (!ATTACHMENT_MIMES.has(mime)) mime = 'application/octet-stream';
+    return reply
+      .header('content-type', mime)
+      .header('x-content-type-options', 'nosniff')
+      .header('content-security-policy', ATTACHMENT_CSP)
+      .header('cache-control', 'private, no-store, max-age=0')
+      .send(bytes);
   });
 }

@@ -65,7 +65,7 @@ async function ensureBucket(): Promise<void> {
 /** 첨부 오브젝트 접근 URL (dev: 백엔드 경유 풀 URL(<img> 직접 로드 가능) — 프로덕션: Storage 퍼블릭 경로). */
 export function publicObjectUrl(objectPath: string): string {
   if (config.devMode) return `http://localhost:${config.port}/api/attachments/object/${objectPath}`;
-  return `${config.supabase.url}/storage/v1/object/public/${config.upload.bucket}/${objectPath}`;
+  return `/api/attachments/object/${objectPath}`;
 }
 
 /**
