@@ -252,7 +252,7 @@ export const config = {
     maxBytes: parseInt(process.env.UPLOAD_MAX_BYTES || String(20 * 1024 * 1024), 10),
     maxPerDay: parseInt(process.env.UPLOAD_MAX_PER_DAY || '50', 10),
     bucket: process.env.UPLOAD_BUCKET || 'attachments',
-    allowedMimes: (process.env.UPLOAD_ALLOWED_MIMES || 'image/*,application/pdf')
+    allowedMimes: (process.env.UPLOAD_ALLOWED_MIMES || 'image/jpeg,image/png,image/gif,image/webp,image/avif,image/bmp,application/pdf')
       .split(',').map(s => s.trim()).filter(Boolean),
   },
 
