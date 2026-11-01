@@ -54,28 +54,37 @@ export async function groupChatRoutes(app: FastifyInstance) {
   app.patch('/:id', { preHandler: requireAuth }, async req => {
     const room = await ownedRoom(req.db, req.userId, (req.params as { id: string }).id);
     const body = req.body as { name?: unknown; members?: unknown };
-    if (body?.name !== undefined) {
+    const hasName = body?.name !== undefined;
+    const hasMembers = body?.members !== undefined;
+    if (!hasName && !hasMembers) throw badRequest('name 또는 members가 필요합니다.');
+    let name: string | null = null;
+    if (hasName) {
       if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 80) throw badRequest('방 이름은 1~80자여야 합니다.');
-      const { data, error } = await req.db.from('group_rooms').update({ name: body.name.trim(), updated_at: new Date().toISOString() }).eq('id', room.id).select().single();
-      if (error || !data) throw new ApiError('INTERNAL_ERROR', '그룹방 이름 변경에 실패했습니다.');
-      return ok(data);
+      name = body.name.trim();
     }
-    if (!Array.isArray(body?.members)) throw badRequest('name 또는 members가 필요합니다.');
-    const incoming = body.members as { type?: unknown; id?: unknown }[];
-    if (incoming.length < 1 || incoming.length > 5 || incoming.some(m => !['user','agent'].includes(String(m.type)) || typeof m.id !== 'string' || !UUID.test(m.id))) throw badRequest('멤버는 본인 외 1~5명이어야 합니다.');
-    const normalized = [{ type: 'user', id: req.userId }, ...incoming];
-    if (new Set(normalized.map(m => `${m.type}:${m.id}`)).size !== normalized.length || normalized.some(m => m.type === 'user' && m.id !== req.userId)) throw badRequest('멤버가 중복되었거나 본인 외 사용자를 포함했습니다.');
-    const agentIds = normalized.filter(m => m.type === 'agent').map(m => m.id as string);
-    if (agentIds.length) {
-      const { data, error } = await req.db.from('agents').select('id').eq('owner_id', req.userId).in('id', agentIds);
-      if (error || (data || []).length !== agentIds.length) throw badRequest('소유하지 않은 에이전트가 포함되었습니다.');
+
+    let normalized: { type: string; id: string }[] | null = null;
+    if (hasMembers) {
+      if (!Array.isArray(body.members)) throw badRequest('members는 배열이어야 합니다.');
+      const incoming = body.members as { type?: unknown; id?: unknown }[];
+      if (incoming.length < 1 || incoming.length > 5 || incoming.some(m => !['user','agent'].includes(String(m.type)) || typeof m.id !== 'string' || !UUID.test(m.id))) throw badRequest('멤버는 본인 외 1~5명이어야 합니다.');
+      normalized = [{ type: 'user', id: req.userId }, ...incoming.map(m => ({ type: String(m.type), id: m.id as string }))];
+      if (new Set(normalized.map(m => `${m.type}:${m.id}`)).size !== normalized.length || normalized.some(m => m.type === 'user' && m.id !== req.userId)) throw badRequest('멤버가 중복되었거나 본인 외 사용자를 포함했습니다.');
+      const agentIds = normalized.filter(m => m.type === 'agent').map(m => m.id);
+      if (agentIds.length) {
+        const { data, error } = await req.db.from('agents').select('id').eq('owner_id', req.userId).in('id', agentIds);
+        if (error || (data || []).length !== agentIds.length) throw badRequest('소유하지 않은 에이전트가 포함되었습니다.');
+      }
     }
-    const { error: delError } = await req.db.from('group_room_members').delete().eq('room_id', room.id);
-    if (delError) throw new ApiError('INTERNAL_ERROR', '그룹 멤버 변경에 실패했습니다.');
-    const { error } = await req.db.from('group_room_members').insert(normalized.map(m => ({ room_id: room.id, member_type: m.type, member_id: m.id })));
-    if (error) throw new ApiError('INTERNAL_ERROR', '그룹 멤버 변경에 실패했습니다.');
-    const { data } = await req.db.from('group_room_members').select('*').eq('room_id', room.id);
-    return ok(data || []);
+
+    const { data, error } = await req.db.rpc('update_group_room', {
+      p_room_id: room.id,
+      p_owner_id: req.userId,
+      p_name: name,
+      p_members: normalized?.map(m => ({ member_type: m.type, member_id: m.id })) ?? null,
+    });
+    if (error || !data) throw new ApiError('INTERNAL_ERROR', '그룹방 변경에 실패했습니다.');
+    return ok(hasName && !hasMembers ? data.room : (data.members || []));
   });
 
   app.post('/:id/messages', { preHandler: requireAuth }, async (req, reply) => {
