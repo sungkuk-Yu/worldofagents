@@ -28,6 +28,7 @@ import { logger } from './utils/logger';
 import { ensureDefaultNeurons } from './neurons/registry';
 import { supabaseAdmin } from './lib/supabase';
 import { resumeOpenRuns } from './lib/resume';
+import { groupChatRoutes } from './routes/groupChat';
 
 export const app = Fastify({
   logger: true,
@@ -91,12 +92,13 @@ export async function build() {
   await app.register(attachmentRoutes, { prefix: '/api/attachments' });
   // 카드 내보내기 (t_3116c5bc) — GET /api/messages/:id/export?fmt=pdf|docx|xlsx|hwp
   await app.register(exportRoutes, { prefix: '/api/messages' });
+  await app.register(groupChatRoutes, { prefix: '/api/group-rooms' });
 
   // API 버전/목록
   app.get('/api-version', async () => {
     return {
       version: 'v1',
-      api: ['/api/messages', '/api/favorites', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards', '/api/upload', '/api/attachments'],
+      api: ['/api/messages', '/api/favorites', '/api/ws-ticket', '/api/auth', '/api/agents', '/api/sessions', '/api/tasks', '/api/skills', '/api/neurons', '/api/me', '/api/vault', '/api/boards', '/api/cards', '/api/upload', '/api/attachments', '/api/group-rooms'],
       docs: 'apps/backend/docs/api-design.md',
     };
   });
