@@ -231,6 +231,56 @@ describe('handoff: sequence 전용 (D3)', () => {
   });
 });
 
+describe('예외 경로 — open 고착 방지 (t_55a31494)', () => {
+  it('speak throw → 에러 원 그대로 전파, 그룹 턴은 halted+closed_at 반영(open 잔존 금지)', async () => {
+    const store = freshStore();
+    await expect(runAgentTurns(fakeDb(store) as any, baseInput({
+      speak: async () => { throw new Error('llm transport down'); },
+    }))).rejects.toThrow('llm transport down');
+    expect(store.group_turns[0]).toMatchObject({ status: 'halted', utterance_count: 0 });
+    expect(store.group_turns[0].closed_at).toBeTruthy();
+    expect(agentMsgs(store)).toHaveLength(0);
+  });
+
+  it('group_messages insert 실패(저장 throw) → halted 반영 + 원래 저장 에러 전파', async () => {
+    const store = freshStore();
+    const db = fakeDb(store, { failTables: new Set(['group_messages']) });
+    const sp = scriptedSpeak({ [A1]: [{ text: '고유 예외 발화 E1' }] });
+    await expect(runAgentTurns(db as any, baseInput({ speak: sp.fn })))
+      .rejects.toThrow('group agent utterance save failed');
+    expect(store.group_turns[0].status).toBe('halted');
+    expect(store.group_turns[0].closed_at).toBeTruthy();
+    expect(store.group_turns[0].utterance_count).toBe(0); // 미저장 발화 카운트 없음
+  });
+
+  it('summarize throw(예산 초과 경로) → 발화 1건은 halted 반영, 요약 행 없음, 에러 전파', async () => {
+    const store = freshStore();
+    const sp = scriptedSpeak({
+      [A1]: [{ text: '고유 예산 발화 E2' }],
+      [A2]: [{ text: '고유 예산 발화 E2-두번째' }],
+    });
+    await expect(runAgentTurns(fakeDb(store) as any, baseInput({
+      mode: 'parallel',
+      envelopes: [envelope(A1), envelope(A2)],
+      budget: { maxUtterances: 1, maxHandoffs: 2, tokenCap: 2500 },
+      speak: sp.fn,
+      summarize: async () => { throw new Error('pm summarize 502'); },
+    }))).rejects.toThrow('pm summarize 502');
+    expect(store.group_turns[0]).toMatchObject({ status: 'halted', utterance_count: 1 });
+    expect(store.group_turns[0].closed_at).toBeTruthy();
+    expect(summaryMsgs(store)).toHaveLength(0);
+  });
+
+  it('halted 반영까지 실패(DB 다운)해도 원래 에러를 가리지 않는다 — 2차 실패는 로그만', async () => {
+    const store = freshStore();
+    const db = fakeDb(store, { failTables: new Set(['group_turns']) });
+    await expect(runAgentTurns(db as any, baseInput({
+      speak: async () => { throw new Error('llm transport down'); },
+    }))).rejects.toThrow('llm transport down'); // 'group_turns state update failed'가 아님
+    expect(store.group_turns[0].status).toBe('open'); // 최선 effort 실패 — 행 그대로
+  });
+});
+
 describe('turnBudget / dispatch 게이트', () => {
   const keys = ['GROUP_TURN_MAX_UTTERANCES', 'GROUP_TURN_MAX_HANDOFFS', 'GROUP_TURN_TOKEN_CAP', 'GROUP_TURN_DISPATCH'];
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));

@@ -103,92 +103,113 @@ export async function runAgentTurns(db: BoundaryDb, input: RunTurnInput): Promis
     return nameToId.get(v.toLowerCase()) ?? null;
   };
 
-  for (let i = 0; i < queue.length; i++) {
-    const item = queue[i];
-    if (utterances >= budget.maxUtterances) { stop = 'budget_utterances'; break; }
-    if (tokens >= budget.tokenCap) { stop = 'budget_tokens'; break; }
+  // 예외 경로(speak/발화 저장/요약 실패)에서 라우트 500 후 group_turns가 status='open'으로
+  // 고착되는 것을 막는다: 상태 반영 구간 전체를 try로 감싸고 실패 시 최선 effort halted 반영 후 원래 에러를 전파한다.
+  try {
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      if (utterances >= budget.maxUtterances) { stop = 'budget_utterances'; break; }
+      if (tokens >= budget.tokenCap) { stop = 'budget_tokens'; break; }
 
-    const res = await input.speak(item.agent_id, { envelope: item.envelope, spoken });
-    const text = String(res.text ?? '').trim();
-    tokens += res.tokens ?? 0;
+      const res = await input.speak(item.agent_id, { envelope: item.envelope, spoken });
+      const text = String(res.text ?? '').trim();
+      tokens += res.tokens ?? 0;
 
-    // 높은 유사도 발화 차단 — 저장하지 않고 halted(repetition)
-    if (text) {
-      const dup = spoken.some((s) => textSimilarity(text, s.text) >= threshold);
-      if (dup) {
-        stop = 'repetition';
-        if (tokens > budget.tokenCap) await persistTurn('open', false);
-        break;
+      // 높은 유사도 발화 차단 — 저장하지 않고 halted(repetition)
+      if (text) {
+        const dup = spoken.some((s) => textSimilarity(text, s.text) >= threshold);
+        if (dup) {
+          stop = 'repetition';
+          if (tokens > budget.tokenCap) await persistTurn('open', false);
+          break;
+        }
       }
+
+      let saved: any = null;
+      if (text) {
+        const passRaw = res.pass_to ? String(res.pass_to).trim() : null;
+        const passTo = passRaw ? resolveAgent(passRaw) : null;
+        // handoff는 sequence 전용(D3). 실행 승인 여부로 저장 라벨을 결정 — 미실행 'handoff' 기록 금지.
+        // pending(아직 안 온 순번) 대상 패스는 자연 순서가 이행 — 비용 없는 text.
+        // 완료 후 재패스(핑퐁 복귀) 또는 큐 밖 대상만 handoff 카운트 → 예산 상한 측정 가능.
+        const pending = queue.slice(i + 1).some((q) => q.agent_id === passTo);
+        const eligible = !!passTo && input.mode === 'sequence' && passTo !== item.agent_id && !pending;
+        const accepted = eligible && handoffs < budget.maxHandoffs;
+        const { data, error } = await db.from('group_messages').insert({
+          room_id: input.roomId,
+          turn_id: input.turnId,
+          parent_id: item.envelope?.anchor.parent_id ?? item.envelope?.anchor.id ?? input.anchorMessageId,
+          author_type: 'agent',
+          author_id: item.agent_id,
+          content: text,
+          kind: accepted ? 'handoff' : 'text',
+          mentions: accepted ? [passTo!] : [],
+        }).select().single();
+        if (error) throw new Error(`group agent utterance save failed: ${error.message ?? error}`);
+        saved = data;
+        messages.push(saved);
+        spoken.push({ agent_id: item.agent_id, text });
+        utterances += 1;
+        await persistTurn('open', false); // 진행 중 카운터 라이브 반영
+
+        if (eligible && !accepted) { stop = 'budget_handoffs'; break; }
+        if (accepted) {
+          handoffs += 1;
+          queue.push({
+            agent_id: passTo!,
+            envelope: envByAgent.get(passTo!) ?? null,
+            handoffs: [text], // 승인된 선행 발화만 전달 원문으로(D3)
+          });
+        }
+      }
+
+      if (tokens > budget.tokenCap) { stop = 'budget_tokens'; break; }
     }
 
-    let saved: any = null;
-    if (text) {
-      const passRaw = res.pass_to ? String(res.pass_to).trim() : null;
-      const passTo = passRaw ? resolveAgent(passRaw) : null;
-      // handoff는 sequence 전용(D3). 실행 승인 여부로 저장 라벨을 결정 — 미실행 'handoff' 기록 금지.
-      // pending(아직 안 온 순번) 대상 패스는 자연 순서가 이행 — 비용 없는 text.
-      // 완료 후 재패스(핑퐁 복귀) 또는 큐 밖 대상만 handoff 카운트 → 예산 상한 측정 가능.
-      const pending = queue.slice(i + 1).some((q) => q.agent_id === passTo);
-      const eligible = !!passTo && input.mode === 'sequence' && passTo !== item.agent_id && !pending;
-      const accepted = eligible && handoffs < budget.maxHandoffs;
-      const { data, error } = await db.from('group_messages').insert({
-        room_id: input.roomId,
-        turn_id: input.turnId,
-        parent_id: item.envelope?.anchor.parent_id ?? item.envelope?.anchor.id ?? input.anchorMessageId,
-        author_type: 'agent',
-        author_id: item.agent_id,
-        content: text,
-        kind: accepted ? 'handoff' : 'text',
-        mentions: accepted ? [passTo!] : [],
-      }).select().single();
-      if (error) throw new Error(`group agent utterance save failed: ${error.message ?? error}`);
-      saved = data;
-      messages.push(saved);
-      spoken.push({ agent_id: item.agent_id, text });
-      utterances += 1;
-      await persistTurn('open', false); // 진행 중 카운터 라이브 반영
-
-      if (eligible && !accepted) { stop = 'budget_handoffs'; break; }
-      if (accepted) {
-        handoffs += 1;
-        queue.push({
-          agent_id: passTo!,
-          envelope: envByAgent.get(passTo!) ?? null,
-          handoffs: [text], // 승인된 선행 발화만 전달 원문으로(D3)
+    let summary: string | null = null;
+    const halted = stop !== 'closed';
+    if (halted) {
+      // 초과 정지 → PM 요약 저장 후 사용자 반환
+      const s = await input.summarize({ reason: stop, utterances: spoken });
+      summary = String(s.text ?? '').trim();
+      tokens += s.tokens ?? 0;
+      if (summary) {
+        const { error } = await db.from('group_messages').insert({
+          room_id: input.roomId,
+          turn_id: input.turnId,
+          parent_id: input.anchorMessageId,
+          author_type: 'user',
+          author_id: input.ownerId,
+          content: summary,
+          kind: 'summary',
+          mentions: [],
         });
+        if (error) throw new Error(`PM summary save failed: ${error.message ?? error}`);
       }
     }
-
-    if (tokens > budget.tokenCap) { stop = 'budget_tokens'; break; }
-  }
-
-  let summary: string | null = null;
-  const halted = stop !== 'closed';
-  if (halted) {
-    // 초과 정지 → PM 요약 저장 후 사용자 반환
-    const s = await input.summarize({ reason: stop, utterances: spoken });
-    summary = String(s.text ?? '').trim();
-    tokens += s.tokens ?? 0;
-    if (summary) {
-      const { error } = await db.from('group_messages').insert({
-        room_id: input.roomId,
-        turn_id: input.turnId,
-        parent_id: input.anchorMessageId,
-        author_type: 'user',
-        author_id: input.ownerId,
-        content: summary,
-        kind: 'summary',
-        mentions: [],
-      });
-      if (error) throw new Error(`PM summary save failed: ${error.message ?? error}`);
+    await persistTurn(halted ? 'halted' : 'closed', true);
+    logger.info({
+      evt: 'group_turn_runtime', room_id: input.roomId, turn_id: input.turnId,
+      status: halted ? 'halted' : 'closed', stop_reason: stop,
+      utterances, handoffs, tokens, summary_chars: summary ? summary.length : 0,
+    }, 'group_turn_finished');
+    return { status: halted ? 'halted' : 'closed', stop_reason: stop, utterances, handoffs, tokens, messages, summary };
+  } catch (err) {
+    // speak/insert/summarize throw → 최종 상태 반영 없이 빠져나가면 행이 'open'으로 고착된다.
+    // 최선 effort로 halted(+closed_at)를 반영하고 원래 에러를 그대로 전파(라우트 500 계약 유지).
+    try {
+      await persistTurn('halted', true);
+    } catch (persistErr) {
+      // 반영 실패(DB 다운)가 원래 에러를 가리지 않도록 로그만 남긴다.
+      logger.error({
+        evt: 'group_turn_halt_persist_failed', room_id: input.roomId, turn_id: input.turnId,
+        error: String(persistErr),
+      }, 'group_turn_halt_persist_failed');
     }
+    logger.error({
+      evt: 'group_turn_runtime_error', room_id: input.roomId, turn_id: input.turnId,
+      utterances, handoffs, tokens, error: String(err),
+    }, 'group_turn_runtime_failed');
+    throw err;
   }
-  await persistTurn(halted ? 'halted' : 'closed', true);
-  logger.info({
-    evt: 'group_turn_runtime', room_id: input.roomId, turn_id: input.turnId,
-    status: halted ? 'halted' : 'closed', stop_reason: stop,
-    utterances, handoffs, tokens, summary_chars: summary ? summary.length : 0,
-  }, 'group_turn_finished');
-  return { status: halted ? 'halted' : 'closed', stop_reason: stop, utterances, handoffs, tokens, messages, summary };
 }
