@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../lib/auth';
 import { ApiError, badRequest, ok } from '../lib/errors';
+import { routePmTurn } from '../lib/pmRouter';
+import { buildAgentEnvelopes } from '../lib/groupChatContext';
+import { dispatchEnabled, runAgentTurns, type SpeakContext } from '../lib/groupTurnRuntime';
+import { chatCompletion } from '../lib/llm';
 
 const KINDS = ['text', 'form', 'question', 'handoff', 'summary'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -161,5 +165,111 @@ export async function groupChatRoutes(app: FastifyInstance) {
     const { data: replies, error: repliesError } = await req.db.from('group_messages').select('*').eq('room_id', room.id).eq('parent_id', messageId).order('created_at', { ascending: true });
     if (repliesError) throw new ApiError('INTERNAL_ERROR', '스레드 조회에 실패했습니다.');
     return ok({ root, replies: replies || [], reply_count: (replies || []).length });
+  });
+
+  // ── P2 (t_ecb8b951): PM 라우팅 + 턴 런타임 dispatch 배선 — GROUP_TURN_DISPATCH 게이트 기본 OFF ──
+  app.post('/:id/dispatch', { preHandler: requireAuth }, async (req) => {
+    if (!dispatchEnabled()) throw new ApiError('NOT_FOUND', 'dispatch 엔드포인트가 비활성화되었습니다.');
+    const room = await ownedRoom(req.db, req.userId, (req.params as { id: string }).id);
+    const body = req.body as { message_id?: unknown };
+    const messageId = typeof body?.message_id === 'string' && UUID.test(body.message_id) ? body.message_id : null;
+    if (!messageId) throw badRequest('message_id는 유효한 UUID여야 합니다.');
+    const { data: anchor, error: anchorError } = await req.db.from('group_messages').select('*').eq('id', messageId).eq('room_id', room.id).maybeSingle();
+    if (anchorError || !anchor) throw new ApiError('NOT_FOUND', '앵커 메시지를 찾을 수 없습니다.');
+    if (anchor.author_type !== 'user') throw badRequest('dispatch 앵커는 사용자 발화여야 합니다.');
+
+    const { data: members } = await req.db.from('group_room_members').select('*').eq('room_id', room.id);
+    const agentIds = (members || []).filter((m: any) => m.member_type === 'agent').map((m: any) => m.member_id as string);
+    if (agentIds.length === 0) throw badRequest('방에 에이전트 멤버가 없습니다.');
+    const { data: agentRows } = await req.db.from('agents').select('id,name,description').eq('owner_id', req.userId).in('id', agentIds);
+    const cards = (agentRows || []).map((a: any) => ({
+      agent_id: a.id as string, name: String(a.name ?? a.id), card: String(a.description ?? '[역할카드 미설정]'),
+    }));
+
+    let replyTo: { authorType: 'user' | 'agent'; authorId: string } | null = null;
+    if (anchor.parent_id) {
+      const { data: parent } = await req.db.from('group_messages').select('*').eq('id', anchor.parent_id).maybeSingle();
+      if (parent) replyTo = { authorType: parent.author_type, authorId: parent.author_id };
+    }
+
+    const routed = await routePmTurn({
+      roomId: room.id, ownerId: req.userId, messageId: anchor.id, message: anchor.content,
+      roleCards: cards, mentions: anchor.mentions || [], replyTo, threadSummary: null,
+    });
+    if (routed.decision.responders.length === 0) {
+      return ok({
+        decision: routed.decision, route_source: routed.route_source, clarify: routed.clarify,
+        clarify_utterance: routed.clarify_utterance, degraded: routed.degraded, turn_id: null, utterances: [],
+      });
+    }
+
+    const envelopes = await buildAgentEnvelopes(req.db, {
+      roomId: room.id, ownerId: req.userId, anchorMessageId: anchor.id, decision: routed.decision,
+    });
+    const { data: turn, error: turnError } = await req.db.from('group_turns').insert({
+      room_id: room.id, start_message_id: anchor.id, status: 'open', utterance_count: 0, token_count: 0,
+    }).select().single();
+    if (turnError || !turn) throw new ApiError('INTERNAL_ERROR', '턴 생성에 실패했습니다.');
+
+    const agentNames: Record<string, string> = {};
+    for (const c of cards) agentNames[c.name] = c.agent_id;
+    const speak = async (agentId: string, ctx: SpeakContext) => {
+      const card = cards.find((c: { agent_id: string; name: string; card: string }) => c.agent_id === agentId);
+      const e = ctx.envelope;
+      const system = [
+        '당신은 그룹채팅의 에이전트입니다. 대화의 전부는 아래 컨텍스트(PM 요약 + 자기 스레드)뿐입니다.',
+        `당신의 역할카드: ${card?.card ?? ''}`,
+        e ? `PM 요약: ${e.pm_summary}` : 'PM 요약: 없음',
+        e ? `자기 스레드: ${JSON.stringify(e.own_thread.map((t) => ({ author: t.author_type, text: t.content })))}` : '',
+        e && e.handoffs.length ? `승인된 전달 텍스트:\n${e.handoffs.join('\n')}` : '',
+        routed.decision.mode === 'sequence'
+          ? '대화를 다른 에이전트에게 이어주려면 {"text":"...","pass_to":"에이전트 이름 또는 id"} JSON으로, 불필요하면 pass_to:null으로 출력하세요.'
+          : '평문으로 답변하세요.',
+      ].filter(Boolean).join('\n');
+      const res = await chatCompletion({
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: e ? e.anchor.content : String(ctx.spoken.map((s) => s.text).join('\n')) },
+        ],
+        enableThinking: false,
+      });
+      let text = res.text.trim();
+      let pass_to: string | null = null;
+      if (routed.decision.mode === 'sequence') {
+        const s = text.indexOf('{'); const en = text.lastIndexOf('}');
+        if (s >= 0 && en > s) {
+          try {
+            const o = JSON.parse(text.slice(s, en + 1));
+            if (typeof o.text === 'string') {
+              text = o.text;
+              pass_to = o.pass_to == null || o.pass_to === '' ? null : String(o.pass_to);
+            }
+          } catch { /* 프로토콜 폴백: 평문 그대로 발화 */ }
+        }
+      }
+      return { text, pass_to, tokens: res.usage?.total_tokens ?? 0 };
+    };
+    const summarize = async ({ reason, utterances: u }: { reason: string; utterances: { agent_id: string; text: string }[] }) => {
+      const res = await chatCompletion({
+        messages: [
+          { role: 'system', content: '당신은 그룹채팅 PM입니다. 이 턴의 논의를 2~3문장(한국어)으로 요약하고 대화가 멈춘 이유를 한 문장으로 알려주세요.' },
+          { role: 'user', content: `정지 사유: ${reason}\n` + u.map((x) => `- ${x.agent_id}: ${x.text}`).join('\n') },
+        ],
+        enableThinking: false,
+      });
+      return { text: res.text, tokens: res.usage?.total_tokens ?? 0 };
+    };
+
+    const result = await runAgentTurns(req.db, {
+      roomId: room.id, ownerId: req.userId, turnId: turn.id, anchorMessageId: anchor.id,
+      mode: routed.decision.mode, envelopes, agentIds: new Set(agentIds), agentNames,
+      speak, summarize,
+    });
+    return ok({
+      decision: routed.decision, route_source: routed.route_source, clarify: routed.clarify,
+      turn_id: turn.id, status: result.status, stop_reason: result.stop_reason,
+      utterances: result.messages, summary: result.summary,
+      pm_audit: { mention_reply_to: routed.audit.mention_reply_to, route: routed.audit, model: routed.model, usage: routed.usage, attempts: routed.attempts },
+    });
   });
 }
