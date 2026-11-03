@@ -72,11 +72,11 @@ async function p1Bench() {
     counts.attempted++;
     idToName.clear();
     for (const r of c.roles) idToName.set(nameToId(r.id), r.id);
-    const roleCards = c.roles.map((r: any) => ({ agentId: nameToId(r.id), name: r.id, role: r.role }));
+    const roleCards = c.roles.map((r: any) => ({ agent_id: nameToId(r.id), name: r.id, card: r.role }));
     const req = {
       roomId: ROOM, ownerId: OWNER, messageId: `bench-${c.id}`,
       message: c.message,
-      mentions: normalizeMentions((c.mentions ?? []).map((m: string) => m), new Set(Object.keys(c.roles).map((k: string) => nameToId(c.roles[k].id)))),
+      mentions: (c.mentions ?? []).map((m: string) => nameToId(String(m).replace(/^@+/, '').trim())), // 라우터가 화이트리스트로 자체 정규화
       replyTo: c.reply_to ? { authorType: 'agent', authorId: nameToId(c.reply_to) } : null,
       roleCards,
       threadSummary: c.thread_summary ?? null,
@@ -133,7 +133,7 @@ async function p1Bench() {
         reply_to: c.reply_to, mention_count: (c.mentions ?? []).length,
         thread_summary_chars: (c.thread_summary ?? '').length, expected_fields_leaked: false,
       },
-      route_source: out?.route_source ?? 'degraded', degraded,
+      route_source: out?.route_source ?? 'degraded', degraded: degraded ?? out?.degraded ?? null,
       clarify_signal: out?.clarify ?? null, attempts, transport_errors: transportErrors,
       parsed: out ? { responders: gotNames, mode: out.decision.mode, confidence: out.decision.confidence, raw_confidence: out.audit?.raw_confidence ?? null, audit: out.audit } : null,
       agreement: { responders_ok: respondersOk, mode_ok: modeOk },
@@ -232,7 +232,7 @@ const manifest = {
   frozen_inputs: { eval_sha256: evalSha, protocol_sha256: protoSha },
   endpoint: { host: 'dashscope-intl.aliyuncs.com', path: '/compatible-mode/v1', ...SETTINGS },
   counts: p1.counts, metrics: p1.metrics,
-  p2: { stop_reason: p2.stop_reason, utterances: p2.utterances, handoffs: p2.handoffs, budget },
+  p2: { stop_reason: p2.stop_reason, utterances: p2.utterances, handoffs: p2.handoffs, budget: p2.budget },
 };
 writeFileSync(`${OUT_DIR}/groupchat-p1-${RUN_ID}-manifest.json`, JSON.stringify(manifest, null, 2));
 console.log('P1 counts:', JSON.stringify(p1.counts));

@@ -167,6 +167,26 @@ describe('handoff: sequence 전용 (D3)', () => {
     expect(store.group_turns[0].handoff_count).toBe(1);
   });
 
+  it('핑퐁 복귀: 완료 에이전트 재패스 → handoff 카운트, maxHandoffs 도달 시 budget_handoffs halted', async () => {
+    const store = freshStore();
+    const sp = scriptedSpeak({
+      [A1]: [{ text: '코더 초기 검토 고유K1', pass_to: A2 }, { text: '코더 복귀 후 재검토 고유K3', pass_to: A2 }],
+      [A2]: [{ text: '법무 초기 확인 고유K2', pass_to: A1 }, { text: '법무 복귀 후 재확인 고유K4', pass_to: A1 }],
+    });
+    const out = await runAgentTurns(fakeDb(store) as any, baseInput({
+      mode: 'sequence',
+      envelopes: [envelope(A1), envelope(A2)],
+      speak: sp.fn,
+    }));
+    // 코더→법무(법무 큐 대기 → 자연 순서, text) · 법무→코더 복귀(h1) · 코더→법무 복귀(h2) · 법무→코더 상한 초과 halted
+    expect(out.utterances).toBe(4);
+    expect(out.handoffs).toBe(2);
+    expect(out.stop_reason).toBe('budget_handoffs');
+    expect(out.status).toBe('halted');
+    expect(agentMsgs(store).map((m: any) => m.kind)).toEqual(['text', 'handoff', 'handoff', 'text']);
+    expect(store.group_turns[0].handoff_count).toBe(2);
+  });
+
   it('single 모드 pass_to → handoff 무시(kind text, 큐 추가 없음)', async () => {
     const store = freshStore();
     const sp = scriptedSpeak({ [A1]: [{ text: '발화 고유S', pass_to: A2 }] });

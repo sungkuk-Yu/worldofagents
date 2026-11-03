@@ -144,6 +144,14 @@ describe('모델 경로', () => {
     expect(out.decision!.responders).toEqual([]);
   });
 
+  it('빈 responders + 저신뢰(0.3) → 되물음 우선 (invalid_output 아님, D5 금지 유지)', async () => {
+    const out = await routePmTurn(req(), { chat: fakeChat([{ text: '{"responders":[],"mode":"single","confidence":0.3}' }]).fn as any });
+    expect(out.route_source).toBe('clarify');
+    expect(out.clarify).toBe(true);
+    expect(out.degraded).toBeNull();
+    expect(out.decision!.responders).toEqual([]);
+  });
+
   it('미등록 ID만 반환 → invalid_output, dropped_invalid 감사', async () => {
     const out = await routePmTurn(req(), { chat: fakeChat([{ text: '{"responders":["ghost"],"mode":"single","confidence":0.9}' }]).fn as any });
     expect(out.degraded).toBe('invalid_output');

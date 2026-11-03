@@ -127,8 +127,10 @@ export async function runAgentTurns(db: BoundaryDb, input: RunTurnInput): Promis
       const passRaw = res.pass_to ? String(res.pass_to).trim() : null;
       const passTo = passRaw ? resolveAgent(passRaw) : null;
       // handoff는 sequence 전용(D3). 실행 승인 여부로 저장 라벨을 결정 — 미실행 'handoff' 기록 금지.
-      const eligible = !!passTo && input.mode === 'sequence' && passTo !== item.agent_id
-        && !queue.some((q) => q.agent_id === passTo);
+      // pending(아직 안 온 순번) 대상 패스는 자연 순서가 이행 — 비용 없는 text.
+      // 완료 후 재패스(핑퐁 복귀) 또는 큐 밖 대상만 handoff 카운트 → 예산 상한 측정 가능.
+      const pending = queue.slice(i + 1).some((q) => q.agent_id === passTo);
+      const eligible = !!passTo && input.mode === 'sequence' && passTo !== item.agent_id && !pending;
       const accepted = eligible && handoffs < budget.maxHandoffs;
       const { data, error } = await db.from('group_messages').insert({
         room_id: input.roomId,

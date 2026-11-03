@@ -223,8 +223,26 @@ export async function routePmTurn(req: PmRouterRequest, deps: PmRouterDeps = {})
   }
   const valid = parsed.responders.filter((r) => allowlist.has(r));
   audit.dropped_invalid = parsed.responders.filter((r) => !allowlist.has(r));
+
+  let confidence = parsed.confidence;
+  if (confidence < 0 || confidence > 1) {
+    audit.raw_confidence = confidence;
+    confidence = Math.min(1, Math.max(0, confidence)); // 음수/env clamp, 원값 보존
+  }
+  const { threshold, action } = routerConfig();
+
   if (valid.length === 0) {
-    // unknown IDs뿐 / 빈 배열 → fail-closed (D5 모델호출 금지 우회 방지)
+    // 스펙 우선순위: 저신뢰 되물음이 fail-closed보다 앞. 빈/전원 미등록이라도
+    // confidence < threshold면 추측 아닌 되물음(clarify). 고신뢰 전원이 미등록이면
+    // 화이트리스트 위반 데이터 문제로 보고 fail-closed — 어쨌든 D5 호출 금지 유지.
+    if (confidence < threshold) {
+      return finalize(req, {
+        decision: { responders: [], mode: parsed.mode, confidence },
+        route_source: 'clarify', clarify: true, clarify_utterance: CLARIFY_UTTERANCE, degraded: null,
+        low_confidence: true, model: call.res.model, usage: call.res.usage,
+        attempts: call.attempts, latency_ms: latency, audit,
+      });
+    }
     return failClosed(req, 'invalid_output', { attempts: call.attempts, latencyMs: latency, model: call.res.model, usage: call.res.usage, audit, confidence: 0 });
   }
   let mode = parsed.mode;
@@ -232,13 +250,6 @@ export async function routePmTurn(req: PmRouterRequest, deps: PmRouterDeps = {})
   if (mode === 'single' && valid.length > 1) { mode = 'parallel'; audit.mode_normalized = true; }
   if (responders.length > MAX_RESPONDERS) { responders = responders.slice(0, MAX_RESPONDERS); audit.truncated = true; }
 
-  let confidence = parsed.confidence;
-  if (confidence < 0 || confidence > 1) {
-    audit.raw_confidence = confidence;
-    confidence = Math.min(1, Math.max(0, confidence)); // 음수/env clamp, 원값 보존
-  }
-
-  const { threshold, action } = routerConfig();
   if (confidence < threshold) {
     if (action === 'single_top') {
       return finalize(req, {
